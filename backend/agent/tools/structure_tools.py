@@ -231,46 +231,96 @@ class GetSummaryTool(BaseTool):
                 graph_service.connect()
 
             if level == "video":
-                # Get video-level summary
+                # Get video-level summary from Neo4j
                 query = """
                     MATCH (v:Video)
                     WHERE v.video_id = $media_id OR v.id = $media_id
                     RETURN v.summary as summary,
-                           v.title as title
+                           v.title as title,
+                           v.duration_seconds as duration,
+                           v.topics as topics
                 """
                 with graph_service.get_session() as session:
                     result = session.run(query, media_id=media_id)
                     record = result.single()
 
+                video_title = record.get("title") if record else None
+                video_duration = record.get("duration") if record else None
+                video_topics = record.get("topics") if record else None
+
                 if record and record.get("summary"):
                     return {
                         "level": "video",
-                        "title": record.get("title"),
+                        "title": video_title,
                         "summary": record.get("summary"),
+                        "duration": format_timestamp(video_duration) if video_duration else None,
+                        "topics": video_topics,
                     }
-                else:
-                    # Build summary from chapters
-                    chapters_result = await ListChaptersTool().execute(media_id)
-                    if chapters_result.get("chapters"):
-                        chapter_summaries = [
-                            f"**{c['title']}** ({c['start_formatted']}): {c.get('summary', 'No summary')}"
-                            for c in chapters_result["chapters"]
-                        ]
-                        return {
-                            "level": "video",
-                            "summary": "Video chapters:\n" + "\n".join(chapter_summaries),
-                        }
+
+                # Try chapters
+                chapters_result = await ListChaptersTool().execute(media_id)
+                if chapters_result.get("chapters"):
+                    chapter_summaries = [
+                        f"**{c['title']}** ({c['start_formatted']}): {c.get('summary', 'No summary')}"
+                        for c in chapters_result["chapters"]
+                    ]
                     return {
                         "level": "video",
-                        "summary": "No summary available for this video.",
+                        "summary": "Video chapters:\n" + "\n".join(chapter_summaries),
                     }
+
+                # Fallback: Build summary from sample frames
+                frame_query = """
+                    MATCH (f:Frame)
+                    WHERE f.video_id = $media_id
+                    WITH f ORDER BY f.timestamp
+                    WITH collect(f) as all_frames
+                    WITH all_frames, size(all_frames) as total
+                    UNWIND [0, toInteger(total * 0.25), toInteger(total * 0.5), toInteger(total * 0.75), total - 1] as idx
+                    WITH all_frames[idx] as frame, total
+                    WHERE frame IS NOT NULL
+                    RETURN frame.timestamp as timestamp,
+                           frame.description as description,
+                           total
+                    LIMIT 5
+                """
+                with graph_service.get_session() as session:
+                    result = session.run(frame_query, media_id=media_id)
+                    frame_records = list(result)
+
+                if frame_records:
+                    total_frames = frame_records[0]["total"] if frame_records else 0
+                    frame_summaries = []
+                    for fr in frame_records:
+                        ts = fr.get("timestamp", 0)
+                        desc = fr.get("description", "")
+                        # Extract first meaningful part of description
+                        if desc:
+                            lines = desc.split("\n")
+                            summary_line = next((l for l in lines if l.strip() and not l.startswith("#")), desc[:200])
+                            frame_summaries.append(f"[{format_timestamp(ts)}] {summary_line[:150]}")
+                    
+                    return {
+                        "level": "video",
+                        "title": video_title,
+                        "duration": format_timestamp(video_duration) if video_duration else None,
+                        "total_frames_analyzed": total_frames,
+                        "summary": "Video overview based on key moments:\n\n" + "\n\n".join(frame_summaries),
+                        "note": "Full summary not available. Showing sample frames throughout the video.",
+                    }
+
+                return {
+                    "level": "video",
+                    "title": video_title,
+                    "summary": "No summary or frame data available for this video.",
+                }
 
             elif level == "chapter":
                 if chapter_number is None:
                     return {"error": "chapter_number is required for chapter summary"}
 
                 query = """
-                    MATCH (v:Video)-[:CONTAINS]->(c:Chapter)
+                    MATCH (v:Video)-[:HAS_CHAPTER]->(c:Chapter)
                     WHERE (v.video_id = $media_id OR v.id = $media_id)
                       AND c.chapter_number = $chapter_number
                     RETURN c.title as title,
@@ -298,8 +348,8 @@ class GetSummaryTool(BaseTool):
 
                 # Get content in time range and summarize
                 query = """
-                    MATCH (v:Video)-[:CONTAINS]->(f:Frame)
-                    WHERE (v.video_id = $media_id OR v.id = $media_id)
+                    MATCH (f:Frame)
+                    WHERE f.video_id = $media_id
                       AND f.timestamp >= $start_time
                       AND f.timestamp <= $end_time
                     RETURN f.description as description, f.timestamp as timestamp
