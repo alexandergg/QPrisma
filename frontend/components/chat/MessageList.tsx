@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect } from 'react';
 import { Sparkles, User, Play, Film } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import TimestampBadge from './TimestampBadge';
 
 export interface ChatMessageSource {
@@ -86,8 +87,14 @@ function MessageBubble({
                 </div>
               )}
 
-              {/* Message content */}
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+              {/* Message content with Markdown rendering */}
+              {isUser ? (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+              ) : (
+                <div className="text-sm leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-gray-900 prose-code:text-indigo-600 prose-code:bg-indigo-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
+                  <ReactMarkdown>{message.content}</ReactMarkdown>
+                </div>
+              )}
 
               {/* Sources / Timestamps */}
               {!isUser && message.sources && message.sources.length > 0 && (

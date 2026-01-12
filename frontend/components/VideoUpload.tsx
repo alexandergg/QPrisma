@@ -103,6 +103,8 @@ export default function VideoUpload({
         let response;
         if (useOptimizedPipeline) {
           response = await apiClient.uploadVideoOptimized(file, {
+            preset: selectedPreset,
+            maxFrames: maxFrames,
             useSceneDetection: sceneDetectionEnabled,
             useHierarchicalSummary: hierarchicalSummaryEnabled,
           });

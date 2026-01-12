@@ -22,6 +22,8 @@ export default function ProcessingConfig({
   const [intervalSeconds, setIntervalSeconds] = useState(5.0);
   const [numFrames, setNumFrames] = useState(10);
   const [sceneThreshold, setSceneThreshold] = useState(0.4);
+  const [hybridSceneRatio, setHybridSceneRatio] = useState(0.6);
+  const [hybridMinGap, setHybridMinGap] = useState(15.0);
   
   const [scaleWidth, setScaleWidth] = useState<number | null>(null);
   const [scaleHeight, setScaleHeight] = useState<number | null>(null);
@@ -84,6 +86,8 @@ export default function ProcessingConfig({
               <option value="uniform">UNIFORM - Distribución uniforme</option>
               <option value="keyframes">KEYFRAMES - Solo keyframes</option>
               <option value="scene_detect">SCENE DETECT - Detección de escenas</option>
+              <option value="adaptive">ADAPTIVE - Automático según duración</option>
+              <option value="hybrid">HYBRID - Escenas + Relleno uniforme</option>
             </select>
 
             {/* Conditional Parameters */}
@@ -155,6 +159,74 @@ export default function ProcessingConfig({
               </div>
             )}
 
+            {extractionMethod === 'adaptive' && (
+              <div className="p-3 bg-zinc-800 rounded-lg">
+                <p className="text-sm text-emerald-400 mb-2">
+                  ✨ Configuración automática según duración del video
+                </p>
+                <ul className="text-xs text-zinc-400 space-y-1">
+                  <li>• &lt;5 min: Alta densidad (150 frames)</li>
+                  <li>• 5-30 min: Balanceado (400 frames)</li>
+                  <li>• 30-60 min: Híbrido (600 frames)</li>
+                  <li>• 1-2 hrs: Híbrido extendido (800 frames)</li>
+                  <li>• &gt;2 hrs: Máxima cobertura (1000 frames)</li>
+                </ul>
+              </div>
+            )}
+
+            {extractionMethod === 'hybrid' && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    Umbral de Escena: {sceneThreshold}
+                  </label>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="0.8"
+                    step="0.05"
+                    value={sceneThreshold}
+                    onChange={(e) => setSceneThreshold(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Menor = más sensible a cambios
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    Ratio Escenas/Relleno: {Math.round(hybridSceneRatio * 100)}% escenas
+                  </label>
+                  <input
+                    type="range"
+                    min="0.3"
+                    max="0.8"
+                    step="0.1"
+                    value={hybridSceneRatio}
+                    onChange={(e) => setHybridSceneRatio(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    Gap mínimo para relleno: {hybridMinGap}s
+                  </label>
+                  <input
+                    type="range"
+                    min="5"
+                    max="60"
+                    step="5"
+                    value={hybridMinGap}
+                    onChange={(e) => setHybridMinGap(parseFloat(e.target.value))}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Inserta frames uniformes si hay gaps mayores a este valor
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="mt-4">
               <label className="block text-sm text-gray-400 mb-1">
                 Máximo de Frames: {maxFrames}
@@ -162,7 +234,7 @@ export default function ProcessingConfig({
               <input
                 type="range"
                 min="10"
-                max="1000"
+                max="2000"
                 step="10"
                 value={maxFrames}
                 onChange={(e) => {

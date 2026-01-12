@@ -9,7 +9,7 @@ import { UploadZone, ProcessingCard } from '@/components/upload';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import RequireAuth from '@/components/RequireAuth';
-import { X, Film, Library } from 'lucide-react';
+import { X, Film, Library, Settings2, ChevronDown } from 'lucide-react';
 
 interface VideoData {
   id: string;
@@ -41,6 +41,9 @@ function NewChatContent() {
   const [showUploader, setShowUploader] = useState(false);
   const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState<UploadingVideo | null>(null);
+  const [uploadPreset, setUploadPreset] = useState<string>('balanced');
+  const [uploadMaxFrames, setUploadMaxFrames] = useState(200);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   // Check for videoId in URL params
   useEffect(() => {
@@ -208,6 +211,7 @@ function NewChatContent() {
                 onClick={() => {
                   setShowUploader(false);
                   setUploadingVideo(null);
+                  setPendingFile(null);
                 }}
                 className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
               >
@@ -225,6 +229,7 @@ function NewChatContent() {
                 onComplete={async (mediaId) => {
                   setUploadingVideo(null);
                   setShowUploader(false);
+                  setPendingFile(null);
                   await handleUploadComplete(mediaId);
                 }}
                 onError={(error) => {
@@ -234,15 +239,93 @@ function NewChatContent() {
                 onViewVideo={async (mediaId) => {
                   setUploadingVideo(null);
                   setShowUploader(false);
+                  setPendingFile(null);
                   await handleUploadComplete(mediaId);
                 }}
               />
-            ) : (
-              <UploadZone
-                onFilesSelected={async (files) => {
-                  if (files.length > 0) {
-                    const file = files[0];
-                    // Show uploading state
+            ) : pendingFile ? (
+              /* Configuration step - file selected, configure before upload */
+              <div className="space-y-6">
+                {/* Selected file info */}
+                <div className="bg-indigo-50 rounded-xl p-4 flex items-center gap-4">
+                  <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
+                    <Film className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{pendingFile.name}</p>
+                    <p className="text-sm text-gray-500">
+                      {(pendingFile.size / (1024 * 1024)).toFixed(1)} MB
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setPendingFile(null)}
+                    className="p-2 hover:bg-indigo-100 rounded-lg text-indigo-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Processing Options */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                    <Settings2 className="w-4 h-4 text-indigo-500" />
+                    Processing Options
+                  </div>
+
+                  {/* Preset Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-2">
+                      Quality Preset
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={uploadPreset}
+                        onChange={(e) => setUploadPreset(e.target.value)}
+                        className="w-full px-4 py-3 bg-gray-50 text-gray-900 rounded-xl border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none appearance-none cursor-pointer"
+                      >
+                        <option value="fast_preview">⚡ Fast Preview - Quick scan (50 frames)</option>
+                        <option value="balanced">⚖️ Balanced - Good coverage (200 frames)</option>
+                        <option value="high_quality">🎯 High Quality - Deep analysis (600 frames)</option>
+                        <option value="adaptive">✨ Adaptive - Auto-adjust by duration</option>
+                        <option value="deep_analysis">🔬 Deep Analysis - Long videos (1000 frames)</option>
+                        <option value="ultra_deep">🔭 Ultra Deep - Very long 4+ hrs (2000 frames)</option>
+                        <option value="interview_mode">🎙️ Interview - Audio priority (200 frames)</option>
+                        <option value="action_mode">🎬 Action - Motion detection (800 frames)</option>
+                      </select>
+                      <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Frame Count */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Analysis Depth
+                      </label>
+                      <span className="text-sm font-semibold text-indigo-600">
+                        {uploadMaxFrames} frames
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="2000"
+                      step="50"
+                      value={uploadMaxFrames}
+                      onChange={(e) => setUploadMaxFrames(parseInt(e.target.value))}
+                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    />
+                    <div className="flex justify-between text-xs text-gray-400 mt-1">
+                      <span>Quick</span>
+                      <span>Deep</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Start Processing Button */}
+                <button
+                  onClick={async () => {
+                    const file = pendingFile;
                     setUploadingVideo({
                       fileName: file.name,
                       fileSize: file.size,
@@ -251,10 +334,11 @@ function NewChatContent() {
                     
                     try {
                       const response = await apiClient.uploadVideoOptimized(file, {
+                        preset: uploadPreset,
+                        maxFrames: uploadMaxFrames,
                         useSceneDetection: true,
                         useHierarchicalSummary: true,
                       });
-                      // Update with job info - processing will be tracked via WebSocket
                       setUploadingVideo({
                         fileName: file.name,
                         fileSize: file.size,
@@ -270,6 +354,17 @@ function NewChatContent() {
                         status: 'error',
                       });
                     }
+                  }}
+                  className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl font-semibold transition-all shadow-lg shadow-indigo-500/30"
+                >
+                  Start Processing
+                </button>
+              </div>
+            ) : (
+              <UploadZone
+                onFilesSelected={(files) => {
+                  if (files.length > 0) {
+                    setPendingFile(files[0]);
                   }
                 }}
               />
