@@ -1,0 +1,285 @@
+# Docker Compose para QPrisma - Full Stack Deployment
+# Incluye: Frontend, Backend API, Celery Worker, Flower, Neo4j, PostgreSQL, Redis
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Frontend - Next.js Application
+  # =============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: qprisma-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - full  # Se inicia con: docker-compose --profile full up
+
+  # =============================================================================
+  # Backend API - FastAPI Application
+  # =============================================================================
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qprisma-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override for Docker networking
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://qprisma:qprisma123@postgres:5432/qprisma
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=qprisma123
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - temp_data:/tmp/qprisma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - full
+
+  # =============================================================================
+  # Redis - Cache y Message Broker para Celery
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: qprisma-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # =============================================================================
+  # PostgreSQL - Metadata Database
+  # =============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: qprisma-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=qprisma
+      - POSTGRES_PASSWORD=qprisma123
+      - POSTGRES_DB=qprisma
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qprisma -d qprisma"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # =============================================================================
+  # Neo4j - Knowledge Graph Database
+  # =============================================================================
+  neo4j:
+    image: neo4j:5-community
+    container_name: qprisma-neo4j
+    ports:
+      - "7474:7474"  # HTTP (Browser)
+      - "7687:7687"  # Bolt protocol
+    environment:
+      - NEO4J_AUTH=neo4j/qprisma123
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=1G
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # =============================================================================
+  # Celery Worker - Procesamiento async de videos
+  # =============================================================================
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: qprisma-celery-worker
+    command: celery -A tasks.celery_app worker --loglevel=info --concurrency=2
+    env_file:
+      - ./backend/.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://qprisma:qprisma123@postgres:5432/qprisma
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=qprisma123
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - temp_data:/tmp/qprisma
+    restart: unless-stopped
+    profiles:
+      - worker
+      - full
+
+  # =============================================================================
+  # Flower - Dashboard de monitoreo para Celery
+  # =============================================================================
+  flower:
+    image: mher/flower:2.0
+    container_name: qprisma-flower
+    command: celery --broker=redis://redis:6379/0 flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - FLOWER_BASIC_AUTH=admin:qprisma123
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - worker
+      - full
+
+  # =============================================================================
+  # Redis Commander - UI para visualizar Redis (debug)
+  # =============================================================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: qprisma-redis-ui
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - debug
+
+  # =============================================================================
+  # pgAdmin - UI para PostgreSQL (debug)
+  # =============================================================================
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: qprisma-pgadmin
+    ports:
+      - "5050:80"
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@qprisma.local
+      - PGADMIN_DEFAULT_PASSWORD=qprisma123
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - debug
+
+volumes:
+  redis_data:
+    driver: local
+  temp_data:
+    driver: local
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+# =============================================================================
+# Uso:
+# =============================================================================
+#
+# INFRAESTRUCTURA BÁSICA (Redis + PostgreSQL + Neo4j):
+#   docker-compose up -d redis postgres neo4j
+#
+# CON CELERY WORKER (procesamiento async):
+#   docker-compose --profile worker up -d
+#   # Inicia: redis + postgres + neo4j + celery-worker + flower
+#
+# FULL STACK (todo incluido):
+#   docker-compose --profile full up -d
+#   # Inicia: frontend + api + redis + postgres + neo4j + celery-worker + flower
+#
+# CON DEBUG UIs:
+#   docker-compose --profile debug up -d
+#   # Añade: redis-commander + pgadmin
+#
+# TODO JUNTO:
+#   docker-compose --profile full --profile debug up -d
+#
+# URLs de acceso:
+#   - Frontend:        http://localhost:3000
+#   - API:             http://localhost:8000
+#   - API Docs:        http://localhost:8000/docs
+#   - Neo4j Browser:   http://localhost:7474 (neo4j/qprisma123)
+#   - Flower:          http://localhost:5555 (admin/qprisma123)
+#   - Redis Commander: http://localhost:8081
+#   - pgAdmin:         http://localhost:5050 (admin@qprisma.local/qprisma123)
+#
+# Ver logs:
+#   docker-compose logs -f api
+#   docker-compose logs -f celery-worker
+#   docker-compose logs -f frontend
+#
+# Escalar workers:
+#   docker-compose --profile full up -d --scale celery-worker=3
+#
+# Rebuild después de cambios:
+#   docker-compose --profile full up -d --build
+#
+# Detener todo:
+#   docker-compose --profile full --profile debug down
+#
+# Limpiar datos (¡CUIDADO!):
+#   docker-compose down -v
+#
+# =============================================================================
