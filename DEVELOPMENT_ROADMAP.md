@@ -5,8 +5,8 @@
 **Inspirado en:** [VideoRAG (HKUDS)](https://github.com/HKUDS/VideoRAG) - Framework de RAG para video con indexación por grafos de conocimiento.
 
 **Fecha de inicio:** Enero 2026
-**Última actualización:** 11 Enero 2026
-**Estado actual:** Fase 3.7 Completada - Agentic Chat System (v0.11.1 - Audio Fix)
+**Última actualización:** 12 Enero 2026
+**Estado actual:** Fase 3.8 En Progreso - Mejoras de Procesamiento de Video
 
 ---
 
@@ -22,6 +22,7 @@ Fase 3: Optimización de Costos        [█████████████�
   └─ 3.3: Database Fixes              [████████████████████] 100% ✅
   └─ 3.4: Frontend UX Redesign        [████████████████████] 100% ✅
   └─ 3.7: Agentic Chat System         [████████████████████] 100% ✅
+  └─ 3.8: Video Processing Upgrades   [████████████░░░░░░░░]  60% 🔄
 Fase 4: Observabilidad                [░░░░░░░░░░░░░░░░░░░░]   0%
 Fase 5: Escalabilidad Horizontal      [░░░░░░░░░░░░░░░░░░░░]   0%
 Fase 6: Features Avanzadas            [░░░░░░░░░░░░░░░░░░░░]   0%
@@ -746,6 +747,92 @@ POST /chat
 - [ ] Multi-modal conversations
 - [ ] Collaborative features
 - [ ] Anotaciones compartidas
+
+---
+
+## Fase 3.8: Mejoras de Procesamiento de Video (EN PROGRESO)
+
+**Prioridad:** ALTA
+**Fecha inicio:** 12 Enero 2026
+
+### Objetivos
+Mejorar la calidad y configurabilidad del procesamiento de video, especialmente para videos largos (>1 hora).
+
+### 3.8.1 Extracción Adaptativa por Duración ✅
+
+**Implementado:**
+- [x] Nuevo método de extracción `ADAPTIVE` que ajusta automáticamente según duración
+- [x] Función `get_adaptive_config(duration)` que calcula parámetros óptimos:
+  - < 5 min: 1 frame/2s, max 150 frames
+  - 5-30 min: 1 frame/3s, max 400 frames
+  - 30-60 min: Modo HYBRID, max 600 frames
+  - 1-2 hrs: Modo HYBRID, max 800 frames
+  - > 2 hrs: Modo HYBRID con scene detection, max 1000 frames
+
+### 3.8.2 Modo Híbrido (Scene Detection + Uniform Fill) ✅
+
+**Implementado:**
+- [x] Nuevo método `HYBRID` que combina lo mejor de ambos mundos
+- [x] Fase 1: Detecta cambios de escena (captura transiciones importantes)
+- [x] Fase 2: Rellena gaps largos con frames uniformes (no perder contenido estático)
+- [x] Parámetros configurables:
+  - `hybrid_scene_ratio`: Proporción escenas vs fill (default 0.6)
+  - `hybrid_min_gap_seconds`: Gap mínimo antes de insertar fill frames (default 10s)
+- [x] Función `_calculate_hybrid_timestamps()` implementada
+- [x] Función `_detect_scene_timestamps()` para detección de escenas con FFmpeg
+
+### 3.8.3 Nuevos Presets de Procesamiento ✅
+
+**Implementado:**
+- [x] `DEEP_ANALYSIS`: Para videos largos, máxima cobertura (1000 frames, modo híbrido)
+- [x] `INTERVIEW_MODE`: Prioriza audio, menos frames visuales (1 frame/10s, 200 max)
+- [x] `ACTION_MODE`: Más frames en escenas con movimiento (threshold 0.2, 800 frames)
+- [x] `ADAPTIVE`: Preset que usa `get_adaptive_config()` automáticamente
+
+### 3.8.4 Métricas de Cobertura ✅
+
+**Implementado:**
+- [x] Función `calculate_coverage_metrics()` que analiza calidad de extracción
+- [x] Métricas calculadas:
+  - `coverage_score`: 0-100, qué tan bien cubierto está el video
+  - `average_gap`: Gap promedio entre frames
+  - `max_gap`: Gap máximo (indica posibles "puntos ciegos")
+  - `gaps_over_threshold`: Lista de gaps problemáticos
+  - `density_per_minute`: Frames por minuto
+- [x] Thresholds dinámicos según duración del video
+- [x] Recomendaciones automáticas para mejorar cobertura
+- [x] Función `get_recommended_preset()` para sugerir preset óptimo
+
+### 3.8.5 Two-Pass Processing (PENDIENTE)
+
+**Por implementar:**
+- [ ] Pass 1 (rápido): Análisis de estructura + audio transcription
+- [ ] Pass 2 (selectivo): Extracción de más frames en escenas importantes
+- [ ] Identificar escenas con mucho diálogo vs visuales
+- [ ] Priorizar frames en momentos clave detectados en Pass 1
+
+### 3.8.6 Mejoras Futuras (Inspiradas en Edconv)
+
+**Ideas de [Edconv](https://github.com/edneyosf/Edconv) para futuras versiones:**
+- [ ] **VMAF Analysis**: Métricas de calidad de video perceptual
+- [ ] **PSNR/SSIM**: Análisis de calidad frame-by-frame
+- [ ] **Queue System**: Cola de jobs visualizable con progreso en tiempo real
+- [ ] **Custom FFmpeg Arguments**: Permitir argumentos FFmpeg personalizados
+- [ ] **Codec Selection**: Soporte para H.265/HEVC, VP9, AV1
+- [ ] **HDR Processing**: Conversión HDR→SDR mejorada
+- [ ] **Audio Normalization**: Normalización de audio con loudnorm
+- [ ] **Batch Processing**: Procesar múltiples videos en cola
+- [ ] **Format Detection**: Auto-detección de formato óptimo de salida
+
+### Archivos Modificados
+
+```
+backend/
+├── models/
+│   └── ffmpeg_config.py           # Nuevos métodos y presets
+├── services/
+│   └── ffmpeg_processor.py        # Lógica híbrida y métricas
+```
 
 ---
 
