@@ -193,9 +193,11 @@ class KnowledgeGraphService:
                 "CREATE INDEX scene_video_id IF NOT EXISTS FOR (s:Scene) ON (s.video_id)",
                 "CREATE INDEX frame_video_id IF NOT EXISTS FOR (f:Frame) ON (f.video_id)",
                 "CREATE INDEX entity_video_id IF NOT EXISTS FOR (e:Entity) ON (e.video_id)",
+                "CREATE INDEX audio_video_id IF NOT EXISTS FOR (a:AudioSegment) ON (a.video_id)",
                 # Índices por timestamp para queries temporales
                 "CREATE INDEX frame_timestamp IF NOT EXISTS FOR (f:Frame) ON (f.timestamp)",
                 "CREATE INDEX scene_start_time IF NOT EXISTS FOR (s:Scene) ON (s.start_time)",
+                "CREATE INDEX audio_start_time IF NOT EXISTS FOR (a:AudioSegment) ON (a.start_time)",
                 # Índices por tipo de entidad
                 "CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.entity_type)",
                 "CREATE INDEX entity_name IF NOT EXISTS FOR (e:Entity) ON (e.normalized_name)",
@@ -203,6 +205,7 @@ class KnowledgeGraphService:
                 "CREATE FULLTEXT INDEX entity_search IF NOT EXISTS FOR (e:Entity) ON EACH [e.name, e.description]",
                 "CREATE FULLTEXT INDEX frame_search IF NOT EXISTS FOR (f:Frame) ON EACH [f.description]",
                 "CREATE FULLTEXT INDEX topic_search IF NOT EXISTS FOR (t:Topic) ON EACH [t.name, t.description]",
+                "CREATE FULLTEXT INDEX audio_search IF NOT EXISTS FOR (a:AudioSegment) ON EACH [a.text]",
             ]
 
             for constraint in constraints:

@@ -515,8 +515,8 @@ class GraphSearchService:
                 video_id=video_id,
             )
 
-            # Merge full-text scores con candidatos existentes
-            self._merge_fulltext_scores(all_candidates, fulltext_results)
+            # Merge full-text scores con candidatos existentes y añadir nuevos
+            self._merge_fulltext_scores(all_candidates, fulltext_results, node_type, video_id)
 
         vector_search_time = (datetime.utcnow() - vector_start).total_seconds() * 1000
 
@@ -593,25 +593,43 @@ class GraphSearchService:
             index_name = "frame_search"
         elif node_type == NodeType.ENTITY:
             index_name = "entity_search"
+        elif node_type == NodeType.AUDIO_SEGMENT:
+            index_name = "audio_search"
         else:
             return []
 
         try:
-            query = f"""
-                CALL db.index.fulltext.queryNodes($index_name, $query_text)
-                YIELD node, score
-                WHERE node:{label}
-                RETURN node.id as id, score
-                LIMIT $limit
-            """
+            # Filter by video_id if provided
+            if video_id:
+                query = f"""
+                    CALL db.index.fulltext.queryNodes($index_name, $query_text)
+                    YIELD node, score
+                    WHERE node:{label} AND node.video_id = $video_id
+                    RETURN node.id as id, score
+                    LIMIT $limit
+                """
+                params = {
+                    "index_name": index_name,
+                    "query_text": query_text,
+                    "video_id": video_id,
+                    "limit": limit,
+                }
+            else:
+                query = f"""
+                    CALL db.index.fulltext.queryNodes($index_name, $query_text)
+                    YIELD node, score
+                    WHERE node:{label}
+                    RETURN node.id as id, score
+                    LIMIT $limit
+                """
+                params = {
+                    "index_name": index_name,
+                    "query_text": query_text,
+                    "limit": limit,
+                }
 
             with self.graph_service.get_session() as session:
-                result = session.run(
-                    query,
-                    index_name=index_name,
-                    query_text=query_text,
-                    limit=limit,
-                )
+                result = session.run(query, **params)
                 return [(r["id"], r["score"]) for r in result]
 
         except Exception as e:
@@ -622,8 +640,13 @@ class GraphSearchService:
         self,
         candidates: list[ScoredNode],
         fulltext_results: list[tuple[str, float]],
+        node_type: NodeType,
+        video_id: str | None = None,
     ):
-        """Merge full-text scores con candidatos existentes."""
+        """
+        Merge full-text scores con candidatos existentes.
+        También añade nuevos candidatos que solo fueron encontrados por full-text.
+        """
         fulltext_map = dict(fulltext_results)
 
         # Normalizar scores full-text
@@ -632,9 +655,52 @@ class GraphSearchService:
             if max_score > 0:
                 fulltext_map = {k: v / max_score for k, v in fulltext_map.items()}
 
+        # Update existing candidates
+        existing_ids = set()
         for candidate in candidates:
+            existing_ids.add(candidate.node_id)
             if candidate.node_id in fulltext_map:
                 candidate.fulltext_score = fulltext_map[candidate.node_id]
+
+        # Add new candidates from fulltext that weren't in vector results
+        new_node_ids = set(fulltext_map.keys()) - existing_ids
+        if new_node_ids:
+            # Fetch node data for new fulltext matches
+            for node_id in list(new_node_ids)[:20]:  # Limit to avoid too many queries
+                try:
+                    node_data = self._get_node_by_id(node_id, node_type)
+                    if node_data:
+                        scored = ScoredNode(
+                            node_id=node_id,
+                            node_type=node_type,
+                            content=node_data,
+                            vector_score=0.0,  # No vector match
+                            fulltext_score=fulltext_map[node_id],
+                            timestamp=node_data.get("timestamp") or node_data.get("start_time"),
+                            video_id=node_data.get("video_id"),
+                        )
+                        candidates.append(scored)
+                except Exception as e:
+                    logger.debug(f"Failed to fetch node {node_id}: {e}")
+
+    def _get_node_by_id(self, node_id: str, node_type: NodeType) -> dict | None:
+        """Fetch a single node by ID."""
+        label = node_type.value
+        query = f"""
+            MATCH (n:{label} {{id: $node_id}})
+            RETURN n
+        """
+        try:
+            with self.graph_service.get_session() as session:
+                result = session.run(query, node_id=node_id)
+                record = result.single()
+                if record:
+                    node_data = dict(record["n"])
+                    node_data.pop("embedding", None)  # Remove large embedding
+                    return node_data
+        except Exception as e:
+            logger.debug(f"Failed to get node {node_id}: {e}")
+        return None
 
     def _filter_by_time_range(
         self,
