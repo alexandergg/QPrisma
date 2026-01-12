@@ -1,0 +1,551 @@
+"""
+Video Processing Service
+Extrae frames de videos, los analiza con GPT-4o Vision y genera embeddings.
+Usa FFmpeg ultra-rápido y Azure OpenAI Batch API (50% más barato).
+"""
+
+import base64
+import os
+import tempfile
+import time
+
+import cv2
+import numpy as np
+from azure.storage.blob import BlobServiceClient
+from openai import AzureOpenAI
+from PIL import Image
+
+from models.ffmpeg_config import (
+    FFmpegProcessingConfig,
+    ProcessingPipeline,
+    ProcessingPreset,
+    get_preset_config,
+)
+from services.audio_processor import AudioProcessor
+from services.batch_processor import BatchProcessor
+from services.ffmpeg_processor import FFmpegVideoProcessor
+
+
+class VideoProcessor:
+    """Procesa videos: extracción de frames, análisis con GPT-4V, embeddings, audio"""
+
+    # Processing constants
+    BATCH_CHECK_INTERVAL_SECONDS = 30
+    BATCH_MAX_WAIT_TIME_SECONDS = 600  # 10 minutes
+    EMBEDDING_BATCH_SIZE = 16
+    DEFAULT_PARALLEL_WORKERS = 4
+
+    def __init__(
+        self,
+        openai_client: AzureOpenAI,
+        blob_service: BlobServiceClient,
+        container_name: str = "media",
+    ):
+        self.openai_client = openai_client
+        self.blob_service = blob_service
+        self.container_name = container_name
+        self.gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
+        self.embedding_deployment = os.getenv(
+            "AZURE_OPENAI_DEPLOYMENT_EMBEDDING", "text-embedding-3-large"
+        )
+        # Rate limit for Whisper API (requests per minute)
+        whisper_rpm = int(os.getenv("AZURE_OPENAI_WHISPER_RPM", "3"))
+        self.audio_processor = AudioProcessor(openai_client, rate_limit_rpm=whisper_rpm)
+
+    def _download_blob_to_file(self, blob_name: str, file_path: str) -> None:
+        """
+        Download a blob from Azure Storage to a local file.
+
+        Args:
+            blob_name: Name of the blob in Azure Storage
+            file_path: Local path to write the file
+        """
+        blob_client = self.blob_service.get_blob_client(
+            container=self.container_name, blob=blob_name
+        )
+        with open(file_path, "wb") as f:
+            f.write(blob_client.download_blob().readall())
+
+    def extract_frames(
+        self, video_path: str, max_frames: int = 10, interval_seconds: float | None = None
+    ) -> list[np.ndarray]:
+        """
+        Extrae frames de un video
+
+        Args:
+            video_path: Ruta al archivo de video
+            max_frames: Número máximo de frames a extraer
+            interval_seconds: Intervalo entre frames (si None, distribuye uniformemente)
+
+        Returns:
+            Lista de frames como arrays numpy
+        """
+        cap = cv2.VideoCapture(video_path)
+
+        if not cap.isOpened():
+            raise ValueError(f"No se pudo abrir el video: {video_path}")
+
+        # Obtener información del video
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        total_frames / fps if fps > 0 else 0
+
+        frames = []
+
+        if interval_seconds:
+            # Extraer frames a intervalos específicos
+            frame_interval = int(interval_seconds * fps)
+            frame_positions = range(0, total_frames, frame_interval)[:max_frames]
+        else:
+            # Distribuir frames uniformemente
+            if total_frames <= max_frames:
+                frame_positions = range(total_frames)
+            else:
+                step = total_frames / max_frames
+                frame_positions = [int(i * step) for i in range(max_frames)]
+
+        for frame_pos in frame_positions:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
+            ret, frame = cap.read()
+
+            if ret:
+                frames.append(frame)
+
+            if len(frames) >= max_frames:
+                break
+
+        cap.release()
+
+        return frames
+
+    def frame_to_base64(self, frame: np.ndarray, quality: int = 85) -> str:
+        """Convierte un frame numpy a base64 JPEG"""
+        _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        return base64.b64encode(buffer).decode("utf-8")
+
+    def analyze_frame_with_gpt4v(
+        self, frame: np.ndarray, custom_prompt: str | None = None, detail_level: str = "auto"
+    ) -> dict:
+        """
+        Analiza un frame con GPT-4o Vision
+
+        Args:
+            frame: Frame como array numpy
+            custom_prompt: Prompt personalizado (opcional)
+            detail_level: "low", "high" o "auto"
+
+        Returns:
+            Diccionario con el análisis del frame
+        """
+        # Convertir frame a base64
+        base64_image = self.frame_to_base64(frame)
+
+        # Prompt por defecto
+        default_prompt = """Analiza esta imagen en detalle y proporciona:
+1. Descripción general de la escena
+2. Objetos y personas presentes
+3. Acciones o actividades
+4. Contexto y ambiente
+5. Detalles relevantes (colores, emociones, texto visible)
+
+Sé específico y conciso."""
+
+        prompt = custom_prompt or default_prompt
+
+        try:
+            # Azure OpenAI SDK: model parameter must be the deployment name
+            completion_params = {
+                "model": self.gpt_deployment,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                    "detail": detail_level,
+                                },
+                            },
+                        ],
+                    }
+                ],
+            }
+
+            # Detectar si es o4-mini o gpt-5 (tienen restricciones similares)
+            model_name = self.gpt_deployment.lower()
+            is_o4_or_gpt5 = any(x in model_name for x in ["o4", "gpt-5"])
+
+            if is_o4_or_gpt5:
+                # o4-mini y GPT-5 solo soportan temperature=1 (default)
+                completion_params["max_completion_tokens"] = 500
+            else:
+                completion_params["temperature"] = 0.7
+                completion_params["max_tokens"] = 500
+
+            response = self.openai_client.chat.completions.create(**completion_params)
+
+            analysis = response.choices[0].message.content
+
+            return {
+                "analysis": analysis,
+                "model": self.gpt_deployment,
+                "tokens_used": response.usage.total_tokens if response.usage else 0,
+            }
+
+        except Exception as e:
+            print(f"✗ ERROR en analyze_frame_with_gpt4v: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return {"analysis": None, "error": str(e), "model": self.gpt_deployment}
+
+    def generate_embedding(self, text: str) -> list[float]:
+        """Genera embedding de un texto usando Azure OpenAI"""
+        try:
+            response = self.openai_client.embeddings.create(
+                model=self.embedding_deployment, input=text
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            print(f"Error generando embedding: {e}")
+            return []
+
+    def generate_embeddings_batch(
+        self, texts: list[str], batch_size: int = 16
+    ) -> list[list[float]]:
+        """
+        Genera embeddings para múltiples textos en lotes
+        Azure OpenAI soporta hasta 2048 textos por request, usamos lotes de 16 por seguridad
+        """
+        if not texts:
+            print("⚠ generate_embeddings_batch: Lista de textos vacía")
+            return []
+
+        print(f"📊 Generando embeddings para {len(texts)} textos en lotes de {batch_size}")
+        embeddings = []
+        total_batches = (len(texts) + batch_size - 1) // batch_size
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            batch_num = i // batch_size + 1
+
+            try:
+                print(f"  Procesando batch {batch_num}/{total_batches} ({len(batch)} textos)...")
+
+                response = self.openai_client.embeddings.create(
+                    model=self.embedding_deployment, input=batch
+                )
+
+                batch_embeddings = [item.embedding for item in response.data]
+                embeddings.extend(batch_embeddings)
+
+                print(
+                    f"  ✓ Batch {batch_num}/{total_batches}: {len(batch_embeddings)} embeddings generados"
+                )
+
+            except Exception as e:
+                print(f"  ✗ Error en batch {batch_num}/{total_batches}: {e}")
+                import traceback
+
+                traceback.print_exc()
+                # Agregar embeddings vacíos para mantener el orden
+                embeddings.extend([[] for _ in batch])
+
+        print(f"✅ Total: {len(embeddings)} embeddings generados")
+        return embeddings
+
+    # =========================================================================
+    # PROCESAMIENTO CON FFMPEG + BATCH API
+    # =========================================================================
+
+    def process_video_ffmpeg(
+        self,
+        blob_name: str,
+        config: FFmpegProcessingConfig | None = None,
+        preset: ProcessingPreset | None = None,
+        custom_prompt: str | None = None,
+        max_workers: int = 10,
+        process_audio: bool = True,
+        audio_language: str | None = None,
+        media_id: str | None = None,
+        user_id: str | None = None,
+    ) -> dict:
+        """
+        Procesa un video usando FFmpeg con Azure Batch API (50% más barato).
+
+        Características:
+        - Extracción ultra-rápida con FFmpeg (15x más rápido que OpenCV)
+        - Análisis de frames con Azure Global Batch API (50% más barato)
+        - Transcripción de audio con Whisper
+        - Sin rate limits restrictivos
+
+        Args:
+            blob_name: Nombre del blob en Azure Storage
+            config: Configuración FFmpeg personalizada
+            preset: Preset predefinido (si no se proporciona config)
+            custom_prompt: Prompt personalizado para análisis
+            max_workers: Máximo de threads paralelos (fallback)
+            process_audio: Si True, extrae y transcribe el audio del video
+            audio_language: Idioma del audio (None para detección automática)
+            media_id: Media ID for batch job tracking
+            user_id: User ID for batch job tracking
+
+        Returns:
+            Diccionario con frames_data, video_metadata, audio_data, processing_stats
+        """
+        # Determinar configuración
+        if config is None:
+            if preset:
+                config = get_preset_config(preset)
+            else:
+                config = FFmpegProcessingConfig()
+
+        ffmpeg_proc = FFmpegVideoProcessor(config)
+
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+
+        try:
+            # 1. Descargar video
+            print(f"📥 Descargando video: {blob_name}")
+            self._download_blob_to_file(blob_name, tmp_path)
+
+            # 2. Analizar metadata
+            print("📊 Analizando información del video...")
+            video_info = ffmpeg_proc.get_video_info(tmp_path)
+
+            # 3. Extraer frames
+            print("🎞️  Extrayendo frames con FFmpeg...")
+            frames = ffmpeg_proc.extract_frames_ffmpeg(video_path=tmp_path, return_as_bytes=True)
+            print(f"✅ {len(frames)} frames extraídos")
+
+            # 4. Procesar audio si está habilitado
+            audio_data = None
+            if process_audio:
+                try:
+                    audio_data = self.audio_processor.process_video_audio(
+                        video_path=tmp_path,
+                        language=audio_language,
+                        video_descriptions=None,
+                    )
+                except Exception as e:
+                    print(f"⚠️  Error procesando audio (continuando sin audio): {e}")
+                    audio_data = None
+
+            # 5. Procesar con Batch API (siempre - 50% más barato)
+            return self._process_with_batch_api(
+                frames=frames,
+                video_info=video_info,
+                blob_name=blob_name,
+                custom_prompt=custom_prompt,
+                ffmpeg_proc=ffmpeg_proc,
+                audio_data=audio_data,
+            )
+
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    def _process_with_batch_api(
+        self,
+        frames: list[dict],
+        video_info: dict,
+        blob_name: str,
+        custom_prompt: str | None,
+        ffmpeg_proc: FFmpegVideoProcessor,
+        audio_data: dict | None = None,
+    ) -> dict:
+        """
+        Procesa frames usando Azure Global Batch API.
+        50% más barato y sin rate limits.
+        """
+        batch_proc = BatchProcessor(self.openai_client)
+
+        print("\n🚀 BATCH API - 50% MÁS BARATO")
+        print("=" * 60)
+
+        # 1. Preparar frames para batch API
+        print(f"🔄 Preparando {len(frames)} frames para Batch API...")
+        frames_for_batch = []
+
+        for frame_info in frames:
+            image_bytes = frame_info["image_data"]
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+
+            frames_for_batch.append(
+                {
+                    "frame_number": frame_info["frame_number"],
+                    "timestamp": frame_info.get("timestamp"),
+                    "image_base64": image_base64,
+                }
+            )
+
+        # 2. Crear y enviar batch job para análisis de visión
+        print(f"\n📤 Enviando batch job para análisis de {len(frames)} frames...")
+        vision_requests = batch_proc.create_vision_batch_requests(frames_for_batch, custom_prompt)
+
+        vision_batch_id = batch_proc.submit_batch_job(
+            vision_requests, description=f"Vision analysis: {blob_name} ({len(frames)} frames)"
+        )
+
+        print(f"✅ Batch job creado: {vision_batch_id}")
+
+        # 3. Esperar a que complete el análisis
+        print("\n⏳ Esperando completación del análisis...")
+        print(f"   (típicamente 3-5 minutos para {len(frames)} frames)")
+
+        start_analysis = time.time()
+        success = batch_proc.wait_for_batch_completion(
+            vision_batch_id,
+            check_interval=self.BATCH_CHECK_INTERVAL_SECONDS,
+            max_wait_time=self.BATCH_MAX_WAIT_TIME_SECONDS,
+        )
+        analysis_time = time.time() - start_analysis
+
+        if not success:
+            raise Exception(f"Batch análisis falló o timeout: {vision_batch_id}")
+
+        print(f"✅ Análisis completado en {analysis_time:.2f}s")
+
+        # 4. Obtener y parsear resultados del análisis
+        print("\n📥 Obteniendo resultados del análisis...")
+        vision_results = batch_proc.get_batch_results(vision_batch_id)
+        parsed_analyses = batch_proc.parse_vision_results(vision_results)
+
+        # 5. Preparar textos para embeddings
+        print("\n🔄 Preparando textos para embeddings batch...")
+        texts_to_embed = []
+        frame_to_text_idx = {}  # Mapeo frame_number -> índice en texts_to_embed
+
+        for frame_data in frames_for_batch:
+            custom_id = f"frame_{frame_data['frame_number']}"
+            analysis_data = parsed_analyses.get(custom_id, {})
+
+            if analysis_data.get("success") and analysis_data.get("analysis"):
+                frame_to_text_idx[frame_data["frame_number"]] = len(texts_to_embed)
+                texts_to_embed.append(analysis_data["analysis"])
+
+        print(f"📊 {len(texts_to_embed)}/{len(frames)} frames con análisis válido")
+
+        # 6. Generar embeddings en modo estándar (Batch API no soporta /embeddings)
+        embeddings_dict = {}
+        if texts_to_embed:
+            print("\n🧮 Generando embeddings en paralelo (Batch API no soporta /embeddings)...")
+            start_embeddings = time.time()
+
+            # Generar embeddings en batches
+            all_embeddings = []
+
+            for i in range(0, len(texts_to_embed), self.EMBEDDING_BATCH_SIZE):
+                batch_texts = texts_to_embed[i : i + self.EMBEDDING_BATCH_SIZE]
+                try:
+                    response = self.openai_client.embeddings.create(
+                        input=batch_texts, model=self.embedding_deployment
+                    )
+                    batch_embeddings = [item.embedding for item in response.data]
+                    all_embeddings.extend(batch_embeddings)
+                    print(f"  ✓ {len(all_embeddings)}/{len(texts_to_embed)} embeddings generados")
+                except Exception as e:
+                    print(f"  ✗ Error en batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}")
+                    # Rellenar con embeddings vacíos en caso de error
+                    all_embeddings.extend([[] for _ in range(len(batch_texts))])
+
+            embeddings_time = time.time() - start_embeddings
+            print(f"✅ Embeddings generados en {embeddings_time:.2f}s")
+
+            # Crear diccionario de embeddings
+            for idx, embedding in enumerate(all_embeddings):
+                embeddings_dict[f"embedding_{idx}"] = embedding
+        else:
+            embeddings_time = 0
+
+        # 8. Combinar resultados
+        print("\n🔄 Combinando resultados...")
+        frames_data = []
+        tokens_total = 0
+
+        for frame_data in frames_for_batch:
+            frame_number = frame_data["frame_number"]
+            custom_id = f"frame_{frame_number}"
+            analysis_data = parsed_analyses.get(custom_id, {})
+
+            # Obtener embedding si existe
+            embedding = []
+            if frame_number in frame_to_text_idx:
+                text_idx = frame_to_text_idx[frame_number]
+                embedding_id = f"embedding_{text_idx}"
+                embedding = embeddings_dict.get(embedding_id, [])
+
+            frame_result = {
+                "frame_number": frame_number,
+                "timestamp": frame_data.get("timestamp"),
+                "analysis": analysis_data.get("analysis"),
+                "tokens_used": analysis_data.get("tokens_used", 0),
+                "embedding": embedding,
+            }
+
+            frames_data.append(frame_result)
+            tokens_total += frame_result["tokens_used"]
+
+        # 9. Calcular stats finales
+        total_time = analysis_time + embeddings_time
+        status = ffmpeg_proc.get_status()
+        pipeline = ffmpeg_proc.get_processing_pipeline()
+
+        # (Removed YOLO caption merging logic)
+
+        result = {
+            "video_metadata": video_info,
+            "frames_data": frames_data,
+            "audio_data": audio_data,
+            "processing_stats": {
+                "frames_extracted": len(frames),
+                "frames_analyzed": len([f for f in frames_data if f.get("analysis")]),
+                "frames_with_embeddings": len([f for f in frames_data if f.get("embedding")]),
+                "tokens_total": tokens_total,
+                "extraction_fps": status.fps,
+                "analysis_time_seconds": analysis_time,
+                "embeddings_time_seconds": embeddings_time,
+                "total_processing_time": total_time,
+                "processing_mode": "batch_api",
+                "cost_savings": "50% vs regular API",
+                "vision_batch_id": vision_batch_id,
+                "audio_processed": audio_data is not None
+                and audio_data.get("stats", {}).get("has_audio", False),
+            },
+            "status": status.dict(),
+            "pipeline": pipeline.dict(),
+        }
+
+        print("\n🎉 BATCH COMPLETADO")
+        print(f"   • {len(frames)} frames procesados en {total_time:.2f}s")
+        print(f"   • {len([f for f in frames_data if f.get('embedding')])} embeddings generados")
+        if audio_data and audio_data.get("stats", {}).get("has_audio"):
+            print(f"   • Audio transcrito: {audio_data['stats']['total_words']} palabras")
+        print("   • Ahorro: 50% en costos API")
+
+        return result
+
+    def get_processing_pipeline_preview(
+        self, config: FFmpegProcessingConfig | None = None, preset: ProcessingPreset | None = None
+    ) -> ProcessingPipeline:
+        """
+        Obtener preview del pipeline de procesamiento sin ejecutar
+
+        Args:
+            config: Configuración FFmpeg personalizada
+            preset: Preset predefinido
+
+        Returns:
+            ProcessingPipeline para visualización
+        """
+        if config is None:
+            if preset:
+                config = get_preset_config(preset)
+            else:
+                config = FFmpegProcessingConfig()
+
+        processor = FFmpegVideoProcessor(config)
+        return processor.get_processing_pipeline()

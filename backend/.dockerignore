@@ -1,0 +1,52 @@
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv
+ENV
+env
+
+# Distribution / packaging
+build
+dist
+*.egg-info
+*.egg
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+.tox
+.nox
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env files
+.env
+.env.local
+.env*.local
+
+# Logs
+*.log
+
+# Documentation
+*.md
+!README.md
+
+# Tests (optional - include if needed)
+tests
+
+# Temp files
+*.tmp
+*.temp
