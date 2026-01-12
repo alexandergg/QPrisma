@@ -205,3 +205,46 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# QPrisma specific
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.mp3
+*.wav
+*.flac
+temp_frames/
+uploads/
+
+# Windows artifacts
+nul
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# macOS artifacts
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test outputs
+test_output/
+test_results/
+
+# Logs
+logs/
+*.log
+
+# Local development
+.env.local
+*.local
