@@ -140,17 +140,45 @@ class VideoProcessor:
         # Convertir frame a base64
         base64_image = self.frame_to_base64(frame)
 
-        # Prompt por defecto
-        default_prompt = """Analiza esta imagen en detalle y proporciona:
-1. Descripción general de la escena
-2. Objetos y personas presentes
-3. Acciones o actividades
-4. Contexto y ambiente
-5. Detalles relevantes (colores, emociones, texto visible)
+        # Prompt por defecto - optimizado para búsqueda semántica y RAG
+        default_prompt = """You are analyzing a video frame at timestamp {timestamp}s. Provide a comprehensive analysis optimized for semantic search and RAG retrieval.
 
-Sé específico y conciso."""
+## SCENE DESCRIPTION
+Describe the overall scene: setting (indoor/outdoor), environment type, lighting conditions, visual style, and atmosphere.
 
-        prompt = custom_prompt or default_prompt
+## PEOPLE & CHARACTERS  
+For each person visible:
+- Physical appearance (age range, gender, clothing, distinguishing features)
+- Position and posture in frame
+- Facial expression and apparent emotion
+- Role if apparent (presenter, interviewer, audience, etc.)
+- Name if displayed (from name tags, lower-thirds, or introduced)
+
+## ON-SCREEN TEXT (OCR) - CRITICAL
+Transcribe ALL visible text exactly as shown:
+- Slide titles, bullet points, and body text
+- Lower-thirds, name captions, titles
+- UI elements, buttons, menus (for screen recordings)
+- Signs, labels, logos with text
+Use quotation marks for exact text.
+
+## VISUAL ELEMENTS
+- Key objects and their spatial arrangement
+- Products, devices, or technical equipment shown
+- Brand logos, company names, product names
+- Charts, graphs, diagrams - describe what they show
+
+## ACTIONS & NARRATIVE
+- What is happening in this exact moment
+- Specific action verbs (presenting, demonstrating, explaining, comparing)
+- Is this a transition, introduction, key point, or conclusion?
+
+## TOPICS & KEYWORDS
+List 5-8 keywords/phrases someone might use to find this moment, including proper nouns, technical terms, and topic keywords.
+
+Be thorough but factual. Prioritize information that would help users find this specific moment."""
+
+        prompt = custom_prompt or default_prompt.replace("{timestamp}", str(timestamp))
 
         try:
             # Azure OpenAI SDK: model parameter must be the deployment name
@@ -179,10 +207,10 @@ Sé específico y conciso."""
 
             if is_o4_or_gpt5:
                 # o4-mini y GPT-5 solo soportan temperature=1 (default)
-                completion_params["max_completion_tokens"] = 500
+                completion_params["max_completion_tokens"] = 900
             else:
                 completion_params["temperature"] = 0.7
-                completion_params["max_tokens"] = 500
+                completion_params["max_tokens"] = 900
 
             response = self.openai_client.chat.completions.create(**completion_params)
 

@@ -660,6 +660,94 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         # 5. Transcribir audio
         transcription_result = transcribe_audio_task(temp_path, job_id)
 
+        # 5b. Generar resúmenes jerárquicos (escenas -> capítulos -> video)
+        video_summary = None
+        key_topics = []
+        if config.get("generate_summaries", True):
+            try:
+                update_job_status(
+                    job_id, "processing", 68, "summarizing", "Generando resúmenes jerárquicos..."
+                )
+                import asyncio
+                from services.hierarchical_summarizer import HierarchicalSummarizer, SummaryConfig
+                from services.scene_analyzer import Scene, VideoStructure
+                
+                summarizer = HierarchicalSummarizer()
+                summary_config = SummaryConfig(
+                    scene_summary_max_tokens=250,
+                    chapter_summary_max_tokens=350,
+                    video_summary_max_tokens=600,
+                )
+                
+                # Construir estructura de escenas desde los análisis
+                scenes = []
+                duration_sec = float(metadata.get("duration", 0) or 0)
+                frames_count = len(frame_analyses)
+                
+                if frames_count > 0:
+                    # Agrupar frames en escenas (aprox 5-10 frames por escena)
+                    frames_per_scene = max(3, frames_count // 10)
+                    
+                    for scene_idx in range(0, frames_count, frames_per_scene):
+                        scene_frames = frame_analyses[scene_idx:scene_idx + frames_per_scene]
+                        if not scene_frames:
+                            continue
+                        
+                        start_time = scene_frames[0].get("timestamp", 0)
+                        end_time = scene_frames[-1].get("timestamp", start_time + 10)
+                        start_frame_num = scene_frames[0].get("frame_number", scene_idx)
+                        end_frame_num = scene_frames[-1].get("frame_number", scene_idx + len(scene_frames) - 1)
+                        
+                        # Combinar descripciones visuales
+                        visual_desc = " ".join([
+                            f.get("analysis", "")[:500] for f in scene_frames if f.get("analysis")
+                        ])[:2000]
+                        
+                        # Keyframe indices (use middle frame of scene)
+                        keyframe_indices = [scene_idx + len(scene_frames) // 2]
+                        
+                        scene = Scene(
+                            scene_id=scene_idx // frames_per_scene,
+                            start_time=start_time,
+                            end_time=end_time,
+                            start_frame=start_frame_num,
+                            end_frame=end_frame_num,
+                            duration=end_time - start_time,
+                            keyframe_indices=keyframe_indices,
+                            visual_description=visual_desc,
+                            transcript_segment="",
+                            detected_objects=[],
+                        )
+                        scenes.append(scene)
+                
+                if scenes:
+                    # Crear estructura de video
+                    structure = VideoStructure(
+                        media_id=video_id,
+                        total_duration=duration_sec,
+                        total_frames=len(frames),
+                        scenes=scenes,
+                        chapters=[],
+                    )
+                    
+                    # Generar resúmenes (async)
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        structure = loop.run_until_complete(
+                            summarizer.process_video_hierarchy(structure, summary_config)
+                        )
+                        video_summary = structure.video_summary
+                        key_topics = structure.key_topics or []
+                        logger.info(f"Generated hierarchical summaries: {len(scenes)} scenes, summary: {len(video_summary or '')} chars")
+                    finally:
+                        loop.close()
+                        
+            except Exception as e:
+                logger.warning(f"Hierarchical summarization skipped: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
+
         # 6. Generar embeddings
         analysis_texts = [a.get("analysis", "") for a in frame_analyses if a.get("analysis")]
         embeddings = (
@@ -824,6 +912,31 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             except Exception as e:
                 logger.warning(f"Transcript graph indexing skipped: {e}")
 
+        # 8c. Update Video node with summary and topics in Neo4j
+        if video_summary or key_topics:
+            try:
+                from services.knowledge_graph import get_knowledge_graph_service
+                
+                graph = get_knowledge_graph_service()
+                if not graph.is_connected:
+                    graph.connect()
+                
+                with graph.get_session() as session:
+                    session.run(
+                        """
+                        MATCH (v:Video {video_id: $video_id})
+                        SET v.summary = $summary,
+                            v.topics = $topics,
+                            v.summary_updated_at = datetime()
+                        """,
+                        video_id=video_id,
+                        summary=video_summary,
+                        topics=key_topics,
+                    )
+                logger.info(f"Updated Video node with summary ({len(video_summary or '')} chars) and {len(key_topics)} topics")
+            except Exception as e:
+                logger.warning(f"Failed to update Video node with summary: {e}")
+
         # 9. Limpiar archivos temporales
         cleanup_task(temp_path)
 
@@ -841,6 +954,8 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             "transcription": transcription_result.get("transcription"),
             "embeddings_count": len(embeddings),
             "transcript_segments_indexed": transcript_indexed,
+            "video_summary": video_summary,
+            "key_topics": key_topics,
             "graph_indexed": graph_indexed,
             "total_tokens": total_tokens,
             "processing_time_seconds": round(elapsed_time, 2),
@@ -884,6 +999,13 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             "total_words": len(transcription_result["transcription"].get("text", "").split()),
                             "segments_count": len(transcription_result["transcription"].get("segments", [])),
                         }
+                    }
+
+                # Store video summary and topics for chat context
+                if video_summary or key_topics:
+                    updates["summary_data"] = {
+                        "video_summary": video_summary,
+                        "key_topics": key_topics,
                     }
 
                 _db_service.update_media(video_id, updates)

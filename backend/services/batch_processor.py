@@ -83,17 +83,64 @@ class BatchProcessor:
         Returns:
             Lista de requests en formato batch API
         """
-        default_prompt = """Analiza esta imagen de video y describe:
-1. Qué se ve en la escena
-2. Objetos o personas presentes
-3. Acciones o actividades
-4. Contexto o ambiente
-Sé conciso pero descriptivo."""
+        default_prompt = """You are analyzing frame #{frame_number} at timestamp {timestamp}s of a video. Provide a comprehensive analysis optimized for semantic search and RAG retrieval.
 
-        prompt = custom_prompt or default_prompt
+## SCENE DESCRIPTION
+Describe the overall scene: setting (indoor/outdoor), environment type, lighting conditions, visual style, and atmosphere.
+
+## PEOPLE & CHARACTERS  
+For each person visible:
+- Physical appearance (age range, gender, clothing, distinguishing features)
+- Position and posture in frame
+- Facial expression and apparent emotion
+- Role if apparent (presenter, interviewer, audience, etc.)
+- Name if displayed (from name tags, lower-thirds, or introduced)
+
+## ON-SCREEN TEXT (OCR) - CRITICAL
+Transcribe ALL visible text exactly as shown:
+- Slide titles, bullet points, and body text
+- Lower-thirds, name captions, titles
+- UI elements, buttons, menus (for screen recordings)
+- Signs, labels, logos with text
+- Watermarks or timestamps
+Use quotation marks for exact text.
+
+## VISUAL ELEMENTS
+- Key objects and their spatial arrangement
+- Products, devices, or technical equipment shown
+- Brand logos, company names, product names
+- Charts, graphs, diagrams - describe what they show
+- Animations or visual effects
+
+## ACTIONS & NARRATIVE
+- What is happening in this exact moment
+- Specific action verbs (presenting, demonstrating, explaining, comparing, introducing)
+- Is this a transition, introduction, key point, or conclusion?
+- Body language and gestures that convey meaning
+
+## TOPICS & CONCEPTS
+List 3-5 key topics or concepts this frame relates to (e.g., "cloud computing", "product launch", "quarterly results", "technical demo")
+
+## SEARCHABLE KEYWORDS
+Provide 8-12 keywords/phrases someone might use to find this moment:
+- Include proper nouns (people, companies, products)
+- Technical terms mentioned or shown
+- Action descriptions ("showing demo", "explaining chart")
+- Topic keywords
+
+## POTENTIAL QUESTIONS THIS ANSWERS
+List 2-3 questions this frame could help answer:
+- e.g., "What is [product name]?", "Who presented about [topic]?", "When was [feature] demonstrated?"
+
+Be thorough but factual. Include both obvious and subtle details. Prioritize information that would help users find this specific moment."""
 
         requests = []
         for idx, frame_data in enumerate(frames_data):
+            # Replace placeholders with actual values for each frame
+            prompt_text = custom_prompt or default_prompt
+            prompt_text = prompt_text.replace("{frame_number}", str(frame_data.get('frame_number', idx)))
+            prompt_text = prompt_text.replace("{timestamp}", str(frame_data.get('timestamp', 0)))
+            
             request = {
                 "custom_id": f"frame_{frame_data.get('frame_number', idx)}",
                 "method": "POST",
@@ -104,7 +151,7 @@ Sé conciso pero descriptivo."""
                         {
                             "role": "user",
                             "content": [
-                                {"type": "text", "text": prompt},
+                                {"type": "text", "text": prompt_text},
                                 {
                                     "type": "image_url",
                                     "image_url": {
@@ -114,7 +161,7 @@ Sé conciso pero descriptivo."""
                             ],
                         }
                     ],
-                    "max_tokens": 300,
+                    "max_tokens": 900,
                 },
             }
             requests.append(request)
