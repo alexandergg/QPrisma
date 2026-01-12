@@ -1,0 +1,233 @@
+'use client';
+
+import React, { useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import {
+  Zap,
+  Plus,
+  Film,
+  Library,
+  MessageSquare,
+  Settings,
+  LogOut,
+  ChevronRight,
+  Search,
+  MoreHorizontal,
+  Trash2,
+} from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+
+export type ChatMode = 'single' | 'library';
+
+interface Conversation {
+  id: string;
+  title: string;
+  videoId?: string;
+  videoName?: string;
+  lastMessage?: string;
+  updatedAt: Date;
+  mode: ChatMode;
+}
+
+interface SidebarProps {
+  conversations: Conversation[];
+  activeConversationId?: string;
+  currentMode: ChatMode;
+  onModeChange: (mode: ChatMode) => void;
+  onNewChat: () => void;
+  onSelectConversation: (id: string) => void;
+  onDeleteConversation?: (id: string) => void;
+}
+
+export default function Sidebar({
+  conversations,
+  activeConversationId,
+  currentMode,
+  onModeChange,
+  onNewChat,
+  onSelectConversation,
+  onDeleteConversation,
+}: SidebarProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { user, logout } = useAuth();
+  const [hoveredConversation, setHoveredConversation] = useState<string | null>(null);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/auth');
+  };
+
+  return (
+    <aside className="w-72 bg-white/80 backdrop-blur-xl border-r border-gray-200/50 flex flex-col h-screen sticky top-0 shadow-xl shadow-gray-200/20">
+      <div className="p-5 flex flex-col h-full">
+        {/* Logo */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
+            <Zap className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+            QPrisma
+          </span>
+        </div>
+
+        {/* New Chat Button */}
+        <button
+          onClick={onNewChat}
+          className="w-full px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl transition-all font-semibold flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/30 mb-6"
+        >
+          <Plus className="w-5 h-5" />
+          New Chat
+        </button>
+
+        {/* Mode Selector */}
+        <div className="mb-6">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-1">
+            Chat Mode
+          </p>
+          <div className="bg-gray-100 rounded-xl p-1 flex gap-1">
+            <button
+              onClick={() => onModeChange('single')}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                currentMode === 'single'
+                  ? 'bg-white text-gray-900 shadow-md'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Film className="w-4 h-4" />
+              Single Video
+            </button>
+            <button
+              onClick={() => onModeChange('library')}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                currentMode === 'library'
+                  ? 'bg-white text-gray-900 shadow-md'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Library className="w-4 h-4" />
+              Library
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-2 px-1">
+            {currentMode === 'single'
+              ? 'Chat with one video at a time'
+              : 'Search across all your videos'}
+          </p>
+        </div>
+
+        {/* Conversations List */}
+        <div className="flex-1 overflow-y-auto -mx-2 px-2">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-1">
+            Recent Conversations
+          </p>
+          
+          {conversations.length === 0 ? (
+            <div className="text-center py-8">
+              <MessageSquare className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+              <p className="text-sm text-gray-400">No conversations yet</p>
+              <p className="text-xs text-gray-400 mt-1">Start a new chat to begin</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {conversations.map((conversation) => {
+                const isActive = activeConversationId === conversation.id;
+                const isHovered = hoveredConversation === conversation.id;
+
+                return (
+                  <div
+                    key={conversation.id}
+                    onMouseEnter={() => setHoveredConversation(conversation.id)}
+                    onMouseLeave={() => setHoveredConversation(null)}
+                    onClick={() => onSelectConversation(conversation.id)}
+                    className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
+                      isActive
+                        ? 'bg-indigo-50 border border-indigo-200'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    {/* Icon */}
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        isActive
+                          ? 'bg-indigo-500 text-white'
+                          : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200'
+                      }`}
+                    >
+                      {conversation.mode === 'library' ? (
+                        <Library className="w-4 h-4" />
+                      ) : (
+                        <Film className="w-4 h-4" />
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={`text-sm font-medium truncate ${
+                          isActive ? 'text-indigo-700' : 'text-gray-700'
+                        }`}
+                      >
+                        {conversation.title}
+                      </p>
+                      {conversation.videoName && (
+                        <p className="text-xs text-gray-400 truncate">
+                          {conversation.videoName}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    {isHovered && onDeleteConversation && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteConversation(conversation.id);
+                        }}
+                        className="p-1.5 hover:bg-red-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* User Section */}
+        <div className="mt-auto pt-4 border-t border-gray-200/50">
+          <div className="flex items-center gap-3 px-2 mb-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white shadow-lg shadow-indigo-500/30">
+              {user?.email?.substring(0, 2).toUpperCase() || 'U'}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-900 truncate">
+                {user?.full_name || 'User'}
+              </p>
+              <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => router.push('/settings')}
+              className="flex-1 px-3 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-xl text-gray-600 transition-all font-medium flex items-center justify-center gap-2 text-sm"
+            >
+              <Settings className="w-4 h-4" />
+              Settings
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex-1 px-3 py-2.5 bg-gray-100 hover:bg-red-50 rounded-xl text-gray-600 hover:text-red-600 transition-all font-medium flex items-center justify-center gap-2 text-sm"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
