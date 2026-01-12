@@ -32,8 +32,8 @@ The solution implements a modern microservices architecture, separating the fron
 
 ```mermaid
 graph TD
-    Client[Client Browser] -->|HTTPS| Frontend[Frontend (Next.js 16)]
-    Frontend -->|REST/WS| API[Backend API (FastAPI)]
+    Client[Client Browser] -->|HTTPS| Frontend["Frontend (Next.js 16)"]
+    Frontend -->|REST/WS| API["Backend API (FastAPI)"]
     
     subgraph "Processing Layer"
     API --> Manager[Task Manager]
@@ -43,16 +43,16 @@ graph TD
     end
     
     subgraph "Azure AI Services"
-    Video -->|Vision| GPT4o[Azure OpenAI GPT-4o]
-    Audio -->|Speech| Whisper[Azure OpenAI Whisper]
-    Graph -->|Embeddings| Ada[Text Embedding 3]
+    Video -->|Vision| GPT4o["Azure OpenAI GPT-4o"]
+    Audio -->|Speech| Whisper["Azure OpenAI Whisper"]
+    Graph -->|Embeddings| Ada["Text Embedding 3"]
     end
     
     subgraph "Data Persistence"
-    Video & Audio & Graph --> Blob[Azure Blob Storage]
-    Video & Audio & Graph --> SQL[PostgreSQL (Metadata)]
-    Graph --> Neo4j[Neo4j (Knowledge Graph)]
-    Manager --> Redis[Redis (Cache/Queue)]
+    Video & Audio & Graph --> Blob["Azure Blob Storage"]
+    Video & Audio & Graph --> SQL["PostgreSQL (Metadata)"]
+    Graph --> Neo4j["Neo4j (Knowledge Graph)"]
+    Manager --> Redis["Redis (Cache/Queue)"]
     end
 ```
 
