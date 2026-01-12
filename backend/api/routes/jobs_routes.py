@@ -40,7 +40,7 @@ class JobStatus(str, Enum):
 class ProcessingConfig(BaseModel):
     """Configuración para procesamiento de video"""
 
-    max_frames: int = Field(default=20, ge=1, le=100, description="Máximo de frames a extraer")
+    max_frames: int = Field(default=100, ge=1, le=500, description="Máximo de frames a extraer")
     custom_prompt: str | None = Field(
         default=None, description="Prompt personalizado para análisis"
     )
@@ -52,7 +52,7 @@ class ProcessingConfig(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "max_frames": 20,
+                "max_frames": 100,
                 "custom_prompt": None,
                 "use_cache": True,
                 "transcribe_audio": True,

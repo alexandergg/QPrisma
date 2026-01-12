@@ -224,6 +224,8 @@ async def upload_media_optimized(
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     file: UploadFile = File(...),
+    preset: str = Form("balanced"),
+    max_frames: int = Form(150),
     use_scene_detection: bool = Form(True),
     use_hierarchical_summary: bool = Form(True),
     scene_threshold: float = Form(0.3),
@@ -287,10 +289,10 @@ async def upload_media_optimized(
             from tasks.video_tasks import process_video_pipeline
 
             celery_config = {
-                "max_frames": 20,
+                "max_frames": min(max_frames, 500),  # User-configurable, capped at 500
                 "custom_prompt": None,
                 "index_graph": True,
-                "preset": None,
+                "preset": preset,
                 "optimized_pipeline": True,
                 "pipeline_config": pipeline_config,
             }
