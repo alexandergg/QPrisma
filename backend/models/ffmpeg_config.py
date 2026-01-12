@@ -65,6 +65,8 @@ class FrameExtractionMethod(str, Enum):
     KEYFRAMES = "keyframes"  # Solo keyframes
     SCENE_DETECT = "scene_detect"  # Detección de cambio de escena
     UNIFORM = "uniform"  # N frames uniformemente distribuidos
+    ADAPTIVE = "adaptive"  # Adaptativo según duración del video
+    HYBRID = "hybrid"  # Combinación de scene_detect + uniform fill
 
 
 class FrameExtractionConfig(BaseModel):
@@ -92,6 +94,14 @@ class FrameExtractionConfig(BaseModel):
     # Para método SCENE_DETECT
     scene_threshold: float | None = Field(
         default=0.4, description="Umbral de detección de escena (0-1)", ge=0, le=1
+    )
+
+    # Para método HYBRID (scene_detect + uniform fill)
+    hybrid_scene_ratio: float | None = Field(
+        default=0.6, description="Ratio de frames de escenas vs uniform (0.6 = 60% escenas, 40% fill)", ge=0, le=1
+    )
+    hybrid_min_gap_seconds: float | None = Field(
+        default=10.0, description="Gap mínimo en segundos entre frames antes de insertar fill frames", gt=0
     )
 
     # Límites generales
@@ -269,6 +279,90 @@ class ProcessingPreset(str, Enum):
     KEYFRAMES_ONLY = "keyframes_only"  # Solo keyframes
     SCENE_ANALYSIS = "scene_analysis"  # Análisis de escenas
     TIMELINE_PREVIEW = "timeline_preview"  # Preview de timeline
+    # Nuevos presets
+    DEEP_ANALYSIS = "deep_analysis"  # Videos largos, máxima cobertura
+    ULTRA_DEEP = "ultra_deep"  # Videos muy largos (4+ horas), máxima extracción
+    INTERVIEW_MODE = "interview_mode"  # Prioriza audio, menos frames visuales
+    ACTION_MODE = "action_mode"  # Más frames en escenas con movimiento
+    ADAPTIVE = "adaptive"  # Ajuste automático según duración
+
+
+def get_adaptive_config(duration_seconds: float) -> FrameExtractionConfig:
+    """
+    Calcula configuración óptima de extracción según la duración del video.
+    
+    Args:
+        duration_seconds: Duración del video en segundos
+        
+    Returns:
+        FrameExtractionConfig optimizada para la duración
+    """
+    duration_minutes = duration_seconds / 60
+    
+    if duration_minutes < 5:
+        # Videos muy cortos: alta densidad
+        return FrameExtractionConfig(
+            method=FrameExtractionMethod.INTERVAL,
+            interval_seconds=2.0,
+            max_frames=150,
+        )
+    elif duration_minutes < 30:
+        # Videos cortos-medianos
+        return FrameExtractionConfig(
+            method=FrameExtractionMethod.INTERVAL,
+            interval_seconds=3.0,
+            max_frames=400,
+        )
+    elif duration_minutes < 60:
+        # Videos de ~1 hora
+        return FrameExtractionConfig(
+            method=FrameExtractionMethod.HYBRID,
+            interval_seconds=4.0,
+            scene_threshold=0.35,
+            hybrid_scene_ratio=0.6,
+            hybrid_min_gap_seconds=15.0,
+            max_frames=600,
+        )
+    elif duration_minutes < 120:
+        # Videos de 1-2 horas
+        return FrameExtractionConfig(
+            method=FrameExtractionMethod.HYBRID,
+            interval_seconds=5.0,
+            scene_threshold=0.3,
+            hybrid_scene_ratio=0.5,
+            hybrid_min_gap_seconds=20.0,
+            max_frames=800,
+        )
+    elif duration_minutes < 240:
+        # Videos de 2-4 horas
+        return FrameExtractionConfig(
+            method=FrameExtractionMethod.HYBRID,
+            interval_seconds=6.0,
+            scene_threshold=0.25,
+            hybrid_scene_ratio=0.4,
+            hybrid_min_gap_seconds=30.0,
+            max_frames=1200,
+        )
+    elif duration_minutes < 480:
+        # Videos de 4-8 horas
+        return FrameExtractionConfig(
+            method=FrameExtractionMethod.HYBRID,
+            interval_seconds=8.0,
+            scene_threshold=0.2,
+            hybrid_scene_ratio=0.5,
+            hybrid_min_gap_seconds=45.0,
+            max_frames=1500,
+        )
+    else:
+        # Videos muy largos (>8 horas)
+        return FrameExtractionConfig(
+            method=FrameExtractionMethod.HYBRID,
+            interval_seconds=10.0,
+            scene_threshold=0.15,
+            hybrid_scene_ratio=0.5,
+            hybrid_min_gap_seconds=60.0,
+            max_frames=2000,
+        )
 
 
 def get_preset_config(preset: ProcessingPreset) -> FFmpegProcessingConfig:
@@ -282,9 +376,10 @@ def get_preset_config(preset: ProcessingPreset) -> FFmpegProcessingConfig:
         Configuración de FFmpeg
     """
     if preset == ProcessingPreset.FAST_PREVIEW:
+        # Increased from 20 to 50 frames for better coverage
         return FFmpegProcessingConfig(
             frame_extraction=FrameExtractionConfig(
-                method=FrameExtractionMethod.INTERVAL, interval_seconds=10.0, max_frames=20
+                method=FrameExtractionMethod.INTERVAL, interval_seconds=10.0, max_frames=50
             ),
             video_filters=VideoFilterConfig(
                 scale_width=640, scale_height=360, pixel_format=PixelFormat.YUV420P
@@ -292,9 +387,10 @@ def get_preset_config(preset: ProcessingPreset) -> FFmpegProcessingConfig:
         )
 
     elif preset == ProcessingPreset.BALANCED:
+        # Increased from 100 to 200 frames, with adaptive interval
         return FFmpegProcessingConfig(
             frame_extraction=FrameExtractionConfig(
-                method=FrameExtractionMethod.FPS, fps=1.0, max_frames=100
+                method=FrameExtractionMethod.INTERVAL, interval_seconds=5.0, max_frames=200
             ),
             video_filters=VideoFilterConfig(
                 scale_width=1280, scale_height=720, scaling_filter=ScalingFilter.LANCZOS
@@ -302,9 +398,10 @@ def get_preset_config(preset: ProcessingPreset) -> FFmpegProcessingConfig:
         )
 
     elif preset == ProcessingPreset.HIGH_QUALITY:
+        # Increased from 500 to 600 frames for comprehensive coverage
         return FFmpegProcessingConfig(
             frame_extraction=FrameExtractionConfig(
-                method=FrameExtractionMethod.FPS, fps=2.0, max_frames=500
+                method=FrameExtractionMethod.INTERVAL, interval_seconds=3.0, max_frames=600
             ),
             video_filters=VideoFilterConfig(
                 scaling_filter=ScalingFilter.LANCZOS, pixel_format=PixelFormat.YUV420P
@@ -333,6 +430,80 @@ def get_preset_config(preset: ProcessingPreset) -> FFmpegProcessingConfig:
                 method=FrameExtractionMethod.UNIFORM, num_frames=30
             ),
             video_filters=VideoFilterConfig(scale_width=320, scale_height=180),
+        )
+
+    elif preset == ProcessingPreset.DEEP_ANALYSIS:
+        # Para videos largos - máxima cobertura con modo híbrido
+        return FFmpegProcessingConfig(
+            frame_extraction=FrameExtractionConfig(
+                method=FrameExtractionMethod.HYBRID,
+                scene_threshold=0.3,
+                hybrid_scene_ratio=0.5,
+                hybrid_min_gap_seconds=20.0,
+                max_frames=1000,
+            ),
+            video_filters=VideoFilterConfig(
+                scale_width=1280, scale_height=720, scaling_filter=ScalingFilter.LANCZOS
+            ),
+            threads=8,
+        )
+
+    elif preset == ProcessingPreset.ULTRA_DEEP:
+        # Para videos muy largos (4+ horas) - máxima extracción
+        return FFmpegProcessingConfig(
+            frame_extraction=FrameExtractionConfig(
+                method=FrameExtractionMethod.HYBRID,
+                scene_threshold=0.2,
+                hybrid_scene_ratio=0.5,
+                hybrid_min_gap_seconds=30.0,
+                max_frames=2000,
+            ),
+            video_filters=VideoFilterConfig(
+                scale_width=1280, scale_height=720, scaling_filter=ScalingFilter.LANCZOS
+            ),
+            threads=8,
+        )
+
+    elif preset == ProcessingPreset.INTERVIEW_MODE:
+        # Prioriza audio - menos frames visuales, intervalos largos
+        return FFmpegProcessingConfig(
+            frame_extraction=FrameExtractionConfig(
+                method=FrameExtractionMethod.INTERVAL,
+                interval_seconds=10.0,
+                max_frames=200,
+            ),
+            video_filters=VideoFilterConfig(
+                scale_width=1280, scale_height=720,
+            ),
+        )
+
+    elif preset == ProcessingPreset.ACTION_MODE:
+        # Más frames, detección de escenas agresiva para capturar movimiento
+        return FFmpegProcessingConfig(
+            frame_extraction=FrameExtractionConfig(
+                method=FrameExtractionMethod.HYBRID,
+                scene_threshold=0.2,  # Más sensible a cambios
+                hybrid_scene_ratio=0.7,  # Más peso a detección de escenas
+                hybrid_min_gap_seconds=5.0,  # Menos tolerancia a gaps
+                max_frames=800,
+            ),
+            video_filters=VideoFilterConfig(
+                scale_width=1920, scale_height=1080, scaling_filter=ScalingFilter.LANCZOS
+            ),
+            threads=8,
+        )
+
+    elif preset == ProcessingPreset.ADAPTIVE:
+        # Placeholder - se configura dinámicamente según duración
+        # Usar get_adaptive_config(duration) para obtener la config real
+        return FFmpegProcessingConfig(
+            frame_extraction=FrameExtractionConfig(
+                method=FrameExtractionMethod.ADAPTIVE,
+                max_frames=500,
+            ),
+            video_filters=VideoFilterConfig(
+                scale_width=1280, scale_height=720, scaling_filter=ScalingFilter.LANCZOS
+            ),
         )
 
     else:

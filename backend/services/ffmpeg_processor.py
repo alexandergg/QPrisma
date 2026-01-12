@@ -243,7 +243,177 @@ class FFmpegVideoProcessor:
             # También requiere análisis previo
             return []  # Se procesará con scene detection
 
+        elif extraction.method == FrameExtractionMethod.ADAPTIVE:
+            # Calcular configuración óptima según duración
+            from models.ffmpeg_config import get_adaptive_config
+            
+            adaptive_config = get_adaptive_config(duration)
+            # Usar el método calculado (puede ser INTERVAL o HYBRID)
+            if adaptive_config.method == FrameExtractionMethod.HYBRID:
+                # Delegar a HYBRID
+                return self._calculate_hybrid_timestamps(
+                    video_info, 
+                    adaptive_config.scene_threshold or 0.3,
+                    adaptive_config.hybrid_scene_ratio or 0.5,
+                    adaptive_config.hybrid_min_gap_seconds or 15.0,
+                    adaptive_config.max_frames or 500,
+                )
+            else:
+                # Usar INTERVAL con parámetros adaptativos
+                t = start
+                interval = adaptive_config.interval_seconds or 5.0
+                max_frames = adaptive_config.max_frames or 500
+                while t < end and len(timestamps) < max_frames:
+                    timestamps.append(t)
+                    t += interval
+
+        elif extraction.method == FrameExtractionMethod.HYBRID:
+            # Modo híbrido: scene detection + uniform fill
+            return self._calculate_hybrid_timestamps(
+                video_info,
+                extraction.scene_threshold or 0.3,
+                extraction.hybrid_scene_ratio or 0.5,
+                extraction.hybrid_min_gap_seconds or 15.0,
+                extraction.max_frames or 500,
+            )
+
         return timestamps[: extraction.max_frames]
+
+    def _calculate_hybrid_timestamps(
+        self,
+        video_info: dict[str, Any],
+        scene_threshold: float,
+        scene_ratio: float,
+        min_gap_seconds: float,
+        max_frames: int,
+    ) -> list[float]:
+        """
+        Calcular timestamps usando método híbrido: scene detection + uniform fill.
+        
+        1. Detecta cambios de escena (captura transiciones importantes)
+        2. Rellena gaps largos con frames uniformes (no perder contenido estático)
+        
+        Args:
+            video_info: Información del video
+            scene_threshold: Umbral de detección de escena (0-1)
+            scene_ratio: Ratio de frames de escenas vs fill (0.6 = 60% escenas)
+            min_gap_seconds: Gap mínimo antes de insertar fill frames
+            max_frames: Máximo de frames a extraer
+            
+        Returns:
+            Lista de timestamps ordenados
+        """
+        duration = video_info["duration"]
+        extraction = self.config.frame_extraction
+        start = extraction.start_time or 0
+        end = min(extraction.end_time or duration, duration)
+        
+        # Paso 1: Detectar escenas
+        scene_frames_target = int(max_frames * scene_ratio)
+        scene_timestamps = self._detect_scene_timestamps(
+            video_info.get("path", ""), 
+            scene_threshold, 
+            scene_frames_target
+        )
+        
+        # Si no hay detección de escenas, fallback a uniform
+        if not scene_timestamps:
+            # Uniform distribution como fallback
+            num_frames = max_frames
+            step = (end - start) / max(num_frames - 1, 1)
+            return [start + i * step for i in range(num_frames)]
+        
+        # Paso 2: Identificar gaps y rellenar
+        fill_frames_target = max_frames - len(scene_timestamps)
+        all_timestamps = sorted(scene_timestamps)
+        
+        if fill_frames_target > 0 and len(all_timestamps) > 1:
+            gaps = []
+            for i in range(len(all_timestamps) - 1):
+                gap_start = all_timestamps[i]
+                gap_end = all_timestamps[i + 1]
+                gap_duration = gap_end - gap_start
+                if gap_duration > min_gap_seconds:
+                    gaps.append((gap_start, gap_end, gap_duration))
+            
+            # Distribuir fill frames proporcionalmente a los gaps
+            total_gap_duration = sum(g[2] for g in gaps)
+            if total_gap_duration > 0:
+                for gap_start, gap_end, gap_duration in gaps:
+                    # Frames a insertar en este gap
+                    gap_frames = int((gap_duration / total_gap_duration) * fill_frames_target)
+                    if gap_frames > 0:
+                        step = gap_duration / (gap_frames + 1)
+                        for j in range(1, gap_frames + 1):
+                            fill_ts = gap_start + j * step
+                            if fill_ts not in all_timestamps:
+                                all_timestamps.append(fill_ts)
+        
+        # Añadir inicio y fin si no están
+        if start not in all_timestamps and start >= 0:
+            all_timestamps.append(start)
+        if end - 0.5 not in all_timestamps and end <= duration:
+            all_timestamps.append(min(end - 0.1, duration - 0.1))
+        
+        # Ordenar y limitar
+        all_timestamps = sorted(set(all_timestamps))
+        return all_timestamps[:max_frames]
+
+    def _detect_scene_timestamps(
+        self, 
+        video_path: str, 
+        threshold: float, 
+        max_scenes: int
+    ) -> list[float]:
+        """
+        Detectar timestamps de cambios de escena usando FFmpeg.
+        
+        Args:
+            video_path: Ruta al video
+            threshold: Umbral de detección (0-1)
+            max_scenes: Máximo de escenas a detectar
+            
+        Returns:
+            Lista de timestamps donde hay cambios de escena
+        """
+        if not video_path or not os.path.exists(video_path):
+            return []
+            
+        try:
+            # Usar FFmpeg para detectar escenas
+            cmd = [
+                "ffmpeg", "-i", video_path,
+                "-vf", f"select='gt(scene,{threshold})',showinfo",
+                "-f", "null", "-"
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,  # 2 minutos máximo
+            )
+            
+            # Parsear output para extraer timestamps
+            timestamps = []
+            for line in result.stderr.split("\n"):
+                if "pts_time:" in line:
+                    try:
+                        # Extraer pts_time del output de showinfo
+                        pts_part = line.split("pts_time:")[1].split()[0]
+                        ts = float(pts_part)
+                        timestamps.append(ts)
+                        if len(timestamps) >= max_scenes:
+                            break
+                    except (IndexError, ValueError):
+                        continue
+            
+            return timestamps
+            
+        except subprocess.TimeoutExpired:
+            return []
+        except Exception:
+            return []
 
     def extract_frames_ffmpeg(
         self, video_path: str, output_dir: str | None = None, return_as_bytes: bool = True
@@ -306,6 +476,9 @@ class FFmpegVideoProcessor:
             # Construir filtros
             filters = self._build_filter_chain(video_info)
 
+            # Añadir path a video_info para métodos que lo necesitan
+            video_info["path"] = video_path
+
             # Método específico de extracción
             if extraction.method == FrameExtractionMethod.KEYFRAMES:
                 # Extraer solo keyframes
@@ -323,14 +496,21 @@ class FFmpegVideoProcessor:
                 )
 
             else:
-                # Métodos basados en timestamps (FPS, INTERVAL, UNIFORM)
+                # Métodos basados en timestamps (FPS, INTERVAL, UNIFORM, ADAPTIVE, HYBRID)
                 timestamps = self._calculate_frame_timestamps(video_info)
                 self.status.total_frames = len(timestamps)
 
                 print(f"📐 Calculated timestamps: {len(timestamps)} frames")
                 if timestamps:
-                    print(f"   First timestamp: {timestamps[0]}")
-                    print(f"   Last timestamp: {timestamps[-1]}")
+                    print(f"   First timestamp: {timestamps[0]:.2f}s")
+                    print(f"   Last timestamp: {timestamps[-1]:.2f}s")
+                    
+                    # Calcular y mostrar métricas de cobertura
+                    coverage = self.calculate_coverage_metrics(timestamps, video_info["duration"])
+                    print(f"📊 Coverage score: {coverage['coverage_score']}%")
+                    print(f"   Avg gap: {coverage['average_gap']:.1f}s, Max gap: {coverage['max_gap']:.1f}s")
+                    if coverage['total_problematic_gaps'] > 0:
+                        print(f"   ⚠️  {coverage['total_problematic_gaps']} gaps over {coverage['gap_threshold']}s")
 
                 self._extract_at_timestamps(video_path, output_dir, timestamps, filters, frames)
 
@@ -716,3 +896,149 @@ class FFmpegVideoProcessor:
     def get_status(self) -> ProcessingStatus:
         """Obtener estado actual del procesamiento"""
         return self.status
+
+    def calculate_coverage_metrics(
+        self, 
+        timestamps: list[float], 
+        video_duration: float
+    ) -> dict[str, Any]:
+        """
+        Calcular métricas de cobertura del video.
+        
+        Args:
+            timestamps: Lista de timestamps extraídos
+            video_duration: Duración total del video en segundos
+            
+        Returns:
+            Dict con métricas de cobertura:
+            - coverage_score: 0-100, qué tan bien cubierto está el video
+            - average_gap: Gap promedio entre frames
+            - max_gap: Gap máximo (indica posibles "puntos ciegos")
+            - gaps_over_threshold: Lista de gaps problemáticos
+            - density_per_minute: Frames por minuto promedio
+            - recommendations: Sugerencias para mejorar cobertura
+        """
+        if not timestamps or video_duration <= 0:
+            return {
+                "coverage_score": 0,
+                "average_gap": 0,
+                "max_gap": video_duration,
+                "gaps_over_threshold": [],
+                "density_per_minute": 0,
+                "recommendations": ["No frames extracted"],
+            }
+        
+        sorted_ts = sorted(timestamps)
+        
+        # Calcular gaps
+        gaps = []
+        for i in range(len(sorted_ts) - 1):
+            gap = sorted_ts[i + 1] - sorted_ts[i]
+            gaps.append({
+                "start": sorted_ts[i],
+                "end": sorted_ts[i + 1],
+                "duration": gap,
+            })
+        
+        # Añadir gap inicial y final
+        if sorted_ts[0] > 1.0:  # Si hay más de 1 segundo al inicio
+            gaps.insert(0, {"start": 0, "end": sorted_ts[0], "duration": sorted_ts[0]})
+        if video_duration - sorted_ts[-1] > 1.0:
+            gaps.append({
+                "start": sorted_ts[-1], 
+                "end": video_duration, 
+                "duration": video_duration - sorted_ts[-1]
+            })
+        
+        # Métricas básicas
+        gap_durations = [g["duration"] for g in gaps]
+        avg_gap = sum(gap_durations) / len(gap_durations) if gap_durations else 0
+        max_gap = max(gap_durations) if gap_durations else 0
+        
+        # Threshold dinámico basado en duración del video
+        # Para videos cortos, gaps >10s son problemáticos
+        # Para videos largos, gaps >30s son problemáticos
+        if video_duration < 300:  # < 5 min
+            gap_threshold = 10.0
+        elif video_duration < 1800:  # < 30 min
+            gap_threshold = 20.0
+        elif video_duration < 3600:  # < 1 hora
+            gap_threshold = 30.0
+        else:  # > 1 hora
+            gap_threshold = 45.0
+        
+        problematic_gaps = [g for g in gaps if g["duration"] > gap_threshold]
+        
+        # Coverage score (0-100)
+        # Basado en: densidad de frames, gaps máximos, distribución
+        density = len(timestamps) / (video_duration / 60)  # frames por minuto
+        ideal_density = 10  # 10 frames/min es ideal para análisis
+        density_score = min(density / ideal_density * 100, 100)
+        
+        # Penalización por gaps grandes
+        gap_penalty = min(len(problematic_gaps) * 10, 50)
+        max_gap_penalty = min((max_gap / gap_threshold - 1) * 20, 30) if max_gap > gap_threshold else 0
+        
+        coverage_score = max(0, density_score - gap_penalty - max_gap_penalty)
+        
+        # Recomendaciones
+        recommendations = []
+        if coverage_score < 50:
+            recommendations.append("Consider using DEEP_ANALYSIS or ADAPTIVE preset for better coverage")
+        if max_gap > gap_threshold * 2:
+            recommendations.append(f"Large gap detected ({max_gap:.1f}s) - use HYBRID extraction to fill gaps")
+        if density < 5:
+            recommendations.append("Low frame density - increase max_frames or reduce interval")
+        if len(problematic_gaps) > 5:
+            recommendations.append(f"{len(problematic_gaps)} gaps over {gap_threshold}s - content may be missed")
+        if not recommendations:
+            recommendations.append("Good coverage achieved")
+        
+        return {
+            "coverage_score": round(coverage_score, 1),
+            "average_gap": round(avg_gap, 2),
+            "max_gap": round(max_gap, 2),
+            "gap_threshold": gap_threshold,
+            "gaps_over_threshold": problematic_gaps[:10],  # Limitar a 10
+            "total_problematic_gaps": len(problematic_gaps),
+            "density_per_minute": round(density, 2),
+            "total_frames": len(timestamps),
+            "video_duration": video_duration,
+            "recommendations": recommendations,
+        }
+
+
+def get_recommended_preset(video_duration: float, content_type: str = "general") -> str:
+    """
+    Recomendar preset óptimo según duración y tipo de contenido.
+    
+    Args:
+        video_duration: Duración en segundos
+        content_type: Tipo de contenido (general, interview, action, tutorial)
+        
+    Returns:
+        Nombre del preset recomendado
+    """
+    duration_minutes = video_duration / 60
+    
+    # Por tipo de contenido
+    if content_type == "interview":
+        return "interview_mode"
+    elif content_type == "action":
+        return "action_mode"
+    elif content_type == "tutorial":
+        # Tutoriales necesitan buena cobertura visual
+        if duration_minutes < 30:
+            return "high_quality"
+        else:
+            return "deep_analysis"
+    
+    # Por duración (general)
+    if duration_minutes < 5:
+        return "balanced"
+    elif duration_minutes < 30:
+        return "high_quality"
+    elif duration_minutes < 120:
+        return "deep_analysis"
+    else:
+        return "adaptive"
