@@ -50,3 +50,6 @@ next-env.d.ts
 # Test
 coverage/
 test-results/
+
+# Allow example env files
+!.env*.example
