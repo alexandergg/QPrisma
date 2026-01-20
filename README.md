@@ -88,6 +88,41 @@ Organizations today generate vast amounts of video data—from warehouse feeds t
 
 ## Getting Started
 
+### Quick Start (5 minutes)
+
+Get QPrisma running locally with these steps:
+
+```bash
+# 1. Clone and navigate to the repository
+git clone https://github.com/alexandergg/QPrisma.git
+cd QPrisma
+
+# 2. Start required infrastructure (PostgreSQL, Neo4j, Redis)
+docker-compose up -d
+
+# 3. Configure backend environment
+cp backend/.env.example backend/.env
+# Edit backend/.env with your Azure OpenAI credentials
+
+# 4. Start the backend API
+cd backend
+python3 -m pip install uv
+uv venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+uv pip install -e .
+python api/main.py
+
+# 5. In a new terminal, start the frontend
+cd frontend
+npm install
+npm run dev
+```
+
+**Access the application:**
+- Frontend: http://localhost:3000
+- Backend API Docs: http://localhost:8000/docs
+- Neo4j Browser: http://localhost:7474 (neo4j/qprisma123)
+
 ### Prerequisites
 
 *   **Operating System**: Windows, macOS, or Linux
@@ -164,11 +199,126 @@ qprisma/
 └── docker-compose.yml     # Local Dev Infrastructure
 ```
 
+## Troubleshooting
+
+### Backend Issues
+
+**Problem: "Module not found" errors**
+```bash
+# Ensure you're in the virtual environment
+source backend/.venv/bin/activate  # Linux/Mac
+.venv\Scripts\activate              # Windows
+
+# Reinstall dependencies
+cd backend
+uv pip install -e .
+```
+
+**Problem: "Connection refused" to PostgreSQL/Neo4j/Redis**
+```bash
+# Verify Docker containers are running
+docker ps
+
+# If not running, start infrastructure
+docker-compose up -d
+
+# Check container logs
+docker-compose logs postgres
+docker-compose logs neo4j
+docker-compose logs redis
+```
+
+**Problem: Azure OpenAI API errors**
+- Verify your `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_API_KEY` in `backend/.env`
+- Ensure deployments exist in Azure OpenAI Studio for:
+  - `gpt-4o` (or your deployment name)
+  - `text-embedding-3-large`
+  - `whisper`
+- Check that `AZURE_OPENAI_API_VERSION` matches your deployment (e.g., `2024-08-01-preview`)
+
+**Problem: FFmpeg not found**
+```bash
+# Install FFmpeg
+# Ubuntu/Debian
+sudo apt-get install ffmpeg
+
+# macOS
+brew install ffmpeg
+
+# Windows: Download from https://ffmpeg.org/download.html
+# and add to PATH
+```
+
+### Frontend Issues
+
+**Problem: "Cannot connect to backend API"**
+- Verify backend is running at http://localhost:8000
+- Check `NEXT_PUBLIC_API_URL` in `frontend/.env.local`
+- Try accessing http://localhost:8000/docs to test backend
+
+**Problem: Build errors with Next.js**
+```bash
+cd frontend
+# Clear cache and reinstall
+rm -rf .next node_modules package-lock.json
+npm install
+npm run build
+```
+
+### Database Issues
+
+**Problem: PostgreSQL connection errors**
+```bash
+# Reset PostgreSQL container
+docker-compose down
+docker-compose up -d postgres
+
+# Wait for initialization (check logs)
+docker-compose logs -f postgres
+```
+
+**Problem: Neo4j authentication failed**
+- Default credentials: `neo4j` / `qprisma123`
+- Access Neo4j Browser at http://localhost:7474
+- Update credentials in `backend/.env` if changed
+
+### Performance Issues
+
+**Problem: Video processing is slow**
+- Enable hardware acceleration in `FFmpegProcessingConfig`
+- Use batch API for non-urgent processing (50% cost savings)
+- Adjust frame extraction rate (lower FPS = faster processing)
+
+**Problem: High memory usage**
+- Process videos in smaller batches
+- Enable caching with Redis
+- Consider using storage tiering for large files
+
+## Project Structure
+
+```bash
+qprisma/
+├── backend/                # FastAPI Application
+│   ├── api/               # Routes and Controllers
+│   ├── services/          # Core Business Logic (AI, Processing)
+│   ├── models/            # Data Models (Pydantic, SQLModel)
+│   └── tasks/             # Async Workers (Celery)
+├── frontend/               # Next.js Application
+│   ├── app/               # App Router Pages
+│   ├── components/        # Reusable UI Components
+│   └── lib/               # Utility Functions
+├── scripts/                # DevOps & Setup Scripts
+└── docker-compose.yml     # Local Dev Infrastructure
+```
+
 ## Documentation
 
-*   [Development Roadmap](./DEVELOPMENT_ROADMAP.md) - Future plans and milestone tracking.
-*   [Frontend UX Redesign](./FRONTEND_UX_REDESIGN.md) - Detailed design specifications.
-*   [API Documentation](http://localhost:8000/docs) - Interactive API reference (requires backend running).
+*   **[API Documentation](./API_DOCUMENTATION.md)** - Complete REST API reference with examples
+*   **[Development Roadmap](./DEVELOPMENT_ROADMAP.md)** - Future plans and milestone tracking
+*   **[Testing Guide](./TESTING.md)** - Testing standards and best practices
+*   **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute to QPrisma
+*   **[Frontend UX Redesign](./FRONTEND_UX_REDESIGN.md)** - Detailed design specifications
+*   **[Interactive API Docs](http://localhost:8000/docs)** - Swagger UI (requires backend running)
 
 ## Contributing
 
