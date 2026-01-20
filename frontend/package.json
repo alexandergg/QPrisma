@@ -19,7 +19,8 @@
     "react-dom": "19.2.1",
     "react-markdown": "^10.1.0",
     "reactflow": "^11.11.4",
-    "swr": "^2.3.8"
+    "swr": "^2.3.8",
+    "wavesurfer.js": "^7.12.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

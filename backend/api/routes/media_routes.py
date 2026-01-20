@@ -422,6 +422,9 @@ async def get_media_metadata(media_id: str, current_user: User = Depends(get_cur
                 status_code=403, detail="You don't have permission to access this media"
             )
 
+        # Update last accessed time for storage tiering
+        db.update_media(media_id, {"last_accessed_at": datetime.now(UTC)})
+
         item = media.to_dict()
 
         # Add duration from video metadata

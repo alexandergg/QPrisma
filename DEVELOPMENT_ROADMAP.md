@@ -21,8 +21,9 @@ Fase 3: Optimización de Costos        [█████████████�
   └─ 3.2: Code Cleanup                [████████████████████] 100% ✅
   └─ 3.3: Database Fixes              [████████████████████] 100% ✅
   └─ 3.4: Frontend UX Redesign        [████████████████████] 100% ✅
+  └─ 3.5: Storage Tiering             [████████████████████] 100% ✅
   └─ 3.7: Agentic Chat System         [████████████████████] 100% ✅
-  └─ 3.8: Video Processing Upgrades   [████████████░░░░░░░░]  60% 🔄
+  └─ 3.8: Video Processing Upgrades   [██████████████████░░]  90% 🔄
 Fase 4: Observabilidad                [░░░░░░░░░░░░░░░░░░░░]   0%
 Fase 5: Escalabilidad Horizontal      [░░░░░░░░░░░░░░░░░░░░]   0%
 Fase 6: Features Avanzadas            [░░░░░░░░░░░░░░░░░░░░]   0%
@@ -596,10 +597,52 @@ POST /chat
 **Archivos de diseño:**
 - `FRONTEND_UX_REDESIGN.md` - Documento de diseño completo
 
-### 3.5 Storage Tiering Automático (Pendiente)
-- [ ] Lifecycle policies en Blob Storage
-- [ ] Metadata tracking de último acceso
-- [ ] Rehydration automático
+### 3.5 Storage Tiering Automático ✅ COMPLETADO (16 Enero 2026)
+
+**Objetivo:** Optimizar costos de Azure Blob Storage moviendo videos entre tiers según uso.
+
+**Tiers implementados:**
+| Tier | Costo/GB/mes | Latencia | Uso |
+|------|-------------|----------|-----|
+| Hot | $0.0208 | ms | Videos activos |
+| Cool | $0.0115 | ms | No accedidos 30+ días |
+| Cold | $0.0036 | ms | No accedidos 90+ días |
+| Archive | $0.00099 | 1-15h | No accedidos 180+ días |
+
+**Implementado:**
+- [x] Campos `last_accessed_at`, `storage_tier`, `rehydration_status` en MediaModel
+- [x] `StorageTieringService` con gestión completa de tiers
+- [x] Lifecycle policy JSON para Azure (`scripts/azure-lifecycle-policy.json`)
+- [x] Auto-update de `last_accessed_at` al acceder a un video
+- [x] Rehydration on-demand con prioridad configurable (Standard: 1-15h, High: <1h)
+- [x] Cost analysis con recomendaciones por video
+- [x] Sync de tiers desde Azure
+
+**Archivos creados:**
+```
+backend/
+├── services/
+│   └── storage_tiering_service.py  # Core del servicio
+├── api/routes/
+│   └── storage_routes.py           # Endpoints REST
+├── models/
+│   └── database.py                 # + campos tiering
+scripts/
+└── azure-lifecycle-policy.json     # Policy para Azure Portal
+```
+
+**Endpoints disponibles:**
+- `GET /storage/health` - Health check del servicio
+- `GET /storage/media/{id}/tier` - Tier actual de un video
+- `POST /storage/media/{id}/tier` - Cambiar tier manualmente
+- `POST /storage/media/{id}/rehydrate` - Rehidratar video archivado
+- `GET /storage/media/{id}/recommendation` - Recomendación de tier
+- `GET /storage/cost-analysis` - Análisis de costos del usuario
+- `POST /storage/lifecycle-policy` - Generar policy JSON
+- `POST /storage/sync-tiers` - Sincronizar tiers desde Azure
+- `POST /storage/media/{id}/access` - Registrar acceso manual
+
+**Ahorro potencial:** Hasta 95% en videos archivados vs Hot tier.
 
 ### 3.6 Embedding Deduplication (Pendiente)
 - [ ] Perceptual hashing mejorado (ya implementado básico)
@@ -767,7 +810,9 @@ Mejorar la calidad y configurabilidad del procesamiento de video, especialmente 
   - 5-30 min: 1 frame/3s, max 400 frames
   - 30-60 min: Modo HYBRID, max 600 frames
   - 1-2 hrs: Modo HYBRID, max 800 frames
-  - > 2 hrs: Modo HYBRID con scene detection, max 1000 frames
+  - 2-4 hrs: Modo HYBRID, max 1200 frames, gap mínimo 30s
+  - 4-8 hrs: Modo HYBRID, max 1500 frames, gap mínimo 45s
+  - > 8 hrs: Modo HYBRID, max 2000 frames, gap mínimo 60s
 
 ### 3.8.2 Modo Híbrido (Scene Detection + Uniform Fill) ✅
 
@@ -785,6 +830,7 @@ Mejorar la calidad y configurabilidad del procesamiento de video, especialmente 
 
 **Implementado:**
 - [x] `DEEP_ANALYSIS`: Para videos largos, máxima cobertura (1000 frames, modo híbrido)
+- [x] `ULTRA_DEEP`: Para videos muy largos 4+ horas (2000 frames, modo híbrido)
 - [x] `INTERVIEW_MODE`: Prioriza audio, menos frames visuales (1 frame/10s, 200 max)
 - [x] `ACTION_MODE`: Más frames en escenas con movimiento (threshold 0.2, 800 frames)
 - [x] `ADAPTIVE`: Preset que usa `get_adaptive_config()` automáticamente
@@ -805,11 +851,34 @@ Mejorar la calidad y configurabilidad del procesamiento de video, especialmente 
 
 ### 3.8.5 Two-Pass Processing (PENDIENTE)
 
+**Objetivo:** Procesar videos largos de forma más inteligente, extrayendo más frames de las partes importantes.
+
+**Arquitectura:**
+```
+Pass 1 (Rápido - solo texto/audio):
+  ├─ Transcribir audio completo con Whisper
+  ├─ Detectar escenas con FFmpeg
+  └─ Analizar transcripción con GPT → Mapa de importancia por segmento
+                    │
+                    ▼
+Pass 2 (Selectivo - GPT-4 Vision):
+  └─ Distribuir frames según importancia:
+       - Segmentos importantes (demos, momentos clave) → más frames
+       - Segmentos aburridos (intro, Q&A) → menos frames
+```
+
+**Beneficios estimados:**
+- 50-70% menos llamadas a GPT-4 Vision
+- Mejor cobertura de momentos importantes
+- Ideal para: conferencias, tutoriales, entrevistas
+
 **Por implementar:**
 - [ ] Pass 1 (rápido): Análisis de estructura + audio transcription
-- [ ] Pass 2 (selectivo): Extracción de más frames en escenas importantes
+- [ ] Generar "mapa de importancia" por segmento temporal
+- [ ] Pass 2 (selectivo): Distribución de frames según importancia
 - [ ] Identificar escenas con mucho diálogo vs visuales
-- [ ] Priorizar frames en momentos clave detectados en Pass 1
+- [ ] Priorizar frames en momentos clave mencionados en audio
+- [ ] Preset `TWO_PASS` en FFmpegConfig
 
 ### 3.8.6 Mejoras Futuras (Inspiradas en Edconv)
 
@@ -824,14 +893,34 @@ Mejorar la calidad y configurabilidad del procesamiento de video, especialmente 
 - [ ] **Batch Processing**: Procesar múltiples videos en cola
 - [ ] **Format Detection**: Auto-detección de formato óptimo de salida
 
+### 3.8.7 Consolidación de Summaries en Neo4j ✅
+
+**Implementado:**
+- [x] Summaries de video ahora se guardan SOLO en Neo4j (nodo Video)
+- [x] Propiedades: `summary`, `topics`, `summary_updated_at`
+- [x] `get_summary` tool simplificado para buscar solo en Neo4j
+- [x] Fallback a generación desde sample frames si no existe summary
+- [x] Chat routes carga summary desde Neo4j en lugar de PostgreSQL
+
 ### Archivos Modificados
 
 ```
 backend/
 ├── models/
-│   └── ffmpeg_config.py           # Nuevos métodos y presets
+│   └── ffmpeg_config.py           # Nuevos métodos, presets (ULTRA_DEEP), tiers extendidos
 ├── services/
-│   └── ffmpeg_processor.py        # Lógica híbrida y métricas
+│   └── ffmpeg_processor.py        # Lógica híbrida y métricas de cobertura
+├── tasks/
+│   └── video_tasks.py             # Neo4j summary persistence, VideoStructure fix
+├── agent/tools/
+│   └── structure_tools.py         # get_summary simplificado (Neo4j only)
+├── api/routes/
+│   └── chat_routes.py             # Summary loading from Neo4j
+frontend/
+├── app/chat/page.tsx              # ULTRA_DEEP preset, max 2000 frames slider
+├── components/
+│   ├── ProcessingConfig.tsx       # max 2000 frames
+│   └── VideoProcessingStudio.tsx  # max 2000 frames
 ```
 
 ---
@@ -940,6 +1029,8 @@ python tests/test_websocket.py --interactive
 
 | Fecha | Versión | Cambios |
 |-------|---------|---------|
+| 2026-01-16 | 0.13.0 | **Fase 3.5 Completada**: Storage Tiering automático, lifecycle policies, rehydration on-demand, cost analysis, 9 endpoints nuevos |
+| 2026-01-12 | 0.12.0 | **Fase 3.8 Progress**: Ultra-long video support (8+ hrs), ULTRA_DEEP preset (2000 frames), extended adaptive tiers, max_frames slider to 2000, Neo4j summary consolidation |
 | 2026-01-11 | 0.11.1 | **Audio/Transcript Fix**: Corregida query de AudioSegments usando `:HAS_TRANSCRIPT` relationship y campos `start_time`/`end_time` en navigation_tools.py |
 | 2026-01-11 | 0.11.0 | **Streaming Integration**: SSE endpoint `/chat/agent/stream`, frontend streaming display, active tools indicator, real-time tokens |
 | 2026-01-11 | 0.10.0 | **Fase 3.7 Completada**: Agentic Chat System con 9 herramientas, ReAct loop, session memory Redis, endpoint `/chat/agent`, 12 tests |

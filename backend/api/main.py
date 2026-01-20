@@ -82,10 +82,15 @@ def get_openai_client():
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     import asyncio
+    import sys
+    
+    # Fix Windows console encoding for emojis
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
     
     # Startup
     print("=" * 50)
-    print("🚀 QPrisma API v0.3.0")
+    print("QPrisma API v0.3.0")
     print("=" * 50)
     print(f"📍 Entorno: {os.getenv('APP_ENV', 'development')}")
     print(f"📊 Azure OpenAI: {'✓' if get_openai_client() else '✗'}")
@@ -157,10 +162,12 @@ from api.routes import (
     batch_router,
     cache_router,
     chat_router,
+    editor_router,
     graph_router,
     jobs_router,
     media_router,
     processing_router,
+    storage_router,
     structure_router,
     websocket_router,
 )
@@ -169,10 +176,12 @@ app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(batch_router, tags=["Batch API"])
 app.include_router(cache_router, prefix="/cache", tags=["Cache"])
 app.include_router(chat_router, tags=["Chat & Search"])
+app.include_router(editor_router, tags=["Video Editor"])
 app.include_router(graph_router, tags=["Knowledge Graph"])
 app.include_router(jobs_router, prefix="/jobs", tags=["Jobs"])
 app.include_router(media_router, tags=["Media"])
 app.include_router(processing_router, tags=["Processing"])
+app.include_router(storage_router, tags=["Storage Tiering"])
 app.include_router(structure_router, tags=["Structure"])
 app.include_router(websocket_router, prefix="/ws", tags=["WebSocket"])
 

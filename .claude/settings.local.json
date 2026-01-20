@@ -57,7 +57,8 @@
       "Bash(\"D:/Repositories/Agents/Microsoft Agent Framework/QPrisma/backend/.venv/Scripts/python.exe\" -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f''blob_url: {d.get\\(\"\"blob_url\"\",\"\"N/A\"\"\\)[:100]}...''\\)\")",
       "Bash(\"D:/Repositories/Agents/Microsoft Agent Framework/QPrisma/backend/.venv/Scripts/python.exe\" -c:*)",
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyX2RmM2M3NTAzN2QzNyIsImVtYWlsIjoiZTJldGVzdEBxcHJpc21hLmNvbSIsImV4cCI6MTc2ODEzOTg4MSwiaWF0IjoxNzY4MDUzNDgxLCJ0eXBlIjoiYWNjZXNzIn0.MKZYwH5w-avq-IMelx7aep_1xamE2Q7VkgP78lzOeTg\")",
-      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzI2MDBmYjk4MmEyYSIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSIsImV4cCI6MTc2ODEzOTk4OSwiaWF0IjoxNzY4MDUzNTg5LCJ0eXBlIjoiYWNjZXNzIn0.GK6hXDTaBlq6hOqRa0C8EQ1t52nsTnmQ39M5gtWQUOs\")"
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzI2MDBmYjk4MmEyYSIsImVtYWlsIjoidXNlckBleGFtcGxlLmNvbSIsImV4cCI6MTc2ODEzOTk4OSwiaWF0IjoxNzY4MDUzNTg5LCJ0eXBlIjoiYWNjZXNzIn0.GK6hXDTaBlq6hOqRa0C8EQ1t52nsTnmQ39M5gtWQUOs\")",
+      "Bash(dir /b \"D:\\\\Repositories\\\\Agents\\\\Microsoft Agent Framework\\\\QPrisma\\\\frontend\\\\components\\\\editor\")"
     ]
   }
 }
