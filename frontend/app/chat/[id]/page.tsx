@@ -9,14 +9,41 @@ import { apiClient } from '@/lib/api';
 import RequireAuth from '@/components/RequireAuth';
 import { X, Film, Loader2 } from 'lucide-react';
 
+interface Scene {
+  scene_id: number;
+  start_time: number;
+  end_time: number;
+  summary?: string;
+}
+
+interface Chapter {
+  chapter_id: number;
+  title: string;
+  start_time: number;
+  end_time: number;
+}
+
+interface TranscriptSegment {
+  id: number;
+  start: number;
+  end: number;
+  text: string;
+}
+
 interface VideoData {
   id: string;
   url?: string;
   title?: string;
   duration?: number;
-  scenes?: any[];
-  chapters?: any[];
-  transcript?: any[];
+  scenes?: Scene[];
+  chapters?: Chapter[];
+  transcript?: TranscriptSegment[];
+}
+
+interface SavedConversation {
+  id: string;
+  videoId?: string;
+  title?: string;
 }
 
 interface ChatPageProps {
@@ -45,8 +72,8 @@ export default function ChatPage({ params }: ChatPageProps) {
       // Load conversation from localStorage or API
       const savedConversations = localStorage.getItem('qprisma_conversations');
       if (savedConversations) {
-        const conversations = JSON.parse(savedConversations);
-        const conversation = conversations.find((c: any) => c.id === resolvedParams.id);
+        const conversations = JSON.parse(savedConversations) as SavedConversation[];
+        const conversation = conversations.find((c) => c.id === resolvedParams.id);
 
         if (conversation?.videoId) {
           await loadVideo(conversation.videoId);

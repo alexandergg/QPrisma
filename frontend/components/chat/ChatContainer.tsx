@@ -23,6 +23,13 @@ interface ToolStatus {
   status: 'running' | 'success' | 'error';
 }
 
+interface ChatSource {
+  timestamp: number;
+  type?: string;
+  description?: string;
+  score?: number;
+}
+
 export default function ChatContainer({
   videoId,
   videoName,
@@ -72,7 +79,7 @@ export default function ChatContainer({
 
       // Use streaming agent API
       let finalResponse = '';
-      let sources: any[] = [];
+      let sources: ChatSource[] = [];
       let toolCallsMade = 0;
 
       for await (const event of apiClient.chatWithAgentStream(

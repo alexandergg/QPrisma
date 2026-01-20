@@ -132,6 +132,7 @@ Fase 1: Chat-to-Edit MVP                 [████████████�
 Fase 2: Clips & Timeline Visual          [████████████████████] 100% ✅
 Fase 3: Subtítulos & Estilos             [████████████████████] 100% ✅
 Fase 4: Export Multi-formato             [██████████████████░░]  90% ✅
+Fase 4.5: Code Quality & Maintenance     [████████░░░░░░░░░░░░]  40% 🔧
 Fase 5: Growth & Monetización            [░░░░░░░░░░░░░░░░░░░░]   0%
 ```
 
@@ -585,6 +586,70 @@ Tools disponibles:
 
 ---
 
+## Fase 4.5: Code Quality & Maintenance
+
+**Objetivo:** Código limpio, bien documentado y con buena cobertura de tests.
+**Duración estimada:** 1-2 semanas
+**Prioridad:** 🔴 ALTA (antes de Growth)
+**Estado:** EN PROGRESO (0%)
+
+### 4.5.1 Cleanup Inmediato (Alta Prioridad)
+
+| Tarea | Estado | Impacto |
+|-------|--------|---------|
+| Eliminar `frontend/app/video/[id]/page-old.tsx` (794 líneas deprecated) | [x] | Alto - Reduce confusión |
+| Corregir 11 usos de `any` en TypeScript frontend | [x] | Alto - Type safety |
+| Resolver 6 TODO/FIXME comments en el codebase | [ ] | Medio - Deuda técnica |
+| Crear `.env.example` para backend y frontend | [x] | Alto - Onboarding |
+| Exportar OpenAPI schema (`/docs/openapi.json`) | [x] | Medio - Documentación API |
+
+### 4.5.2 Testing Strategy
+
+**Backend Tests (Existentes: 21 archivos, 74 funciones):**
+- [ ] Añadir coverage report (`pytest-cov`)
+- [ ] Target: 70% coverage para services críticos
+- [ ] Priorizar tests para: `export_service.py`, `face_tracking_service.py`
+
+**Frontend Tests (Actualmente: ninguno):**
+- [ ] Configurar Vitest + React Testing Library
+- [ ] Tests unitarios para componentes críticos:
+  - [ ] `ExportModal.tsx` - lógica de export
+  - [ ] `ClipsList.tsx` - drag & drop
+  - [ ] `SubtitleEditor.tsx` - edición de cues
+- [ ] Tests de integración para API client (`lib/api.ts`)
+
+### 4.5.3 Code Quality Tools
+
+- [ ] Configurar pre-commit hooks (husky + lint-staged)
+- [ ] ESLint strict mode para frontend
+- [ ] Ruff linting para backend (ya parcial)
+- [ ] Type checking CI pipeline
+
+### 4.5.4 Refactoring Candidates
+
+**Servicios grandes a considerar dividir:**
+| Servicio | Tamaño | Sugerencia |
+|----------|--------|------------|
+| `knowledge_graph.py` | 47KB | Dividir: queries, mutations, utils |
+| `hierarchical_context_service.py` | 42KB | Extraer builders, formatters |
+
+### 4.5.5 Documentation
+
+- [ ] Actualizar README con nueva arquitectura Editor
+- [ ] Documentar export pipeline (diagrama de flujo)
+- [ ] API reference actualizada (60+ endpoints)
+- [ ] Guía de contribución (`CONTRIBUTING.md`)
+
+### 4.5.6 Git Hygiene
+
+**Estado actual:** 35 archivos uncommitted (23 nuevos de Fase 4)
+
+- [ ] Commit Fase 4 changes con mensaje descriptivo
+- [ ] Crear branch `feature/code-quality` para cleanup
+- [ ] Revisar archivos en staging area
+
+---
+
 ## Fase 5: Growth & Monetización
 
 **Objetivo:** Escalar usuarios y activar pagos.
@@ -718,6 +783,11 @@ Mayo 2026
 
 | Fecha | Cambio |
 |-------|--------|
+| 2026-01-20 | **Fase 4.5 - 40%** - Completada limpieza inicial de código |
+| 2026-01-20 | Eliminado `page-old.tsx` deprecated (794 líneas), corregidos 21 usos de `any` en frontend |
+| 2026-01-20 | Añadido script `export_openapi.py` para generar documentación API |
+| 2026-01-20 | **Fase 4.5 Añadida** - Plan de Code Quality & Maintenance con cleanup, testing, docs |
+| 2026-01-20 | Análisis de codebase: 21 test files backend, 11 TypeScript `any` usages, 1 deprecated file |
 | 2026-01-20 | **Fase 4 - Export 90%** - Export completo con face tracking y frontend UI |
 | 2026-01-20 | Añadido `face_tracking_service.py` con detección de caras OpenCV/MediaPipe |
 | 2026-01-20 | Añadido `ExportModal.tsx` frontend con selección de plataforma/calidad |

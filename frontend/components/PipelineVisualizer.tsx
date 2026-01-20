@@ -15,28 +15,44 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { Film, Scissors, Palette, Bot, Database, Search } from 'lucide-react';
 
+interface PipelineNodeDetails {
+  fps?: number;
+  maxFrames?: number;
+  resolution?: string;
+  preset?: string;
+  [key: string]: string | number | boolean | undefined;
+}
+
+interface PipelineNodeData {
+  label: string;
+  icon: string;
+  description: string;
+  details?: PipelineNodeDetails;
+}
+
 interface PipelineNode {
   id: string;
   type: string;
-  data: {
-    label: string;
-    icon: string;
-    description: string;
-    details?: any;
-  };
+  data: PipelineNodeData;
   position: { x: number; y: number };
+}
+
+interface PipelineConfig {
+  name?: string;
+  preset?: string;
+  [key: string]: string | number | boolean | undefined;
 }
 
 interface PipelineVisualizerProps {
   data: {
     nodes: PipelineNode[];
     edges: Array<{ id: string; source: string; target: string }>;
-    config: any;
+    config: PipelineConfig;
   };
 }
 
 // Custom Node Components
-const CustomNode = ({ data }: { data: any }) => {
+const CustomNode = ({ data }: { data: PipelineNodeData }) => {
   const getIcon = (icon: string) => {
     const iconMap: Record<string, React.ReactNode> = {
       '📹': <Film className="w-6 h-6" />,
