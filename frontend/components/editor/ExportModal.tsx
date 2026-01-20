@@ -154,8 +154,8 @@ export default function ExportModal({
         setExportResult(result.results);
         onExportComplete?.(result.results);
       }
-    } catch (err: any) {
-      setError(err.message || 'Export failed');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Export failed');
     } finally {
       setIsExporting(false);
     }

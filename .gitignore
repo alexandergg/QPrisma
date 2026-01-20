@@ -248,3 +248,4 @@ logs/
 # Local development
 .env.local
 *.local
+.claude/settings.local.json

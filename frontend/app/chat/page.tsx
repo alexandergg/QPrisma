@@ -11,14 +11,41 @@ import { apiClient } from '@/lib/api';
 import RequireAuth from '@/components/RequireAuth';
 import { X, Film, Library, Settings2, ChevronDown } from 'lucide-react';
 
+interface Scene {
+  scene_id: number;
+  start_time: number;
+  end_time: number;
+  summary?: string;
+}
+
+interface Chapter {
+  chapter_id: number;
+  title: string;
+  start_time: number;
+  end_time: number;
+}
+
+interface TranscriptSegment {
+  id: number;
+  start: number;
+  end: number;
+  text: string;
+}
+
 interface VideoData {
   id: string;
   url?: string;
   title?: string;
   duration?: number;
-  scenes?: any[];
-  chapters?: any[];
-  transcript?: any[];
+  scenes?: Scene[];
+  chapters?: Chapter[];
+  transcript?: TranscriptSegment[];
+}
+
+interface LibraryVideo {
+  id: string;
+  original_filename: string;
+  blob_url?: string;
 }
 
 interface UploadingVideo {
@@ -77,7 +104,7 @@ function NewChatContent() {
     }
   };
 
-  const handleSelectVideoFromLibrary = async (video: any) => {
+  const handleSelectVideoFromLibrary = async (video: LibraryVideo) => {
     setShowVideoSelector(false);
     await loadVideo(video.id);
   };

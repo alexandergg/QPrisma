@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, use, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { apiClient, EditorProjectWithClips, Clip } from '@/lib/api';
+import { apiClient, EditorProjectWithClips, Clip, ExportResult } from '@/lib/api';
 import RequireAuth from '@/components/RequireAuth';
 import {
   EditorLayout,
@@ -247,7 +247,7 @@ export default function EditorProjectPage({ params }: PageParams) {
   }, []);
 
   // Handle export complete
-  const handleExportComplete = useCallback((result: any) => {
+  const handleExportComplete = useCallback((_result: ExportResult | ExportResult[]) => {
     // Refresh clips to get updated export status
     fetchProject();
   }, []);

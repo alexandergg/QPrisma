@@ -11,13 +11,24 @@ interface Point {
   point: { x: number; y: number }; // normalized 0-1
 }
 
+interface SegmentationMask {
+  mask_id?: number;
+  polygon?: number[][];
+  label?: string;
+}
+
+interface MagicMask {
+  polygon: number[][]; // Array of [x, y] normalized coordinates
+  label?: string;
+}
+
 interface FrameAnalysis {
   frame_number: number;
   timestamp: number;
   caption: string;
   detections: Detection[];
   points: Point[];
-  segmentation: any[];
+  segmentation: SegmentationMask[];
 }
 
 interface VideoOverlayProps {
@@ -28,7 +39,7 @@ interface VideoOverlayProps {
   showDetections?: boolean;
   showPoints?: boolean;
   showCaptions?: boolean;
-  magicMasks?: any[]; // New prop for Magic Tool masks
+  magicMasks?: MagicMask[];
 }
 
 export default function VideoOverlay({
@@ -39,7 +50,7 @@ export default function VideoOverlay({
   showDetections = true,
   showPoints = true,
   showCaptions = true,
-  magicMasks = []
+  magicMasks = [] as MagicMask[]
 }: VideoOverlayProps) {
   
   // Find the closest frame analysis
@@ -77,7 +88,7 @@ export default function VideoOverlay({
           {magicMasks.map((mask, idx) => (
             <polygon
               key={`magic-${idx}`}
-              points={mask.polygon.map((p: number[]) => `${p[0] * width},${p[1] * height}`).join(' ')}
+              points={mask.polygon.map((p) => `${p[0] * width},${p[1] * height}`).join(' ')}
               fill="rgba(139, 92, 246, 0.3)" // Violet-500 with opacity
               stroke="#8b5cf6"
               strokeWidth="2"

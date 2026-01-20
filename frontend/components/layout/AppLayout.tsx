@@ -17,13 +17,44 @@ interface Conversation {
   mode: ChatMode;
 }
 
+interface Scene {
+  scene_id: number;
+  start_time: number;
+  end_time: number;
+  summary?: string;
+}
+
+interface Chapter {
+  chapter_id: number;
+  title: string;
+  start_time: number;
+  end_time: number;
+}
+
+interface TranscriptSegment {
+  id: number;
+  start: number;
+  end: number;
+  text: string;
+}
+
 interface VideoData {
   url?: string;
   title?: string;
   duration?: number;
-  scenes?: any[];
-  chapters?: any[];
-  transcript?: any[];
+  scenes?: Scene[];
+  chapters?: Chapter[];
+  transcript?: TranscriptSegment[];
+}
+
+interface StoredConversation {
+  id: string;
+  title: string;
+  videoId?: string;
+  videoName?: string;
+  lastMessage?: string;
+  updatedAt: string;
+  mode: ChatMode;
 }
 
 interface AppLayoutProps {
@@ -55,9 +86,9 @@ export default function AppLayout({
     const saved = localStorage.getItem('qprisma_conversations');
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
+        const parsed = JSON.parse(saved) as StoredConversation[];
         setConversations(
-          parsed.map((c: any) => ({
+          parsed.map((c) => ({
             ...c,
             updatedAt: new Date(c.updatedAt),
           }))

@@ -3,10 +3,17 @@
 import React, { useState } from 'react';
 import { Settings, Sliders, Image, Film, Zap, Scissors } from 'lucide-react';
 
+interface ProcessingPreset {
+  name: string;
+  description?: string;
+  fps?: number;
+  max_frames?: number;
+}
+
 interface ProcessingConfigProps {
   selectedPreset: string;
   onPresetChange: (preset: string) => void;
-  presets: any[];
+  presets: ProcessingPreset[];
   onConfigChange?: (config: { maxFrames: number }) => void;
 }
 

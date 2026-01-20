@@ -28,8 +28,8 @@ export default function AuthPage() {
       }
       // Redirect to home on success
       router.push('/');
-    } catch (err: any) {
-      setError(err.message || 'An error occurred');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
