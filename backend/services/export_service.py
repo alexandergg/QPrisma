@@ -6,15 +6,14 @@ Service for exporting video clips with FFmpeg.
 Handles cutting, cropping, subtitle burning, and format conversion.
 """
 
-import asyncio
 import json
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
-import uuid
 from datetime import UTC, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -90,11 +89,21 @@ class ExportService:
                 elif stream.get("codec_type") == "audio" and audio_stream is None:
                     audio_stream = stream
 
+            # Parse FPS safely using Fraction instead of eval()
+            fps = 30.0
+            if video_stream:
+                try:
+                    fps_str = video_stream.get("r_frame_rate", "30/1")
+                    fps = float(Fraction(fps_str))
+                except (ValueError, ZeroDivisionError):
+                    logger.warning(f"Invalid FPS value: {fps_str}, using default 30")
+                    fps = 30.0
+
             return {
                 "duration": float(data.get("format", {}).get("duration", 0)),
                 "width": video_stream.get("width", 0) if video_stream else 0,
                 "height": video_stream.get("height", 0) if video_stream else 0,
-                "fps": eval(video_stream.get("r_frame_rate", "30/1")) if video_stream else 30,
+                "fps": fps,
                 "codec": video_stream.get("codec_name", "") if video_stream else "",
                 "has_audio": audio_stream is not None,
                 "audio_codec": audio_stream.get("codec_name", "") if audio_stream else None,
