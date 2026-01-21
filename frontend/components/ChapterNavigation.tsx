@@ -3,7 +3,6 @@
 import React, { useState, useMemo } from 'react';
 import {
   ChevronRight,
-  ChevronDown,
   Play,
   Clock,
   Layers,
@@ -11,7 +10,6 @@ import {
   BookOpen,
   Sparkles,
   Tag,
-  MessageSquare
 } from 'lucide-react';
 
 interface Scene {
@@ -61,8 +59,8 @@ export default function ChapterNavigation({
   const [viewMode, setViewMode] = useState<'chapters' | 'scenes' | 'summary'>('chapters');
 
   // Ensure arrays exist with defaults
-  const scenes = structure?.scenes || [];
-  const chapters = structure?.chapters || [];
+  const scenes = useMemo(() => structure?.scenes || [], [structure?.scenes]);
+  const chapters = useMemo(() => structure?.chapters || [], [structure?.chapters]);
 
   // Find current scene and chapter
   const currentScene = useMemo(() => {

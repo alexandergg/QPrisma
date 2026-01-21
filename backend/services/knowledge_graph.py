@@ -928,13 +928,13 @@ class KnowledgeGraphService:
             result = session.run(cypher, node_id=node_id, hops=hops, max_nodes=max_nodes)
 
             nodes_by_distance = {0: []}  # Include start node at distance 0
-            
+
             # Get start node data
             start_result = session.run("MATCH (n {id: $node_id}) RETURN n", node_id=node_id)
             start_record = start_result.single()
             if start_record:
                 nodes_by_distance[0].append(dict(start_record["n"]))
-            
+
             for record in result:
                 distance = record["distance"]
                 node_data = dict(record["node"])

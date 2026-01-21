@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Sidebar, VideoPanel } from '@/components/layout';
 import { ChatContainer } from '@/components/chat';
@@ -9,12 +9,13 @@ import { UploadZone, ProcessingCard } from '@/components/upload';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import RequireAuth from '@/components/RequireAuth';
-import { X, Film, Library, Settings2, ChevronDown } from 'lucide-react';
+import { X, Film, Settings2, ChevronDown } from 'lucide-react';
 
 interface Scene {
   scene_id: number;
   start_time: number;
   end_time: number;
+  duration?: number;
   summary?: string;
 }
 
@@ -23,6 +24,8 @@ interface Chapter {
   title: string;
   start_time: number;
   end_time: number;
+  duration?: number;
+  scene_ids?: number[];
 }
 
 interface TranscriptSegment {
@@ -66,29 +69,19 @@ function NewChatContent() {
   const [currentTime, setCurrentTime] = useState(0);
   const [showVideoSelector, setShowVideoSelector] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
-  const [isLoadingVideo, setIsLoadingVideo] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState<UploadingVideo | null>(null);
   const [uploadPreset, setUploadPreset] = useState<string>('balanced');
   const [uploadMaxFrames, setUploadMaxFrames] = useState(200);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
 
-  // Check for videoId in URL params
-  useEffect(() => {
-    const videoId = searchParams.get('videoId');
-    if (videoId) {
-      loadVideo(videoId);
-    }
-  }, [searchParams]);
-
-  const loadVideo = async (videoId: string) => {
+  const loadVideo = useCallback(async (videoId: string) => {
     try {
-      setIsLoadingVideo(true);
       const [metadata, structure] = await Promise.all([
         apiClient.getVideoMetadata(videoId),
         apiClient.getVideoStructure(videoId).catch(() => null),
       ]);
 
-      setSelectedVideo({
+      return {
         id: videoId,
         url: metadata.blob_url,
         title: metadata.original_filename,
@@ -96,17 +89,32 @@ function NewChatContent() {
         scenes: structure?.structure?.scenes || structure?.scenes || [],
         chapters: structure?.structure?.chapters || structure?.chapters || [],
         transcript: metadata.audio_data?.transcription?.segments || [],
-      });
+      } as VideoData;
     } catch (error) {
       console.error('Failed to load video:', error);
-    } finally {
-      setIsLoadingVideo(false);
+      return null;
     }
-  };
+  }, []);
+
+  // Check for videoId in URL params
+  useEffect(() => {
+    const videoId = searchParams.get('videoId');
+    if (videoId) {
+      Promise.resolve().then(async () => {
+        const videoData = await loadVideo(videoId);
+        if (videoData) {
+          setSelectedVideo(videoData);
+        }
+      });
+    }
+  }, [searchParams, loadVideo]);
 
   const handleSelectVideoFromLibrary = async (video: LibraryVideo) => {
     setShowVideoSelector(false);
-    await loadVideo(video.id);
+    const videoData = await loadVideo(video.id);
+    if (videoData) {
+      setSelectedVideo(videoData);
+    }
   };
 
   const handleTimestampClick = (timestamp: number) => {
@@ -115,7 +123,10 @@ function NewChatContent() {
 
   const handleUploadComplete = async (mediaId: string) => {
     setShowUploader(false);
-    await loadVideo(mediaId);
+    const videoData = await loadVideo(mediaId);
+    if (videoData) {
+      setSelectedVideo(videoData);
+    }
   };
 
   return (
@@ -173,16 +184,15 @@ function NewChatContent() {
           )}
 
           {/* Chat Container */}
-          <ChatContainer
-            videoId={selectedVideo?.id}
-            videoName={selectedVideo?.title}
-            videoUrl={selectedVideo?.url}
-            mode={currentMode}
-            onTimestampClick={handleTimestampClick}
-            onUploadVideo={() => setShowUploader(true)}
-            onBrowseLibrary={() => setShowVideoSelector(true)}
-            userName={user?.full_name || user?.email}
-          />
+            <ChatContainer
+              videoId={selectedVideo?.id}
+              videoName={selectedVideo?.title}
+              mode={currentMode}
+              onTimestampClick={handleTimestampClick}
+              onUploadVideo={() => setShowUploader(true)}
+              onBrowseLibrary={() => setShowVideoSelector(true)}
+              userName={user?.full_name || user?.email}
+            />
         </main>
 
         {/* Video Panel (Single Video Mode) */}

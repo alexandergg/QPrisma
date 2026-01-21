@@ -11,11 +11,9 @@ from azure.storage.blob import BlobServiceClient
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import AzureOpenAI
-from sqlalchemy.orm import Session
 
 from models.user import User
 from services.auth_service import AuthService
-from services.database_service import DatabaseService, get_database_service, get_db_session
 
 # =============================================================================
 # Security

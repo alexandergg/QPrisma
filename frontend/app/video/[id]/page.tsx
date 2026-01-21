@@ -4,22 +4,18 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import useSWR from 'swr'
 import {
-  Search,
   Play,
   Pause,
   Film,
-  Clock,
   ArrowLeft,
   Sparkles,
   Send,
   MessageSquare,
   Layers,
   ChevronRight,
-  ChevronDown,
   BookOpen,
   Mic,
   Eye,
-  X,
   RotateCcw,
   Volume2,
   VolumeX,
@@ -50,7 +46,7 @@ interface Scene {
   scene_id: number
   start_time: number
   end_time: number
-  duration: number
+  duration?: number
   title?: string
   summary?: string
   detected_objects?: string[]
@@ -62,14 +58,14 @@ interface Chapter {
   title: string
   start_time: number
   end_time: number
-  duration: number
-  scene_ids: number[]
+  duration?: number
+  scene_ids?: number[]
   scene_count?: number
 }
 
 interface VideoStructure {
-  scenes: Scene[]
-  chapters: Chapter[]
+  scenes?: Scene[]
+  chapters?: Chapter[]
   video_summary?: string
   video_title?: string
   key_topics?: string[]
@@ -197,14 +193,12 @@ function ChapterList({
   structure,
   currentTime,
   onSeek,
-  videoId,
   onReprocess,
   isReprocessing,
 }: {
   structure: VideoStructure | null
   currentTime: number
   onSeek: (time: number) => void
-  videoId: string
   onReprocess?: () => void
   isReprocessing?: boolean
 }) {
@@ -359,11 +353,9 @@ function ChapterList({
 function ChatInterface({
   videoId,
   onSeek,
-  videoStructure,
 }: {
   videoId: string
   onSeek: (time: number) => void
-  videoStructure: VideoStructure | null
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -438,7 +430,7 @@ function ChatInterface({
             : msg
         )
       )
-    } catch (error) {
+    } catch {
       // Fallback to search-only if chat fails
       try {
         const searchData = await apiClient.enhancedSearch(query, {
@@ -449,7 +441,7 @@ function ChatInterface({
         })
 
         const frames: Frame[] = searchData.results || []
-        let responseContent = frames.length > 0
+        const responseContent = frames.length > 0
           ? `I found ${frames.length} relevant moment${frames.length > 1 ? 's' : ''} in the video:`
           : "I couldn't find specific moments matching your query."
 
@@ -517,7 +509,7 @@ function ChatInterface({
                     onClick={() => setInput(suggestion)}
                     className="block w-full text-left px-3 py-2 text-sm text-gray-600 bg-gray-50 hover:bg-indigo-50 hover:text-indigo-700 rounded-lg transition-colors"
                   >
-                    "{suggestion}"
+                    &quot;{suggestion}&quot;
                   </button>
                 )
               )}
@@ -850,7 +842,6 @@ export default function VideoDetailPage() {
                 structure={videoStructure} 
                 currentTime={currentTime} 
                 onSeek={handleSeek}
-                videoId={videoId}
                 onReprocess={handleReprocess}
                 isReprocessing={isReprocessing}
               />
@@ -980,7 +971,7 @@ export default function VideoDetailPage() {
 
             {/* Panel content */}
             <div className="flex-1 overflow-hidden">
-              {activePanel === 'chat' && <ChatInterface videoId={videoId} onSeek={handleSeek} videoStructure={videoStructure} />}
+              {activePanel === 'chat' && <ChatInterface videoId={videoId} onSeek={handleSeek} />}
 
               {activePanel === 'transcript' && (
                 <div className="h-full overflow-y-auto p-4 space-y-3">
@@ -1004,7 +995,7 @@ export default function VideoDetailPage() {
                       <Mic className="w-10 h-10 text-gray-300 mb-3" />
                       <p className="text-gray-500 font-medium">No transcript available</p>
                       <p className="text-gray-400 text-sm mt-1">
-                        This video doesn't have audio transcription
+                        This video doesn&apos;t have audio transcription
                       </p>
                     </div>
                   )}

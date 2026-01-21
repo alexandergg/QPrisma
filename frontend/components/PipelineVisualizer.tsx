@@ -40,7 +40,15 @@ interface PipelineNode {
 interface PipelineConfig {
   name?: string;
   preset?: string;
-  [key: string]: string | number | boolean | undefined;
+  frame_extraction?: {
+    method?: string;
+    max_frames?: number;
+    fps?: number;
+  };
+  video_filters?: {
+    scale_width?: number;
+    scale_height?: number;
+  };
 }
 
 interface PipelineVisualizerProps {
@@ -145,7 +153,7 @@ export default function PipelineVisualizer({ data }: PipelineVisualizerProps) {
   }, [data.edges]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
   // Auto-layout nodes
   useCallback(() => {

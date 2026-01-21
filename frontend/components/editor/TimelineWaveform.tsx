@@ -72,8 +72,10 @@ export default function TimelineWaveform({
   useEffect(() => {
     if (!containerRef.current || !videoUrl) return;
 
-    setIsLoading(true);
-    setIsReady(false);
+    Promise.resolve().then(() => {
+      setIsLoading(true);
+      setIsReady(false);
+    });
 
     const wavesurfer = WaveSurfer.create({
       container: containerRef.current,
@@ -114,7 +116,7 @@ export default function TimelineWaveform({
       wavesurfer.destroy();
       wavesurferRef.current = null;
     };
-  }, [videoUrl]);
+  }, [videoUrl, duration, onSeek, zoom]);
 
   // Update zoom level
   useEffect(() => {
@@ -181,13 +183,10 @@ export default function TimelineWaveform({
       const clip = clips.find((c) => c.id === dragState.clipId);
       if (!clip) return;
 
-      let newStartTime = clip.start_time;
-      let newEndTime = clip.end_time;
-
       if (dragState.edge === 'start') {
-        newStartTime = Math.max(0, Math.min(clip.end_time - 1, dragState.initialTime + deltaTime));
+        Math.max(0, Math.min(clip.end_time - 1, dragState.initialTime + deltaTime));
       } else {
-        newEndTime = Math.min(duration, Math.max(clip.start_time + 1, dragState.initialTime + deltaTime));
+        Math.min(duration, Math.max(clip.start_time + 1, dragState.initialTime + deltaTime));
       }
 
       // Visual feedback only during drag - actual update on mouseup

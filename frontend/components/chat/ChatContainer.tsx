@@ -1,16 +1,15 @@
 'use client';
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import WelcomeScreen from './WelcomeScreen';
 import MessageList, { ChatMessageData } from './MessageList';
 import ChatInput from './ChatInput';
-import { apiClient, AgentStreamEvent } from '@/lib/api';
+import { apiClient } from '@/lib/api';
 import { Wrench, Search, Brain } from 'lucide-react';
 
 interface ChatContainerProps {
   videoId?: string;
   videoName?: string;
-  videoUrl?: string;
   mode?: 'single' | 'library';
   onTimestampClick?: (timestamp: number) => void;
   onUploadVideo?: () => void;
@@ -33,7 +32,6 @@ interface ChatSource {
 export default function ChatContainer({
   videoId,
   videoName,
-  videoUrl,
   mode = 'single',
   onTimestampClick,
   onUploadVideo,
@@ -46,7 +44,6 @@ export default function ChatContainer({
   const [streamingContent, setStreamingContent] = useState('');
   const [activeTools, setActiveTools] = useState<ToolStatus[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>();
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   const hasMessages = messages.length > 0;
   const hasVideo = mode === 'library' || (mode === 'single' && videoId);
@@ -142,7 +139,7 @@ export default function ChatContainer({
         timestamp: new Date(),
         sources: sources.map((s) => ({
           timestamp: s.timestamp,
-          type: s.type || 'visual',
+          type: (s.type === 'visual' || s.type === 'audio' || s.type === 'entity') ? s.type : 'visual',
           description: s.description,
           score: s.score,
         })),

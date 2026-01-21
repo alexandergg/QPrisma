@@ -1,18 +1,19 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, Grid, List, SortAsc, Film, Loader2, RefreshCw } from 'lucide-react';
+import Image from 'next/image';
+import { Search, Grid, List, Film, Loader2, RefreshCw } from 'lucide-react';
 import VideoCard from './VideoCard';
 import { apiClient } from '@/lib/api';
 
 interface Video {
   id: string;
   original_filename: string;
-  media_type: string;
-  file_size: number;
-  uploaded_at: string;
-  processed: boolean;
-  processing_status: string;
+  media_type?: string;
+  file_size?: number;
+  uploaded_at?: string;
+  processed?: boolean;
+  processing_status?: string;
   duration?: number;
   frames_analyzed?: number;
   thumbnail_url?: string;
@@ -72,13 +73,13 @@ export default function VideoGrid({
     .sort((a, b) => {
       switch (sortBy) {
         case 'newest':
-          return new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime();
+          return new Date(b.uploaded_at || 0).getTime() - new Date(a.uploaded_at || 0).getTime();
         case 'oldest':
-          return new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime();
+          return new Date(a.uploaded_at || 0).getTime() - new Date(b.uploaded_at || 0).getTime();
         case 'name':
           return a.original_filename.localeCompare(b.original_filename);
         case 'size':
-          return b.file_size - a.file_size;
+          return (b.file_size || 0) - (a.file_size || 0);
         default:
           return 0;
       }
@@ -218,8 +219,8 @@ export default function VideoGrid({
                 thumbnail={video.thumbnail_url}
                 duration={video.duration}
                 size={video.file_size}
-                uploadedAt={new Date(video.uploaded_at)}
-                isProcessed={video.processed}
+                uploadedAt={video.uploaded_at ? new Date(video.uploaded_at) : new Date()}
+                isProcessed={video.processed ?? false}
                 isProcessing={video.processing_status === 'processing'}
                 framesAnalyzed={video.frames_analyzed}
                 onSelect={() => handleVideoSelect(video)}
@@ -252,13 +253,15 @@ export default function VideoGrid({
               >
                 {/* Thumbnail */}
                 <div className="w-20 h-12 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                  {video.thumbnail_url ? (
-                    <img
-                      src={video.thumbnail_url}
-                      alt={video.original_filename}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
+                    {video.thumbnail_url ? (
+                      <Image
+                        src={video.thumbnail_url}
+                        alt={video.original_filename}
+                        fill
+                        sizes="80px"
+                        className="object-cover"
+                      />
+                    ) : (
                     <div className="w-full h-full flex items-center justify-center">
                       <Film className="w-5 h-5 text-gray-300" />
                     </div>
@@ -270,17 +273,17 @@ export default function VideoGrid({
                   <p className="font-medium text-gray-900 truncate">{video.original_filename}</p>
                   <p className="text-sm text-gray-500">
                     {video.duration ? formatDuration(video.duration) : ''} •{' '}
-                    {formatSize(video.file_size)}
+                    {formatSize(video.file_size || 0)}
                   </p>
                 </div>
 
                 {/* Status */}
                 <div className="flex-shrink-0">
-                  {video.processed ? (
-                    <span className="text-green-600 text-sm font-medium">Ready</span>
-                  ) : (
-                    <span className="text-indigo-600 text-sm font-medium">Processing</span>
-                  )}
+                    {video.processed ? (
+                      <span className="text-green-600 text-sm font-medium">Ready</span>
+                    ) : (
+                      <span className="text-indigo-600 text-sm font-medium">Processing</span>
+                    )}
                 </div>
               </div>
             ))}

@@ -187,12 +187,12 @@ class SubtitleService:
     ) -> dict[str, Any]:
         """
         Extract transcription for a specific time range (clip).
-        
+
         Args:
             transcription_data: Full video transcription from Whisper
             start_time: Clip start in seconds
             end_time: Clip end in seconds
-            
+
         Returns:
             Dict with words and segments for the clip range
         """
@@ -206,15 +206,15 @@ class SubtitleService:
         }
 
         transcription = transcription_data.get("transcription", transcription_data)
-        
+
         # Extract words in range (word-level timing)
         all_words = transcription.get("words", [])
         clip_words = []
-        
+
         for word in all_words:
             word_start = word.get("start", 0)
             word_end = word.get("end", word_start)
-            
+
             # Word overlaps with clip range
             if word_end > start_time and word_start < end_time:
                 # Adjust timing relative to clip start
@@ -226,18 +226,18 @@ class SubtitleService:
                     "original_end": word_end,
                     "confidence": word.get("probability", word.get("confidence", 1.0)),
                 })
-        
+
         result["words"] = clip_words
         result["text"] = " ".join(w["word"] for w in clip_words)
 
         # Extract segments in range
         all_segments = transcription.get("segments", [])
         clip_segments = []
-        
+
         for segment in all_segments:
             seg_start = segment.get("start", 0)
             seg_end = segment.get("end", seg_start)
-            
+
             # Segment overlaps with clip range
             if seg_end > start_time and seg_start < end_time:
                 # Extract words from this segment that are in range
@@ -251,14 +251,14 @@ class SubtitleService:
                             "start": max(0, w_start - start_time),
                             "end": min(end_time - start_time, w_end - start_time),
                         })
-                
+
                 clip_segments.append({
                     "text": segment.get("text", "").strip(),
                     "start": max(0, seg_start - start_time),
                     "end": min(end_time - start_time, seg_end - start_time),
                     "words": seg_words,
                 })
-        
+
         result["segments"] = clip_segments
 
         # If no word-level timing, fall back to segments
@@ -268,10 +268,10 @@ class SubtitleService:
                 words = segment["text"].split()
                 if not words:
                     continue
-                    
+
                 seg_duration = segment["end"] - segment["start"]
                 word_duration = seg_duration / len(words) if words else 0
-                
+
                 for i, word in enumerate(words):
                     clip_words.append({
                         "word": word,
@@ -279,7 +279,7 @@ class SubtitleService:
                         "end": segment["start"] + ((i + 1) * word_duration),
                         "estimated": True,
                     })
-            
+
             result["words"] = clip_words
             result["text"] = " ".join(w["word"] for w in clip_words)
 
@@ -294,48 +294,48 @@ class SubtitleService:
     ) -> list[dict[str, Any]]:
         """
         Generate subtitle cues (groups of words) for display.
-        
+
         Different styles have different grouping strategies:
         - hormozi: 1-3 words per cue (word-by-word effect)
         - mrbeast: 3-5 words per cue (impactful chunks)
         - minimal: 6-10 words per cue (sentence-like)
         - karaoke: all words visible, highlight current
         - news: sentence-based
-        
+
         Args:
             words: List of words with timing
             style: Subtitle style name
             max_words_per_cue: Override max words per cue
             max_duration_per_cue: Max duration for a single cue
-            
+
         Returns:
             List of cues with start, end, text, and word highlights
         """
         style_config = self.get_style_config(style)
         css = style_config.get("css", {})
-        
+
         if max_words_per_cue is None:
             max_words_per_cue = css.get("maxWordsPerLine", 4)
-        
+
         cues = []
         current_cue_words = []
         current_start = None
-        
+
         for word in words:
             if current_start is None:
                 current_start = word["start"]
-            
+
             current_cue_words.append(word)
             current_end = word["end"]
             current_duration = current_end - current_start
-            
+
             # Check if we should end this cue
             should_end_cue = (
                 len(current_cue_words) >= max_words_per_cue or
                 current_duration >= max_duration_per_cue or
                 word.get("word", "").endswith((".", "!", "?", ","))
             )
-            
+
             if should_end_cue and current_cue_words:
                 cues.append({
                     "id": len(cues),
@@ -346,7 +346,7 @@ class SubtitleService:
                 })
                 current_cue_words = []
                 current_start = None
-        
+
         # Add remaining words
         if current_cue_words:
             cues.append({
@@ -356,7 +356,7 @@ class SubtitleService:
                 "text": " ".join(w["word"] for w in current_cue_words),
                 "words": current_cue_words,
             })
-        
+
         return cues
 
     def generate_subtitles_for_clip(
@@ -366,11 +366,11 @@ class SubtitleService:
     ) -> dict[str, Any]:
         """
         Generate subtitles for a clip from the source video's transcription.
-        
+
         Args:
             clip_id: ID of the clip
             style: Subtitle style to use
-            
+
         Returns:
             Dict with subtitle data and metadata
         """
@@ -379,47 +379,47 @@ class SubtitleService:
             clip = self.db.get_clip(clip_id)
             if not clip:
                 return {"error": "Clip not found", "success": False}
-            
+
             # Get project to find source media
             project = self.db.get_editor_project(clip.project_id)
             if not project:
                 return {"error": "Project not found", "success": False}
-            
+
             # Get source media with transcription
             media = self.db.get_media(project.source_media_id)
             if not media:
                 return {"error": "Source media not found", "success": False}
-            
+
             audio_data = media.audio_data
             if not audio_data:
                 return {
                     "error": "No transcription available. Process the video first.",
                     "success": False,
                 }
-            
+
             # Extract transcription for clip time range
             clip_transcription = self.extract_clip_transcription(
                 audio_data,
                 clip.start_time,
                 clip.end_time,
             )
-            
+
             if not clip_transcription.get("words"):
                 return {
                     "error": "No words found in clip time range",
                     "success": False,
                     "clip_range": f"{clip.start_time:.2f}s - {clip.end_time:.2f}s",
                 }
-            
+
             # Generate cues based on style
             cues = self.generate_subtitle_cues(
                 clip_transcription["words"],
                 style=style,
             )
-            
+
             # Get style config
             style_config = self.get_style_config(style)
-            
+
             # Build subtitle data structure
             subtitle_data = {
                 "version": "1.0",
@@ -431,7 +431,7 @@ class SubtitleService:
                 "cues": cues,
                 "words": clip_transcription["words"],
             }
-            
+
             # Update clip with subtitle data
             self.db.update_clip(clip_id, {
                 "subtitles_enabled": True,
@@ -439,7 +439,7 @@ class SubtitleService:
                 "subtitles_data": subtitle_data,
                 "subtitle_settings": style_config.get("css", {}),
             })
-            
+
             return {
                 "success": True,
                 "message": f"Generated {len(cues)} subtitle cues with '{style_config['name']}' style",
@@ -447,7 +447,7 @@ class SubtitleService:
                 "subtitle_data": subtitle_data,
                 "preview_text": clip_transcription["text"][:100] + "..." if len(clip_transcription["text"]) > 100 else clip_transcription["text"],
             }
-            
+
         except Exception as e:
             logger.error(f"Error generating subtitles: {e}")
             return {"error": str(e), "success": False}
@@ -460,12 +460,12 @@ class SubtitleService:
     ) -> dict[str, Any]:
         """
         Update the text of a specific subtitle cue.
-        
+
         Args:
             clip_id: ID of the clip
             cue_id: ID of the cue to update
             new_text: New text for the cue
-            
+
         Returns:
             Updated subtitle data
         """
@@ -473,13 +473,13 @@ class SubtitleService:
             clip = self.db.get_clip(clip_id)
             if not clip:
                 return {"error": "Clip not found", "success": False}
-            
+
             if not clip.subtitles_data:
                 return {"error": "No subtitle data on clip", "success": False}
-            
+
             subtitle_data = clip.subtitles_data
             cues = subtitle_data.get("cues", [])
-            
+
             # Find and update the cue
             for cue in cues:
                 if cue["id"] == cue_id:
@@ -503,21 +503,21 @@ class SubtitleService:
                     break
             else:
                 return {"error": f"Cue {cue_id} not found", "success": False}
-            
+
             # Rebuild full text
             subtitle_data["text"] = " ".join(cue["text"] for cue in cues)
             subtitle_data["cues"] = cues
-            
+
             # Update clip
             self.db.update_clip(clip_id, {"subtitles_data": subtitle_data})
-            
+
             return {
                 "success": True,
                 "message": f"Updated cue {cue_id}",
                 "old_text": old_text,
                 "new_text": new_text,
             }
-            
+
         except Exception as e:
             logger.error(f"Error updating subtitle: {e}")
             return {"error": str(e), "success": False}
@@ -525,11 +525,11 @@ class SubtitleService:
     def generate_srt(self, subtitle_data: dict[str, Any], offset: float = 0) -> str:
         """
         Generate SRT format from subtitle data.
-        
+
         Args:
             subtitle_data: Subtitle data with cues
             offset: Time offset to add (for absolute timing)
-            
+
         Returns:
             SRT formatted string
         """
@@ -539,18 +539,18 @@ class SubtitleService:
             secs = int(seconds % 60)
             millis = int((seconds % 1) * 1000)
             return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-        
+
         lines = []
         for i, cue in enumerate(subtitle_data.get("cues", []), 1):
             start = cue["start"] + offset
             end = cue["end"] + offset
             text = cue["text"]
-            
+
             lines.append(str(i))
             lines.append(f"{format_time(start)} --> {format_time(end)}")
             lines.append(text)
             lines.append("")
-        
+
         return "\n".join(lines)
 
     def generate_ass(
@@ -563,19 +563,19 @@ class SubtitleService:
         """
         Generate ASS (Advanced SubStation Alpha) format for FFmpeg.
         ASS supports advanced styling and animations.
-        
+
         Args:
             subtitle_data: Subtitle data with cues
             style: Style to apply
             video_width: Video width for positioning
             video_height: Video height for positioning
-            
+
         Returns:
             ASS formatted string
         """
         style_config = self.get_style_config(style)
         ffmpeg_config = style_config.get("ffmpeg", {})
-        
+
         # ASS header
         ass = f"""[Script Info]
 Title: QPrisma Subtitles
@@ -591,20 +591,20 @@ Style: Default,{ffmpeg_config.get('fontfile', 'Arial')},{ffmpeg_config.get('font
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-        
+
         def format_time(seconds: float) -> str:
             hours = int(seconds // 3600)
             minutes = int((seconds % 3600) // 60)
             secs = seconds % 60
             return f"{hours}:{minutes:02d}:{secs:05.2f}"
-        
+
         for cue in subtitle_data.get("cues", []):
             start = format_time(cue["start"])
             end = format_time(cue["end"])
             text = cue["text"].replace("\n", "\\N")
-            
+
             ass += f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}\n"
-        
+
         return ass
 
 

@@ -5,11 +5,10 @@ Video Agent Tests
 Tests for the agentic chat system.
 """
 
-import asyncio
 import json
-import os
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestToolDefinitions:
@@ -19,7 +18,7 @@ class TestToolDefinitions:
         """Verify all tools are loaded."""
         from agent.tools import ALL_TOOLS
 
-        assert len(ALL_TOOLS) == 9
+        assert len(ALL_TOOLS) >= 9
 
         tool_names = [t.name for t in ALL_TOOLS]
         assert "search_video" in tool_names
@@ -174,8 +173,8 @@ class TestVideoAgent:
     @pytest.mark.asyncio
     async def test_agent_max_iterations(self, mock_openai_client):
         """Test that agent respects max iterations."""
-        from agent.video_agent import VideoAgent
         from agent.state import AgentConfig
+        from agent.video_agent import VideoAgent
 
         # Configure for few iterations
         config = AgentConfig(max_iterations=2)

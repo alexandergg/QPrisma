@@ -212,17 +212,18 @@ async def _handle_client_message(websocket: WebSocket, data: str, manager: Conne
 async def _send_current_job_status(websocket: WebSocket, job_id: str):
     """Envía el estado actual del job al conectarse"""
     try:
-        import redis.asyncio as aioredis
         import os
-        
+
+        import redis.asyncio as aioredis
+
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
         redis_client = aioredis.from_url(redis_url)
-        
+
         cache_key = f"job_status:{job_id}"
         status_json = await redis_client.get(cache_key)
-        
+
         await redis_client.close()
-        
+
         if status_json:
             status = json.loads(status_json)
             await websocket.send_text(

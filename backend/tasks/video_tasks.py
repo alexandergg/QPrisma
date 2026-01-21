@@ -38,7 +38,6 @@ import os
 import sys
 import tempfile
 import time
-import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -150,10 +149,11 @@ def update_job_status(
     """
     Actualiza el estado de un job en cache y notifica via Redis Pub/Sub.
     Esta task se usa para notificar progreso a los clientes en tiempo real.
-    
+
     Usa Redis síncrono para evitar problemas con event loops en Celery.
     """
     import json
+
     import redis
 
     try:
@@ -177,7 +177,7 @@ def update_job_status(
         # Guardar en Redis con TTL de 1 hora
         cache_key = f"job_status:{job_id}"
         redis_client.setex(cache_key, 3600, json.dumps(status_data))
-        
+
         logger.info(f"Job {job_id}: {status} ({progress}%) - {stage}")
 
         # 2. Publicar evento a Redis Pub/Sub para WebSockets
@@ -196,10 +196,10 @@ def update_job_status(
             "job_id": job_id,
             "data": event_data
         })
-        
+
         redis_client.publish("qprisma:websocket:events", pubsub_message)
         logger.debug(f"Published WebSocket event for job {job_id}: {event_type}")
-        
+
         redis_client.close()
 
     except Exception as e:
@@ -354,7 +354,11 @@ def analyze_frame_task(
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         # Analizar con GPT-4V
-        analysis = _video_processor.analyze_frame_with_gpt4v(frame, custom_prompt=custom_prompt)
+        analysis = _video_processor.analyze_frame_with_gpt4v(
+            frame,
+            custom_prompt=custom_prompt,
+            timestamp=frame_data.get("timestamp"),
+        )
 
         return {
             "index": frame_data["index"],
@@ -577,10 +581,11 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         try:
             # Usar Batch API para análisis de frames (50% ahorro)
             import base64
+
             from services.batch_processor import BatchProcessor
-            
+
             batch_proc = BatchProcessor(_video_processor.openai_client)
-            
+
             # Preparar frames para Batch API
             frames_for_batch = []
             for frame_data in frames:
@@ -589,13 +594,13 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
                 else:
                     image_base64 = image_bytes
-                
+
                 frames_for_batch.append({
                     "frame_number": frame_data.get("frame_number", frame_data.get("index", 0)),
                     "timestamp": frame_data.get("timestamp", 0),
                     "image_base64": image_base64,
                 })
-            
+
             # Enviar batch job
             update_job_status(
                 job_id, "processing", 30, "batch_submit", f"Enviando {len(frames)} frames a Batch API..."
@@ -605,7 +610,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 vision_requests, description=f"Celery: {blob_name} ({len(frames)} frames)"
             )
             logger.info(f"Batch job created: {vision_batch_id}")
-            
+
             # Esperar completación
             update_job_status(
                 job_id, "processing", 35, "batch_wait", "Esperando Batch API (típicamente 3-5 min)..."
@@ -613,17 +618,17 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             success = batch_proc.wait_for_batch_completion(
                 vision_batch_id, check_interval=30, max_wait_time=1800
             )
-            
+
             if not success:
                 raise Exception(f"Batch job timeout or failed: {vision_batch_id}")
-            
+
             # Obtener resultados
             update_job_status(
                 job_id, "processing", 55, "batch_results", "Procesando resultados de Batch API..."
             )
             vision_results = batch_proc.get_batch_results(vision_batch_id)
             parsed_analyses = batch_proc.parse_vision_results(vision_results)
-            
+
             # Convertir a formato esperado
             for i, frame_data in enumerate(frames):
                 frame_id = f"frame_{frame_data.get('frame_number', i)}"
@@ -635,9 +640,9 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     "analysis": analysis_text,
                     "tokens_used": 0,
                 })
-            
+
             logger.info(f"Batch API completed: {len(frame_analyses)} frames analyzed")
-            
+
         except Exception as batch_error:
             logger.warning(f"Batch API failed, falling back to individual calls: {batch_error}")
             # Fallback: análisis secuencial (más caro pero funciona)
@@ -647,13 +652,13 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 update_job_status(
                     job_id, "processing", progress, "analyzing", f"Analizando frame {i+1}/{len(frames)} (fallback)"
                 )
-                
+
                 frame_data_copy = frame_data.copy()
                 if isinstance(frame_data_copy.get("image_bytes"), bytes):
                     frame_data_copy["image_bytes"] = base64.b64encode(
                         frame_data_copy["image_bytes"]
                     ).decode()
-                
+
                 analysis = analyze_frame_task(frame_data_copy, job_id, custom_prompt)
                 frame_analyses.append(analysis)
 
@@ -669,43 +674,44 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     job_id, "processing", 68, "summarizing", "Generando resúmenes jerárquicos..."
                 )
                 import asyncio
+
                 from services.hierarchical_summarizer import HierarchicalSummarizer, SummaryConfig
                 from services.scene_analyzer import Scene, VideoStructure
-                
+
                 summarizer = HierarchicalSummarizer()
                 summary_config = SummaryConfig(
                     scene_summary_max_tokens=250,
                     chapter_summary_max_tokens=350,
                     video_summary_max_tokens=600,
                 )
-                
+
                 # Construir estructura de escenas desde los análisis
                 scenes = []
                 duration_sec = float(metadata.get("duration", 0) or 0)
                 frames_count = len(frame_analyses)
-                
+
                 if frames_count > 0:
                     # Agrupar frames en escenas (aprox 5-10 frames por escena)
                     frames_per_scene = max(3, frames_count // 10)
-                    
+
                     for scene_idx in range(0, frames_count, frames_per_scene):
                         scene_frames = frame_analyses[scene_idx:scene_idx + frames_per_scene]
                         if not scene_frames:
                             continue
-                        
+
                         start_time = scene_frames[0].get("timestamp", 0)
                         end_time = scene_frames[-1].get("timestamp", start_time + 10)
                         start_frame_num = scene_frames[0].get("frame_number", scene_idx)
                         end_frame_num = scene_frames[-1].get("frame_number", scene_idx + len(scene_frames) - 1)
-                        
+
                         # Combinar descripciones visuales
                         visual_desc = " ".join([
                             f.get("analysis", "")[:500] for f in scene_frames if f.get("analysis")
                         ])[:2000]
-                        
+
                         # Keyframe indices (use middle frame of scene)
                         keyframe_indices = [scene_idx + len(scene_frames) // 2]
-                        
+
                         scene = Scene(
                             scene_id=scene_idx // frames_per_scene,
                             start_time=start_time,
@@ -719,7 +725,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             detected_objects=[],
                         )
                         scenes.append(scene)
-                
+
                 if scenes:
                     # Crear estructura de video
                     structure = VideoStructure(
@@ -729,7 +735,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         scenes=scenes,
                         chapters=[],
                     )
-                    
+
                     # Generar resúmenes (async)
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
@@ -742,7 +748,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         logger.info(f"Generated hierarchical summaries: {len(scenes)} scenes, summary: {len(video_summary or '')} chars")
                     finally:
                         loop.close()
-                        
+
             except Exception as e:
                 logger.warning(f"Hierarchical summarization skipped: {e}")
                 import traceback
@@ -916,11 +922,11 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         if video_summary or key_topics:
             try:
                 from services.knowledge_graph import get_knowledge_graph_service
-                
+
                 graph = get_knowledge_graph_service()
                 if not graph.is_connected:
                     graph.connect()
-                
+
                 with graph.get_session() as session:
                     session.run(
                         """

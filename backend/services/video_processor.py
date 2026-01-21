@@ -13,7 +13,6 @@ import cv2
 import numpy as np
 from azure.storage.blob import BlobServiceClient
 from openai import AzureOpenAI
-from PIL import Image
 
 from models.ffmpeg_config import (
     FFmpegProcessingConfig,
@@ -124,7 +123,12 @@ class VideoProcessor:
         return base64.b64encode(buffer).decode("utf-8")
 
     def analyze_frame_with_gpt4v(
-        self, frame: np.ndarray, custom_prompt: str | None = None, detail_level: str = "auto"
+        self,
+        frame: np.ndarray,
+        custom_prompt: str | None = None,
+        detail_level: str = "auto",
+        *,
+        timestamp: float | int | None = None,
     ) -> dict:
         """
         Analiza un frame con GPT-4o Vision
@@ -146,7 +150,7 @@ class VideoProcessor:
 ## SCENE DESCRIPTION
 Describe the overall scene: setting (indoor/outdoor), environment type, lighting conditions, visual style, and atmosphere.
 
-## PEOPLE & CHARACTERS  
+## PEOPLE & CHARACTERS
 For each person visible:
 - Physical appearance (age range, gender, clothing, distinguishing features)
 - Position and posture in frame
@@ -178,7 +182,8 @@ List 5-8 keywords/phrases someone might use to find this moment, including prope
 
 Be thorough but factual. Prioritize information that would help users find this specific moment."""
 
-        prompt = custom_prompt or default_prompt.replace("{timestamp}", str(timestamp))
+        resolved_timestamp = timestamp if timestamp is not None else 0
+        prompt = custom_prompt or default_prompt.replace("{timestamp}", str(resolved_timestamp))
 
         try:
             # Azure OpenAI SDK: model parameter must be the deployment name

@@ -8,7 +8,6 @@ Uses PostgreSQL for metadata storage (replaces Cosmos DB).
 import json
 import logging
 import os
-from datetime import UTC, datetime
 
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException

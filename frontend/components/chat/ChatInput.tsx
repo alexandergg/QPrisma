@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Send, Plus, Loader2, Film, X } from 'lucide-react';
 
 interface AttachedVideo {
@@ -34,7 +34,6 @@ export default function ChatInput({
   mode = 'single',
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [rows, setRows] = useState(1);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -42,8 +41,6 @@ export default function ChatInput({
       textareaRef.current.style.height = 'auto';
       const scrollHeight = textareaRef.current.scrollHeight;
       const lineHeight = 24; // Approximate line height
-      const newRows = Math.min(5, Math.ceil(scrollHeight / lineHeight));
-      setRows(newRows);
       textareaRef.current.style.height = `${Math.min(scrollHeight, lineHeight * 5)}px`;
     }
   }, [value]);

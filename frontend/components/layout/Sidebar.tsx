@@ -11,8 +11,6 @@ import {
   Settings,
   LogOut,
   ChevronRight,
-  Search,
-  MoreHorizontal,
   Trash2,
   Scissors,
   Upload,

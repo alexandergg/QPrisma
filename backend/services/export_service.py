@@ -112,6 +112,52 @@ class ExportService:
             logger.error(f"Error getting video info: {e}")
             return {}
 
+    def clip_video(self, input_path: str, output_path: str, config: Any) -> None:
+        """Legacy clip helper used by tests."""
+        if not os.path.exists(input_path):
+            raise FileNotFoundError(input_path)
+
+        if config.end_time <= config.start_time:
+            raise ValueError("end time must be after start time")
+
+        video_info = self._get_video_info(input_path)
+        if not video_info:
+            return
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss", str(config.start_time),
+            "-to", str(config.end_time),
+            "-i", input_path,
+        ]
+
+        filters = []
+        if config.crop_width and config.crop_height:
+            crop_x = config.crop_x or 0
+            crop_y = config.crop_y or 0
+            filters.append(f"crop={config.crop_width}:{config.crop_height}:{crop_x}:{crop_y}")
+
+        if config.output_width and config.output_height:
+            filters.append(f"scale={config.output_width}:{config.output_height}")
+
+        if filters:
+            cmd.extend(["-vf", ",".join(filters)])
+
+        format_value = getattr(config.format, "value", str(config.format)).lower()
+        if format_value == "webm":
+            cmd.extend(["-c:v", "libvpx-vp9"])
+        elif format_value == "gif":
+            cmd.extend(["-vf", "fps=10"])
+        else:
+            cmd.extend(["-c:v", "libx264"])
+            if getattr(config, "quality", None) == "high":
+                cmd.extend(["-crf", "18"])
+
+        cmd.append(output_path)
+
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+
     def _download_source_video(self, blob_url: str, temp_dir: str) -> str | None:
         """Download source video from blob storage to temp directory."""
         try:

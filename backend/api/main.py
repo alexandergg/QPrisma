@@ -83,11 +83,11 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     import asyncio
     import sys
-    
+
     # Fix Windows console encoding for emojis
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    
+
     # Startup
     print("=" * 50)
     print("QPrisma API v0.3.0")
@@ -98,7 +98,7 @@ async def lifespan(app: FastAPI):
     db = get_database_service()
     db_health = db.health_check() if db else {"status": "not_configured"}
     print(f"🗄️  PostgreSQL: {'✓' if db_health.get('status') == 'healthy' else '✗'}")
-    
+
     # Initialize Redis Pub/Sub listener for WebSocket events from Celery
     pubsub_task = None
     try:
@@ -108,14 +108,14 @@ async def lifespan(app: FastAPI):
         print("📡 Redis Pub/Sub: ✓ (WebSocket sync enabled)")
     except Exception as e:
         print(f"📡 Redis Pub/Sub: ✗ ({e})")
-    
+
     print("=" * 50)
 
     yield  # Application runs here
 
     # Shutdown (cleanup if needed)
     print("👋 QPrisma API shutting down...")
-    
+
     # Stop Redis Pub/Sub listener
     if pubsub_task:
         pubsub_task.cancel()
@@ -123,7 +123,7 @@ async def lifespan(app: FastAPI):
             await pubsub_task
         except asyncio.CancelledError:
             pass
-        
+
         try:
             from api.routes.websocket_manager import _pubsub_manager
             if _pubsub_manager:

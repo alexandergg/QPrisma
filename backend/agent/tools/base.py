@@ -5,11 +5,10 @@ Base Tool Definition
 Base class for agent tools with Azure OpenAI function calling schema.
 """
 
-import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +38,6 @@ class BaseTool(ABC):
     name: str
     description: str
     parameters: list[ToolParameter]
-
-    def __init__(self):
-        """Initialize the tool."""
-        pass
 
     @property
     def definition(self) -> dict:

@@ -10,9 +10,8 @@ import {
   Download,
   Brain,
   Wrench,
-  Film,
 } from 'lucide-react';
-import { apiClient, Clip, EditorStreamEvent } from '@/lib/api';
+import { apiClient, Clip } from '@/lib/api';
 
 interface ChatMessage {
   id: string;

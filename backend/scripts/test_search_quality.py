@@ -25,22 +25,22 @@ def list_videos():
     """Lista todos los videos indexados."""
     graph = get_knowledge_graph_service()
     graph.connect()
-    
+
     query = """
     MATCH (v:Video)
     OPTIONAL MATCH (v)-[:CONTAINS]->(f:Frame)
     OPTIONAL MATCH (v)-[:HAS_TRANSCRIPT]->(a:AudioSegment)
     WITH v, count(DISTINCT f) as frames, count(DISTINCT a) as audio_segs
-    RETURN v.video_id as video_id, v.title as title, 
+    RETURN v.video_id as video_id, v.title as title,
            v.duration_seconds as duration, frames, audio_segs
     ORDER BY v.created_at DESC
     LIMIT 10
     """
-    
+
     with graph.get_session() as session:
         result = session.run(query)
         videos = list(result)
-        
+
     print("\n=== VIDEOS INDEXADOS ===")
     for v in videos:
         duration = v['duration'] or 0
@@ -48,7 +48,7 @@ def list_videos():
         secs = int(duration % 60)
         print(f"  [{v['video_id'][:8]}...] {v['title']}")
         print(f"      Duration: {mins}m {secs}s | Frames: {v['frames']} | Audio: {v['audio_segs']}")
-    
+
     return videos
 
 
@@ -57,7 +57,7 @@ def get_video_stats(video_id: str):
     graph = get_knowledge_graph_service()
     if not graph.is_connected:
         graph.connect()
-    
+
     # Stats with multiple relationship types
     query = """
     MATCH (v:Video)
@@ -66,7 +66,7 @@ def get_video_stats(video_id: str):
     OPTIONAL MATCH (v)-[:HAS_TRANSCRIPT]->(a1:AudioSegment)
     OPTIONAL MATCH (a2:AudioSegment {video_id: $video_id})
     OPTIONAL MATCH (v)-[:CONTAINS]->(e:Entity)
-    RETURN 
+    RETURN
         v.title as title,
         v.duration_seconds as duration,
         count(DISTINCT f) as frames,
@@ -74,15 +74,15 @@ def get_video_stats(video_id: str):
         count(DISTINCT a2) as audio_via_prop,
         count(DISTINCT e) as entities
     """
-    
+
     with graph.get_session() as session:
         result = session.run(query, video_id=video_id)
         record = result.single()
-    
+
     if not record:
         print(f"\n❌ Video no encontrado: {video_id}")
         return None
-    
+
     print(f"\n=== STATS: {record['title']} ===")
     duration = record['duration'] or 0
     print(f"  Duration: {int(duration//60)}m {int(duration%60)}s ({duration:.0f}s)")
@@ -90,12 +90,12 @@ def get_video_stats(video_id: str):
     print(f"  Audio segments (via HAS_TRANSCRIPT): {record['audio_via_rel']}")
     print(f"  Audio segments (via video_id prop): {record['audio_via_prop']}")
     print(f"  Entities: {record['entities']}")
-    
+
     # Calculate coverage
     if duration > 0 and record['frames'] > 0:
         avg_interval = duration / record['frames']
         print(f"  Frame coverage: 1 frame every {avg_interval:.1f}s")
-    
+
     return record
 
 
@@ -104,21 +104,21 @@ def search_in_frames(video_id: str, search_term: str, limit: int = 10):
     graph = get_knowledge_graph_service()
     if not graph.is_connected:
         graph.connect()
-    
+
     # Case-insensitive search
     query = """
     MATCH (f:Frame)
-    WHERE f.video_id = $video_id 
+    WHERE f.video_id = $video_id
       AND toLower(f.description) CONTAINS toLower($search_term)
     RETURN f.timestamp as timestamp, f.description as description
     ORDER BY f.timestamp
     LIMIT $limit
     """
-    
+
     with graph.get_session() as session:
         result = session.run(query, video_id=video_id, search_term=search_term, limit=limit)
         frames = list(result)
-    
+
     print(f"\n=== FRAMES containing '{search_term}' ===")
     if frames:
         for f in frames:
@@ -129,7 +129,7 @@ def search_in_frames(video_id: str, search_term: str, limit: int = 10):
             print(f"  [{mins}:{secs:02d}]: {desc}...")
     else:
         print("  ❌ No matches in frame descriptions")
-    
+
     return frames
 
 
@@ -138,7 +138,7 @@ def search_in_transcripts(video_id: str, search_term: str, limit: int = 10):
     graph = get_knowledge_graph_service()
     if not graph.is_connected:
         graph.connect()
-    
+
     # Try via relationship first
     query_rel = """
     MATCH (v:Video)-[:HAS_TRANSCRIPT]->(a:AudioSegment)
@@ -148,26 +148,26 @@ def search_in_transcripts(video_id: str, search_term: str, limit: int = 10):
     ORDER BY a.start_time
     LIMIT $limit
     """
-    
+
     # Fallback: via property
     query_prop = """
     MATCH (a:AudioSegment)
-    WHERE a.video_id = $video_id 
+    WHERE a.video_id = $video_id
       AND toLower(a.text) CONTAINS toLower($search_term)
     RETURN a.start_time as start_time, a.end_time as end_time, a.text as text
     ORDER BY a.start_time
     LIMIT $limit
     """
-    
+
     segments = []
     with graph.get_session() as session:
         result = session.run(query_rel, video_id=video_id, search_term=search_term, limit=limit)
         segments = list(result)
-        
+
         if not segments:
             result = session.run(query_prop, video_id=video_id, search_term=search_term, limit=limit)
             segments = list(result)
-    
+
     print(f"\n=== TRANSCRIPTS containing '{search_term}' ===")
     if segments:
         for s in segments:
@@ -181,7 +181,7 @@ def search_in_transcripts(video_id: str, search_term: str, limit: int = 10):
             print(f"  [{start_mins}:{start_secs:02d} - {end_mins}:{end_secs:02d}]: {text}...")
     else:
         print("  ❌ No matches in transcripts")
-    
+
     return segments
 
 
@@ -190,9 +190,9 @@ def fulltext_search(video_id: str, search_term: str, limit: int = 10):
     graph = get_knowledge_graph_service()
     if not graph.is_connected:
         graph.connect()
-    
+
     results = []
-    
+
     # Search in frames
     try:
         query_frames = """
@@ -208,7 +208,7 @@ def fulltext_search(video_id: str, search_term: str, limit: int = 10):
             results.extend(list(result))
     except Exception as e:
         print(f"  (Frame fulltext search failed: {e})")
-    
+
     # Search in audio
     try:
         query_audio = """
@@ -224,10 +224,10 @@ def fulltext_search(video_id: str, search_term: str, limit: int = 10):
             results.extend(list(result))
     except Exception as e:
         print(f"  (Audio fulltext search failed: {e})")
-    
+
     # Sort by score
     results.sort(key=lambda x: x['score'], reverse=True)
-    
+
     print(f"\n=== FULLTEXT SEARCH: '{search_term}' ===")
     if results:
         for r in results[:limit]:
@@ -238,7 +238,7 @@ def fulltext_search(video_id: str, search_term: str, limit: int = 10):
             print(f"  [{r['type']}] [{mins}:{secs:02d}] (score={r['score']:.2f}): {content}...")
     else:
         print("  ❌ No fulltext matches")
-    
+
     return results
 
 
@@ -247,7 +247,7 @@ def sample_content(video_id: str, num_samples: int = 5):
     graph = get_knowledge_graph_service()
     if not graph.is_connected:
         graph.connect()
-    
+
     # Sample frames
     query_frames = """
     MATCH (f:Frame)
@@ -255,11 +255,11 @@ def sample_content(video_id: str, num_samples: int = 5):
     RETURN f.timestamp as ts, f.description as desc
     ORDER BY f.timestamp
     """
-    
+
     with graph.get_session() as session:
         result = session.run(query_frames, video_id=video_id)
         all_frames = list(result)
-    
+
     print(f"\n=== SAMPLE FRAMES ({len(all_frames)} total) ===")
     if all_frames:
         step = max(1, len(all_frames) // num_samples)
@@ -271,7 +271,7 @@ def sample_content(video_id: str, num_samples: int = 5):
             print(f"\n  [{mins}:{secs:02d}]: {desc}...")
     else:
         print("  ❌ No frames")
-    
+
     # Sample audio
     query_audio = """
     MATCH (a:AudioSegment)
@@ -279,11 +279,11 @@ def sample_content(video_id: str, num_samples: int = 5):
     RETURN a.start_time as start, a.text as text
     ORDER BY a.start_time
     """
-    
+
     with graph.get_session() as session:
         result = session.run(query_audio, video_id=video_id)
         all_audio = list(result)
-    
+
     print(f"\n=== SAMPLE TRANSCRIPTS ({len(all_audio)} total) ===")
     if all_audio:
         step = max(1, len(all_audio) // num_samples)
@@ -302,12 +302,12 @@ def run_test_queries(video_id: str, queries: list[str]):
     print("\n" + "=" * 60)
     print("TESTING SEARCH QUERIES")
     print("=" * 60)
-    
+
     for query in queries:
         print(f"\n{'='*60}")
         print(f"QUERY: '{query}'")
         print("=" * 60)
-        
+
         search_in_frames(video_id, query, limit=5)
         search_in_transcripts(video_id, query, limit=5)
         fulltext_search(video_id, query, limit=5)
@@ -319,34 +319,34 @@ def main():
     parser.add_argument("--query", "-q", help="Specific query to test")
     parser.add_argument("--samples", "-s", type=int, default=3, help="Number of samples to show")
     args = parser.parse_args()
-    
+
     print("=" * 60)
     print("QPrisma Search Quality Diagnostic")
     print("=" * 60)
-    
+
     # List videos
     videos = list_videos()
-    
+
     if not videos:
         print("\n❌ No videos found. Process a video first.")
         return
-    
+
     # Select video
     if args.video_id:
         video_id = args.video_id
     else:
         video_id = videos[0]['video_id']
-    
+
     print(f"\n📹 Testing video: {video_id[:16]}...")
-    
+
     # Get stats
     stats = get_video_stats(video_id)
     if not stats:
         return
-    
+
     # Sample content
     sample_content(video_id, args.samples)
-    
+
     # Run queries
     if args.query:
         queries = [args.query]
@@ -361,9 +361,9 @@ def main():
             "AI",
             "cloud",
         ]
-    
+
     run_test_queries(video_id, queries)
-    
+
     print("\n" + "=" * 60)
     print("DIAGNOSTIC COMPLETE")
     print("=" * 60)

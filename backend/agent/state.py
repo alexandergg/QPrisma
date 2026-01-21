@@ -6,11 +6,9 @@ Defines the typed state for the video agent, following LangGraph patterns.
 State flows through the agent graph and accumulates tool results.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypedDict
-
-from pydantic import BaseModel
 
 
 class MessageRole(str, Enum):
@@ -69,23 +67,23 @@ class VideoAgentState(TypedDict, total=False):
 
     # Conversation
     messages: list[AgentMessage]
-    
+
     # Video context
     video_context: VideoContext | None
-    
+
     # Current turn
     pending_tool_calls: list[ToolCall]
     tool_results: list[ToolResult]
-    
+
     # Control flow
     should_continue: bool
     iteration_count: int
     max_iterations: int
-    
+
     # Output
     final_response: str | None
     sources: list[dict]
-    
+
     # Metadata
     user_id: str | None
     session_id: str | None

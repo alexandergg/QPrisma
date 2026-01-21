@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { Plus, Sparkles, Film, GripVertical, Download } from 'lucide-react';
+import { Sparkles, Film, GripVertical, Download } from 'lucide-react';
 import { Clip } from '@/lib/api';
 import ClipCard from './ClipCard';
 

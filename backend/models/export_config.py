@@ -9,7 +9,29 @@ This module defines:
 
 from enum import Enum
 from typing import Literal
+
 from pydantic import BaseModel, Field
+
+
+class ExportFormat(str, Enum):
+    """Legacy export formats used by tests."""
+    MP4 = "mp4"
+    WEBM = "webm"
+    GIF = "gif"
+
+
+class ExportConfig(BaseModel):
+    """Legacy export configuration used by tests."""
+    start_time: float
+    end_time: float
+    format: ExportFormat
+    quality: str = "standard"
+    crop_x: int | None = None
+    crop_y: int | None = None
+    crop_width: int | None = None
+    crop_height: int | None = None
+    output_width: int | None = None
+    output_height: int | None = None
 
 
 class ExportPlatform(str, Enum):

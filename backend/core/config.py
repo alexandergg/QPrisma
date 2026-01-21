@@ -41,7 +41,7 @@ class AzureSettings(BaseSettings):
     @property
     def is_storage_configured(self) -> bool:
         return bool(self.storage_connection_string)
-    
+
     @property
     def is_batch_configured(self) -> bool:
         """Check if Global Batch deployment is configured."""

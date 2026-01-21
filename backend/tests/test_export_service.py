@@ -6,13 +6,12 @@ Tests video clip export functionality including FFmpeg operations.
 import json
 import subprocess
 from fractions import Fraction
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
-from services.export_service import ExportService
 from models.export_config import ExportConfig, ExportFormat
+from services.export_service import ExportService
 
 
 @pytest.fixture
@@ -195,22 +194,21 @@ class TestVideoClipping:
 
     def test_clip_video_builds_correct_command(self, export_service, export_config):
         """Test that correct FFmpeg command is built for clipping."""
-        with patch("subprocess.run") as mock_run:
-            with patch.object(
-                export_service, "_get_video_info", return_value={"duration": 120}
-            ):
-                export_service.clip_video("/source.mp4", "/output.mp4", export_config)
+        with patch("subprocess.run") as mock_run, patch.object(
+            export_service, "_get_video_info", return_value={"duration": 120}
+        ), patch("os.path.exists", return_value=True):
+            export_service.clip_video("/source.mp4", "/output.mp4", export_config)
 
-                # Verify FFmpeg was called
-                assert mock_run.called
-                cmd = mock_run.call_args[0][0]
+            # Verify FFmpeg was called
+            assert mock_run.called
+            cmd = mock_run.call_args[0][0]
 
-                # Check key parameters
-                assert "ffmpeg" in cmd
-                assert "-ss" in cmd
-                assert "10.0" in cmd  # start time
-                assert "-to" in cmd
-                assert "20.0" in cmd  # end time
+            # Check key parameters
+            assert "ffmpeg" in cmd
+            assert "-ss" in cmd
+            assert "10.0" in cmd  # start time
+            assert "-to" in cmd
+            assert "20.0" in cmd  # end time
 
     def test_clip_validates_time_range(self, export_service):
         """Test that invalid time ranges are rejected."""
@@ -220,9 +218,8 @@ class TestVideoClipping:
 
         with patch.object(
             export_service, "_get_video_info", return_value={"duration": 120}
-        ):
-            with pytest.raises(ValueError, match="end time must be after start time"):
-                export_service.clip_video("/source.mp4", "/output.mp4", config)
+        ), patch("os.path.exists", return_value=True), pytest.raises(ValueError, match="end time must be after start time"):
+            export_service.clip_video("/source.mp4", "/output.mp4", config)
 
     def test_clip_respects_quality_settings(self, export_service):
         """Test that quality settings are applied correctly."""
@@ -230,15 +227,14 @@ class TestVideoClipping:
             start_time=10.0, end_time=20.0, format=ExportFormat.MP4, quality="high"
         )
 
-        with patch("subprocess.run") as mock_run:
-            with patch.object(
-                export_service, "_get_video_info", return_value={"duration": 120}
-            ):
-                export_service.clip_video("/source.mp4", "/output.mp4", config)
+        with patch("subprocess.run") as mock_run, patch.object(
+            export_service, "_get_video_info", return_value={"duration": 120}
+        ), patch("os.path.exists", return_value=True):
+            export_service.clip_video("/source.mp4", "/output.mp4", config)
 
-                cmd = mock_run.call_args[0][0]
-                # High quality should use lower CRF value
-                assert "-crf" in cmd
+            cmd = mock_run.call_args[0][0]
+            # High quality should use lower CRF value
+            assert "-crf" in cmd
 
 
 class TestFormatConversion:
@@ -248,31 +244,29 @@ class TestFormatConversion:
         """Test conversion to WebM format."""
         config = ExportConfig(start_time=0, end_time=10, format=ExportFormat.WEBM)
 
-        with patch("subprocess.run") as mock_run:
-            with patch.object(
-                export_service, "_get_video_info", return_value={"duration": 120}
-            ):
-                export_service.clip_video("/source.mp4", "/output.webm", config)
+        with patch("subprocess.run") as mock_run, patch.object(
+            export_service, "_get_video_info", return_value={"duration": 120}
+        ), patch("os.path.exists", return_value=True):
+            export_service.clip_video("/source.mp4", "/output.webm", config)
 
-                cmd = mock_run.call_args[0][0]
-                # WebM should use VP9 codec
-                assert "-c:v" in cmd
-                # Output should be .webm
-                assert "/output.webm" in cmd
+            cmd = mock_run.call_args[0][0]
+            # WebM should use VP9 codec
+            assert "-c:v" in cmd
+            # Output should be .webm
+            assert "/output.webm" in cmd
 
     def test_converts_to_gif(self, export_service):
         """Test conversion to GIF format."""
         config = ExportConfig(start_time=0, end_time=5, format=ExportFormat.GIF)
 
-        with patch("subprocess.run") as mock_run:
-            with patch.object(
-                export_service, "_get_video_info", return_value={"duration": 120}
-            ):
-                export_service.clip_video("/source.mp4", "/output.gif", config)
+        with patch("subprocess.run") as mock_run, patch.object(
+            export_service, "_get_video_info", return_value={"duration": 120}
+        ), patch("os.path.exists", return_value=True):
+            export_service.clip_video("/source.mp4", "/output.gif", config)
 
-                cmd = mock_run.call_args[0][0]
-                # GIF should have special handling
-                assert "/output.gif" in cmd
+            cmd = mock_run.call_args[0][0]
+            # GIF should have special handling
+            assert "/output.gif" in cmd
 
 
 class TestCropAndResize:
@@ -290,16 +284,15 @@ class TestCropAndResize:
             crop_height=480,
         )
 
-        with patch("subprocess.run") as mock_run:
-            with patch.object(
-                export_service, "_get_video_info", return_value={"duration": 120}
-            ):
-                export_service.clip_video("/source.mp4", "/output.mp4", config)
+        with patch("subprocess.run") as mock_run, patch.object(
+            export_service, "_get_video_info", return_value={"duration": 120}
+        ), patch("os.path.exists", return_value=True):
+            export_service.clip_video("/source.mp4", "/output.mp4", config)
 
-                cmd = mock_run.call_args[0][0]
-                # Check for crop filter
-                cmd_str = " ".join(cmd)
-                assert "crop" in cmd_str
+            cmd = mock_run.call_args[0][0]
+            # Check for crop filter
+            cmd_str = " ".join(cmd)
+            assert "crop" in cmd_str
 
     def test_applies_resize(self, export_service):
         """Test that resize is applied correctly."""
@@ -311,16 +304,15 @@ class TestCropAndResize:
             output_height=720,
         )
 
-        with patch("subprocess.run") as mock_run:
-            with patch.object(
-                export_service, "_get_video_info", return_value={"duration": 120}
-            ):
-                export_service.clip_video("/source.mp4", "/output.mp4", config)
+        with patch("subprocess.run") as mock_run, patch.object(
+            export_service, "_get_video_info", return_value={"duration": 120}
+        ), patch("os.path.exists", return_value=True):
+            export_service.clip_video("/source.mp4", "/output.mp4", config)
 
-                cmd = mock_run.call_args[0][0]
-                # Check for scale filter
-                cmd_str = " ".join(cmd)
-                assert "scale" in cmd_str or "1280" in cmd_str
+            cmd = mock_run.call_args[0][0]
+            # Check for scale filter
+            cmd_str = " ".join(cmd)
+            assert "scale" in cmd_str or "1280" in cmd_str
 
 
 @pytest.mark.unit
@@ -329,19 +321,18 @@ class TestEdgeCases:
 
     def test_handles_missing_source_file(self, export_service, export_config):
         """Test handling of missing source file."""
-        with pytest.raises(FileNotFoundError):
+        with patch("os.path.exists", return_value=False), pytest.raises(FileNotFoundError):
             export_service.clip_video("/nonexistent.mp4", "/output.mp4", export_config)
 
     def test_handles_subprocess_error(self, export_service, export_config):
         """Test handling of FFmpeg subprocess errors."""
-        with patch("subprocess.run") as mock_run:
-            with patch.object(
-                export_service, "_get_video_info", return_value={"duration": 120}
-            ):
-                mock_run.side_effect = subprocess.CalledProcessError(1, "ffmpeg")
+        with patch("subprocess.run") as mock_run, patch.object(
+            export_service, "_get_video_info", return_value={"duration": 120}
+        ), patch("os.path.exists", return_value=True):
+            mock_run.side_effect = subprocess.CalledProcessError(1, "ffmpeg")
 
-                with pytest.raises(subprocess.CalledProcessError):
-                    export_service.clip_video("/source.mp4", "/output.mp4", export_config)
+            with pytest.raises(subprocess.CalledProcessError):
+                export_service.clip_video("/source.mp4", "/output.mp4", export_config)
 
     def test_validates_export_format(self, export_service):
         """Test that invalid formats are rejected."""

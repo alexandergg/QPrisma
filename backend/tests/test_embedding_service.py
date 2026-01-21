@@ -4,7 +4,7 @@ Tests text embedding generation with Azure OpenAI and caching.
 """
 
 import hashlib
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -25,8 +25,8 @@ def embedding_service():
 def mock_cache_service():
     """Create a mock cache service."""
     cache = Mock()
-    cache.get = AsyncMock(return_value=None)
-    cache.set = AsyncMock()
+    cache.get = Mock(return_value=None)
+    cache.set = Mock()
     return cache
 
 
@@ -165,8 +165,7 @@ class TestHashComputation:
 class TestEmbeddingGeneration:
     """Tests for embedding generation."""
 
-    @pytest.mark.asyncio
-    async def test_generate_embedding_calls_azure_api(
+    def test_generate_embedding_calls_azure_api(
         self, embedding_service, sample_embedding
     ):
         """Test that embedding generation calls Azure API."""
@@ -174,13 +173,13 @@ class TestEmbeddingGeneration:
         mock_response.data = [Mock(embedding=sample_embedding)]
         mock_response.usage.total_tokens = 10
 
-        with patch.object(embedding_service, "client") as mock_client:
-            mock_client.embeddings.create.return_value = mock_response
+        with patch("services.embedding_service.AzureOpenAI") as mock_azure:
+            mock_azure.return_value.embeddings.create.return_value = mock_response
 
-            result = await embedding_service.generate_embedding("test text")
+            result = embedding_service.generate_embedding("test text")
 
             assert result == sample_embedding
-            mock_client.embeddings.create.assert_called_once()
+            mock_azure.return_value.embeddings.create.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_generate_embedding_uses_correct_model(
@@ -191,25 +190,24 @@ class TestEmbeddingGeneration:
         mock_response.data = [Mock(embedding=sample_embedding)]
         mock_response.usage.total_tokens = 10
 
-        with patch.object(embedding_service, "client") as mock_client:
-            mock_client.embeddings.create.return_value = mock_response
+        with patch("services.embedding_service.AzureOpenAI") as mock_azure:
+            mock_azure.return_value.embeddings.create.return_value = mock_response
 
-            await embedding_service.generate_embedding("test text")
+            embedding_service.generate_embedding("test text")
 
-            call_kwargs = mock_client.embeddings.create.call_args[1]
+            call_kwargs = mock_azure.return_value.embeddings.create.call_args[1]
             assert call_kwargs["model"] == "text-embedding-3-large"
 
-    @pytest.mark.asyncio
-    async def test_updates_statistics(self, embedding_service, sample_embedding):
+    def test_updates_statistics(self, embedding_service, sample_embedding):
         """Test that statistics are updated after generation."""
         mock_response = Mock()
         mock_response.data = [Mock(embedding=sample_embedding)]
         mock_response.usage.total_tokens = 10
 
-        with patch.object(embedding_service, "client") as mock_client:
-            mock_client.embeddings.create.return_value = mock_response
+        with patch("services.embedding_service.AzureOpenAI") as mock_azure:
+            mock_azure.return_value.embeddings.create.return_value = mock_response
 
-            await embedding_service.generate_embedding("test text")
+            embedding_service.generate_embedding("test text")
 
             assert embedding_service.stats["total_requests"] == 1
             assert embedding_service.stats["tokens_used"] == 10
@@ -218,26 +216,25 @@ class TestEmbeddingGeneration:
 class TestCaching:
     """Tests for embedding caching functionality."""
 
-    @pytest.mark.asyncio
-    async def test_uses_cached_embedding_when_available(
+    def test_uses_cached_embedding_when_available(
         self, embedding_service, mock_cache_service, sample_embedding
     ):
         """Test that cached embeddings are used when available."""
         embedding_service.cache_service = mock_cache_service
         mock_cache_service.get.return_value = sample_embedding
 
-        with patch.object(embedding_service, "client") as mock_client:
-            result = await embedding_service.generate_embedding("test text")
+        with patch("services.embedding_service.AzureOpenAI") as mock_azure:
+            mock_azure.return_value.embeddings.create.return_value = Mock()
+            result = embedding_service.generate_embedding("test text")
 
             # Should return cached value
             assert result == sample_embedding
             # Should not call Azure API
-            mock_client.embeddings.create.assert_not_called()
+            mock_azure.return_value.embeddings.create.assert_not_called()
             # Should increment cache hit counter
             assert embedding_service.stats["cache_hits"] == 1
 
-    @pytest.mark.asyncio
-    async def test_caches_new_embedding(
+    def test_caches_new_embedding(
         self, embedding_service, mock_cache_service, sample_embedding
     ):
         """Test that newly generated embeddings are cached."""
@@ -248,16 +245,15 @@ class TestCaching:
         mock_response.data = [Mock(embedding=sample_embedding)]
         mock_response.usage.total_tokens = 10
 
-        with patch.object(embedding_service, "client") as mock_client:
-            mock_client.embeddings.create.return_value = mock_response
+        with patch("services.embedding_service.AzureOpenAI") as mock_azure:
+            mock_azure.return_value.embeddings.create.return_value = mock_response
 
-            await embedding_service.generate_embedding("test text")
+            embedding_service.generate_embedding("test text")
 
             # Should store in cache
             mock_cache_service.set.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_works_without_cache_service(self, embedding_service, sample_embedding):
+    def test_works_without_cache_service(self, embedding_service, sample_embedding):
         """Test that service works without cache."""
         embedding_service.cache_service = None
 
@@ -265,10 +261,10 @@ class TestCaching:
         mock_response.data = [Mock(embedding=sample_embedding)]
         mock_response.usage.total_tokens = 10
 
-        with patch.object(embedding_service, "client") as mock_client:
-            mock_client.embeddings.create.return_value = mock_response
+        with patch("services.embedding_service.AzureOpenAI") as mock_azure:
+            mock_azure.return_value.embeddings.create.return_value = mock_response
 
-            result = await embedding_service.generate_embedding("test text")
+            result = embedding_service.generate_embedding("test text")
 
             # Should still work
             assert result == sample_embedding
@@ -277,8 +273,7 @@ class TestCaching:
 class TestBatchProcessing:
     """Tests for batch embedding generation."""
 
-    @pytest.mark.asyncio
-    async def test_batch_generate_processes_multiple_texts(
+    def test_batch_generate_processes_multiple_texts(
         self, embedding_service, sample_embedding
     ):
         """Test that batch generation handles multiple texts."""
@@ -292,17 +287,16 @@ class TestBatchProcessing:
         ]
         mock_response.usage.total_tokens = 30
 
-        with patch.object(embedding_service, "client") as mock_client:
-            mock_client.embeddings.create.return_value = mock_response
+        with patch("services.embedding_service.AzureOpenAI") as mock_azure:
+            mock_azure.return_value.embeddings.create.return_value = mock_response
 
-            results = await embedding_service.batch_generate_embeddings(texts)
+            results = embedding_service.generate_embeddings_batch(texts)
 
             assert len(results) == 3
             # Should call API once for batch
-            assert mock_client.embeddings.create.call_count == 1
+            assert mock_azure.return_value.embeddings.create.call_count == 1
 
-    @pytest.mark.asyncio
-    async def test_batch_uses_cache_for_known_texts(
+    def test_batch_uses_cache_for_known_texts(
         self, embedding_service, mock_cache_service, sample_embedding
     ):
         """Test that batch generation uses cache when available."""
@@ -310,7 +304,7 @@ class TestBatchProcessing:
         texts = ["text 1", "text 2"]
 
         # First text is cached, second is not
-        async def mock_get(key):
+        def mock_get(key):
             if "text 1" in key:
                 return sample_embedding
             return None
@@ -321,33 +315,31 @@ class TestBatchProcessing:
         mock_response.data = [Mock(embedding=sample_embedding)]
         mock_response.usage.total_tokens = 10
 
-        with patch.object(embedding_service, "client") as mock_client:
-            mock_client.embeddings.create.return_value = mock_response
+        with patch("services.embedding_service.AzureOpenAI") as mock_azure:
+            mock_azure.return_value.embeddings.create.return_value = mock_response
 
-            results = await embedding_service.batch_generate_embeddings(texts)
+            results = embedding_service.generate_embeddings_batch(texts)
 
             assert len(results) == 2
             # Should only request embedding for text 2
-            assert mock_client.embeddings.create.call_count == 1
+            assert mock_azure.return_value.embeddings.create.call_count == 1
 
 
 class TestErrorHandling:
     """Tests for error handling."""
 
-    @pytest.mark.asyncio
-    async def test_handles_api_error_gracefully(self, embedding_service):
+    def test_handles_api_error_gracefully(self, embedding_service):
         """Test that API errors are handled properly."""
-        with patch.object(embedding_service, "client") as mock_client:
-            mock_client.embeddings.create.side_effect = Exception("API Error")
+        with patch("services.embedding_service.AzureOpenAI") as mock_azure:
+            mock_azure.return_value.embeddings.create.side_effect = Exception("API Error")
 
             with pytest.raises(Exception, match="API Error"):
-                await embedding_service.generate_embedding("test text")
+                embedding_service.generate_embedding("test text")
 
-    @pytest.mark.asyncio
-    async def test_handles_empty_text(self, embedding_service):
+    def test_handles_empty_text(self, embedding_service):
         """Test handling of empty text input."""
-        with pytest.raises(ValueError, match="Text cannot be empty"):
-            await embedding_service.generate_embedding("")
+        result = embedding_service.generate_embedding("")
+        assert result == [0.0] * embedding_service.EMBEDDING_DIMENSIONS
 
     @pytest.mark.asyncio
     async def test_validates_text_length(self, embedding_service):

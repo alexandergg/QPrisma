@@ -49,7 +49,7 @@ def export_openapi():
     # Print summary
     paths = openapi_schema.get("paths", {})
     endpoint_count = sum(len(methods) for methods in paths.values())
-    print(f"\nAPI Summary:")
+    print("\nAPI Summary:")
     print(f"  Title: {openapi_schema.get('info', {}).get('title', 'Unknown')}")
     print(f"  Version: {openapi_schema.get('info', {}).get('version', 'Unknown')}")
     print(f"  Endpoints: {endpoint_count}")

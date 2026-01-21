@@ -78,6 +78,7 @@ class TestVideoTasks:
     def test_tasks_registered(self):
         """Test que las tareas están registradas"""
         # Forzar importación de tasks
+        from tasks import video_tasks  # noqa: F401
         from tasks.celery_app import celery_app
 
         registered = list(celery_app.tasks.keys())
@@ -100,11 +101,10 @@ class TestVideoTasks:
         from tasks.celery_app import debug_task
 
         # Ejecutar sincrónico (eager mode)
-        with patch.object(debug_task, "request") as mock_request:
-            mock_request.hostname = "test-worker"
-            result = debug_task()
+        result = debug_task()
 
         assert result["status"] == "ok"
+        assert "worker" in result
         print("✓ Task de debug funciona")
 
 

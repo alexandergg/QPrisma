@@ -290,15 +290,15 @@ class ProcessingPreset(str, Enum):
 def get_adaptive_config(duration_seconds: float) -> FrameExtractionConfig:
     """
     Calcula configuración óptima de extracción según la duración del video.
-    
+
     Args:
         duration_seconds: Duración del video en segundos
-        
+
     Returns:
         FrameExtractionConfig optimizada para la duración
     """
     duration_minutes = duration_seconds / 60
-    
+
     if duration_minutes < 5:
         # Videos muy cortos: alta densidad
         return FrameExtractionConfig(

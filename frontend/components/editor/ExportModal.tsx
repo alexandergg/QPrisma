@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   X,
   Download,
@@ -69,21 +69,7 @@ export default function ExportModal({
   const clipsToExport = clip ? [clip] : (clips || []);
   const totalDuration = clipsToExport.reduce((sum, c) => sum + (c.end_time - c.start_time), 0);
 
-  // Load presets on mount
-  useEffect(() => {
-    if (isOpen) {
-      loadPresets();
-    }
-  }, [isOpen]);
-
-  // Update estimate when settings change
-  useEffect(() => {
-    if (presets && totalDuration > 0) {
-      updateEstimate();
-    }
-  }, [selectedPlatform, selectedQuality, totalDuration, presets]);
-
-  const loadPresets = async () => {
+  const loadPresets = useCallback(async () => {
     try {
       const data = await apiClient.getExportPresets();
       setPresets(data);
@@ -99,16 +85,30 @@ export default function ExportModal({
       console.error('Failed to load presets:', err);
       setError('Failed to load export options');
     }
-  };
+  }, [selectedPlatform]);
 
-  const updateEstimate = async () => {
+  const updateEstimate = useCallback(async () => {
     try {
       const data = await apiClient.estimateExport(totalDuration, selectedPlatform, selectedQuality);
       setEstimate(data);
     } catch (err) {
       console.error('Failed to get estimate:', err);
     }
-  };
+  }, [selectedPlatform, selectedQuality, totalDuration]);
+
+  // Load presets on mount
+  useEffect(() => {
+    if (isOpen) {
+      loadPresets();
+    }
+  }, [isOpen, loadPresets]);
+
+  // Update estimate when settings change
+  useEffect(() => {
+    if (presets && totalDuration > 0) {
+      updateEstimate();
+    }
+  }, [selectedPlatform, selectedQuality, totalDuration, presets, updateEstimate]);
 
   const handlePlatformChange = (platform: string) => {
     setSelectedPlatform(platform);
@@ -321,7 +321,7 @@ export default function ExportModal({
                   Quality
                 </label>
                 <div className="grid grid-cols-4 gap-2">
-                  {Object.entries(presets.qualities).map(([key, quality]) => (
+                  {Object.entries(presets.qualities).map(([key]) => (
                     <button
                       key={key}
                       onClick={() => setSelectedQuality(key)}

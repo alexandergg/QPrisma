@@ -297,9 +297,12 @@ class GetSummaryTool(BaseTool):
                         # Extract first meaningful part of description
                         if desc:
                             lines = desc.split("\n")
-                            summary_line = next((l for l in lines if l.strip() and not l.startswith("#")), desc[:200])
+                            summary_line = next(
+                                (line for line in lines if line.strip() and not line.startswith("#")),
+                                desc[:200],
+                            )
                             frame_summaries.append(f"[{format_timestamp(ts)}] {summary_line[:150]}")
-                    
+
                     return {
                         "level": "video",
                         "title": video_title,

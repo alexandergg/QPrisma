@@ -12,7 +12,6 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
@@ -169,7 +168,7 @@ class JobModel(Base):
 
 class EditorProjectModel(Base):
     """Editor project for video editing.
-    
+
     A project represents an editing session for a source video,
     containing multiple clips that form the final output.
     """
@@ -179,21 +178,21 @@ class EditorProjectModel(Base):
     id = Column(String(64), primary_key=True, default=generate_uuid)
     user_id = Column(String(64), ForeignKey("users.id"), nullable=False, index=True)
     source_media_id = Column(String(64), ForeignKey("media.id"), nullable=False, index=True)
-    
+
     # Project metadata
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    
+
     # Status: draft, exporting, completed, archived
     status = Column(String(32), default="draft", index=True)
-    
+
     # Project settings (format, resolution, etc.)
     settings = Column(JSON, nullable=True, default=dict)
-    
+
     # Export info
     export_format = Column(String(32), nullable=True)  # tiktok, reels, shorts, youtube
     export_url = Column(String(512), nullable=True)  # Final exported video URL
-    
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -206,7 +205,7 @@ class EditorProjectModel(Base):
         # Safe access to clips - avoid lazy load if detached from session
         from sqlalchemy.orm import object_session
         from sqlalchemy.orm.attributes import instance_state
-        
+
         clips_count = 0
         state = instance_state(self)
         if "clips" in state.dict:
@@ -216,7 +215,7 @@ class EditorProjectModel(Base):
             # Still in session, can lazy load
             clips_count = len(self.clips) if self.clips else 0
         # If detached and not loaded, clips_count stays 0
-        
+
         return {
             "id": self.id,
             "user_id": self.user_id,
@@ -235,7 +234,7 @@ class EditorProjectModel(Base):
 
 class ClipModel(Base):
     """Clip within an editor project.
-    
+
     Represents a segment of the source video that will be
     included in the final export.
     """
@@ -244,35 +243,35 @@ class ClipModel(Base):
 
     id = Column(String(64), primary_key=True, default=generate_uuid)
     project_id = Column(String(64), ForeignKey("editor_projects.id"), nullable=False, index=True)
-    
+
     # Timing (in seconds)
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=False)
-    
+
     # Position in timeline
     order = Column(Integer, nullable=False, default=0)
-    
+
     # Clip metadata
     title = Column(String(255), nullable=True)
     notes = Column(Text, nullable=True)
-    
+
     # AI metadata
     is_ai_suggested = Column(Boolean, default=False)
     viral_score = Column(Float, nullable=True)  # 0-100
     viral_reasons = Column(JSON, nullable=True)  # ["hook", "high_energy", ...]
     transcript_snippet = Column(Text, nullable=True)  # Text from this segment
-    
+
     # Subtitle configuration
     subtitle_style = Column(String(32), nullable=True)  # hormozi, mrbeast, minimal, karaoke, news
     subtitles_enabled = Column(Boolean, default=False)
     subtitles_data = Column(JSON, nullable=True)  # Parsed SRT data with word timings
     subtitle_settings = Column(JSON, nullable=True)  # font, color, position, etc.
-    
+
     # Export status for individual clip
     export_status = Column(String(32), default="pending")  # pending, processing, done, failed
     export_url = Column(String(512), nullable=True)  # URL of exported clip
     export_format = Column(String(32), nullable=True)  # tiktok, reels, etc.
-    
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -313,7 +312,7 @@ class ClipModel(Base):
 
 class BatchJobModel(Base):
     """Azure OpenAI Batch API job tracking.
-    
+
     Tracks batch jobs for vision analysis and embeddings.
     Enables 50% cost savings on OpenAI API calls.
     """
@@ -324,38 +323,38 @@ class BatchJobModel(Base):
     azure_batch_id = Column(String(128), nullable=False, unique=True, index=True)
     media_id = Column(String(64), ForeignKey("media.id"), nullable=True, index=True)
     user_id = Column(String(64), ForeignKey("users.id"), nullable=True, index=True)
-    
+
     # Batch type: 'vision', 'embedding', 'chat'
     batch_type = Column(String(32), nullable=False, index=True)
-    
+
     # Status: 'validating', 'in_progress', 'finalizing', 'completed', 'failed', 'expired', 'cancelled'
     status = Column(String(32), default="validating", index=True)
-    
+
     # Request counts
     total_requests = Column(Integer, default=0)
     completed_requests = Column(Integer, default=0)
     failed_requests = Column(Integer, default=0)
-    
+
     # File IDs
     input_file_id = Column(String(128), nullable=True)
     output_file_id = Column(String(128), nullable=True)
     error_file_id = Column(String(128), nullable=True)
-    
+
     # Cost tracking
     estimated_cost = Column(Float, nullable=True)  # Estimated cost in USD
     actual_cost = Column(Float, nullable=True)  # Actual cost after completion
     tokens_used = Column(Integer, default=0)
-    
+
     # Metadata
     description = Column(Text, nullable=True)
     batch_metadata = Column(JSON, nullable=True)  # Custom metadata
-    
+
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)  # 24h window
-    
+
     # Error handling
     error_message = Column(Text, nullable=True)
 
@@ -384,7 +383,7 @@ class BatchJobModel(Base):
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "error_message": self.error_message,
             "progress_percent": round(
-                (self.completed_requests / self.total_requests * 100) 
+                (self.completed_requests / self.total_requests * 100)
                 if self.total_requests > 0 else 0, 1
             ),
         }

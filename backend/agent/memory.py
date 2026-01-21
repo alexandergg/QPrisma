@@ -9,7 +9,7 @@ Supports session persistence and conversation history.
 import json
 import logging
 import os
-from datetime import timedelta
+from datetime import UTC
 from typing import Any
 
 import redis
@@ -256,9 +256,9 @@ class AgentMemory:
 
     def _timestamp(self) -> str:
         """Get current timestamp as ISO string."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()
 
     def close(self) -> None:
         """Close Redis connection."""

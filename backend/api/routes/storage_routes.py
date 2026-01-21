@@ -21,7 +21,6 @@ from services.database_service import get_database_service
 from services.storage_tiering_service import (
     RehydratePriority,
     StorageTier,
-    StorageTieringService,
     get_storage_tiering_service,
 )
 
@@ -62,7 +61,7 @@ class LifecyclePolicyRequest(BaseModel):
 async def storage_health():
     """Check storage tiering service health."""
     service = get_storage_tiering_service()
-    
+
     if service.blob_service:
         return {
             "status": "healthy",
@@ -83,7 +82,7 @@ async def get_media_tier(
 ) -> dict[str, Any]:
     """
     Get current storage tier for a video.
-    
+
     Returns tier info including:
     - Current tier (Hot, Cool, Cold, Archive)
     - Rehydration status if archived
@@ -91,16 +90,16 @@ async def get_media_tier(
     """
     db = get_database_service()
     media = db.get_media(media_id)
-    
+
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
-    
+
     if media.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     service = get_storage_tiering_service()
     tier_info = service.get_blob_tier_info(media.blob_name)
-    
+
     if not tier_info:
         # Return cached info from database if blob not accessible
         return {
@@ -140,23 +139,23 @@ async def change_media_tier(
 ) -> dict[str, Any]:
     """
     Change storage tier for a video.
-    
+
     Tiers:
     - Hot: Fastest access, highest cost
     - Cool: Slightly slower, 30+ days old
     - Cold: Even slower, 90+ days old
     - Archive: 1-15 hours to access, cheapest
-    
+
     When moving FROM Archive, specify rehydrate_priority:
     - Standard: 1-15 hours (cheaper)
     - High: < 1 hour (more expensive)
     """
     db = get_database_service()
     media = db.get_media(media_id)
-    
+
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
-    
+
     if media.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -174,7 +173,7 @@ async def change_media_tier(
             update_data["rehydration_status"] = f"rehydrate-pending-to-{request.target_tier.value.lower()}"
         else:
             update_data["rehydration_status"] = None
-        
+
         db.update_media(media_id, update_data)
 
     return {
@@ -195,23 +194,23 @@ async def rehydrate_media(
 ) -> dict[str, Any]:
     """
     Rehydrate an archived video.
-    
+
     Only needed for videos in Archive tier.
-    
+
     Priority options:
     - Standard: 1-15 hours (cheaper)
     - High: < 1 hour (more expensive)
-    
+
     Target tier after rehydration:
     - Hot: Immediate access
     - Cool: Slightly cheaper than Hot
     """
     db = get_database_service()
     media = db.get_media(media_id)
-    
+
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
-    
+
     if media.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -253,7 +252,7 @@ async def get_tier_recommendation(
 ) -> dict[str, Any]:
     """
     Get tier recommendation for a video based on access pattern.
-    
+
     Returns:
     - Recommended tier
     - Reason for recommendation
@@ -261,10 +260,10 @@ async def get_tier_recommendation(
     """
     db = get_database_service()
     media = db.get_media(media_id)
-    
+
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
-    
+
     if media.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -292,7 +291,7 @@ async def get_cost_analysis(
 ) -> dict[str, Any]:
     """
     Get storage cost analysis for all user's videos.
-    
+
     Returns:
     - Current monthly costs
     - Optimized monthly costs
@@ -302,7 +301,7 @@ async def get_cost_analysis(
     """
     db = get_database_service()
     media_list = db.get_media_by_user(current_user.id, limit=1000)
-    
+
     if not media_list:
         return {
             "total_media_count": 0,
@@ -325,11 +324,11 @@ async def generate_lifecycle_policy(
 ) -> dict[str, Any]:
     """
     Generate Azure Lifecycle Management Policy JSON.
-    
+
     This policy can be applied via:
     - Azure Portal: Storage Account > Lifecycle Management
     - Azure CLI: az storage account management-policy create
-    
+
     The policy automatically moves blobs between tiers based on access time.
     """
     service = get_storage_tiering_service()
@@ -360,13 +359,13 @@ async def sync_all_tiers(
 ) -> dict[str, Any]:
     """
     Sync storage tier info from Azure for all user's videos.
-    
+
     Updates the database with current tier information from Azure.
     Useful after lifecycle policies have run.
     """
     db = get_database_service()
     media_list = db.get_media_by_user(current_user.id, limit=1000)
-    
+
     if not media_list:
         return {"synced": 0, "message": "No videos found"}
 
@@ -400,16 +399,16 @@ async def record_media_access(
 ) -> dict[str, Any]:
     """
     Record that a video was accessed (for tier optimization).
-    
+
     Call this when a user views/plays a video to update last_accessed_at.
     This affects tier recommendations.
     """
     db = get_database_service()
     media = db.get_media(media_id)
-    
+
     if not media:
         raise HTTPException(status_code=404, detail="Media not found")
-    
+
     if media.user_id != current_user.id and not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Not authorized")
 

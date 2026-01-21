@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, use, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { apiClient, EditorProjectWithClips, Clip, ExportResult } from '@/lib/api';
+import { apiClient, EditorProjectWithClips, Clip } from '@/lib/api';
 import RequireAuth from '@/components/RequireAuth';
 import {
   EditorLayout,
@@ -56,12 +56,7 @@ export default function EditorProjectPage({ params }: PageParams) {
     return clips.find(c => c.id === subtitleEditClipId);
   }, [subtitleEditClipId, clips]);
 
-  // Fetch project on mount
-  useEffect(() => {
-    fetchProject();
-  }, [resolvedParams.projectId]);
-
-  const fetchProject = async () => {
+  const fetchProject = useCallback(async () => {
     try {
       setIsLoading(true);
       const data = await apiClient.getEditorProject(resolvedParams.projectId);
@@ -74,7 +69,12 @@ export default function EditorProjectPage({ params }: PageParams) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [resolvedParams.projectId]);
+
+  // Fetch project on mount
+  useEffect(() => {
+    fetchProject();
+  }, [fetchProject]);
 
   // Handle clips updated from chat
   const handleClipsUpdated = useCallback((updatedClips: Clip[]) => {
@@ -178,7 +178,7 @@ export default function EditorProjectPage({ params }: PageParams) {
       // Revert on error
       fetchProject();
     }
-  }, [resolvedParams.projectId]);
+  }, [fetchProject, resolvedParams.projectId]);
 
   // Handle generate auto-clips (this would be done via chat in practice)
   const handleGenerateAutoClips = useCallback(() => {
@@ -247,10 +247,10 @@ export default function EditorProjectPage({ params }: PageParams) {
   }, []);
 
   // Handle export complete
-  const handleExportComplete = useCallback((_result: ExportResult | ExportResult[]) => {
+  const handleExportComplete = useCallback(() => {
     // Refresh clips to get updated export status
     fetchProject();
-  }, []);
+  }, [fetchProject]);
 
   if (isLoading) {
     return (
