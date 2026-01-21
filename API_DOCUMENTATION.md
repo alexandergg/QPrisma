@@ -192,6 +192,217 @@ GET /jobs/{job_id}
 - `completed`: Job finished successfully
 - `failed`: Job encountered an error
 
+### Video Editor (Chat-to-Edit)
+
+#### Create Project
+```http
+POST /editor/projects
+Content-Type: application/json
+
+{
+  "source_media_id": "media_abc123",
+  "name": "My Podcast Ep.42 Clips",
+  "description": "Viral clips from episode 42",
+  "settings": {
+    "target_aspect_ratio": "9:16",
+    "target_resolution": "1080x1920",
+    "default_subtitle_style": "hormozi"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "id": "project_123",
+  "user_id": "user_abc",
+  "source_media_id": "media_abc123",
+  "name": "My Podcast Ep.42 Clips",
+  "status": "draft",
+  "clips_count": 0
+}
+```
+
+#### List Projects
+```http
+GET /editor/projects?limit=50&offset=0
+```
+
+#### Get Project (with clips and source media)
+```http
+GET /editor/projects/{project_id}
+```
+
+#### Create Clip
+```http
+POST /editor/projects/{project_id}/clips
+Content-Type: application/json
+
+{
+  "start_time": 734.5,
+  "end_time": 764.5,
+  "title": "Introduction to AI",
+  "notes": "Good hook at the start"
+}
+```
+
+#### Reorder Clips
+```http
+POST /editor/projects/{project_id}/clips/reorder
+Content-Type: application/json
+
+{
+  "clip_ids": ["clip_a", "clip_b", "clip_c"]
+}
+```
+
+#### Subtitle Styles
+```http
+GET /editor/subtitle-styles
+```
+
+#### Generate Subtitles
+```http
+POST /editor/clips/{clip_id}/subtitles/generate
+Content-Type: application/json
+
+{
+  "style": "hormozi"
+}
+```
+
+#### Update Clip Subtitles
+```http
+PATCH /editor/clips/{clip_id}/subtitles
+Content-Type: application/json
+
+{
+  "subtitles_enabled": true,
+  "subtitle_style": "mrbeast"
+}
+```
+
+#### Export Presets
+```http
+GET /editor/export/presets
+```
+
+#### Export Clip
+```http
+POST /editor/clips/{clip_id}/export
+Content-Type: application/json
+
+{
+  "platform": "tiktok",
+  "quality": "standard",
+  "crop_mode": "center",
+  "burn_subtitles": true
+}
+```
+
+#### Batch Export
+```http
+POST /editor/projects/{project_id}/export/batch
+Content-Type: application/json
+
+{
+  "clip_ids": ["clip_a", "clip_b"],
+  "platform": "reels",
+  "quality": "high"
+}
+```
+
+#### Export Status
+```http
+GET /editor/clips/{clip_id}/export/status
+```
+
+#### Chat-to-Edit Stream (SSE)
+```http
+POST /editor/projects/{project_id}/chat/stream
+Content-Type: application/json
+
+{
+  "message": "Crea 3 clips virales de 30 segundos",
+  "session_id": "session-uuid"
+}
+```
+
+**Response (Streaming):**
+```
+data: {"event": "session", "data": {"session_id": "session-uuid"}}
+data: {"event": "token", "data": {"content": "Claro, generando clips..."}}
+data: {"event": "clips_updated", "data": {"clips": []}}
+data: {"event": "done", "data": {"response": "Listo"}}
+```
+
+### Storage Tiering
+
+#### Get Storage Health
+```http
+GET /storage/health
+```
+
+#### Get Media Tier
+```http
+GET /storage/media/{media_id}/tier
+```
+
+#### Change Media Tier
+```http
+POST /storage/media/{media_id}/tier
+Content-Type: application/json
+
+{
+  "target_tier": "Cool",
+  "rehydrate_priority": "standard"
+}
+```
+
+#### Rehydrate Archived Media
+```http
+POST /storage/media/{media_id}/rehydrate
+Content-Type: application/json
+
+{
+  "priority": "high",
+  "target_tier": "Hot"
+}
+```
+
+#### Tier Recommendation
+```http
+GET /storage/media/{media_id}/recommendation
+```
+
+#### Storage Cost Analysis
+```http
+GET /storage/cost-analysis
+```
+
+#### Generate Lifecycle Policy
+```http
+POST /storage/lifecycle-policy
+Content-Type: application/json
+
+{
+  "cool_days": 30,
+  "cold_days": 90,
+  "archive_days": 180,
+  "prefix_filter": "videos/"
+}
+```
+
+#### Sync All Tiers
+```http
+POST /storage/sync-tiers
+```
+
+#### Record Media Access
+```http
+POST /storage/media/{media_id}/access
+```
+
 ### Search & Chat
 
 #### Semantic Search
