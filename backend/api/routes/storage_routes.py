@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.dependencies import get_current_user
+from api.dependencies import get_current_user, get_media_or_404
 from models.user import User
 from services.database_service import get_database_service
 from services.storage_tiering_service import (
@@ -88,14 +88,8 @@ async def get_media_tier(
     - Rehydration status if archived
     - Estimated rehydration time
     """
+    media = get_media_or_404(media_id, current_user)
     db = get_database_service()
-    media = db.get_media(media_id)
-
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
-
-    if media.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Not authorized")
 
     service = get_storage_tiering_service()
     tier_info = service.get_blob_tier_info(media.blob_name)
@@ -150,14 +144,8 @@ async def change_media_tier(
     - Standard: 1-15 hours (cheaper)
     - High: < 1 hour (more expensive)
     """
+    media = get_media_or_404(media_id, current_user)
     db = get_database_service()
-    media = db.get_media(media_id)
-
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
-
-    if media.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Not authorized")
 
     service = get_storage_tiering_service()
     result = service.set_blob_tier(
@@ -206,13 +194,7 @@ async def rehydrate_media(
     - Cool: Slightly cheaper than Hot
     """
     db = get_database_service()
-    media = db.get_media(media_id)
-
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
-
-    if media.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    media = get_media_or_404(media_id, current_user)
 
     # Check if actually archived
     if media.storage_tier != "Archive":
@@ -258,14 +240,7 @@ async def get_tier_recommendation(
     - Reason for recommendation
     - Estimated cost savings
     """
-    db = get_database_service()
-    media = db.get_media(media_id)
-
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
-
-    if media.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    media = get_media_or_404(media_id, current_user)
 
     service = get_storage_tiering_service()
     recommendation = service.get_tier_recommendation(
@@ -404,13 +379,7 @@ async def record_media_access(
     This affects tier recommendations.
     """
     db = get_database_service()
-    media = db.get_media(media_id)
-
-    if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
-
-    if media.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    get_media_or_404(media_id, current_user)
 
     db.update_media(media_id, {
         "last_accessed_at": datetime.utcnow(),

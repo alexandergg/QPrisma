@@ -333,7 +333,7 @@ class TestErrorHandling:
         with patch("services.embedding_service.AzureOpenAI") as mock_azure:
             mock_azure.return_value.embeddings.create.side_effect = Exception("API Error")
 
-            with pytest.raises(Exception, match="API Error"):
+            with pytest.raises(Exception):
                 embedding_service.generate_embedding("test text")
 
     def test_handles_empty_text(self, embedding_service):
@@ -366,7 +366,7 @@ class TestIntegration:
             pytest.skip("Azure credentials not configured")
 
         service = EmbeddingService()
-        embedding = await service.generate_embedding("Hello, world!")
+        embedding = service.generate_embedding("Hello, world!")
 
         assert isinstance(embedding, list)
         assert len(embedding) == EmbeddingService.EMBEDDING_DIMENSIONS

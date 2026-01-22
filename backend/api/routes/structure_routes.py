@@ -7,12 +7,11 @@ Uses PostgreSQL for metadata storage (replaces Cosmos DB).
 
 import json
 import logging
-import os
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies import get_blob_service, get_current_user
+from api.dependencies import get_blob_service, get_current_user, get_storage_container_name
 from models.user import User
 from services.database_service import get_database_service
 
@@ -290,7 +289,7 @@ async def get_video_structure(media_id: str, current_user: User = Depends(get_cu
             raise HTTPException(status_code=404, detail="Video structure not available yet.")
 
         # Load structure from blob
-        storage_container = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
+        storage_container = get_storage_container_name()
         blob_client = blob_service.get_blob_client(container=storage_container, blob=structure_blob)
 
         structure_json = blob_client.download_blob().readall()

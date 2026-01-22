@@ -7,17 +7,17 @@ Uses PostgreSQL for metadata storage (replaces Cosmos DB).
 
 import json
 import logging
-import os
 
-import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.dependencies import (
     get_blob_service,
     get_current_user,
+    get_storage_container_name,
     get_video_processor,
 )
+from core.serializers import sanitize_for_json
 from models.ffmpeg_config import (
     FFmpegProcessingConfig,
     FrameExtractionConfig,
@@ -30,27 +30,6 @@ from services.database_service import get_database_service
 
 router = APIRouter(tags=["Processing"])
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-
-def sanitize_for_json(obj):
-    """Recursively convert numpy types to python types for JSON serialization."""
-    if isinstance(obj, dict):
-        return {k: sanitize_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [sanitize_for_json(v) for v in obj]
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return sanitize_for_json(obj.tolist())
-    else:
-        return obj
 
 
 def _get_preset_description(preset: ProcessingPreset) -> str:
@@ -196,7 +175,7 @@ async def process_video_ffmpeg_background(
 
                 # Save heavy data to blob storage
                 blob_service = get_blob_service()
-                storage_container = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
+                storage_container = get_storage_container_name()
 
                 # 1. Audio Data
                 audio_data_clean = sanitize_for_json(result.get("audio_data"))

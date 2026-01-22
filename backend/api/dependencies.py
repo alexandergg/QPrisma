@@ -5,15 +5,15 @@ This module contains shared dependencies, utilities, and service getters
 that are used across multiple route modules.
 """
 
-import os
-
 from azure.storage.blob import BlobServiceClient
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import AzureOpenAI
 
+from core.config import settings
 from models.user import User
 from services.auth_service import AuthService
+from services.database_service import get_database_service
 
 # =============================================================================
 # Security
@@ -36,7 +36,7 @@ def get_blob_service() -> BlobServiceClient | None:
     """Get or create Blob Storage client."""
     global _blob_service
     if _blob_service is None:
-        conn_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        conn_string = settings.azure.storage_connection_string
         if conn_string:
             _blob_service = BlobServiceClient.from_connection_string(conn_string)
     return _blob_service
@@ -46,13 +46,13 @@ def get_openai_client() -> AzureOpenAI | None:
     """Get or create Azure OpenAI client."""
     global _openai_client
     if _openai_client is None:
-        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        endpoint = settings.azure.openai_endpoint
+        api_key = settings.azure.openai_api_key
         if endpoint and api_key:
             _openai_client = AzureOpenAI(
                 azure_endpoint=endpoint,
                 api_key=api_key,
-                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
+                api_version=settings.azure.openai_api_version,
             )
     return _openai_client
 
@@ -69,7 +69,7 @@ def get_video_processor():
             _video_processor = VideoProcessor(
                 openai_client=openai_client,
                 blob_service=blob_service,
-                container_name=os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media"),
+                container_name=settings.azure.storage_container_name,
             )
     return _video_processor
 
@@ -98,6 +98,27 @@ def get_graph_search_service():
         except Exception:
             pass  # Neo4j may not be connected yet
     return _graph_search_service
+
+
+def get_storage_container_name() -> str:
+    """Get Azure Storage container name for media."""
+    return settings.azure.storage_container_name
+
+
+def get_media_or_404(
+    media_id: str,
+    current_user: User,
+    *,
+    allow_superuser: bool = True,
+):
+    """Fetch media and enforce ownership."""
+    db = get_database_service()
+    media = db.get_media(media_id)
+    if not media:
+        raise HTTPException(status_code=404, detail="Media not found")
+    if media.user_id != current_user.id and (not allow_superuser or not current_user.is_superuser):
+        raise HTTPException(status_code=403, detail="Not authorized")
+    return media
 
 
 # =============================================================================
