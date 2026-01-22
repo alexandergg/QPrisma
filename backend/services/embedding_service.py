@@ -136,10 +136,14 @@ class EmbeddingService:
         # Generar embedding
         self.stats["total_requests"] += 1
 
-        response = self.client.embeddings.create(
-            model=self.deployment,
-            input=text,
-        )
+        try:
+            response = self.client.embeddings.create(
+                model=self.deployment,
+                input=text,
+            )
+        except Exception:
+            logger.exception("Embedding generation failed")
+            raise
 
         embedding = response.data[0].embedding
         self.stats["tokens_used"] += response.usage.total_tokens
@@ -204,10 +208,14 @@ class EmbeddingService:
 
             self.stats["total_requests"] += 1
 
-            response = self.client.embeddings.create(
-                model=self.deployment,
-                input=batch_texts,
-            )
+            try:
+                response = self.client.embeddings.create(
+                    model=self.deployment,
+                    input=batch_texts,
+                )
+            except Exception:
+                logger.exception("Batch embedding generation failed")
+                raise
 
             self.stats["tokens_used"] += response.usage.total_tokens
 

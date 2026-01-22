@@ -1,18 +1,19 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, use, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar, VideoPanel } from '@/components/layout';
 import { ChatContainer } from '@/components/chat';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import RequireAuth from '@/components/RequireAuth';
-import { X, Film, Loader2 } from 'lucide-react';
+import { Film, Loader2 } from 'lucide-react';
 
 interface Scene {
   scene_id: number;
   start_time: number;
   end_time: number;
+  duration?: number;
   summary?: string;
 }
 
@@ -21,6 +22,8 @@ interface Chapter {
   title: string;
   start_time: number;
   end_time: number;
+  duration?: number;
+  scene_ids?: number[];
 }
 
 interface TranscriptSegment {
@@ -60,12 +63,28 @@ export default function ChatPage({ params }: ChatPageProps) {
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load conversation and associated video
-  useEffect(() => {
-    loadConversation();
-  }, [resolvedParams.id]);
+  const loadVideo = useCallback(async (videoId: string) => {
+    try {
+      const [metadata, structure] = await Promise.all([
+        apiClient.getVideoMetadata(videoId),
+        apiClient.getVideoStructure(videoId).catch(() => null),
+      ]);
 
-  const loadConversation = async () => {
+        setSelectedVideo({
+          id: videoId,
+          url: metadata.blob_url,
+          title: metadata.original_filename,
+          duration: metadata.duration,
+          scenes: structure?.structure?.scenes || structure?.scenes || [],
+          chapters: structure?.structure?.chapters || structure?.chapters || [],
+          transcript: metadata.audio_data?.transcription?.segments || [],
+        });
+    } catch (error) {
+      console.error('Failed to load video:', error);
+    }
+  }, []);
+
+  const loadConversation = useCallback(async () => {
     try {
       setIsLoading(true);
 
@@ -84,28 +103,12 @@ export default function ChatPage({ params }: ChatPageProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [loadVideo, resolvedParams.id]);
 
-  const loadVideo = async (videoId: string) => {
-    try {
-      const [metadata, structure] = await Promise.all([
-        apiClient.getVideoMetadata(videoId),
-        apiClient.getVideoStructure(videoId).catch(() => null),
-      ]);
-
-      setSelectedVideo({
-        id: videoId,
-        url: metadata.blob_url,
-        title: metadata.original_filename,
-        duration: metadata.duration,
-        scenes: structure?.scenes || [],
-        chapters: structure?.chapters || [],
-        transcript: metadata.audio_data?.transcription?.segments || [],
-      });
-    } catch (error) {
-      console.error('Failed to load video:', error);
-    }
-  };
+  // Load conversation and associated video
+  useEffect(() => {
+    loadConversation();
+  }, [resolvedParams.id, loadConversation]);
 
   const handleTimestampClick = (timestamp: number) => {
     setCurrentTime(timestamp);
@@ -169,7 +172,6 @@ export default function ChatPage({ params }: ChatPageProps) {
             <ChatContainer
               videoId={selectedVideo?.id}
               videoName={selectedVideo?.title}
-              videoUrl={selectedVideo?.url}
               mode={currentMode}
               onTimestampClick={handleTimestampClick}
               userName={user?.full_name || user?.email}

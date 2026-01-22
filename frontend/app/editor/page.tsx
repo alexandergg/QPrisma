@@ -231,8 +231,16 @@ interface NewProjectModalProps {
   onCreated: (project: EditorProject) => void;
 }
 
+interface ProjectVideoSummary {
+  id: string;
+  original_filename?: string;
+  filename?: string;
+  name?: string;
+  duration?: number;
+}
+
 function NewProjectModal({ onClose, onCreated }: NewProjectModalProps) {
-  const [videos, setVideos] = useState<any[]>([]);
+  const [videos, setVideos] = useState<ProjectVideoSummary[]>([]);
   const [selectedVideoId, setSelectedVideoId] = useState<string>('');
   const [projectName, setProjectName] = useState('');
   const [isLoading, setIsLoading] = useState(true);

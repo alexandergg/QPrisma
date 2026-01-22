@@ -25,7 +25,15 @@ export default function UploadZone({
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const validateFiles = (files: File[]): File[] => {
+  const formatSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  };
+
+  const validateFiles = useCallback((files: File[]): File[] => {
     const validFiles: File[] = [];
     const errors: string[] = [];
 
@@ -52,15 +60,7 @@ export default function UploadZone({
     }
 
     return validFiles;
-  };
-
-  const formatSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-  };
+  }, [acceptedFormats, maxSize]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -96,7 +96,7 @@ export default function UploadZone({
         onFilesSelected(multiple ? validFiles : [validFiles[0]]);
       }
     },
-    [isUploading, multiple, onFilesSelected]
+    [isUploading, multiple, onFilesSelected, validateFiles]
   );
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {

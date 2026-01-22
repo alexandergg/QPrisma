@@ -7,7 +7,6 @@ Uses PostgreSQL for metadata storage (replaces Cosmos DB).
 
 import json
 import logging
-import os
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -18,8 +17,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from api.dependencies import (
     get_blob_service,
     get_current_user,
+    get_storage_container_name,
     get_video_processor,
 )
+from core.config import settings
 from models.user import User
 from services.database_service import get_database_service
 
@@ -38,7 +39,7 @@ def generate_sas_url(blob_name: str, expiry_hours: int = 1) -> str | None:
     if not blob_service:
         return None
 
-    conn_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+    conn_string = settings.azure.storage_connection_string or ""
     account_key_match = re.search(r"AccountKey=([^;]+)", conn_string)
     account_name_match = re.search(r"AccountName=([^;]+)", conn_string)
 
@@ -47,7 +48,7 @@ def generate_sas_url(blob_name: str, expiry_hours: int = 1) -> str | None:
 
     account_key = account_key_match.group(1)
     account_name = account_name_match.group(1)
-    container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
+    container_name = get_storage_container_name()
 
     sas_token = generate_blob_sas(
         account_name=account_name,
@@ -67,7 +68,7 @@ def hydrate_data_from_blob(item: dict) -> dict:
     if not blob_service:
         return item
 
-    storage_container = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
+    storage_container = get_storage_container_name()
 
     # 1. Hydrate Audio Data
     if item.get("audio_data_blob") and (
@@ -164,7 +165,7 @@ async def upload_media(
         content = await file.read()
 
         # Upload to Blob Storage
-        container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
+        container_name = get_storage_container_name()
         blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
         blob_client.upload_blob(content, overwrite=True)
 
@@ -256,7 +257,7 @@ async def upload_media_optimized(
         logger.info(f"File size: {file_size_mb:.2f} MB")
 
         # Upload to Blob
-        container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
+        container_name = get_storage_container_name()
         blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
         blob_client.upload_blob(content, overwrite=True)
 
@@ -491,7 +492,7 @@ async def get_video_audio_data(media_id: str, current_user: User = Depends(get_c
             try:
                 blob_service = get_blob_service()
                 if blob_service:
-                    storage_container = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
+                    storage_container = get_storage_container_name()
                     blob_client = blob_service.get_blob_client(
                         container=storage_container, blob=item["audio_data_blob"]
                     )

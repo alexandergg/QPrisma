@@ -97,13 +97,13 @@ async def chat(request: ChatRequest, current_user: User = Depends(get_current_us
 
         if request.media_id:
             logger.info(f"Chat search: query='{request.message}', media_id={request.media_id}")
-            
+
             # First, load video summary and topics from Neo4j
             try:
                 search_service = get_graph_search_service()
                 if not search_service.graph_service.is_connected:
                     search_service.graph_service.connect()
-                
+
                 if search_service.graph_service.is_connected:
                     with search_service.graph_service.get_session() as session:
                         result = session.run(
@@ -122,14 +122,14 @@ async def chat(request: ChatRequest, current_user: User = Depends(get_current_us
                                 logger.info(f"Loaded video summary ({len(video_summary)} chars) and {len(video_topics)} topics from Neo4j")
             except Exception as e:
                 logger.warning(f"Could not load video summary from Neo4j: {e}")
-            
+
             try:
                 # Use VideoRAG-style hybrid search
                 search_service = get_graph_search_service()
-                
+
                 if not search_service.graph_service.is_connected:
                     search_service.graph_service.connect()
-                
+
                 if not search_service.graph_service.is_connected:
                     logger.warning("Neo4j not connected - cannot search video context")
                 else:
@@ -389,9 +389,10 @@ async def agent_chat(
 
     The agent automatically decides which tools to use based on the user's question.
     """
-    from agent.video_agent import get_video_agent
-    from agent.memory import get_agent_memory
     import uuid
+
+    from agent.memory import get_agent_memory
+    from agent.video_agent import get_video_agent
 
     try:
         agent = get_video_agent()
@@ -481,10 +482,12 @@ async def agent_chat_stream(
 
     Use with EventSource or fetch with ReadableStream on the client.
     """
-    from fastapi.responses import StreamingResponse
-    from agent.video_agent import get_video_agent
-    from agent.memory import get_agent_memory
     import uuid
+
+    from fastapi.responses import StreamingResponse
+
+    from agent.memory import get_agent_memory
+    from agent.video_agent import get_video_agent
 
     async def event_generator():
         try:

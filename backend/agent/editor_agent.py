@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 class EditorAgentConfig(AgentConfig):
     """Configuration for the editor agent."""
-    
+
     # Editor-specific settings
     default_subtitle_style: str = "hormozi"
     auto_confirm_clips: bool = False  # If True, create clips without confirmation
@@ -35,13 +35,13 @@ class EditorAgentConfig(AgentConfig):
 class EditorAgent:
     """
     AI agent for video editing through natural conversation.
-    
+
     Features:
     - Create, modify, delete clips via chat
     - AI-powered clip suggestions with viral scores
     - Subtitle management with popular styles
     - Integrated search from VideoRAG
-    
+
     The agent maintains context about:
     - Current project and its clips
     - Source video information
@@ -56,7 +56,7 @@ class EditorAgent:
         """Initialize the editor agent."""
         self.client = client or self._create_client()
         self.config = config or EditorAgentConfig()
-        
+
         if self.config.model_deployment is None:
             self.config.model_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
 
@@ -84,7 +84,7 @@ class EditorAgent:
 
         db = get_database_service()
         project = db.get_project_with_clips(project_id)
-        
+
         if not project:
             return {}
 
@@ -92,7 +92,7 @@ class EditorAgent:
         media = db.get_media(project.source_media_id)
         video_duration = 0
         video_title = "Unknown"
-        
+
         if media:
             video_title = media.original_filename or media.blob_name
             if media.video_metadata:
@@ -101,10 +101,9 @@ class EditorAgent:
         # Build clips list
         clips = project.clips or []
         total_clips_duration = sum(c.end_time - c.start_time for c in clips)
-        
+
         clips_list = ""
         for i, clip in enumerate(clips):
-            duration = clip.end_time - clip.start_time
             subtitle_info = f" [📝 {clip.subtitle_style}]" if clip.subtitles_enabled else ""
             viral_info = f" ⭐{int(clip.viral_score)}" if clip.viral_score else ""
             # Include clip ID for agent to use with modify_clip tool
@@ -177,7 +176,7 @@ class EditorAgent:
         """
         # Get project context
         project_context = self._get_project_context(project_id)
-        
+
         # Use media_id from project if not provided
         if not media_id and project_context:
             media_id = project_context.get("source_media_id")
@@ -190,7 +189,7 @@ class EditorAgent:
             user_id=user_id,
             session_id=session_id,
         )
-        
+
         # Add editor-specific context
         state["project_context"] = project_context
         state["project_id"] = project_id
@@ -233,7 +232,7 @@ class EditorAgent:
         """
         # Get project context
         project_context = self._get_project_context(project_id)
-        
+
         if not media_id and project_context:
             media_id = project_context.get("source_media_id")
 
@@ -245,7 +244,7 @@ class EditorAgent:
             user_id=user_id,
             session_id=session_id,
         )
-        
+
         state["project_context"] = project_context
         state["project_id"] = project_id
 
@@ -254,11 +253,11 @@ class EditorAgent:
         try:
             async for event in self._run_loop_stream(state):
                 yield event
-                
+
                 # Check if clips were updated after tool calls
                 if event.get("event") == "tool_end":
                     tool_name = event.get("data", {}).get("tool")
-                    if tool_name in ["create_clip", "modify_clip", "delete_clip", 
+                    if tool_name in ["create_clip", "modify_clip", "delete_clip",
                                      "reorder_clips", "add_suggested_clips",
                                      "add_subtitles", "change_subtitle_style", "remove_subtitles"]:
                         # Emit clips updated event
@@ -355,7 +354,7 @@ class EditorAgent:
 
                     if tool:
                         # Pass project_id to editor tools
-                        if func_name in ["create_clip", "list_clips", "reorder_clips", 
+                        if func_name in ["create_clip", "list_clips", "reorder_clips",
                                          "generate_auto_clips", "add_suggested_clips"]:
                             func_args["project_id"] = project_id
 
@@ -586,7 +585,7 @@ class EditorAgent:
 
         for tool_call in pending_calls:
             func_name = tool_call["function"]["name"]
-            
+
             try:
                 func_args = json.loads(tool_call["function"]["arguments"])
             except json.JSONDecodeError:

@@ -147,6 +147,8 @@ export function useJobWebSocket(
     }
   }, []);
 
+  const connectRef = useRef<() => void>(() => {});
+
   // Connect function
   const connect = useCallback(() => {
     if (!jobId) return;
@@ -186,29 +188,42 @@ export function useJobWebSocket(
               // Confirmación de conexión
               break;
 
-            case 'job_progress':
-              const progressData = data.payload as unknown as JobProgress;
-              setProgress(progressData.progress || 0);
-              setStage(progressData.stage || '');
-              setMessage(progressData.message || null);
+            case 'job_progress': {
+              const payload = data.payload;
+              const progress = typeof payload.progress === 'number' ? payload.progress : 0;
+              const stage = typeof payload.stage === 'string' ? payload.stage : '';
+              const message = typeof payload.message === 'string' ? payload.message : undefined;
+              const status = typeof payload.status === 'string' ? payload.status : undefined;
+              const progressData: JobProgress = {
+                progress,
+                stage,
+                message,
+                status,
+              };
+              setProgress(progress);
+              setStage(stage);
+              setMessage(message ?? null);
               onProgress?.(progressData);
               break;
+            }
 
-            case 'job_completed':
+            case 'job_completed': {
               setProgress(100);
               setStage('completed');
               setMessage('Procesamiento completado');
-              const resultData = data.payload.result as Record<string, unknown>;
+              const resultData = (data.payload as { result?: Record<string, unknown> }).result ?? {};
               setResult(resultData);
               onCompleted?.(resultData);
               break;
+            }
 
-            case 'job_failed':
-              const errorMsg = (data.payload.error as string) || 'Error desconocido';
+            case 'job_failed': {
+              const errorMsg = (data.payload as { error?: string }).error ?? 'Error desconocido';
               setError(errorMsg);
               setStage('failed');
               onError?.(errorMsg);
               break;
+            }
 
             case 'heartbeat':
             case 'pong':
@@ -243,7 +258,7 @@ export function useJobWebSocket(
           reconnectAttempts.current++;
 
           reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
+            connectRef.current();
           }, delay);
         }
       };
@@ -253,6 +268,10 @@ export function useJobWebSocket(
       setError(e instanceof Error ? e.message : 'Error de conexión');
     }
   }, [jobId, wsUrl, autoReconnect, maxReconnectInterval, onConnected, onDisconnected, onProgress, onCompleted, onError, cleanup]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   // Disconnect function
   const disconnect = useCallback(() => {
@@ -278,16 +297,19 @@ export function useJobWebSocket(
 
   // Effect: Connect when jobId changes
   useEffect(() => {
-    if (jobId) {
-      connect();
-    } else {
-      disconnect();
-    }
+    const shouldConnect = !!jobId;
+    Promise.resolve().then(() => {
+      if (shouldConnect) {
+        connect();
+      } else {
+        disconnect();
+      }
+    });
 
     return () => {
       cleanup();
     };
-  }, [jobId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [jobId, connect, disconnect, cleanup]);
 
   return {
     status,

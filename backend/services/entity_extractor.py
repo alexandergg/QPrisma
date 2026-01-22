@@ -368,8 +368,9 @@ Respond with JSON following this schema:
                     description=e.get("description"),
                 )
                 entities.append(entity)
-            except Exception:
-                pass
+            except (ValueError, KeyError, TypeError) as err:
+                logger.warning(f"Could not parse entity: {err}")
+                continue
 
         return FrameAnalysisResult(
             frame_id=str(uuid4()),

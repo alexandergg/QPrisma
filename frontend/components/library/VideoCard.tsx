@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Image from 'next/image';
 import { Play, Clock, Film, CheckCircle, Loader2, MoreVertical, Trash2 } from 'lucide-react';
 
 interface VideoCardProps {
@@ -47,7 +48,6 @@ function formatDate(date: Date): string {
 }
 
 export default function VideoCard({
-  id,
   name,
   thumbnail,
   duration,
@@ -75,7 +75,7 @@ export default function VideoCard({
       {/* Thumbnail */}
       <div className="relative aspect-video bg-gray-100">
         {thumbnail ? (
-          <img src={thumbnail} alt={name} className="w-full h-full object-cover" />
+          <Image src={thumbnail} alt={name} fill sizes="100vw" className="object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <Film className="w-12 h-12 text-gray-300" />

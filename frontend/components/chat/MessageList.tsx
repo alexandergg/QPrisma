@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect } from 'react';
-import { Sparkles, User, Play, Film } from 'lucide-react';
+import { Sparkles, Film } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import TimestampBadge from './TimestampBadge';
 

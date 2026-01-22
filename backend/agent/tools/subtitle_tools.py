@@ -204,13 +204,13 @@ class ChangeSubtitleStyleTool(BaseTool):
                     clip.subtitles_data["words"],
                     style=style,
                 )
-                
+
                 # Update subtitle data
                 subtitle_data = clip.subtitles_data.copy()
                 subtitle_data["cues"] = new_cues
                 subtitle_data["style"] = style
                 subtitle_data["style_config"] = service.get_style_config(style)
-                
+
                 db.update_clip(clip_id, {
                     "subtitle_style": style,
                     "subtitle_settings": service.get_style_config(style).get("css", {}),

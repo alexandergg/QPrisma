@@ -5,6 +5,7 @@ Inspirado en Edconv para máxima customización y performance.
 """
 
 import base64
+import logging
 import os
 import subprocess
 import tempfile
@@ -20,6 +21,8 @@ from models.ffmpeg_config import (
     ProcessingPipeline,
     ProcessingStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class FFmpegVideoProcessor:
@@ -246,13 +249,13 @@ class FFmpegVideoProcessor:
         elif extraction.method == FrameExtractionMethod.ADAPTIVE:
             # Calcular configuración óptima según duración
             from models.ffmpeg_config import get_adaptive_config
-            
+
             adaptive_config = get_adaptive_config(duration)
             # Usar el método calculado (puede ser INTERVAL o HYBRID)
             if adaptive_config.method == FrameExtractionMethod.HYBRID:
                 # Delegar a HYBRID
                 return self._calculate_hybrid_timestamps(
-                    video_info, 
+                    video_info,
                     adaptive_config.scene_threshold or 0.3,
                     adaptive_config.hybrid_scene_ratio or 0.5,
                     adaptive_config.hybrid_min_gap_seconds or 15.0,
@@ -289,17 +292,17 @@ class FFmpegVideoProcessor:
     ) -> list[float]:
         """
         Calcular timestamps usando método híbrido: scene detection + uniform fill.
-        
+
         1. Detecta cambios de escena (captura transiciones importantes)
         2. Rellena gaps largos con frames uniformes (no perder contenido estático)
-        
+
         Args:
             video_info: Información del video
             scene_threshold: Umbral de detección de escena (0-1)
             scene_ratio: Ratio de frames de escenas vs fill (0.6 = 60% escenas)
             min_gap_seconds: Gap mínimo antes de insertar fill frames
             max_frames: Máximo de frames a extraer
-            
+
         Returns:
             Lista de timestamps ordenados
         """
@@ -307,26 +310,26 @@ class FFmpegVideoProcessor:
         extraction = self.config.frame_extraction
         start = extraction.start_time or 0
         end = min(extraction.end_time or duration, duration)
-        
+
         # Paso 1: Detectar escenas
         scene_frames_target = int(max_frames * scene_ratio)
         scene_timestamps = self._detect_scene_timestamps(
-            video_info.get("path", ""), 
-            scene_threshold, 
+            video_info.get("path", ""),
+            scene_threshold,
             scene_frames_target
         )
-        
+
         # Si no hay detección de escenas, fallback a uniform
         if not scene_timestamps:
             # Uniform distribution como fallback
             num_frames = max_frames
             step = (end - start) / max(num_frames - 1, 1)
             return [start + i * step for i in range(num_frames)]
-        
+
         # Paso 2: Identificar gaps y rellenar
         fill_frames_target = max_frames - len(scene_timestamps)
         all_timestamps = sorted(scene_timestamps)
-        
+
         if fill_frames_target > 0 and len(all_timestamps) > 1:
             gaps = []
             for i in range(len(all_timestamps) - 1):
@@ -335,11 +338,11 @@ class FFmpegVideoProcessor:
                 gap_duration = gap_end - gap_start
                 if gap_duration > min_gap_seconds:
                     gaps.append((gap_start, gap_end, gap_duration))
-            
+
             # Distribuir fill frames proporcionalmente a los gaps
             total_gap_duration = sum(g[2] for g in gaps)
             if total_gap_duration > 0:
-                for gap_start, gap_end, gap_duration in gaps:
+                for gap_start, _gap_end, gap_duration in gaps:
                     # Frames a insertar en este gap
                     gap_frames = int((gap_duration / total_gap_duration) * fill_frames_target)
                     if gap_frames > 0:
@@ -348,37 +351,37 @@ class FFmpegVideoProcessor:
                             fill_ts = gap_start + j * step
                             if fill_ts not in all_timestamps:
                                 all_timestamps.append(fill_ts)
-        
+
         # Añadir inicio y fin si no están
         if start not in all_timestamps and start >= 0:
             all_timestamps.append(start)
         if end - 0.5 not in all_timestamps and end <= duration:
             all_timestamps.append(min(end - 0.1, duration - 0.1))
-        
+
         # Ordenar y limitar
         all_timestamps = sorted(set(all_timestamps))
         return all_timestamps[:max_frames]
 
     def _detect_scene_timestamps(
-        self, 
-        video_path: str, 
-        threshold: float, 
+        self,
+        video_path: str,
+        threshold: float,
         max_scenes: int
     ) -> list[float]:
         """
         Detectar timestamps de cambios de escena usando FFmpeg.
-        
+
         Args:
             video_path: Ruta al video
             threshold: Umbral de detección (0-1)
             max_scenes: Máximo de escenas a detectar
-            
+
         Returns:
             Lista de timestamps donde hay cambios de escena
         """
         if not video_path or not os.path.exists(video_path):
             return []
-            
+
         try:
             # Usar FFmpeg para detectar escenas
             cmd = [
@@ -386,14 +389,14 @@ class FFmpegVideoProcessor:
                 "-vf", f"select='gt(scene,{threshold})',showinfo",
                 "-f", "null", "-"
             ]
-            
+
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minutos máximo
             )
-            
+
             # Parsear output para extraer timestamps
             timestamps = []
             for line in result.stderr.split("\n"):
@@ -407,12 +410,14 @@ class FFmpegVideoProcessor:
                             break
                     except (IndexError, ValueError):
                         continue
-            
+
             return timestamps
-            
+
         except subprocess.TimeoutExpired:
+            logger.warning("FFmpeg scene detection timed out")
             return []
-        except Exception:
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            logger.error(f"Error during FFmpeg scene detection: {e}")
             return []
 
     def extract_frames_ffmpeg(
@@ -504,7 +509,7 @@ class FFmpegVideoProcessor:
                 if timestamps:
                     print(f"   First timestamp: {timestamps[0]:.2f}s")
                     print(f"   Last timestamp: {timestamps[-1]:.2f}s")
-                    
+
                     # Calcular y mostrar métricas de cobertura
                     coverage = self.calculate_coverage_metrics(timestamps, video_info["duration"])
                     print(f"📊 Coverage score: {coverage['coverage_score']}%")
@@ -898,17 +903,17 @@ class FFmpegVideoProcessor:
         return self.status
 
     def calculate_coverage_metrics(
-        self, 
-        timestamps: list[float], 
+        self,
+        timestamps: list[float],
         video_duration: float
     ) -> dict[str, Any]:
         """
         Calcular métricas de cobertura del video.
-        
+
         Args:
             timestamps: Lista de timestamps extraídos
             video_duration: Duración total del video en segundos
-            
+
         Returns:
             Dict con métricas de cobertura:
             - coverage_score: 0-100, qué tan bien cubierto está el video
@@ -927,9 +932,9 @@ class FFmpegVideoProcessor:
                 "density_per_minute": 0,
                 "recommendations": ["No frames extracted"],
             }
-        
+
         sorted_ts = sorted(timestamps)
-        
+
         # Calcular gaps
         gaps = []
         for i in range(len(sorted_ts) - 1):
@@ -939,22 +944,22 @@ class FFmpegVideoProcessor:
                 "end": sorted_ts[i + 1],
                 "duration": gap,
             })
-        
+
         # Añadir gap inicial y final
         if sorted_ts[0] > 1.0:  # Si hay más de 1 segundo al inicio
             gaps.insert(0, {"start": 0, "end": sorted_ts[0], "duration": sorted_ts[0]})
         if video_duration - sorted_ts[-1] > 1.0:
             gaps.append({
-                "start": sorted_ts[-1], 
-                "end": video_duration, 
+                "start": sorted_ts[-1],
+                "end": video_duration,
                 "duration": video_duration - sorted_ts[-1]
             })
-        
+
         # Métricas básicas
         gap_durations = [g["duration"] for g in gaps]
         avg_gap = sum(gap_durations) / len(gap_durations) if gap_durations else 0
         max_gap = max(gap_durations) if gap_durations else 0
-        
+
         # Threshold dinámico basado en duración del video
         # Para videos cortos, gaps >10s son problemáticos
         # Para videos largos, gaps >30s son problemáticos
@@ -966,21 +971,21 @@ class FFmpegVideoProcessor:
             gap_threshold = 30.0
         else:  # > 1 hora
             gap_threshold = 45.0
-        
+
         problematic_gaps = [g for g in gaps if g["duration"] > gap_threshold]
-        
+
         # Coverage score (0-100)
         # Basado en: densidad de frames, gaps máximos, distribución
         density = len(timestamps) / (video_duration / 60)  # frames por minuto
         ideal_density = 10  # 10 frames/min es ideal para análisis
         density_score = min(density / ideal_density * 100, 100)
-        
+
         # Penalización por gaps grandes
         gap_penalty = min(len(problematic_gaps) * 10, 50)
         max_gap_penalty = min((max_gap / gap_threshold - 1) * 20, 30) if max_gap > gap_threshold else 0
-        
+
         coverage_score = max(0, density_score - gap_penalty - max_gap_penalty)
-        
+
         # Recomendaciones
         recommendations = []
         if coverage_score < 50:
@@ -993,7 +998,7 @@ class FFmpegVideoProcessor:
             recommendations.append(f"{len(problematic_gaps)} gaps over {gap_threshold}s - content may be missed")
         if not recommendations:
             recommendations.append("Good coverage achieved")
-        
+
         return {
             "coverage_score": round(coverage_score, 1),
             "average_gap": round(avg_gap, 2),
@@ -1011,16 +1016,16 @@ class FFmpegVideoProcessor:
 def get_recommended_preset(video_duration: float, content_type: str = "general") -> str:
     """
     Recomendar preset óptimo según duración y tipo de contenido.
-    
+
     Args:
         video_duration: Duración en segundos
         content_type: Tipo de contenido (general, interview, action, tutorial)
-        
+
     Returns:
         Nombre del preset recomendado
     """
     duration_minutes = video_duration / 60
-    
+
     # Por tipo de contenido
     if content_type == "interview":
         return "interview_mode"
@@ -1032,7 +1037,7 @@ def get_recommended_preset(video_duration: float, content_type: str = "general")
             return "high_quality"
         else:
             return "deep_analysis"
-    
+
     # Por duración (general)
     if duration_minutes < 5:
         return "balanced"

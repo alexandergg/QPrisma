@@ -64,32 +64,40 @@ export default function EditorVideoPanel({
   const [videoDuration, setVideoDuration] = useState(duration);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const previewClipRef = useRef<Clip | undefined>(undefined);
+  const [previewClipState, setPreviewClipState] = useState<Clip | null>(null);
 
   // Sync external currentTime
   useEffect(() => {
     if (Math.abs(currentTime - localCurrentTime) > 1) {
-      setLocalCurrentTime(currentTime);
       if (videoRef.current) {
         videoRef.current.currentTime = currentTime;
       }
     }
-  }, [currentTime]);
+  }, [currentTime, localCurrentTime]);
 
   // Handle preview clip mode
   useEffect(() => {
     if (previewClip && videoRef.current) {
       // Start preview: seek to start_time and play
       previewClipRef.current = previewClip;
-      setIsPreviewMode(true);
-      videoRef.current.currentTime = previewClip.start_time;
-      videoRef.current.play();
-      setIsPlaying(true);
+      Promise.resolve().then(() => {
+        setPreviewClipState(previewClip);
+        setIsPreviewMode(true);
+        if (videoRef.current) {
+          videoRef.current.currentTime = previewClip.start_time;
+          videoRef.current.play();
+        }
+        setIsPlaying(true);
+      });
     } else if (!previewClip && isPreviewMode) {
       // Preview cleared
-      setIsPreviewMode(false);
-      previewClipRef.current = undefined;
+      Promise.resolve().then(() => {
+        setIsPreviewMode(false);
+        previewClipRef.current = undefined;
+        setPreviewClipState(null);
+      });
     }
-  }, [previewClip]);
+  }, [previewClip, isPreviewMode]);
 
   // Update duration from video metadata
   const handleLoadedMetadata = useCallback(() => {
@@ -165,12 +173,12 @@ export default function EditorVideoPanel({
   // Calculate subtitle time relative to clip start
   const subtitleRelativeTime = useMemo(() => {
     // If previewing a clip, use previewClip's start time
-    if (isPreviewMode && previewClipRef.current) {
-      return localCurrentTime - previewClipRef.current.start_time;
+    if (isPreviewMode && previewClipState) {
+      return localCurrentTime - previewClipState.start_time;
     }
     // Otherwise use the provided activeClipStartTime
     return localCurrentTime - activeClipStartTime;
-  }, [localCurrentTime, isPreviewMode, activeClipStartTime]);
+  }, [localCurrentTime, isPreviewMode, activeClipStartTime, previewClipState]);
 
   // Sort clips by order for display
   const sortedClips = [...clips].sort((a, b) => a.order - b.order);
@@ -226,13 +234,13 @@ export default function EditorVideoPanel({
         )}
 
         {/* Preview Mode Indicator */}
-        {isPreviewMode && previewClipRef.current && (
+        {isPreviewMode && previewClipState && (
           <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-600/90 backdrop-blur-sm text-white text-sm font-medium rounded-lg shadow-lg">
               <Play className="w-4 h-4 fill-current" />
-              Preview: {previewClipRef.current.title || 'Clip'}
+              Preview: {previewClipState.title || 'Clip'}
               <span className="text-indigo-200">
-                ({formatTime(previewClipRef.current.start_time)} - {formatTime(previewClipRef.current.end_time)})
+                ({formatTime(previewClipState.start_time)} - {formatTime(previewClipState.end_time)})
               </span>
             </div>
             <button

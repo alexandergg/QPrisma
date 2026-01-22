@@ -26,7 +26,11 @@ from typing import Any
 from openai import AzureOpenAI
 
 from agent.prompts import NO_VIDEO_CONTEXT_PROMPT, SYSTEM_PROMPT
-from agent.state import AgentConfig, AgentMessage, ToolCall, ToolResult, VideoAgentState, create_initial_state
+from agent.state import (
+    AgentConfig,
+    VideoAgentState,
+    create_initial_state,
+)
 from agent.tools import ALL_TOOLS, TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
@@ -35,7 +39,7 @@ logger = logging.getLogger(__name__)
 # Event types for streaming
 class StreamEvent:
     """Event types for agent streaming."""
-    
+
     THINKING = "thinking"  # Agent is processing
     TOOL_START = "tool_start"  # Starting a tool call
     TOOL_END = "tool_end"  # Tool call completed
@@ -69,7 +73,7 @@ class VideoAgent:
         """
         self.client = client or self._create_client()
         self.config = config or AgentConfig()
-        
+
         # Set model deployment from env if not specified
         if self.config.model_deployment is None:
             self.config.model_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")

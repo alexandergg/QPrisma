@@ -262,7 +262,7 @@ class DescribeSceneTool(BaseTool):
                 ORDER BY a.start_time
                 LIMIT 5
             """
-            
+
             with graph_service.get_session() as session:
                 audio_result = session.run(
                     audio_query,

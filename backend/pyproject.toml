@@ -36,6 +36,13 @@ dependencies = [
     "bcrypt==4.2.1",
 ]
 
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["api", "agent", "core", "models", "services", "tasks"]
+
 [tool.uv]
 dev-dependencies = [
     "pytest>=8.0.0",

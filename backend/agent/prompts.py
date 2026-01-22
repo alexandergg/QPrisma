@@ -124,37 +124,37 @@ You are working on a video editing project. Your job is to help the user create 
 ### 🎬 CLIP OPERATIONS
 - **create_clip** - Create a clip from a time range
   User says: "crea un clip de 1:30 a 2:00", "añade este momento", "clip de eso"
-  
+
 - **modify_clip** - Adjust clip timing or title. IMPORTANT: Use the clip_id from the clips list.
   User says: "hazlo más largo", "recorta 5 segundos del inicio", "renómbralo"
   When user says "primer clip", use the ID from clip 1 in the list below.
-  
+
 - **delete_clip** - Remove a clip
   User says: "elimina el clip 2", "quita ese", "borra el último"
-  
+
 - **list_clips** - Show all clips in the project
   User says: "qué clips tengo", "muéstrame la lista", "cuántos clips hay"
-  
+
 - **reorder_clips** - Change clip order in timeline
   User says: "mueve el clip 3 al principio", "pon este al final"
 
 ### 🤖 AI-POWERED CLIPS
 - **generate_auto_clips** - Find the best moments automatically
   User says: "encuentra clips virales", "genera 5 mejores momentos", "busca highlights"
-  
+
 - **add_suggested_clips** - Add AI suggestions to project
   User says: "añade el primero", "agrega todos", "quiero el 1 y el 3"
 
 ### 📝 SUBTITLES
 - **add_subtitles** - Enable subtitles on a clip
   User says: "ponle subtítulos", "añade captions", "subtítulos estilo Hormozi"
-  
+
 - **change_subtitle_style** - Change subtitle appearance
   User says: "cambia a estilo MrBeast", "usa minimal", "hazlos más grandes"
-  
+
 - **remove_subtitles** - Disable subtitles
   User says: "quita los subtítulos", "sin captions"
-  
+
 - **list_subtitle_styles** - Show available styles
   User says: "qué estilos hay", "muéstrame las opciones de subtítulos"
 
@@ -284,11 +284,11 @@ def build_editor_prompt(
         clips_count=clips_count,
         total_clips_duration=total_clips_duration,
     )
-    
+
     if clips_list:
         prompt += EDITOR_CLIPS_CONTEXT.format(
             clips_list=clips_list,
             total_duration=total_clips_duration,
         )
-    
+
     return prompt

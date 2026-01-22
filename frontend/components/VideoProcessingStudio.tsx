@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Film, Upload, Video, Clock, Database, Search as SearchIcon, Play, Sparkles, Plus, FileVideo, Trash2, Grid, List, MoreVertical, LogOut, User, ChevronRight, Zap, BarChart3, Eye, Layers, Cpu } from 'lucide-react';
+import { Film, Video, Clock, Search as SearchIcon, Play, Sparkles, Plus, Trash2, Grid, List, LogOut, ChevronRight, Zap, BarChart3, Eye, Layers, Cpu } from 'lucide-react';
 import VideoUpload from './VideoUpload';
 import { apiClient } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,11 +17,11 @@ interface Preset {
 interface MediaItem {
   id: string;
   original_filename: string;
-  media_type: string;
-  file_size: number;
-  uploaded_at: string;
-  processed: boolean;
-  processing_status: string;
+  media_type?: string;
+  file_size?: number;
+  uploaded_at?: string;
+  processed?: boolean;
+  processing_status?: string;
   duration?: number;
   frames_analyzed?: number;
 }
@@ -90,16 +90,18 @@ export default function VideoProcessingStudio() {
     item.original_filename.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes) return '0 Bytes';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'Unknown date';
     const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return 'Unknown date';
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   };
 

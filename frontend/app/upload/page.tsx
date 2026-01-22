@@ -6,7 +6,6 @@ import { ArrowLeft, Sparkles } from 'lucide-react';
 import { Sidebar } from '@/components/layout';
 import { UploadZone, ProcessingCard } from '@/components/upload';
 import { apiClient } from '@/lib/api';
-import { useAuth } from '@/contexts/AuthContext';
 
 interface UploadingVideo {
   id: string;
@@ -19,7 +18,6 @@ interface UploadingVideo {
 
 export default function UploadPage() {
   const router = useRouter();
-  const { user } = useAuth();
   const [uploadingVideos, setUploadingVideos] = useState<UploadingVideo[]>([]);
   const [currentMode, setCurrentMode] = useState<'single' | 'library'>('single');
 

@@ -8,7 +8,6 @@ import {
   Star,
   Subtitles,
   Download,
-  MoreVertical,
   Clock,
   Sparkles,
 } from 'lucide-react';

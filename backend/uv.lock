@@ -1555,7 +1555,7 @@ wheels = [
 [[package]]
 name = "qprisma-backend"
 version = "0.3.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "azure-identity" },
     { name = "azure-storage-blob" },

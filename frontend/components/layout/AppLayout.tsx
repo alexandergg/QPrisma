@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Sidebar, { ChatMode } from './Sidebar';
 import VideoPanel from './VideoPanel';
 import { useAuth } from '@/contexts/AuthContext';
-import { apiClient } from '@/lib/api';
 
 interface Conversation {
   id: string;
@@ -21,6 +20,7 @@ interface Scene {
   scene_id: number;
   start_time: number;
   end_time: number;
+  duration?: number;
   summary?: string;
 }
 
@@ -29,6 +29,8 @@ interface Chapter {
   title: string;
   start_time: number;
   end_time: number;
+  duration?: number;
+  scene_ids?: number[];
 }
 
 interface TranscriptSegment {
@@ -75,7 +77,7 @@ export default function AppLayout({
   onSeek,
 }: AppLayoutProps) {
   const router = useRouter();
-  const { user, isAuthenticated } = useAuth();
+  useAuth();
   const [currentMode, setCurrentMode] = useState<ChatMode>('single');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>();

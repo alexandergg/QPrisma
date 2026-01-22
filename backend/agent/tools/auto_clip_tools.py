@@ -13,7 +13,7 @@ from agent.tools.base import BaseTool, ToolParameter, format_timestamp
 from api.dependencies import get_graph_search_service
 from models.graph_models import NodeType
 from services.database_service import get_database_service
-from services.viral_score_service import get_viral_score_service, TranscriptSegment
+from services.viral_score_service import TranscriptSegment, get_viral_score_service
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +242,7 @@ class GenerateAutoClipsTool(BaseTool):
         """Calculate viral score using the ViralScoreService."""
         try:
             viral_service = get_viral_score_service()
-            
+
             # Create a transcript segment for analysis
             segment = TranscriptSegment(
                 start_time=start_time,
@@ -250,23 +250,19 @@ class GenerateAutoClipsTool(BaseTool):
                 text=text,
                 words=[],
             )
-            
+
             # Get detailed viral analysis
             result = viral_service.calculate_viral_score(segment)
-            
+
             # Adjust based on search relevance
             adjusted_score = result.score * 0.7 + (search_score * 100) * 0.3
-            
+
             # Apply focus bonus
-            if focus == "hooks" and result.components.get("hook", 0) > 60:
+            if focus == "hooks" and result.components.get("hook", 0) > 60 or focus == "energy" and result.components.get("pacing", 0) > 60 or focus == "topics" and result.components.get("topic", 0) > 60:
                 adjusted_score += 10
-            elif focus == "energy" and result.components.get("pacing", 0) > 60:
-                adjusted_score += 10
-            elif focus == "topics" and result.components.get("topic", 0) > 60:
-                adjusted_score += 10
-            
+
             return min(99, max(1, int(adjusted_score)))
-            
+
         except Exception as e:
             logger.warning(f"Viral score calculation fallback: {e}")
             # Fallback to simple calculation
@@ -282,7 +278,7 @@ class GenerateAutoClipsTool(BaseTool):
         score = int(search_score * 60)
         text_lower = text.lower()
 
-        hook_words = ["secret", "truth", "mistake", "never", "always", "best", "worst", 
+        hook_words = ["secret", "truth", "mistake", "never", "always", "best", "worst",
                       "how to", "why", "what if", "imagine", "here's", "this is"]
         for word in hook_words:
             if word in text_lower:

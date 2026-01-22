@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 def _get_source_media_info(project) -> dict[str, Any] | None:
     """
     Get source media information with a SAS URL for the video.
-    
+
     Returns a dict with:
     - id: Media ID
     - filename: Original filename
@@ -54,22 +54,22 @@ def _get_source_media_info(project) -> dict[str, Any] | None:
     - blob_url: SAS URL for streaming the video
     """
     from api.routes.media_routes import generate_sas_url
-    
+
     if not project.source_media:
         return None
-    
+
     media = project.source_media
-    
+
     # Extract duration from video_metadata
     duration = None
     if media.video_metadata:
         duration = media.video_metadata.get("duration")
-    
+
     # Generate SAS URL for the video
     blob_url = None
     if media.blob_name:
         blob_url = generate_sas_url(media.blob_name, expiry_hours=4)
-    
+
     return {
         "id": media.id,
         "filename": media.original_filename or media.blob_name,
@@ -148,10 +148,10 @@ async def get_project(
 
         result = project.to_dict()
         result["clips"] = [clip.to_dict() for clip in project.clips]
-        
+
         # Include source media info with SAS URL
         result["source_media"] = _get_source_media_info(project)
-        
+
         logger.info(f"Returning project {project_id} with source_media: {result.get('source_media')}")
         return result
     except HTTPException:
@@ -469,7 +469,7 @@ async def bulk_create_clips(
         if clip_data.end_time <= clip_data.start_time:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid clip: end_time must be greater than start_time",
+                detail="Invalid clip: end_time must be greater than start_time",
             )
 
     # Convert to dicts
@@ -635,7 +635,7 @@ class UpdateSubtitleCueRequest(BaseModel):
 async def get_subtitle_styles() -> list[dict[str, Any]]:
     """
     Get available subtitle styles with descriptions.
-    
+
     Returns a list of styles that can be applied to clips.
     """
     from services.subtitle_service import get_subtitle_service
@@ -652,7 +652,7 @@ async def generate_clip_subtitles(
 ) -> dict[str, Any]:
     """
     Generate subtitles for a clip from the source video's transcription.
-    
+
     This extracts the relevant portion of the Whisper transcription
     and formats it according to the selected style.
     """
@@ -688,7 +688,7 @@ async def get_clip_subtitles(
 ) -> dict[str, Any]:
     """
     Get subtitle data for a clip.
-    
+
     Returns the full subtitle data including cues with word-level timing.
     """
     db = get_database_service()
@@ -724,7 +724,7 @@ async def update_subtitle_cue(
 ) -> dict[str, Any]:
     """
     Update the text of a specific subtitle cue.
-    
+
     This allows users to correct transcription errors or modify text.
     """
     from services.subtitle_service import get_subtitle_service
@@ -759,7 +759,7 @@ async def export_subtitles_srt(
 ):
     """
     Export subtitles in SRT format.
-    
+
     Returns downloadable SRT file.
     """
     from fastapi.responses import PlainTextResponse

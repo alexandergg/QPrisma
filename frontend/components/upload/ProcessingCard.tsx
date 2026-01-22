@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Film, X, CheckCircle, AlertCircle, Sparkles, Play } from 'lucide-react';
 import ProcessingStep, { ProcessingStepData, ProcessingStepStatus } from './ProcessingStep';
 
@@ -83,23 +83,20 @@ export default function ProcessingCard({
   const [error, setError] = useState<string | null>(null);
   const [estimatedTime, setEstimatedTime] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<string>('');
+  const jobDebugInfo = jobId ? `Job ID: ${jobId.substring(0, 8)}...` : '';
 
-  // Mark upload step as completed when we get a jobId (upload to blob is done)
-  useEffect(() => {
-    if (jobId) {
-      console.log('[ProcessingCard] jobId received:', jobId);
-      setDebugInfo(`Job ID: ${jobId.substring(0, 8)}...`);
-      setSteps((prevSteps) =>
-        prevSteps.map((step) =>
-          step.id === 'upload'
-            ? { ...step, status: 'completed' as ProcessingStepStatus, progress: 100, endTime: new Date() }
-            : step
-        )
-      );
-      setOverallProgress(10); // Upload is ~10% of total progress
+  const stepsWithUploadStatus = useMemo(() => {
+    if (!jobId) {
+      return steps;
     }
-  }, [jobId]);
+    return steps.map((step) =>
+      step.id === 'upload'
+        ? { ...step, status: 'completed' as ProcessingStepStatus, progress: 100, endTime: new Date() }
+        : step
+    );
+  }, [jobId, steps]);
+
+  const displayProgress = jobId ? Math.max(overallProgress, 10) : overallProgress;
 
   // Fallback polling for job status (if WebSocket doesn't work)
   useEffect(() => {
@@ -152,13 +149,11 @@ export default function ProcessingCard({
 
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
     console.log('[ProcessingCard] Connecting to WebSocket:', `${wsUrl}/ws/jobs/${jobId}`);
-    setDebugInfo(prev => `${prev} | WS: connecting...`);
     const ws = new WebSocket(`${wsUrl}/ws/jobs/${jobId}`);
 
     ws.onopen = () => {
       console.log('[ProcessingCard] WebSocket connected for job:', jobId);
       setWsConnected(true);
-      setDebugInfo(prev => `${prev.replace('connecting...', 'connected')}`);
     };
 
     ws.onmessage = (event) => {
@@ -241,14 +236,12 @@ export default function ProcessingCard({
 
     ws.onerror = (error) => {
       console.error('[ProcessingCard] WebSocket error:', error);
-      setDebugInfo(prev => `${prev} | WS error`);
       setWsConnected(false);
     };
 
     ws.onclose = (event) => {
       console.log('[ProcessingCard] WebSocket closed for job:', jobId, 'code:', event.code);
       setWsConnected(false);
-      setDebugInfo(prev => `${prev} | WS closed (${event.code})`);
     };
 
     return () => {
@@ -261,9 +254,9 @@ export default function ProcessingCard({
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/50 overflow-hidden">
       {/* Debug Info (temporary) */}
-      {debugInfo && (
+      {jobDebugInfo && (
         <div className="px-4 py-2 bg-gray-100 text-xs text-gray-500 font-mono">
-          {debugInfo} | Progress: {overallProgress}%
+          {jobDebugInfo} | Progress: {displayProgress}%
         </div>
       )}
       {/* Header */}
@@ -321,7 +314,7 @@ export default function ProcessingCard({
               ? 'Processing failed'
               : `Processing... ${completedSteps}/${steps.length} steps`}
           </span>
-          <span className="text-sm font-mono text-indigo-600">{overallProgress}%</span>
+          <span className="text-sm font-mono text-indigo-600">{displayProgress}%</span>
         </div>
         <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
           <div
@@ -332,7 +325,7 @@ export default function ProcessingCard({
                 ? 'bg-red-500'
                 : 'bg-gradient-to-r from-indigo-500 to-purple-500'
             }`}
-            style={{ width: `${overallProgress}%` }}
+            style={{ width: `${displayProgress}%` }}
           />
         </div>
         {estimatedTime && status === 'processing' && (
@@ -345,11 +338,11 @@ export default function ProcessingCard({
 
       {/* Steps */}
       <div className="p-5 space-y-0">
-        {steps.map((step, index) => (
+        {stepsWithUploadStatus.map((step, index) => (
           <ProcessingStep
             key={step.id}
             step={step}
-            isLast={index === steps.length - 1}
+            isLast={index === stepsWithUploadStatus.length - 1}
           />
         ))}
       </div>

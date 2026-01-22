@@ -12,7 +12,6 @@ from typing import Any
 
 from agent.tools.base import BaseTool, ToolParameter, format_timestamp
 from services.database_service import get_database_service
-from services.viral_score_service import get_viral_score_service, TranscriptSegment
 
 logger = logging.getLogger(__name__)
 

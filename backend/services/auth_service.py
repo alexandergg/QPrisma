@@ -209,7 +209,8 @@ class AuthService:
                 updated_at=user.updated_at,
             )
 
-        except Exception:
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Error authenticating user {email}: {e}")
             return None
 
     def get_token_expiry_seconds(self) -> int:
@@ -251,7 +252,7 @@ class AuthService:
         try:
             db = get_database_service()
             demo_user_id = email  # Use email as user_id for simplicity
-            
+
             # Check if demo user already exists
             existing = db.get_user_by_email(email)
             if not existing:

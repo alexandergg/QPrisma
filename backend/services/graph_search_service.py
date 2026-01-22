@@ -845,8 +845,8 @@ class GraphSearchService:
                 record = result.single()
                 if record:
                     return record["path"]
-        except Exception:
-            pass
+        except (KeyError, AttributeError) as e:
+            logger.warning(f"Could not retrieve path for node {node_id}: {e}")
 
         return []
 

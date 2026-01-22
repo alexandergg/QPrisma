@@ -18,7 +18,7 @@ Cost Savings:
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -66,7 +66,7 @@ class TierTransition(BaseModel):
 class StorageTieringService:
     """
     Service for managing Azure Blob Storage tiers.
-    
+
     Provides methods to:
     - Check current tier of blobs
     - Change tier manually
@@ -96,7 +96,7 @@ class StorageTieringService:
         self.container_name = container_name or os.getenv(
             "AZURE_STORAGE_CONTAINER_NAME", "media"
         )
-        
+
         if not self.blob_service:
             conn_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
             if conn_string:
@@ -125,13 +125,13 @@ class StorageTieringService:
         try:
             blob_client = self._get_blob_client(blob_name)
             props = blob_client.get_blob_properties()
-            
+
             current_tier = StorageTier(props.blob_tier) if props.blob_tier else StorageTier.HOT
             rehydration_status = props.archive_status
-            
+
             is_archived = current_tier == StorageTier.ARCHIVE
             is_rehydrating = rehydration_status is not None and "rehydrate" in str(rehydration_status).lower()
-            
+
             # Estimate rehydration time based on priority
             estimated_time = None
             if is_rehydrating:
@@ -173,9 +173,9 @@ class StorageTieringService:
         try:
             blob_client = self._get_blob_client(blob_name)
             props = blob_client.get_blob_properties()
-            
+
             current_tier = StorageTier(props.blob_tier) if props.blob_tier else StorageTier.HOT
-            
+
             # Map to Azure SDK tier enum
             tier_mapping = {
                 StorageTier.HOT: StandardBlobTier.HOT,
@@ -183,9 +183,9 @@ class StorageTieringService:
                 StorageTier.COLD: StandardBlobTier.COLD,
                 StorageTier.ARCHIVE: StandardBlobTier.ARCHIVE,
             }
-            
+
             azure_tier = tier_mapping[target_tier]
-            
+
             # Set tier with rehydration priority if coming from Archive
             if current_tier == StorageTier.ARCHIVE and target_tier != StorageTier.ARCHIVE:
                 blob_client.set_standard_blob_tier(
@@ -195,10 +195,10 @@ class StorageTieringService:
                 reason = f"Rehydrating from Archive with {rehydrate_priority.value} priority"
             else:
                 blob_client.set_standard_blob_tier(azure_tier)
-                reason = f"Manual tier change"
+                reason = "Manual tier change"
 
             logger.info(f"Changed tier for {blob_name}: {current_tier} → {target_tier}")
-            
+
             return TierTransition(
                 blob_name=blob_name,
                 from_tier=current_tier,
@@ -271,7 +271,7 @@ class StorageTieringService:
             }
 
         days_since_access = (datetime.utcnow() - last_accessed).days
-        
+
         # Determine recommended tier
         if days_since_access >= self.DEFAULT_ARCHIVE_THRESHOLD:
             recommended = StorageTier.ARCHIVE
@@ -296,7 +296,7 @@ class StorageTieringService:
 
         estimated_cost = None
         potential_savings = None
-        
+
         if file_size_bytes:
             size_gb = file_size_bytes / (1024 * 1024 * 1024)
             hot_cost = size_gb * tier_costs[StorageTier.HOT]
@@ -326,7 +326,7 @@ class StorageTieringService:
 
         Args:
             cool_days: Days until move to Cool tier
-            cold_days: Days until move to Cold tier  
+            cold_days: Days until move to Cold tier
             archive_days: Days until move to Archive tier
             prefix_filter: Blob prefix to apply policy to
 
@@ -392,13 +392,13 @@ class StorageTieringService:
             file_size = item.get("file_size", 0) or 0
             last_accessed = item.get("last_accessed_at")
             current_tier = item.get("storage_tier", "Hot")
-            
+
             if isinstance(last_accessed, str):
                 last_accessed = datetime.fromisoformat(last_accessed.replace("Z", "+00:00"))
 
             total_size_bytes += file_size
             size_gb = file_size / (1024 * 1024 * 1024)
-            
+
             # Current cost
             current_monthly_cost += size_gb * tier_costs.get(current_tier, tier_costs["Hot"])
             tier_distribution[current_tier] = tier_distribution.get(current_tier, 0) + 1
@@ -407,7 +407,7 @@ class StorageTieringService:
             rec = self.get_tier_recommendation(last_accessed, file_size)
             recommended_tier = rec["recommended_tier"].value if isinstance(rec["recommended_tier"], StorageTier) else rec["recommended_tier"]
             optimized_monthly_cost += size_gb * tier_costs.get(recommended_tier, tier_costs["Hot"])
-            
+
             if recommended_tier != current_tier:
                 recommendations.append({
                     "media_id": item.get("id"),

@@ -10,7 +10,6 @@ import {
   SkipBack,
   SkipForward,
   Layers,
-  BookOpen,
   Mic,
   ChevronDown,
   ChevronRight,
@@ -21,7 +20,7 @@ interface Scene {
   scene_id: number;
   start_time: number;
   end_time: number;
-  duration: number;
+  duration?: number;
   title?: string;
   summary?: string;
 }
@@ -31,7 +30,7 @@ interface Chapter {
   title: string;
   start_time: number;
   end_time: number;
-  scene_ids: number[];
+  scene_ids?: number[];
 }
 
 interface TranscriptSegment {
@@ -80,12 +79,11 @@ export default function VideoPanel({
   // Sync external currentTime
   useEffect(() => {
     if (Math.abs(currentTime - localCurrentTime) > 1) {
-      setLocalCurrentTime(currentTime);
       if (videoRef.current) {
         videoRef.current.currentTime = currentTime;
       }
     }
-  }, [currentTime]);
+  }, [currentTime, localCurrentTime]);
 
   const handleTimeUpdate = () => {
     if (videoRef.current) {

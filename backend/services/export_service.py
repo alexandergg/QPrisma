@@ -6,15 +6,14 @@ Service for exporting video clips with FFmpeg.
 Handles cutting, cropping, subtitle burning, and format conversion.
 """
 
-import asyncio
 import json
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
-import uuid
 from datetime import UTC, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -90,11 +89,21 @@ class ExportService:
                 elif stream.get("codec_type") == "audio" and audio_stream is None:
                     audio_stream = stream
 
+            # Parse FPS safely using Fraction instead of eval()
+            fps = 30.0
+            if video_stream:
+                try:
+                    fps_str = video_stream.get("r_frame_rate", "30/1")
+                    fps = float(Fraction(fps_str))
+                except (ValueError, ZeroDivisionError):
+                    logger.warning(f"Invalid FPS value: {fps_str}, using default 30")
+                    fps = 30.0
+
             return {
                 "duration": float(data.get("format", {}).get("duration", 0)),
                 "width": video_stream.get("width", 0) if video_stream else 0,
                 "height": video_stream.get("height", 0) if video_stream else 0,
-                "fps": eval(video_stream.get("r_frame_rate", "30/1")) if video_stream else 30,
+                "fps": fps,
                 "codec": video_stream.get("codec_name", "") if video_stream else "",
                 "has_audio": audio_stream is not None,
                 "audio_codec": audio_stream.get("codec_name", "") if audio_stream else None,
@@ -102,6 +111,52 @@ class ExportService:
         except Exception as e:
             logger.error(f"Error getting video info: {e}")
             return {}
+
+    def clip_video(self, input_path: str, output_path: str, config: Any) -> None:
+        """Legacy clip helper used by tests."""
+        if not os.path.exists(input_path):
+            raise FileNotFoundError(input_path)
+
+        if config.end_time <= config.start_time:
+            raise ValueError("end time must be after start time")
+
+        video_info = self._get_video_info(input_path)
+        if not video_info:
+            return
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss", str(config.start_time),
+            "-to", str(config.end_time),
+            "-i", input_path,
+        ]
+
+        filters = []
+        if config.crop_width and config.crop_height:
+            crop_x = config.crop_x or 0
+            crop_y = config.crop_y or 0
+            filters.append(f"crop={config.crop_width}:{config.crop_height}:{crop_x}:{crop_y}")
+
+        if config.output_width and config.output_height:
+            filters.append(f"scale={config.output_width}:{config.output_height}")
+
+        if filters:
+            cmd.extend(["-vf", ",".join(filters)])
+
+        format_value = getattr(config.format, "value", str(config.format)).lower()
+        if format_value == "webm":
+            cmd.extend(["-c:v", "libvpx-vp9"])
+        elif format_value == "gif":
+            cmd.extend(["-vf", "fps=10"])
+        else:
+            cmd.extend(["-c:v", "libx264"])
+            if getattr(config, "quality", None) == "high":
+                cmd.extend(["-crf", "18"])
+
+        cmd.append(output_path)
+
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
 
     def _download_source_video(self, blob_url: str, temp_dir: str) -> str | None:
         """Download source video from blob storage to temp directory."""

@@ -21,24 +21,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Check if user is already logged in on mount
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
+    let isMounted = true;
     if (token) {
       // Verify token and load user
       apiClient
         .getCurrentUser()
         .then((userData) => {
-          setUser(userData);
+          if (isMounted) {
+            setUser(userData);
+          }
         })
         .catch(() => {
           // Token invalid or expired
           localStorage.removeItem('auth_token');
-          setUser(null);
+          if (isMounted) {
+            setUser(null);
+          }
         })
         .finally(() => {
-          setLoading(false);
+          if (isMounted) {
+            setLoading(false);
+          }
         });
     } else {
-      setLoading(false);
+      Promise.resolve().then(() => setLoading(false));
     }
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const login = async (email: string, password: string) => {

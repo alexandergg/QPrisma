@@ -6,6 +6,7 @@ All environment variables are loaded and validated here.
 """
 
 from functools import lru_cache
+import os
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -41,7 +42,7 @@ class AzureSettings(BaseSettings):
     @property
     def is_storage_configured(self) -> bool:
         return bool(self.storage_connection_string)
-    
+
     @property
     def is_batch_configured(self) -> bool:
         """Check if Global Batch deployment is configured."""
@@ -82,6 +83,10 @@ class Neo4jSettings(BaseSettings):
     password: str = Field(default="qprisma123")
     database: str = Field(default="neo4j")
 
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.uri)
+
 
 class RedisSettings(BaseSettings):
     """Redis configuration for Celery."""
@@ -89,6 +94,10 @@ class RedisSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="REDIS_", extra="ignore")
 
     url: str = Field(default="redis://localhost:6379/0")
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.url)
 
 
 class AuthSettings(BaseSettings):
@@ -123,6 +132,7 @@ class AppSettings(BaseSettings):
     app_name: str = Field(default="QPrisma API")
     app_version: str = Field(default="0.2.0")
     environment: str = Field(default="dev")
+    log_level: str = Field(default="INFO")
     debug: bool = Field(default=False)
 
     # Server
@@ -134,7 +144,9 @@ class AppSettings(BaseSettings):
     default_frame_interval: int = Field(default=30)
 
     # CORS
-    cors_origins: list[str] = Field(default=["http://localhost:3000", "http://127.0.0.1:3000"])
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://127.0.0.1:3000"],
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -157,6 +169,31 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
 
+    def apply_env_overrides(self) -> None:
+        env = os.getenv("APP_ENV") or os.getenv("ENVIRONMENT")
+        if env:
+            self.app.environment = env
+        log_level = os.getenv("LOG_LEVEL")
+        if log_level:
+            self.app.log_level = log_level
+        port = os.getenv("API_PORT") or os.getenv("PORT")
+        if port:
+            try:
+                self.app.port = int(port)
+            except ValueError:
+                pass
+        env_origins = os.getenv("ALLOWED_ORIGINS") or os.getenv("CORS_ORIGINS")
+        if env_origins:
+            self.app.cors_origins = [
+                origin.strip() for origin in env_origins.split(",") if origin.strip()
+            ]
+        neo4j_uri = os.getenv("NEO4J_URI")
+        if neo4j_uri:
+            self.neo4j.uri = neo4j_uri
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url:
+            self.redis.url = redis_url
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -165,7 +202,9 @@ def get_settings() -> Settings:
 
     Uses lru_cache to ensure settings are only loaded once.
     """
-    return Settings()
+    settings_obj = Settings()
+    settings_obj.apply_env_overrides()
+    return settings_obj
 
 
 # Convenience exports

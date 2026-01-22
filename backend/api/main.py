@@ -17,16 +17,15 @@ from openai import AzureOpenAI
 # Agregar parent directory al path para imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Logging configuration - must be after path setup
+# Cargar variables de entorno
+load_dotenv()
+
+from core.config import settings
 from core.logging_config import get_logger, setup_logging
 
 # Initialize logging
-log_level = os.getenv("LOG_LEVEL", "INFO")
-setup_logging(level=log_level)
+setup_logging(level=settings.app.log_level)
 logger = get_logger(__name__)
-
-# Cargar variables de entorno
-load_dotenv()
 
 # =============================================================================
 # Lazy Initialization of Azure Clients
@@ -41,7 +40,7 @@ def get_blob_service():
     """Obtiene el cliente de Azure Blob Storage"""
     global _blob_service
     if _blob_service is None:
-        conn_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        conn_string = settings.azure.storage_connection_string
         if conn_string:
             _blob_service = BlobServiceClient.from_connection_string(conn_string)
     return _blob_service
@@ -61,14 +60,14 @@ def get_openai_client():
     """Obtiene el cliente de Azure OpenAI"""
     global _openai_client
     if _openai_client is None:
-        endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-        api_key = os.getenv("AZURE_OPENAI_API_KEY")
+        endpoint = settings.azure.openai_endpoint
+        api_key = settings.azure.openai_api_key
 
         if endpoint and api_key:
             _openai_client = AzureOpenAI(
                 azure_endpoint=endpoint,
                 api_key=api_key,
-                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
+                api_version=settings.azure.openai_api_version,
             )
     return _openai_client
 
@@ -83,22 +82,22 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     import asyncio
     import sys
-    
+
     # Fix Windows console encoding for emojis
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-    
+
     # Startup
     print("=" * 50)
     print("QPrisma API v0.3.0")
     print("=" * 50)
-    print(f"📍 Entorno: {os.getenv('APP_ENV', 'development')}")
+    print(f"📍 Entorno: {settings.app.environment}")
     print(f"📊 Azure OpenAI: {'✓' if get_openai_client() else '✗'}")
     print(f"💾 Azure Storage: {'✓' if get_blob_service() else '✗'}")
     db = get_database_service()
     db_health = db.health_check() if db else {"status": "not_configured"}
     print(f"🗄️  PostgreSQL: {'✓' if db_health.get('status') == 'healthy' else '✗'}")
-    
+
     # Initialize Redis Pub/Sub listener for WebSocket events from Celery
     pubsub_task = None
     try:
@@ -108,14 +107,14 @@ async def lifespan(app: FastAPI):
         print("📡 Redis Pub/Sub: ✓ (WebSocket sync enabled)")
     except Exception as e:
         print(f"📡 Redis Pub/Sub: ✗ ({e})")
-    
+
     print("=" * 50)
 
     yield  # Application runs here
 
     # Shutdown (cleanup if needed)
     print("👋 QPrisma API shutting down...")
-    
+
     # Stop Redis Pub/Sub listener
     if pubsub_task:
         pubsub_task.cancel()
@@ -123,7 +122,7 @@ async def lifespan(app: FastAPI):
             await pubsub_task
         except asyncio.CancelledError:
             pass
-        
+
         try:
             from api.routes.websocket_manager import _pubsub_manager
             if _pubsub_manager:
@@ -144,7 +143,7 @@ app = FastAPI(
 )
 
 # Configuración CORS
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+allowed_origins = settings.app.cors_origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -223,7 +222,7 @@ async def health_check():
     if get_openai_client():
         services["openai"] = "configured"
 
-    if os.getenv("NEO4J_URI"):
+    if settings.neo4j.is_configured:
         services["knowledge_graph"] = "configured"
 
     return {"status": "healthy", "services": services, "timestamp": datetime.now(UTC).isoformat()}
@@ -238,9 +237,9 @@ async def get_config():
         "azure_openai_configured": bool(get_openai_client()),
         "azure_storage_configured": bool(get_blob_service()),
         "postgresql_configured": db_healthy,
-        "knowledge_graph_configured": bool(os.getenv("NEO4J_URI")),
-        "redis_configured": bool(os.getenv("REDIS_URL")),
-        "environment": os.getenv("APP_ENV", "development"),
+        "knowledge_graph_configured": settings.neo4j.is_configured,
+        "redis_configured": settings.redis.is_configured,
+        "environment": settings.app.environment,
     }
 
 
@@ -254,6 +253,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=int(os.getenv("API_PORT", 8000)),
+        port=settings.app.port,
         reload=False,
     )

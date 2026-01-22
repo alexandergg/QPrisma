@@ -7,9 +7,10 @@ Replaces Cosmos DB for metadata storage.
 
 import logging
 import os
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Generator
+from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError

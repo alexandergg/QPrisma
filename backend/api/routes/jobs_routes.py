@@ -220,7 +220,8 @@ async def get_job_status(job_id: str):
 
             cache = await get_cache_service()
             cache_info = await cache.get_job_status(job_id)
-        except Exception:
+        except (ImportError, ConnectionError, KeyError) as e:
+            logger.warning(f"Could not get cache info for job {job_id}: {e}")
             cache_info = None
 
         # Construir respuesta

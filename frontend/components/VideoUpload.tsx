@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef } from 'react';
-import { Upload, Film, AlertCircle, CheckCircle, Loader, X, Play, Eye, Database, FileVideo, CloudUpload, Sparkles } from 'lucide-react';
+import { Film, AlertCircle, CheckCircle, Loader, Play, CloudUpload, Sparkles } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -39,7 +39,6 @@ export default function VideoUpload({
 }: VideoUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedVideos, setUploadedVideos] = useState<UploadedVideo[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -59,88 +58,13 @@ export default function VideoUpload({
     e.stopPropagation();
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length > 0) {
-      handleFiles(files);
-    }
-  }, [selectedPreset, maxFrames, useOptimizedPipeline, sceneDetectionEnabled, hierarchicalSummaryEnabled]);
-
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       handleFiles(Array.from(e.target.files));
     }
   };
 
-  const handleFiles = async (files: File[]) => {
-    setIsUploading(true);
-
-    for (const file of files) {
-      if (!file.type.startsWith('video/')) {
-        alert(`File ${file.name} is not a video`);
-        continue;
-      }
-
-      const tempId = Math.random().toString(36).substring(7);
-      const newVideo: UploadedVideo = {
-        media_id: tempId,
-        blob_name: '',
-        media_type: file.type,
-        file_size: file.size,
-        original_filename: file.name,
-        status: 'uploading',
-        progress: 0
-      };
-
-      setUploadedVideos(prev => [newVideo, ...prev]);
-
-      try {
-        // Upload video with authentication - use optimized pipeline if enabled
-        let response;
-        if (useOptimizedPipeline) {
-          response = await apiClient.uploadVideoOptimized(file, {
-            preset: selectedPreset,
-            maxFrames: maxFrames,
-            useSceneDetection: sceneDetectionEnabled,
-            useHierarchicalSummary: hierarchicalSummaryEnabled,
-          });
-        } else {
-          response = await apiClient.uploadVideo(file, selectedPreset, maxFrames);
-        }
-        const { media_id, blob_name, job_id } = response;
-
-        setUploadedVideos(prev => prev.map(v =>
-          v.media_id === tempId ? {
-            ...v,
-            media_id,
-            blob_name,
-            job_id,
-            status: 'processing',
-            progress: 0
-          } : v
-        ));
-
-        pollProcessingStatus(media_id, job_id);
-
-      } catch (error) {
-        console.error('Upload error:', error);
-        setUploadedVideos(prev => prev.map(v =>
-          v.media_id === tempId ? {
-            ...v,
-            status: 'error',
-            error_message: 'Upload failed'
-          } : v
-        ));
-      }
-    }
-    setIsUploading(false);
-  };
-
-  const pollProcessingStatus = async (mediaId: string, jobId?: string) => {
+  const pollProcessingStatus = useCallback(async (mediaId: string, jobId?: string) => {
     if (!jobId) {
       setUploadedVideos(prev => prev.map(v =>
         v.media_id === mediaId ? {
@@ -214,7 +138,79 @@ export default function VideoUpload({
         console.error('Polling error:', error);
       }
     }, 3000);
-  };
+  }, [onVideoProcessed]);
+
+  const handleFiles = useCallback(async (files: File[]) => {
+    for (const file of files) {
+      if (!file.type.startsWith('video/')) {
+        alert(`File ${file.name} is not a video`);
+        continue;
+      }
+
+      const tempId = Math.random().toString(36).substring(7);
+      const newVideo: UploadedVideo = {
+        media_id: tempId,
+        blob_name: '',
+        media_type: file.type,
+        file_size: file.size,
+        original_filename: file.name,
+        status: 'uploading',
+        progress: 0
+      };
+
+      setUploadedVideos(prev => [newVideo, ...prev]);
+
+      try {
+        // Upload video with authentication - use optimized pipeline if enabled
+        let response;
+        if (useOptimizedPipeline) {
+          response = await apiClient.uploadVideoOptimized(file, {
+            preset: selectedPreset,
+            maxFrames: maxFrames,
+            useSceneDetection: sceneDetectionEnabled,
+            useHierarchicalSummary: hierarchicalSummaryEnabled,
+          });
+        } else {
+          response = await apiClient.uploadVideo(file, selectedPreset, maxFrames);
+        }
+        const { media_id, blob_name, job_id } = response;
+
+        setUploadedVideos(prev => prev.map(v =>
+          v.media_id === tempId ? {
+            ...v,
+            media_id,
+            blob_name,
+            job_id,
+            status: 'processing',
+            progress: 0
+          } : v
+        ));
+
+        pollProcessingStatus(media_id, job_id);
+
+      } catch (error) {
+        console.error('Upload error:', error);
+        setUploadedVideos(prev => prev.map(v =>
+          v.media_id === tempId ? {
+            ...v,
+            status: 'error',
+            error_message: 'Upload failed'
+          } : v
+        ));
+      }
+    }
+  }, [hierarchicalSummaryEnabled, maxFrames, pollProcessingStatus, sceneDetectionEnabled, selectedPreset, useOptimizedPipeline]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleFiles(files);
+    }
+  }, [handleFiles]);
 
   return (
     <div className="w-full">

@@ -63,28 +63,6 @@ class GetRelatedContentTool(BaseTool):
             if not graph_service.is_connected:
                 graph_service.connect()
 
-            # Search for entities matching the topic
-            query = """
-                MATCH (v:Video)-[:CONTAINS]->(e:Entity)
-                WHERE (v.video_id = $media_id OR v.id = $media_id)
-                  AND (toLower(e.name) CONTAINS toLower($topic) 
-                       OR toLower(e.type) CONTAINS toLower($topic))
-                WITH e
-                MATCH path = (e)-[r*1..$max_hops]-(related)
-                WHERE related:Entity OR related:Frame OR related:Scene
-                RETURN DISTINCT 
-                    e.name as source_entity,
-                    type(r[0]) as relationship,
-                    labels(related)[0] as related_type,
-                    CASE 
-                        WHEN related:Entity THEN related.name
-                        WHEN related:Frame THEN related.description
-                        WHEN related:Scene THEN related.summary
-                    END as related_content,
-                    related.timestamp as timestamp
-                LIMIT 20
-            """
-
             with graph_service.get_session() as session:
                 # Neo4j doesn't support variable in path length, so use multiple queries
                 result = session.run(
@@ -95,11 +73,11 @@ class GetRelatedContentTool(BaseTool):
                     WITH e LIMIT 5
                     OPTIONAL MATCH (e)-[r]-(related)
                     WHERE related:Entity OR related:Frame OR related:Scene
-                    RETURN DISTINCT 
+                    RETURN DISTINCT
                         e.name as source_entity,
                         type(r) as relationship,
                         labels(related)[0] as related_type,
-                        CASE 
+                        CASE
                             WHEN related:Entity THEN related.name
                             WHEN related:Frame THEN substring(related.description, 0, 150)
                             WHEN related:Scene THEN substring(related.summary, 0, 150)

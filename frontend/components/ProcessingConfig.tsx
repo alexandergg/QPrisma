@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Settings, Sliders, Image, Film, Zap, Scissors } from 'lucide-react';
+import { Sliders, Zap, Scissors } from 'lucide-react';
 
 interface ProcessingPreset {
   name: string;

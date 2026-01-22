@@ -10,7 +10,6 @@ import logging
 import os
 import tempfile
 import time
-from typing import Any
 
 from openai import AzureOpenAI
 
@@ -25,7 +24,7 @@ class BatchProcessor:
     - 50% más barato que API regular
     - Sin rate limits restrictivos
     - Ideal para procesamiento de video
-    
+
     Requiere:
     - Un deployment tipo "Global Batch" en Azure OpenAI Studio
     - Variable AZURE_OPENAI_DEPLOYMENT_GPT_BATCH configurada
@@ -34,14 +33,14 @@ class BatchProcessor:
     # Pricing (batch = 50% of regular)
     COST_PER_1K_INPUT = 0.0025   # $2.50 per 1M input tokens
     COST_PER_1K_OUTPUT = 0.01    # $10.00 per 1M output tokens
-    
+
     # Estimates
     AVG_INPUT_TOKENS_PER_FRAME = 1000
     AVG_OUTPUT_TOKENS_PER_FRAME = 150
 
     def __init__(self, openai_client: AzureOpenAI):
         self.client = openai_client
-        
+
         # Global Batch deployment (required)
         self.gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT_BATCH")
         if not self.gpt_deployment:
@@ -51,7 +50,7 @@ class BatchProcessor:
             )
             # Fallback to standard deployment
             self.gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
-        
+
         self.embedding_deployment = os.getenv(
             "AZURE_OPENAI_DEPLOYMENT_EMBEDDING", "text-embedding-3-large"
         )
@@ -60,10 +59,10 @@ class BatchProcessor:
         """Estimate batch processing cost."""
         input_tokens = frame_count * self.AVG_INPUT_TOKENS_PER_FRAME
         output_tokens = frame_count * self.AVG_OUTPUT_TOKENS_PER_FRAME
-        
+
         input_cost = (input_tokens / 1000) * self.COST_PER_1K_INPUT
         output_cost = (output_tokens / 1000) * self.COST_PER_1K_OUTPUT
-        
+
         return {
             "estimated_tokens": input_tokens + output_tokens,
             "estimated_cost_usd": round(input_cost + output_cost, 4),
@@ -88,7 +87,7 @@ class BatchProcessor:
 ## SCENE DESCRIPTION
 Describe the overall scene: setting (indoor/outdoor), environment type, lighting conditions, visual style, and atmosphere.
 
-## PEOPLE & CHARACTERS  
+## PEOPLE & CHARACTERS
 For each person visible:
 - Physical appearance (age range, gender, clothing, distinguishing features)
 - Position and posture in frame
@@ -140,7 +139,7 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
             prompt_text = custom_prompt or default_prompt
             prompt_text = prompt_text.replace("{frame_number}", str(frame_data.get('frame_number', idx)))
             prompt_text = prompt_text.replace("{timestamp}", str(frame_data.get('timestamp', 0)))
-            
+
             request = {
                 "custom_id": f"frame_{frame_data.get('frame_number', idx)}",
                 "method": "POST",
