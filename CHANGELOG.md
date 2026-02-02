@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **LangGraph Agent Migration**: Complete rewrite of agent system using LangGraph StateGraph
+  - `VideoAgentGraph`: New video agent with declarative graph architecture
+  - `EditorAgentGraph`: New editor agent for Chat-to-Edit functionality
+  - `@tool` decorator with `InjectedToolArg` for modern context injection
+  - `tools_condition` prebuilt for cleaner conditional routing
+  - `handle_tool_errors=True` for graceful tool error handling
+  - `trim_messages` to prevent context window overflow
+  - `interrupt_before` for human-in-the-loop clip confirmation
+  - `get_graph_diagram()` for Mermaid/ASCII graph visualization
+  - `get_state_history()` for debugging and audit trails
+  - `resume_from_checkpoint()` to resume from saved state
+  - `confirm_and_continue()` for editor human-in-the-loop flow
+  - Redis checkpointer (`RedisSaver`) for persistent conversation memory
 - Video editor with Chat-to-Edit functionality
 - Storage tiering for cost optimization
 - Agentic chat system with 9+ tools
@@ -17,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Migrated from Cosmos DB to PostgreSQL
 - Improved frontend UX with 3-column layout
+- **Agent architecture**: Migrated from manual ReAct loop to LangGraph StateGraph pattern
+  - Uses `START` constant for modern entry points
+  - Uses `add_messages` reducer for automatic message accumulation
+  - Backward compatible: Legacy `VideoAgent`/`EditorAgent` still available
 
 ### Fixed
 - Audio transcript access in agent tools
