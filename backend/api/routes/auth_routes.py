@@ -5,48 +5,17 @@ Handles user registration, login, and token management.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
 
 from api.dependencies import get_auth_service, get_current_user
+from models.api_schemas import (
+    LoginRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserResponse,
+)
 from models.user import User
 
 router = APIRouter(tags=["Authentication"])
-
-
-# =============================================================================
-# Request/Response Models
-# =============================================================================
-
-
-class RegisterRequest(BaseModel):
-    """User registration request."""
-
-    email: EmailStr
-    password: str = Field(..., min_length=8)
-    name: str = Field(..., min_length=2)
-
-
-class LoginRequest(BaseModel):
-    """User login request."""
-
-    email: EmailStr
-    password: str
-
-
-class TokenResponse(BaseModel):
-    """Authentication token response."""
-
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int = 86400  # 24 hours
-
-
-class UserResponse(BaseModel):
-    """User profile response."""
-
-    id: str
-    email: str
-    name: str
 
 
 # =============================================================================

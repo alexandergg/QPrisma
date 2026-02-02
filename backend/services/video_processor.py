@@ -5,14 +5,17 @@ Usa FFmpeg ultra-rápido y Azure OpenAI Batch API (50% más barato).
 """
 
 import base64
+import logging
 import os
+import subprocess
 import tempfile
 import time
+from typing import Any
 
 import cv2
 import numpy as np
 from azure.storage.blob import BlobServiceClient
-from openai import AzureOpenAI
+from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
 
 from models.ffmpeg_config import (
     FFmpegProcessingConfig,
@@ -24,9 +27,18 @@ from services.audio_processor import AudioProcessor
 from services.batch_processor import BatchProcessor
 from services.ffmpeg_processor import FFmpegVideoProcessor
 
+logger = logging.getLogger(__name__)
+
 
 class VideoProcessor:
-    """Procesa videos: extracción de frames, análisis con GPT-4V, embeddings, audio"""
+    """
+    Procesa videos: extracción de frames, análisis con GPT-4V, embeddings, audio.
+    
+    Attributes:
+        openai_client: Cliente de Azure OpenAI para análisis de visión y embeddings.
+        blob_service: Cliente de Azure Blob Storage para almacenamiento de media.
+        container_name: Nombre del contenedor de blobs para media.
+    """
 
     # Processing constants
     BATCH_CHECK_INTERVAL_SECONDS = 30
@@ -87,7 +99,7 @@ class VideoProcessor:
         # Obtener información del video
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        total_frames / fps if fps > 0 else 0
+        _duration = total_frames / fps if fps > 0 else 0
 
         frames = []
 
@@ -227,37 +239,56 @@ Be thorough but factual. Prioritize information that would help users find this 
                 "tokens_used": response.usage.total_tokens if response.usage else 0,
             }
 
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error in analyze_frame_with_gpt4v: {e}")
+            return {"analysis": None, "error": str(e), "model": self.gpt_deployment}
         except Exception as e:
-            print(f"✗ ERROR en analyze_frame_with_gpt4v: {e}")
-            import traceback
-
-            traceback.print_exc()
+            logger.exception(f"Unexpected error in analyze_frame_with_gpt4v: {e}")
             return {"analysis": None, "error": str(e), "model": self.gpt_deployment}
 
     def generate_embedding(self, text: str) -> list[float]:
-        """Genera embedding de un texto usando Azure OpenAI"""
+        """
+        Genera embedding de un texto usando Azure OpenAI.
+        
+        Args:
+            text: Texto a convertir en embedding.
+            
+        Returns:
+            Lista de floats representando el embedding, o lista vacía en caso de error.
+        """
         try:
             response = self.openai_client.embeddings.create(
                 model=self.embedding_deployment, input=text
             )
             return response.data[0].embedding
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error generating embedding: {e}")
+            return []
         except Exception as e:
-            print(f"Error generando embedding: {e}")
+            logger.exception(f"Unexpected error generating embedding: {e}")
             return []
 
     def generate_embeddings_batch(
         self, texts: list[str], batch_size: int = 16
     ) -> list[list[float]]:
         """
-        Genera embeddings para múltiples textos en lotes
-        Azure OpenAI soporta hasta 2048 textos por request, usamos lotes de 16 por seguridad
+        Genera embeddings para múltiples textos en lotes.
+        
+        Azure OpenAI soporta hasta 2048 textos por request, usamos lotes de 16 por seguridad.
+        
+        Args:
+            texts: Lista de textos a convertir en embeddings.
+            batch_size: Tamaño del batch para cada request.
+            
+        Returns:
+            Lista de embeddings, uno por cada texto de entrada.
         """
         if not texts:
-            print("⚠ generate_embeddings_batch: Lista de textos vacía")
+            logger.warning("generate_embeddings_batch: Lista de textos vacía")
             return []
 
-        print(f"📊 Generando embeddings para {len(texts)} textos en lotes de {batch_size}")
-        embeddings = []
+        logger.info(f"Generando embeddings para {len(texts)} textos en lotes de {batch_size}")
+        embeddings: list[list[float]] = []
         total_batches = (len(texts) + batch_size - 1) // batch_size
 
         for i in range(0, len(texts), batch_size):
@@ -265,7 +296,7 @@ Be thorough but factual. Prioritize information that would help users find this 
             batch_num = i // batch_size + 1
 
             try:
-                print(f"  Procesando batch {batch_num}/{total_batches} ({len(batch)} textos)...")
+                logger.debug(f"Procesando batch {batch_num}/{total_batches} ({len(batch)} textos)")
 
                 response = self.openai_client.embeddings.create(
                     model=self.embedding_deployment, input=batch
@@ -274,19 +305,18 @@ Be thorough but factual. Prioritize information that would help users find this 
                 batch_embeddings = [item.embedding for item in response.data]
                 embeddings.extend(batch_embeddings)
 
-                print(
-                    f"  ✓ Batch {batch_num}/{total_batches}: {len(batch_embeddings)} embeddings generados"
+                logger.debug(
+                    f"Batch {batch_num}/{total_batches}: {len(batch_embeddings)} embeddings generados"
                 )
 
+            except (APIError, APIConnectionError, RateLimitError) as e:
+                logger.error(f"OpenAI API error in batch {batch_num}/{total_batches}: {e}")
+                embeddings.extend([[] for _ in batch])
             except Exception as e:
-                print(f"  ✗ Error en batch {batch_num}/{total_batches}: {e}")
-                import traceback
-
-                traceback.print_exc()
-                # Agregar embeddings vacíos para mantener el orden
+                logger.exception(f"Unexpected error in batch {batch_num}/{total_batches}: {e}")
                 embeddings.extend([[] for _ in batch])
 
-        print(f"✅ Total: {len(embeddings)} embeddings generados")
+        logger.info(f"Total: {len(embeddings)} embeddings generados")
         return embeddings
 
     # =========================================================================
@@ -342,17 +372,17 @@ Be thorough but factual. Prioritize information that would help users find this 
 
         try:
             # 1. Descargar video
-            print(f"📥 Descargando video: {blob_name}")
+            logger.info(f"Descargando video: {blob_name}")
             self._download_blob_to_file(blob_name, tmp_path)
 
             # 2. Analizar metadata
-            print("📊 Analizando información del video...")
+            logger.info("Analizando información del video...")
             video_info = ffmpeg_proc.get_video_info(tmp_path)
 
             # 3. Extraer frames
-            print("🎞️  Extrayendo frames con FFmpeg...")
+            logger.info("Extrayendo frames con FFmpeg...")
             frames = ffmpeg_proc.extract_frames_ffmpeg(video_path=tmp_path, return_as_bytes=True)
-            print(f"✅ {len(frames)} frames extraídos")
+            logger.info(f"{len(frames)} frames extraídos")
 
             # 4. Procesar audio si está habilitado
             audio_data = None
@@ -363,8 +393,11 @@ Be thorough but factual. Prioritize information that would help users find this 
                         language=audio_language,
                         video_descriptions=None,
                     )
+                except (OSError, subprocess.SubprocessError) as e:
+                    logger.warning(f"Error procesando audio (continuando sin audio): {e}")
+                    audio_data = None
                 except Exception as e:
-                    print(f"⚠️  Error procesando audio (continuando sin audio): {e}")
+                    logger.warning(f"Error inesperado procesando audio: {e}")
                     audio_data = None
 
             # 5. Procesar con Batch API (siempre - 50% más barato)
@@ -383,25 +416,36 @@ Be thorough but factual. Prioritize information that would help users find this 
 
     def _process_with_batch_api(
         self,
-        frames: list[dict],
-        video_info: dict,
+        frames: list[dict[str, Any]],
+        video_info: dict[str, Any],
         blob_name: str,
         custom_prompt: str | None,
         ffmpeg_proc: FFmpegVideoProcessor,
-        audio_data: dict | None = None,
-    ) -> dict:
+        audio_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Procesa frames usando Azure Global Batch API.
+        
         50% más barato y sin rate limits.
+        
+        Args:
+            frames: Lista de frames con image_data y metadatos.
+            video_info: Información del video (duración, fps, etc.).
+            blob_name: Nombre del blob en Azure Storage.
+            custom_prompt: Prompt personalizado para análisis.
+            ffmpeg_proc: Procesador FFmpeg para obtener estado.
+            audio_data: Datos de audio procesado (opcional).
+            
+        Returns:
+            Diccionario con frames_data, video_metadata, audio_data, processing_stats.
         """
         batch_proc = BatchProcessor(self.openai_client)
 
-        print("\n🚀 BATCH API - 50% MÁS BARATO")
-        print("=" * 60)
+        logger.info("Iniciando procesamiento con Batch API (50%% más barato)")
 
         # 1. Preparar frames para batch API
-        print(f"🔄 Preparando {len(frames)} frames para Batch API...")
-        frames_for_batch = []
+        logger.info(f"Preparando {len(frames)} frames para Batch API")
+        frames_for_batch: list[dict[str, Any]] = []
 
         for frame_info in frames:
             image_bytes = frame_info["image_data"]
@@ -416,18 +460,17 @@ Be thorough but factual. Prioritize information that would help users find this 
             )
 
         # 2. Crear y enviar batch job para análisis de visión
-        print(f"\n📤 Enviando batch job para análisis de {len(frames)} frames...")
+        logger.info(f"Enviando batch job para análisis de {len(frames)} frames")
         vision_requests = batch_proc.create_vision_batch_requests(frames_for_batch, custom_prompt)
 
         vision_batch_id = batch_proc.submit_batch_job(
             vision_requests, description=f"Vision analysis: {blob_name} ({len(frames)} frames)"
         )
 
-        print(f"✅ Batch job creado: {vision_batch_id}")
+        logger.info(f"Batch job creado: {vision_batch_id}")
 
         # 3. Esperar a que complete el análisis
-        print("\n⏳ Esperando completación del análisis...")
-        print(f"   (típicamente 3-5 minutos para {len(frames)} frames)")
+        logger.info(f"Esperando completación del análisis (típicamente 3-5 min para {len(frames)} frames)")
 
         start_analysis = time.time()
         success = batch_proc.wait_for_batch_completion(
@@ -438,19 +481,19 @@ Be thorough but factual. Prioritize information that would help users find this 
         analysis_time = time.time() - start_analysis
 
         if not success:
-            raise Exception(f"Batch análisis falló o timeout: {vision_batch_id}")
+            raise RuntimeError(f"Batch análisis falló o timeout: {vision_batch_id}")
 
-        print(f"✅ Análisis completado en {analysis_time:.2f}s")
+        logger.info(f"Análisis completado en {analysis_time:.2f}s")
 
         # 4. Obtener y parsear resultados del análisis
-        print("\n📥 Obteniendo resultados del análisis...")
+        logger.info("Obteniendo resultados del análisis")
         vision_results = batch_proc.get_batch_results(vision_batch_id)
         parsed_analyses = batch_proc.parse_vision_results(vision_results)
 
         # 5. Preparar textos para embeddings
-        print("\n🔄 Preparando textos para embeddings batch...")
-        texts_to_embed = []
-        frame_to_text_idx = {}  # Mapeo frame_number -> índice en texts_to_embed
+        logger.info("Preparando textos para embeddings batch")
+        texts_to_embed: list[str] = []
+        frame_to_text_idx: dict[int, int] = {}
 
         for frame_data in frames_for_batch:
             custom_id = f"frame_{frame_data['frame_number']}"
@@ -460,16 +503,15 @@ Be thorough but factual. Prioritize information that would help users find this 
                 frame_to_text_idx[frame_data["frame_number"]] = len(texts_to_embed)
                 texts_to_embed.append(analysis_data["analysis"])
 
-        print(f"📊 {len(texts_to_embed)}/{len(frames)} frames con análisis válido")
+        logger.info(f"{len(texts_to_embed)}/{len(frames)} frames con análisis válido")
 
         # 6. Generar embeddings en modo estándar (Batch API no soporta /embeddings)
-        embeddings_dict = {}
+        embeddings_dict: dict[str, list[float]] = {}
         if texts_to_embed:
-            print("\n🧮 Generando embeddings en paralelo (Batch API no soporta /embeddings)...")
+            logger.info("Generando embeddings en paralelo")
             start_embeddings = time.time()
 
-            # Generar embeddings en batches
-            all_embeddings = []
+            all_embeddings: list[list[float]] = []
 
             for i in range(0, len(texts_to_embed), self.EMBEDDING_BATCH_SIZE):
                 batch_texts = texts_to_embed[i : i + self.EMBEDDING_BATCH_SIZE]
@@ -479,24 +521,26 @@ Be thorough but factual. Prioritize information that would help users find this 
                     )
                     batch_embeddings = [item.embedding for item in response.data]
                     all_embeddings.extend(batch_embeddings)
-                    print(f"  ✓ {len(all_embeddings)}/{len(texts_to_embed)} embeddings generados")
+                    logger.debug(f"{len(all_embeddings)}/{len(texts_to_embed)} embeddings generados")
+                except (APIError, APIConnectionError, RateLimitError) as e:
+                    logger.error(f"OpenAI API error en batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}")
+                    all_embeddings.extend([[] for _ in range(len(batch_texts))])
                 except Exception as e:
-                    print(f"  ✗ Error en batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}")
-                    # Rellenar con embeddings vacíos en caso de error
+                    logger.exception(f"Error inesperado en batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}")
                     all_embeddings.extend([[] for _ in range(len(batch_texts))])
 
             embeddings_time = time.time() - start_embeddings
-            print(f"✅ Embeddings generados en {embeddings_time:.2f}s")
+            logger.info(f"Embeddings generados en {embeddings_time:.2f}s")
 
             # Crear diccionario de embeddings
             for idx, embedding in enumerate(all_embeddings):
                 embeddings_dict[f"embedding_{idx}"] = embedding
         else:
-            embeddings_time = 0
+            embeddings_time = 0.0
 
         # 8. Combinar resultados
-        print("\n🔄 Combinando resultados...")
-        frames_data = []
+        logger.info("Combinando resultados")
+        frames_data: list[dict[str, Any]] = []
         tokens_total = 0
 
         for frame_data in frames_for_batch:
@@ -505,7 +549,7 @@ Be thorough but factual. Prioritize information that would help users find this 
             analysis_data = parsed_analyses.get(custom_id, {})
 
             # Obtener embedding si existe
-            embedding = []
+            embedding: list[float] = []
             if frame_number in frame_to_text_idx:
                 text_idx = frame_to_text_idx[frame_number]
                 embedding_id = f"embedding_{text_idx}"
@@ -526,8 +570,6 @@ Be thorough but factual. Prioritize information that would help users find this 
         total_time = analysis_time + embeddings_time
         status = ffmpeg_proc.get_status()
         pipeline = ffmpeg_proc.get_processing_pipeline()
-
-        # (Removed YOLO caption merging logic)
 
         result = {
             "video_metadata": video_info,
@@ -552,12 +594,13 @@ Be thorough but factual. Prioritize information that would help users find this 
             "pipeline": pipeline.dict(),
         }
 
-        print("\n🎉 BATCH COMPLETADO")
-        print(f"   • {len(frames)} frames procesados en {total_time:.2f}s")
-        print(f"   • {len([f for f in frames_data if f.get('embedding')])} embeddings generados")
+        frames_with_embeddings = len([f for f in frames_data if f.get("embedding")])
+        logger.info(
+            f"Batch completado: {len(frames)} frames en {total_time:.2f}s, "
+            f"{frames_with_embeddings} embeddings, 50%% ahorro"
+        )
         if audio_data and audio_data.get("stats", {}).get("has_audio"):
-            print(f"   • Audio transcrito: {audio_data['stats']['total_words']} palabras")
-        print("   • Ahorro: 50% en costos API")
+            logger.info(f"Audio transcrito: {audio_data['stats']['total_words']} palabras")
 
         return result
 

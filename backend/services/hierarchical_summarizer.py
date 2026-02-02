@@ -16,12 +16,12 @@ This approach provides:
 import asyncio
 import json
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
 
+from core.config import create_azure_openai_client, get_settings
 from services.scene_analyzer import Scene, VideoStructure
 
 logger = logging.getLogger(__name__)
@@ -49,16 +49,8 @@ class HierarchicalSummarizer:
 
     def __init__(self, azure_client: AzureOpenAI | None = None):
         """Initialize with Azure OpenAI client."""
-        self.client = azure_client or self._create_client()
-        self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
-
-    def _create_client(self) -> AzureOpenAI:
-        """Create Azure OpenAI client from environment."""
-        return AzureOpenAI(
-            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        )
+        self.client = azure_client or create_azure_openai_client()
+        self.deployment = get_settings().azure.openai_deployment_gpt
 
     async def summarize_scene(
         self, scene: Scene, config: SummaryConfig = SummaryConfig()
@@ -127,8 +119,15 @@ Respond in JSON format:
             result = json.loads(response.choices[0].message.content)
             return result
 
-        except Exception as e:
-            logger.error(f"Scene summarization error: {e}")
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error in scene summarization: {e}")
+            return {
+                "summary": scene.visual_description or f"Scene {scene.scene_id}",
+                "title": f"Scene {scene.scene_id + 1}",
+                "key_elements": scene.detected_objects or [],
+            }
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in scene summarization: {e}")
             return {
                 "summary": scene.visual_description or f"Scene {scene.scene_id}",
                 "title": f"Scene {scene.scene_id + 1}",
@@ -200,8 +199,15 @@ Respond in JSON format:
             result = json.loads(response.choices[0].message.content)
             return result
 
-        except Exception as e:
-            logger.error(f"Chapter summarization error: {e}")
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error in chapter summarization: {e}")
+            return {
+                "summary": f"Chapter covering {chapter.get('start_time', 0):.0f}s to {chapter.get('end_time', 0):.0f}s",
+                "title": f"Part {chapter.get('chapter_id', 0) + 1}",
+                "themes": [],
+            }
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in chapter summarization: {e}")
             return {
                 "summary": f"Chapter covering {chapter.get('start_time', 0):.0f}s to {chapter.get('end_time', 0):.0f}s",
                 "title": f"Part {chapter.get('chapter_id', 0) + 1}",
@@ -274,8 +280,16 @@ Respond in JSON format:
             result = json.loads(response.choices[0].message.content)
             return result
 
-        except Exception as e:
-            logger.error(f"Video summarization error: {e}")
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error in video summarization: {e}")
+            return {
+                "summary": f"Video with {len(structure.scenes)} scenes covering {structure.total_duration/60:.1f} minutes",
+                "title": "Untitled Video",
+                "key_topics": list(set(all_themes))[:5],
+                "content_type": "unknown",
+            }
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in video summarization: {e}")
             return {
                 "summary": f"Video with {len(structure.scenes)} scenes covering {structure.total_duration/60:.1f} minutes",
                 "title": "Untitled Video",
@@ -411,15 +425,8 @@ class SceneEmbeddingGenerator:
     """
 
     def __init__(self, azure_client: AzureOpenAI | None = None):
-        self.client = azure_client or self._create_client()
-        self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_EMBEDDING", "text-embedding-3-large")
-
-    def _create_client(self) -> AzureOpenAI:
-        return AzureOpenAI(
-            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        )
+        self.client = azure_client or create_azure_openai_client()
+        self.deployment = get_settings().azure.openai_deployment_embedding
 
     async def generate_embeddings(
         self, texts: list[str], batch_size: int = 16
@@ -440,8 +447,8 @@ class SceneEmbeddingGenerator:
                 batch_embeddings = [item.embedding for item in response.data]
                 embeddings.extend(batch_embeddings)
 
-            except Exception as e:
-                logger.error(f"Embedding generation error: {e}")
+            except (APIError, APIConnectionError, RateLimitError) as e:
+                logger.error(f"OpenAI API error in embedding generation: {e}")
                 # Add empty embeddings for failed batch
                 embeddings.extend([[] for _ in batch])
 
@@ -452,6 +459,6 @@ class SceneEmbeddingGenerator:
         try:
             response = self.client.embeddings.create(model=self.deployment, input=[text])
             return response.data[0].embedding
-        except Exception as e:
-            logger.error(f"Single embedding error: {e}")
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error in single embedding: {e}")
             return []

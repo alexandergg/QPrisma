@@ -9,66 +9,20 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 
 from api.dependencies import get_current_user, get_graph_search_service, get_openai_client
+from models.api_schemas import (
+    ChatRequest,
+    ChatResponse,
+    SearchRequest,
+    SearchResult,
+    SearchResponse,
+)
 from models.graph_models import NodeType
 from models.user import User
 
 router = APIRouter(tags=["Chat & Search"])
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Request/Response Models
-# =============================================================================
-
-
-class ChatMessage(BaseModel):
-    """A single chat message."""
-
-    role: str = Field(..., pattern="^(user|assistant)$")
-    content: str
-
-
-class ChatRequest(BaseModel):
-    """Chat request with optional video context."""
-
-    message: str
-    media_id: str | None = None
-    chat_history: list[dict] | None = None
-
-
-class ChatResponse(BaseModel):
-    """Chat response with sources."""
-
-    response: str
-    sources: list[dict] = Field(default_factory=list)
-
-
-class SearchRequest(BaseModel):
-    """Video content search request."""
-
-    query: str
-    media_id: str | None = None
-    limit: int = Field(default=20, ge=1, le=100)
-
-
-class SearchResult(BaseModel):
-    """A single search result."""
-
-    timestamp: float
-    content: str
-    score: float
-    type: str = "visual"  # visual or audio
-
-
-class SearchResponse(BaseModel):
-    """Search response with results."""
-
-    query: str
-    results: list[SearchResult]
-    total: int
 
 
 # =============================================================================
@@ -354,22 +308,7 @@ async def search(request: SearchRequest, current_user: User = Depends(get_curren
 # =============================================================================
 
 
-class AgentChatRequest(BaseModel):
-    """Request for agentic chat with tool calling."""
-
-    message: str
-    media_id: str | None = None
-    chat_history: list[dict] | None = None
-    session_id: str | None = None
-
-
-class AgentChatResponse(BaseModel):
-    """Response from agentic chat."""
-
-    response: str
-    sources: list[dict] = Field(default_factory=list)
-    tool_calls_made: int = 0
-    session_id: str | None = None
+from models.api_schemas import AgentChatRequest, AgentChatResponse
 
 
 @router.post("/chat/agent", response_model=AgentChatResponse)

@@ -5,12 +5,16 @@ Soporta chunking para archivos grandes (>25MB limit de Azure Whisper).
 """
 
 import json
+import logging
 import os
 import subprocess
 import tempfile
 import time
+from typing import Any
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
+
+logger = logging.getLogger(__name__)
 
 # Azure Whisper tiene límite de 25MB
 WHISPER_MAX_FILE_SIZE_MB = 25
@@ -19,26 +23,34 @@ CHUNK_DURATION_SECONDS = 300  # 5 minutos
 
 
 class AudioProcessor:
-    """Procesa audio de videos: extracción, transcripción con Whisper, análisis"""
+    """
+    Procesa audio de videos: extracción, transcripción con Whisper, análisis.
+    
+    Attributes:
+        openai_client: Cliente de Azure OpenAI para Whisper y GPT.
+        whisper_deployment: Nombre del deployment de Whisper.
+        gpt_deployment: Nombre del deployment de GPT.
+        rate_limit_rpm: Límite de requests por minuto para Whisper.
+    """
 
     def __init__(self, openai_client: AzureOpenAI, rate_limit_rpm: int = 3):
         self.openai_client = openai_client
         self.whisper_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_WHISPER", "whisper")
         self.gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
-        self.rate_limit_rpm = rate_limit_rpm  # Requests per minute
-        self._last_request_time = 0
+        self.rate_limit_rpm = rate_limit_rpm
+        self._last_request_time = 0.0
 
-    def _wait_for_rate_limit(self):
+    def _wait_for_rate_limit(self) -> None:
         """Espera si es necesario para respetar rate limit."""
         if self.rate_limit_rpm <= 0:
             return
 
-        min_interval = 60.0 / self.rate_limit_rpm  # segundos entre requests
+        min_interval = 60.0 / self.rate_limit_rpm
         elapsed = time.time() - self._last_request_time
 
         if elapsed < min_interval:
             wait_time = min_interval - elapsed
-            print(f"⏳ Rate limit: esperando {wait_time:.1f}s...")
+            logger.debug(f"Rate limit: esperando {wait_time:.1f}s")
             time.sleep(wait_time)
 
         self._last_request_time = time.time()
@@ -85,13 +97,21 @@ class AudioProcessor:
 
         try:
             subprocess.run(cmd, capture_output=True, text=True, check=True)
-            print(f"✓ Audio extraído: {output_path}")
+            logger.info(f"Audio extraído: {output_path}")
             return output_path
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Error extrayendo audio: {e.stderr}")
 
     def get_audio_duration(self, audio_path: str) -> float:
-        """Obtiene la duración del audio en segundos usando ffprobe."""
+        """
+        Obtiene la duración del audio en segundos usando ffprobe.
+        
+        Args:
+            audio_path: Ruta al archivo de audio.
+            
+        Returns:
+            Duración en segundos, o 0.0 si hay error.
+        """
         cmd = [
             "ffprobe",
             "-v",
@@ -106,8 +126,11 @@ class AudioProcessor:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return float(result.stdout.strip())
-        except Exception as e:
-            print(f"⚠️ Error obteniendo duración: {e}")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Error obteniendo duración de audio: {e}")
+            return 0.0
+        except ValueError as e:
+            logger.warning(f"Error parseando duración de audio: {e}")
             return 0.0
 
     def split_audio_into_chunks(
@@ -115,17 +138,17 @@ class AudioProcessor:
         audio_path: str,
         chunk_duration: float = CHUNK_DURATION_SECONDS,
         output_dir: str | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """
         Divide audio en chunks más pequeños para respetar límite de Whisper.
 
         Args:
-            audio_path: Ruta al archivo de audio
-            chunk_duration: Duración máxima de cada chunk en segundos
-            output_dir: Directorio para chunks (temporal si None)
+            audio_path: Ruta al archivo de audio.
+            chunk_duration: Duración máxima de cada chunk en segundos.
+            output_dir: Directorio para chunks (temporal si None).
 
         Returns:
-            Lista de dicts con info de cada chunk: {path, start_time, end_time, index}
+            Lista de dicts con info de cada chunk: {path, start_time, end_time, index}.
         """
         total_duration = self.get_audio_duration(audio_path)
         if total_duration <= 0:
@@ -134,17 +157,17 @@ class AudioProcessor:
         # Verificar si necesita chunking
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
         if file_size_mb <= WHISPER_MAX_FILE_SIZE_MB and total_duration <= chunk_duration:
-            print(f"✓ Audio pequeño ({file_size_mb:.1f}MB), no requiere chunking")
+            logger.info(f"Audio pequeño ({file_size_mb:.1f}MB), no requiere chunking")
             return [{"path": audio_path, "start_time": 0, "end_time": total_duration, "index": 0}]
 
         if output_dir is None:
             output_dir = tempfile.mkdtemp(prefix="audio_chunks_")
 
-        chunks = []
-        current_time = 0
+        chunks: list[dict[str, Any]] = []
+        current_time = 0.0
         chunk_index = 0
 
-        print(f"📦 Dividiendo audio de {total_duration:.1f}s en chunks de {chunk_duration}s...")
+        logger.info(f"Dividiendo audio de {total_duration:.1f}s en chunks de {chunk_duration}s")
 
         while current_time < total_duration:
             end_time = min(current_time + chunk_duration, total_duration)
@@ -173,8 +196,8 @@ class AudioProcessor:
             try:
                 subprocess.run(cmd, capture_output=True, check=True)
                 chunk_size_mb = os.path.getsize(chunk_path) / (1024 * 1024)
-                print(
-                    f"  • Chunk {chunk_index}: {current_time:.1f}s - {end_time:.1f}s ({chunk_size_mb:.1f}MB)"
+                logger.debug(
+                    f"Chunk {chunk_index}: {current_time:.1f}s - {end_time:.1f}s ({chunk_size_mb:.1f}MB)"
                 )
 
                 chunks.append(
@@ -188,12 +211,12 @@ class AudioProcessor:
                 )
 
             except subprocess.CalledProcessError as e:
-                print(f"⚠️ Error creando chunk {chunk_index}: {e}")
+                logger.warning(f"Error creando chunk {chunk_index}: {e}")
 
             current_time = end_time
             chunk_index += 1
 
-        print(f"✓ Creados {len(chunks)} chunks")
+        logger.info(f"Creados {len(chunks)} chunks")
         return chunks
 
     def transcribe_audio(
@@ -202,21 +225,22 @@ class AudioProcessor:
         language: str | None = None,
         response_format: str = "verbose_json",
         timestamp_granularities: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Transcribe audio usando Azure OpenAI Whisper.
+        
         Para archivos grandes, automáticamente divide en chunks.
 
         Args:
-            audio_path: Ruta al archivo de audio
-            language: Código de idioma (es, en, etc.) - None para detección automática
-            response_format: Formato de respuesta (json, text, srt, verbose_json, vtt)
-            timestamp_granularities: Granularidad de timestamps ["word", "segment"]
+            audio_path: Ruta al archivo de audio.
+            language: Código de idioma (es, en, etc.) - None para detección automática.
+            response_format: Formato de respuesta (json, text, srt, verbose_json, vtt).
+            timestamp_granularities: Granularidad de timestamps ["word", "segment"].
 
         Returns:
-            Diccionario con transcripción y metadatos
+            Diccionario con transcripción y metadatos.
         """
-        print("🎤 Transcribiendo audio con Whisper...")
+        logger.info("Transcribiendo audio con Whisper")
 
         if timestamp_granularities is None:
             timestamp_granularities = ["segment", "word"]
@@ -225,10 +249,10 @@ class AudioProcessor:
         file_size_mb = os.path.getsize(audio_path) / (1024 * 1024)
         audio_duration = self.get_audio_duration(audio_path)
 
-        print(f"  • Tamaño: {file_size_mb:.1f}MB, Duración: {audio_duration:.1f}s")
+        logger.info(f"Tamaño: {file_size_mb:.1f}MB, Duración: {audio_duration:.1f}s")
 
         if file_size_mb > WHISPER_MAX_FILE_SIZE_MB:
-            print(f"⚠️ Archivo excede {WHISPER_MAX_FILE_SIZE_MB}MB, usando chunking...")
+            logger.info(f"Archivo excede {WHISPER_MAX_FILE_SIZE_MB}MB, usando chunking")
             return self._transcribe_with_chunking(
                 audio_path, language, response_format, timestamp_granularities
             )
@@ -245,8 +269,20 @@ class AudioProcessor:
         response_format: str,
         timestamp_granularities: list[str],
         time_offset: float = 0,
-    ) -> dict:
-        """Transcribe un archivo de audio individual."""
+    ) -> dict[str, Any]:
+        """
+        Transcribe un archivo de audio individual.
+        
+        Args:
+            audio_path: Ruta al archivo de audio.
+            language: Código de idioma (opcional).
+            response_format: Formato de respuesta.
+            timestamp_granularities: Granularidad de timestamps.
+            time_offset: Offset de tiempo para ajustar timestamps.
+            
+        Returns:
+            Diccionario con resultados de transcripción.
+        """
         self._wait_for_rate_limit()
 
         try:
@@ -275,11 +311,14 @@ class AudioProcessor:
                 if time_offset > 0:
                     result = self._adjust_timestamps(result, time_offset)
 
-                print(f"✓ Transcripción completada en {elapsed:.2f}s")
+                logger.info(f"Transcripción completada en {elapsed:.2f}s")
                 return result
 
-        except Exception as e:
-            print(f"✗ Error en transcripción: {e}")
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error en transcripción: {e}")
+            raise
+        except OSError as e:
+            logger.error(f"Error de archivo en transcripción: {e}")
             raise
 
     def _transcribe_with_chunking(
@@ -288,21 +327,32 @@ class AudioProcessor:
         language: str | None,
         response_format: str,
         timestamp_granularities: list[str],
-    ) -> dict:
-        """Transcribe audio grande dividiéndolo en chunks."""
+    ) -> dict[str, Any]:
+        """
+        Transcribe audio grande dividiéndolo en chunks.
+        
+        Args:
+            audio_path: Ruta al archivo de audio.
+            language: Código de idioma (opcional).
+            response_format: Formato de respuesta.
+            timestamp_granularities: Granularidad de timestamps.
+            
+        Returns:
+            Diccionario con resultados combinados de transcripción.
+        """
         chunks = self.split_audio_into_chunks(audio_path)
 
-        all_segments = []
-        all_words = []
-        full_text_parts = []
-        detected_language = None
-        total_duration = 0
+        all_segments: list[dict[str, Any]] = []
+        all_words: list[dict[str, Any]] = []
+        full_text_parts: list[str] = []
+        detected_language: str | None = None
+        total_duration = 0.0
 
-        print(f"\n🔄 Procesando {len(chunks)} chunks...")
+        logger.info(f"Procesando {len(chunks)} chunks")
 
         for i, chunk in enumerate(chunks):
-            print(
-                f"\n📝 Chunk {i+1}/{len(chunks)}: {chunk['start_time']:.1f}s - {chunk['end_time']:.1f}s"
+            logger.debug(
+                f"Chunk {i+1}/{len(chunks)}: {chunk['start_time']:.1f}s - {chunk['end_time']:.1f}s"
             )
 
             try:
@@ -330,23 +380,26 @@ class AudioProcessor:
                 chunk_duration = result.get("duration", chunk["end_time"] - chunk["start_time"])
                 total_duration = max(total_duration, chunk["start_time"] + chunk_duration)
 
-                print(
-                    f"  ✓ Texto: {len(result.get('text', ''))} chars, Segmentos: {len(result.get('segments', []))}"
+                logger.debug(
+                    f"Chunk {i+1}: {len(result.get('text', ''))} chars, {len(result.get('segments', []))} segmentos"
                 )
 
+            except (APIError, APIConnectionError, RateLimitError) as e:
+                logger.error(f"OpenAI API error en chunk {i}: {e}")
+                continue
             except Exception as e:
-                print(f"  ✗ Error en chunk {i}: {e}")
+                logger.exception(f"Error inesperado en chunk {i}: {e}")
                 continue
             finally:
                 # Limpiar chunk temporal
                 if chunk.get("path") != audio_path and os.path.exists(chunk["path"]):
                     try:
                         os.unlink(chunk["path"])
-                    except:
+                    except OSError:
                         pass
 
         # Combinar resultados
-        combined_result = {
+        combined_result: dict[str, Any] = {
             "text": " ".join(full_text_parts),
             "language": detected_language,
             "duration": total_duration,
@@ -356,15 +409,24 @@ class AudioProcessor:
             "chunk_count": len(chunks),
         }
 
-        print("\n✅ Transcripción combinada completada")
-        print(f"  • Texto total: {len(combined_result['text'])} chars")
-        print(f"  • Segmentos: {len(all_segments)}")
-        print(f"  • Palabras: {len(all_words)}")
+        logger.info(
+            f"Transcripción combinada completada: {len(combined_result['text'])} chars, "
+            f"{len(all_segments)} segmentos, {len(all_words)} palabras"
+        )
 
         return combined_result
 
-    def _adjust_timestamps(self, result: dict, offset: float) -> dict:
-        """Ajusta todos los timestamps añadiendo un offset."""
+    def _adjust_timestamps(self, result: dict[str, Any], offset: float) -> dict[str, Any]:
+        """
+        Ajusta todos los timestamps añadiendo un offset.
+        
+        Args:
+            result: Diccionario con resultados de transcripción.
+            offset: Offset en segundos a añadir a los timestamps.
+            
+        Returns:
+            Diccionario con timestamps ajustados.
+        """
         # Ajustar segmentos
         if "segments" in result:
             for segment in result["segments"]:
@@ -385,18 +447,18 @@ class AudioProcessor:
 
     def analyze_transcription(
         self, transcription_text: str, video_descriptions: list[str] | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
-        Analiza la transcripción para extraer insights usando GPT-4
+        Analiza la transcripción para extraer insights usando GPT-4.
 
         Args:
-            transcription_text: Texto de la transcripción
-            video_descriptions: Descripciones visuales de frames (opcional)
+            transcription_text: Texto de la transcripción.
+            video_descriptions: Descripciones visuales de frames (opcional).
 
         Returns:
-            Diccionario con análisis enriquecido
+            Diccionario con análisis enriquecido.
         """
-        print("🧠 Analizando transcripción con GPT-4o...")
+        logger.info("Analizando transcripción con GPT-4o")
 
         # Construir contexto con descripciones visuales si están disponibles
         context = ""
@@ -439,15 +501,21 @@ Responde SOLO con el JSON válido, sin markdown ni explicaciones adicionales."""
 
             analysis = json.loads(response.choices[0].message.content)
 
-            print("✓ Análisis completado")
-            print(f"  • Resumen: {analysis.get('resumen', 'N/A')[:100]}...")
-            print(f"  • Temas: {', '.join(analysis.get('temas_principales', [])[:5])}")
-            print(f"  • Sentimiento: {analysis.get('sentimiento', 'N/A')}")
+            logger.info(
+                f"Análisis completado: {analysis.get('resumen', 'N/A')[:50]}..., "
+                f"temas: {len(analysis.get('temas_principales', []))}"
+            )
 
             return analysis
 
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error analizando transcripción: {e}")
+            return {}
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parseando JSON de análisis: {e}")
+            return {}
         except Exception as e:
-            print(f"✗ Error analizando transcripción: {e}")
+            logger.exception(f"Error inesperado analizando transcripción: {e}")
             return {}
 
     def process_video_audio(
@@ -455,25 +523,23 @@ Responde SOLO con el JSON válido, sin markdown ni explicaciones adicionales."""
         video_path: str,
         language: str | None = None,
         video_descriptions: list[str] | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
-        Pipeline completo: extrae audio, transcribe y analiza
+        Pipeline completo: extrae audio, transcribe y analiza.
 
         Args:
-            video_path: Ruta al video
-            language: Idioma (None para detección automática)
-            video_descriptions: Descripciones de frames para contexto
+            video_path: Ruta al video.
+            language: Idioma (None para detección automática).
+            video_descriptions: Descripciones de frames para contexto.
 
         Returns:
-            Diccionario completo con transcripción y análisis
+            Diccionario completo con transcripción y análisis.
         """
-        audio_path = None
+        audio_path: str | None = None
 
         try:
             # 1. Extraer audio
-            print(f"\n{'='*60}")
-            print("🎵 PROCESAMIENTO DE AUDIO")
-            print(f"{'='*60}")
+            logger.info("Iniciando procesamiento de audio")
 
             audio_path = self.extract_audio_from_video(video_path)
 
@@ -482,15 +548,15 @@ Responde SOLO con el JSON válido, sin markdown ni explicaciones adicionales."""
 
             # 3. Analizar transcripción
             full_text = transcription.get("text", "")
-            analysis = {}
+            analysis: dict[str, Any] = {}
 
-            if full_text and len(full_text.strip()) > 50:  # Solo analizar si hay suficiente texto
+            if full_text and len(full_text.strip()) > 50:
                 analysis = self.analyze_transcription(full_text, video_descriptions)
             else:
-                print("⚠️  Transcripción muy corta o vacía, saltando análisis")
+                logger.warning("Transcripción muy corta o vacía, saltando análisis")
 
             # 4. Consolidar resultado
-            result = {
+            result: dict[str, Any] = {
                 "transcription": {
                     "text": full_text,
                     "language": transcription.get("language"),
@@ -507,15 +573,53 @@ Responde SOLO con el JSON válido, sin markdown ni explicaciones adicionales."""
                 },
             }
 
-            print("\n✅ Procesamiento de audio completado")
-            print(f"  • Texto: {len(full_text)} caracteres")
-            print(f"  • Palabras: {result['stats']['total_words']}")
-            print(f"  • Segmentos: {result['stats']['total_segments']}")
+            logger.info(
+                f"Procesamiento de audio completado: {len(full_text)} chars, "
+                f"{result['stats']['total_words']} palabras, {result['stats']['total_segments']} segmentos"
+            )
 
             return result
 
+        except (subprocess.SubprocessError, RuntimeError) as e:
+            logger.error(f"Error de proceso procesando audio: {e}")
+            return {
+                "transcription": {
+                    "text": "",
+                    "language": None,
+                    "duration": 0,
+                    "segments": [],
+                    "words": [],
+                },
+                "analysis": {},
+                "stats": {
+                    "total_words": 0,
+                    "total_segments": 0,
+                    "has_audio": False,
+                    "audio_duration": 0,
+                },
+                "error": str(e),
+            }
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error procesando audio: {e}")
+            return {
+                "transcription": {
+                    "text": "",
+                    "language": None,
+                    "duration": 0,
+                    "segments": [],
+                    "words": [],
+                },
+                "analysis": {},
+                "stats": {
+                    "total_words": 0,
+                    "total_segments": 0,
+                    "has_audio": False,
+                    "audio_duration": 0,
+                },
+                "error": str(e),
+            }
         except Exception as e:
-            print(f"✗ Error procesando audio: {e}")
+            logger.exception(f"Error inesperado procesando audio: {e}")
             return {
                 "transcription": {
                     "text": "",
@@ -539,5 +643,5 @@ Responde SOLO con el JSON válido, sin markdown ni explicaciones adicionales."""
             if audio_path and os.path.exists(audio_path):
                 try:
                     os.unlink(audio_path)
-                except:
+                except OSError:
                     pass

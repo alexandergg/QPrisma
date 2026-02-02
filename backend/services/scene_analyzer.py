@@ -214,7 +214,13 @@ class SceneAnalyzer:
                 return self._create_uniform_scenes(duration)
             return [SceneBoundary(0.0, 0, 1.0, "fallback")]
 
-        except Exception as e:
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FFmpeg scene detection error: {e}")
+            if duration:
+                return self._create_uniform_scenes(duration)
+            return [SceneBoundary(0.0, 0, 1.0, "fallback")]
+
+        except (OSError, ValueError) as e:
             logger.error(f"Scene detection error: {e}")
             if duration:
                 return self._create_uniform_scenes(duration)

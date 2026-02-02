@@ -11,7 +11,7 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
 
 from models.graph_models import (
     EntityType,
@@ -362,8 +362,11 @@ Only include pairs where has_relation is true."""
             logger.info(f"Inferred {len(candidates)} semantic relations")
             return candidates
 
-        except Exception as e:
-            logger.error(f"Failed to infer semantic relations: {e}")
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error inferring semantic relations: {e}")
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error in semantic relations: {e}")
             return []
 
     # =========================================================================

@@ -6,44 +6,17 @@ Uses Global Batch deployments for 50% cost savings.
 """
 
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from api.dependencies import get_current_user, get_video_processor
+from models.api_schemas import BatchStatusResponse, CostEstimateResponse
 from models.user import User
 from services.batch_processor import BatchProcessor
 from services.database_service import get_database_service
 
 router = APIRouter(prefix="/batch", tags=["Batch API"])
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Response Models
-# =============================================================================
-
-
-class BatchStatusResponse(BaseModel):
-    """Batch job status."""
-    azure_batch_id: str
-    status: str
-    total_requests: int
-    completed_requests: int
-    failed_requests: int
-    progress_percent: float
-    estimated_cost: float | None
-    created_at: str | None
-    completed_at: str | None
-
-
-class CostEstimateResponse(BaseModel):
-    """Cost estimate for batch processing."""
-    frame_count: int
-    estimated_tokens: int
-    estimated_cost_usd: float
-    savings_vs_regular_usd: float
 
 
 # =============================================================================

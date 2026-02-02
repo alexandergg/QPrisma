@@ -13,7 +13,7 @@ from datetime import datetime
 from uuid import uuid4
 
 import httpx
-from openai import AzureOpenAI
+from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from models.graph_models import (
@@ -447,9 +447,21 @@ Respond with JSON following this schema:
                     is_url="image_url" in frame,
                 )
                 results.append(result)
-            except Exception as e:
+            except (APIError, APIConnectionError, RateLimitError) as e:
+                logger.error(f"OpenAI API error at frame {frame.get('timestamp')}: {e}")
+                results.append(
+                    FrameAnalysisResult(
+                        frame_id=str(uuid4()),
+                        timestamp=frame.get("timestamp", 0.0),
+                        description=f"API Error: {type(e).__name__}",
+                        entities=[],
+                        relations=[],
+                        topics=[],
+                        actions=[],
+                    )
+                )
+            except (OSError, ValueError) as e:
                 logger.error(f"Failed to extract from frame at {frame.get('timestamp')}: {e}")
-                # Añadir resultado vacío para mantener el orden
                 results.append(
                     FrameAnalysisResult(
                         frame_id=str(uuid4()),
