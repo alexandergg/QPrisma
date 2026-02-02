@@ -13,6 +13,7 @@ import {
   Save,
 } from 'lucide-react';
 import { apiClient, Clip, SubtitleData, SubtitleCue, SubtitleStyle } from '@/lib/api';
+import { formatTimeWithMs as formatTime } from '@/lib/utils';
 
 interface SubtitleEditorProps {
   /** The clip to edit subtitles for */
@@ -79,7 +80,7 @@ export default function SubtitleEditor({
 
   // Find active cue based on current time
   const activeCue = subtitleData?.cues?.find(
-    (cue) => currentTime >= cue.start && currentTime <= cue.end
+    (cue: SubtitleCue) => currentTime >= cue.start && currentTime <= cue.end
   );
 
   // Generate subtitles from transcription
@@ -154,13 +155,13 @@ export default function SubtitleEditor({
       
       // Update local state
       if (subtitleData) {
-        const updatedCues = subtitleData.cues.map((cue) =>
+        const updatedCues = subtitleData.cues.map((cue: SubtitleCue) =>
           cue.id === editingCue ? { ...cue, text: editText } : cue
         );
         const updatedData = {
           ...subtitleData,
           cues: updatedCues,
-          text: updatedCues.map((c) => c.text).join(' '),
+          text: updatedCues.map((c: SubtitleCue) => c.text).join(' '),
         };
         setSubtitleData(updatedData);
         
@@ -197,14 +198,6 @@ export default function SubtitleEditor({
     } catch (e) {
       console.error('Failed to export SRT:', e);
     }
-  };
-
-  // Format time for display
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 100);
-    return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -302,7 +295,7 @@ export default function SubtitleEditor({
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {subtitleData.cues?.map((cue) => {
+            {subtitleData.cues?.map((cue: SubtitleCue) => {
               const isActive = activeCue?.id === cue.id;
               const isEditing = editingCue === cue.id;
               

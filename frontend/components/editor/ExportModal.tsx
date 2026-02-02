@@ -17,7 +17,8 @@ import {
   AlertCircle,
   ExternalLink,
 } from 'lucide-react';
-import { apiClient, Clip, ExportPresets, ExportEstimate, ExportResult } from '@/lib/api';
+import { apiClient, Clip, ExportPresets, ExportEstimate, ExportResult, PlatformPreset, CropMode } from '@/lib/api';
+import { formatTime, formatFileSizeMB as formatFileSize } from '@/lib/utils';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -161,17 +162,6 @@ export default function ExportModal({
     }
   };
 
-  const formatDuration = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const formatFileSize = (mb: number): string => {
-    if (mb >= 1000) return `${(mb / 1000).toFixed(1)} GB`;
-    return `${mb.toFixed(1)} MB`;
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -297,7 +287,7 @@ export default function ExportModal({
                         {PLATFORM_ICONS[key] || <Film className="w-5 h-5" />}
                       </div>
                       <span className="text-xs font-medium">
-                        {platform.display_name}
+                        {(platform as PlatformPreset).display_name}
                       </span>
                     </button>
                   ))}
@@ -351,7 +341,7 @@ export default function ExportModal({
                   </div>
                   <div className="flex items-center justify-between text-sm mt-1">
                     <span className="text-gray-600">Duration</span>
-                    <span className="font-medium">{formatDuration(totalDuration)}</span>
+                    <span className="font-medium">{formatTime(totalDuration)}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm mt-1">
                     <span className="text-gray-600">Output</span>
@@ -383,7 +373,7 @@ export default function ExportModal({
                           onChange={(e) => setSelectedCropMode(e.target.value)}
                           className="w-full p-2 border rounded-lg text-sm"
                         >
-                          {presets.crop_modes.map((mode) => (
+                          {presets.crop_modes.map((mode: CropMode) => (
                             <option key={mode.id} value={mode.id}>
                               {mode.name} - {mode.description}
                             </option>

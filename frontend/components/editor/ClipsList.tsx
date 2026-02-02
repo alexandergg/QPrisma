@@ -3,6 +3,7 @@
 import React, { useState, useCallback } from 'react';
 import { Sparkles, Film, GripVertical, Download } from 'lucide-react';
 import { Clip } from '@/lib/api';
+import { formatTime } from '@/lib/utils';
 import ClipCard from './ClipCard';
 
 interface ClipsListProps {
@@ -43,13 +44,6 @@ export default function ClipsList({
 
   // Calculate total duration
   const totalDuration = clips.reduce((sum, clip) => sum + (clip.end_time - clip.start_time), 0);
-
-  const formatTime = (seconds: number): string => {
-    if (!seconds || isNaN(seconds)) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
 
   // Drag & Drop handlers
   const handleDragStart = useCallback((e: React.DragEvent, clipId: string) => {

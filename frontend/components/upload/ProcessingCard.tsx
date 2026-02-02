@@ -114,7 +114,6 @@ export default function ProcessingCard({
         
         if (response.ok) {
           const data = await response.json();
-          console.log('[ProcessingCard] Poll status:', data);
           
           if (data.processing_status === 'completed') {
             setStatus('completed');
@@ -135,8 +134,8 @@ export default function ProcessingCard({
             clearInterval(pollInterval);
           }
         }
-      } catch (e) {
-        console.log('[ProcessingCard] Poll error (will retry):', e);
+      } catch {
+        // Poll error - will retry automatically
       }
     }, 5000); // Poll every 5 seconds
     
@@ -148,25 +147,21 @@ export default function ProcessingCard({
     if (!jobId) return;
 
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
-    console.log('[ProcessingCard] Connecting to WebSocket:', `${wsUrl}/ws/jobs/${jobId}`);
     const ws = new WebSocket(`${wsUrl}/ws/jobs/${jobId}`);
 
     ws.onopen = () => {
-      console.log('[ProcessingCard] WebSocket connected for job:', jobId);
       setWsConnected(true);
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('[ProcessingCard] WebSocket message received:', data);
 
         if (data.type === 'job_progress') {
           const { progress, stage, message, step_progress } = data.payload;
           
           // Map backend stage to frontend step ID
           const stepId = STAGE_TO_STEP[stage] || stage;
-          console.log(`[ProcessingCard] Stage mapping: ${stage} -> ${stepId}`);
 
           // Update overall progress
           setOverallProgress(progress);
@@ -227,7 +222,7 @@ export default function ProcessingCard({
         
         // Handle initial status from server on connect
         if (data.type === 'connected' || data.type === 'heartbeat') {
-          console.log('[ProcessingCard] Server heartbeat/connected:', data);
+          // Heartbeat received
         }
       } catch (e) {
         console.error('[ProcessingCard] WebSocket message parse error:', e);
@@ -239,8 +234,7 @@ export default function ProcessingCard({
       setWsConnected(false);
     };
 
-    ws.onclose = (event) => {
-      console.log('[ProcessingCard] WebSocket closed for job:', jobId, 'code:', event.code);
+    ws.onclose = () => {
       setWsConnected(false);
     };
 

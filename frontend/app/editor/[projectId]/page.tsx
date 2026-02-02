@@ -190,9 +190,8 @@ export default function EditorProjectPage({ params }: PageParams) {
   }, []);
 
   // Handle subtitle cue click (for editing)
-  const handleSubtitleCueClick = useCallback((cue: SubtitleCue) => {
+  const handleSubtitleCueClick = useCallback((_cue: SubtitleCue) => {
     // Could open an inline editor or scroll to cue in SubtitleEditor
-    console.log('Subtitle cue clicked:', cue);
   }, []);
 
   // Handle subtitles updated from SubtitleEditor

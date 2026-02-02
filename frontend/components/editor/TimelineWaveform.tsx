@@ -4,6 +4,7 @@ import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import WaveSurfer from 'wavesurfer.js';
 import { ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
 import { Clip } from '@/lib/api';
+import { formatTime } from '@/lib/utils';
 
 interface TimelineWaveformProps {
   /** URL of the video/audio to display waveform */
@@ -141,14 +142,6 @@ export default function TimelineWaveform({
   const handleZoomOut = useCallback(() => {
     setZoom((prev) => Math.max(minZoom, prev / 1.5));
   }, [minZoom]);
-
-  // Format time helper
-  const formatTime = (seconds: number): string => {
-    if (!seconds || isNaN(seconds)) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
 
   // Handle drag start on clip edge
   const handleDragStart = useCallback((

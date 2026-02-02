@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { Play, Mic, Eye, Tag } from 'lucide-react';
+import { formatTime } from '@/lib/utils';
 
 interface TimestampBadgeProps {
   timestamp: number;
@@ -11,19 +12,7 @@ interface TimestampBadgeProps {
   size?: 'sm' | 'md';
 }
 
-function formatTime(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '0:00';
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  
-  if (hours > 0) {
-    return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  }
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-export default function TimestampBadge({
+function TimestampBadge({
   timestamp,
   type = 'visual',
   label,
@@ -94,3 +83,5 @@ export default function TimestampBadge({
     </button>
   );
 }
+
+export default memo(TimestampBadge);

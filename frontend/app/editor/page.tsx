@@ -13,6 +13,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { apiClient, EditorProject } from '@/lib/api';
+import { formatDate } from '@/lib/utils';
 import RequireAuth from '@/components/RequireAuth';
 
 /**
@@ -55,15 +56,6 @@ export default function EditorPage() {
       console.error('Failed to delete project:', err);
       alert('Failed to delete project');
     }
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
   };
 
   const filteredProjects = projects.filter((p) =>

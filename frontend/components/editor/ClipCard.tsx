@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import {
   Play,
   Trash2,
@@ -12,6 +12,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Clip } from '@/lib/api';
+import { formatTime } from '@/lib/utils';
 
 interface ClipCardProps {
   clip: Clip;
@@ -28,7 +29,7 @@ interface ClipCardProps {
 /**
  * Individual clip card for the clips list
  */
-export default function ClipCard({
+function ClipCard({
   clip,
   index,
   isActive = false,
@@ -39,13 +40,6 @@ export default function ClipCard({
   onExport,
   isDragging = false,
 }: ClipCardProps) {
-  const formatTime = (seconds: number): string => {
-    if (!seconds || isNaN(seconds)) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   const duration = clip.end_time - clip.start_time;
 
   // Color based on viral score
@@ -159,7 +153,7 @@ export default function ClipCard({
           {/* Viral reasons */}
           {clip.viral_reasons && clip.viral_reasons.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-2">
-              {clip.viral_reasons.slice(0, 3).map((reason, i) => (
+              {clip.viral_reasons.slice(0, 3).map((reason: string, i: number) => (
                 <span
                   key={i}
                   className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs"
@@ -220,3 +214,5 @@ export default function ClipCard({
     </div>
   );
 }
+
+export default memo(ClipCard);

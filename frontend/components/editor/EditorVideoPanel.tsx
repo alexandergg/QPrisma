@@ -11,6 +11,7 @@ import {
   SkipForward,
 } from 'lucide-react';
 import { Clip } from '@/lib/api';
+import { formatTime } from '@/lib/utils';
 import SubtitleOverlay, { SubtitleData, SubtitleCue } from './SubtitleOverlay';
 
 interface EditorVideoPanelProps {
@@ -157,13 +158,6 @@ export default function EditorVideoPanel({
       handleSeek(newTime);
     }
   }, [videoDuration, handleSeek]);
-
-  const formatTime = (seconds: number): string => {
-    if (!seconds || isNaN(seconds)) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
 
   // Find current clip (if playhead is inside a clip)
   const currentClip = clips.find(

@@ -158,14 +158,12 @@ export function useJobWebSocket(
     setError(null);
 
     const url = getWebSocketUrl(jobId, wsUrl);
-    console.log(`[WebSocket] Connecting to ${url}`);
 
     try {
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('[WebSocket] Connected');
         setStatus('connected');
         reconnectAttempts.current = 0;
         onConnected?.();
@@ -181,7 +179,6 @@ export function useJobWebSocket(
       ws.onmessage = (event) => {
         try {
           const data: WebSocketMessage = JSON.parse(event.data);
-          console.log('[WebSocket] Message:', data.type, data.payload);
 
           switch (data.type) {
             case 'connected':
@@ -231,7 +228,7 @@ export function useJobWebSocket(
               break;
 
             default:
-              console.log('[WebSocket] Unknown message type:', data.type);
+              // Unknown message type - ignore
           }
         } catch (e) {
           console.error('[WebSocket] Failed to parse message:', e);
@@ -244,7 +241,6 @@ export function useJobWebSocket(
       };
 
       ws.onclose = (event) => {
-        console.log('[WebSocket] Closed:', event.code, event.reason);
         setStatus('disconnected');
         onDisconnected?.();
 
@@ -254,7 +250,6 @@ export function useJobWebSocket(
             1000 * Math.pow(2, reconnectAttempts.current),
             maxReconnectInterval
           );
-          console.log(`[WebSocket] Reconnecting in ${delay}ms...`);
           reconnectAttempts.current++;
 
           reconnectTimeoutRef.current = setTimeout(() => {

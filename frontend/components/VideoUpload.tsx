@@ -3,8 +3,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { Film, AlertCircle, CheckCircle, Loader, Play, CloudUpload, Sparkles } from 'lucide-react';
 import { apiClient } from '@/lib/api';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { API_URL } from '@/lib/config';
 
 interface UploadedVideo {
   media_id: string;
