@@ -10,6 +10,15 @@ const nextConfig: NextConfig = {
   reactCompiler: true,
   // Enable standalone output for Docker deployment
   output: "standalone",
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '8000',
+      },
+    ],
+  },
 };
 
 export default withBundleAnalyzer(nextConfig);

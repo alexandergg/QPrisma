@@ -179,6 +179,7 @@ class ExportAllClipsTool(BaseTool):
             type="array",
             description="Optional list of specific clip IDs to export. If not provided, exports all clips.",
             required=False,
+            items={"type": "string"},
         ),
         ToolParameter(
             name="burn_subtitles",

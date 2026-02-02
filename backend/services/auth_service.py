@@ -319,3 +319,15 @@ class AuthService:
         except Exception as e:
             logger.error(f"Registration failed: {e}")
             return {"error": "Registration failed. Please try again."}
+
+
+# Singleton instance
+_auth_instance: AuthService | None = None
+
+
+def get_auth_service() -> AuthService:
+    """Get singleton instance of AuthService."""
+    global _auth_instance
+    if _auth_instance is None:
+        _auth_instance = AuthService()
+    return _auth_instance

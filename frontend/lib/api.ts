@@ -328,14 +328,10 @@ export const apiClient = {
   // --------------------------------------------------------------------------
 
   async login(email: string, password: string): Promise<TokenData> {
-    const formData = new URLSearchParams();
-    formData.append('username', email);
-    formData.append('password', password);
-
     const response = await fetch(`${API_URL}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
     });
     return handleResponse<TokenData>(response);
   },
@@ -434,7 +430,7 @@ export const apiClient = {
   // --------------------------------------------------------------------------
 
   async getVideoStructure(videoId: string): Promise<VideoStructureResponse> {
-    const response = await fetch(`${API_URL}/structure/${videoId}`, {
+    const response = await fetch(`${API_URL}/media/${videoId}/structure`, {
       headers: getAuthHeaders(),
     });
     return handleResponse<VideoStructureResponse>(response);
@@ -696,12 +692,12 @@ export const apiClient = {
     chatHistory: Array<{ role: string; content: string }>,
     sessionId?: string
   ): AsyncGenerator<StreamEvent> {
-    const response = await fetch(`${API_URL}/chat/stream`, {
+    const response = await fetch(`${API_URL}/chat/agent/stream`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
         message,
-        video_id: videoId,
+        media_id: videoId,
         chat_history: chatHistory,
         session_id: sessionId,
       }),

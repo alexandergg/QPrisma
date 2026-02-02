@@ -16,14 +16,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Directorio de trabajo
 WORKDIR /app
 
-# Copiar requirements primero (cache de Docker)
+# Copiar pyproject.toml y código fuente (necesario para editable install)
 COPY pyproject.toml .
+COPY api/ ./api/
+COPY agent/ ./agent/
+COPY core/ ./core/
+COPY models/ ./models/
+COPY services/ ./services/
+COPY tasks/ ./tasks/
 
 # Instalar uv y dependencias
 RUN pip install --no-cache-dir uv && \
     uv pip install --system -e .
 
-# Copiar código
+# Copiar el resto del código
 COPY . .
 
 # Variables de entorno
