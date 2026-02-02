@@ -314,15 +314,16 @@ qprisma/
 ## Documentation
 
 *   **[API Documentation](./API_DOCUMENTATION.md)** - Complete REST API reference with examples
-*   **[Development Roadmap](./DEVELOPMENT_ROADMAP.md)** - Future plans and milestone tracking
 *   **[Testing Guide](./TESTING.md)** - Testing standards and best practices
 *   **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute to QPrisma
-*   **[Frontend UX Redesign](./FRONTEND_UX_REDESIGN.md)** - Detailed design specifications
+*   **[Changelog](./CHANGELOG.md)** - Version history and release notes
+*   **[Security Policy](./SECURITY.md)** - Security guidelines and vulnerability reporting
+*   **[Code of Conduct](./CODE_OF_CONDUCT.md)** - Community guidelines
 *   **[Interactive API Docs](http://localhost:8000/docs)** - Swagger UI (requires backend running)
 
 ## Contributing
 
-We welcome contributions to QPrisma! Please review our [Contributing Guide](./CONTRIBUTING.md) for details on our code of conduct and development process.
+We welcome contributions to QPrisma! Please review our [Contributing Guide](./CONTRIBUTING.md) for details on our [Code of Conduct](./CODE_OF_CONDUCT.md) and development process.
 
 ## License
 
