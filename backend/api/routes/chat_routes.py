@@ -15,8 +15,8 @@ from models.api_schemas import (
     ChatRequest,
     ChatResponse,
     SearchRequest,
-    SearchResult,
     SearchResponse,
+    SearchResult,
 )
 from models.graph_models import NodeType
 from models.user import User
@@ -317,9 +317,9 @@ async def agent_chat(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Agentic chat endpoint with intelligent tool calling.
+    Agentic chat endpoint with intelligent tool calling (LangGraph).
 
-    This endpoint uses a ReAct-style agent that can:
+    This endpoint uses a LangGraph StateGraph agent that can:
     - Search video content semantically
     - Get transcripts and scene descriptions
     - Navigate video structure (chapters, scenes)
@@ -327,68 +327,28 @@ async def agent_chat(
     - Make multiple tool calls to gather comprehensive information
 
     The agent automatically decides which tools to use based on the user's question.
+    Uses Redis checkpointing for conversation persistence.
     """
     import uuid
 
-    from agent.memory import get_agent_memory
-    from agent.video_agent import get_video_agent
+    from agent import create_redis_checkpointer, get_video_agent_graph
 
     try:
-        agent = get_video_agent()
+        # Create agent with Redis checkpointer
+        checkpointer = create_redis_checkpointer()
+        agent = get_video_agent_graph(checkpointer=checkpointer)
 
-        # Handle session
-        session_id = request.session_id
-        memory = None
-        chat_history = request.chat_history
+        # Generate session ID if not provided
+        session_id = request.session_id or str(uuid.uuid4())
 
-        if session_id:
-            # Load existing session
-            memory = get_agent_memory()
-            session = memory.get_session(session_id)
-
-            if session:
-                # Get history from memory if not provided
-                if not chat_history:
-                    stored_messages = memory.get_messages(session_id, limit=20)
-                    chat_history = [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in stored_messages
-                        if m["role"] in ("user", "assistant") and m.get("content")
-                    ]
-
-                # Update session with current media_id if provided
-                if request.media_id:
-                    memory.update_session(session_id, media_id=request.media_id)
-            else:
-                # Create new session
-                memory.create_session(
-                    session_id=session_id,
-                    user_id=str(current_user.id) if current_user else None,
-                    media_id=request.media_id,
-                )
-        else:
-            # Generate new session ID
-            session_id = str(uuid.uuid4())
-            memory = get_agent_memory()
-            memory.create_session(
-                session_id=session_id,
-                user_id=str(current_user.id) if current_user else None,
-                media_id=request.media_id,
-            )
-
-        # Run the agent
+        # Run the agent (LangGraph handles session via thread_id)
         result = await agent.run(
             message=request.message,
             media_id=request.media_id,
-            chat_history=chat_history,
+            chat_history=request.chat_history,
             user_id=str(current_user.id) if current_user else None,
             session_id=session_id,
         )
-
-        # Save messages to memory
-        if memory:
-            memory.add_message(session_id, "user", request.message)
-            memory.add_message(session_id, "assistant", result["response"])
 
         return AgentChatResponse(
             response=result["response"],
@@ -408,7 +368,7 @@ async def agent_chat_stream(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Streaming agentic chat endpoint using Server-Sent Events (SSE).
+    Streaming agentic chat endpoint using Server-Sent Events (SSE) with LangGraph.
 
     Events emitted:
     - thinking: Agent is processing (with iteration number)
@@ -419,72 +379,39 @@ async def agent_chat_stream(
     - done: Final response complete
     - error: Error occurred
 
-    Use with EventSource or fetch with ReadableStream on the client.
+    Uses LangGraph's astream_events for native streaming support.
     """
+    import json
     import uuid
 
     from fastapi.responses import StreamingResponse
 
-    from agent.memory import get_agent_memory
-    from agent.video_agent import get_video_agent
+    from agent import create_redis_checkpointer, get_video_agent_graph
 
     async def event_generator():
         try:
-            agent = get_video_agent()
+            # Create agent with Redis checkpointer
+            checkpointer = create_redis_checkpointer()
+            agent = get_video_agent_graph(checkpointer=checkpointer)
 
-            # Handle session
+            # Generate session ID if not provided
             session_id = request.session_id or str(uuid.uuid4())
-            memory = get_agent_memory()
-            chat_history = request.chat_history
-
-            # Load or create session
-            session = memory.get_session(session_id)
-            if session:
-                if not chat_history:
-                    stored_messages = memory.get_messages(session_id, limit=20)
-                    chat_history = [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in stored_messages
-                        if m["role"] in ("user", "assistant") and m.get("content")
-                    ]
-                if request.media_id:
-                    memory.update_session(session_id, media_id=request.media_id)
-            else:
-                memory.create_session(
-                    session_id=session_id,
-                    user_id=str(current_user.id) if current_user else None,
-                    media_id=request.media_id,
-                )
 
             # Emit session ID first
-            import json
             yield f"data: {json.dumps({'event': 'session', 'data': {'session_id': session_id}})}\n\n"
 
-            # Save user message
-            memory.add_message(session_id, "user", request.message)
-
-            # Stream agent responses
-            final_response = ""
+            # Stream agent responses using LangGraph
             async for event in agent.run_stream(
                 message=request.message,
                 media_id=request.media_id,
-                chat_history=chat_history,
+                chat_history=request.chat_history,
                 user_id=str(current_user.id) if current_user else None,
                 session_id=session_id,
             ):
                 yield f"data: {json.dumps(event)}\n\n"
 
-                # Capture final response for memory
-                if event.get("event") == "done":
-                    final_response = event.get("data", {}).get("response", "")
-
-            # Save assistant message
-            if final_response:
-                memory.add_message(session_id, "assistant", final_response)
-
         except Exception as e:
             logger.error(f"Agent stream error: {e}", exc_info=True)
-            import json
             yield f"data: {json.dumps({'event': 'error', 'data': {'error': str(e)}})}\n\n"
 
     return StreamingResponse(

@@ -515,7 +515,7 @@ async def editor_chat_stream(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Streaming chat endpoint for Chat-to-Edit.
+    Streaming chat endpoint for Chat-to-Edit using LangGraph.
 
     Uses Server-Sent Events (SSE) to stream the agent's response.
 
@@ -529,10 +529,9 @@ async def editor_chat_stream(
     - done: Final response complete
     - error: Error occurred
 
-    Use with EventSource or fetch with ReadableStream on the client.
+    Uses LangGraph's astream_events for native streaming support.
     """
-    from agent.editor_agent import get_editor_agent
-    from agent.memory import get_agent_memory
+    from agent import create_redis_checkpointer, get_editor_agent_graph
 
     # Verify project exists and user has access
     db = get_database_service()
@@ -545,55 +544,26 @@ async def editor_chat_stream(
 
     async def event_generator():
         try:
-            agent = get_editor_agent()
+            # Create agent with Redis checkpointer
+            checkpointer = create_redis_checkpointer()
+            agent = get_editor_agent_graph(checkpointer=checkpointer)
 
-            # Handle session
+            # Generate session ID if not provided
             session_id = request.session_id or str(uuid.uuid4())
-            memory = get_agent_memory()
-            chat_history = request.chat_history
-
-            # Load or create session
-            session = memory.get_session(session_id)
-            if session:
-                if not chat_history:
-                    stored_messages = memory.get_messages(session_id, limit=20)
-                    chat_history = [
-                        {"role": m["role"], "content": m["content"]}
-                        for m in stored_messages
-                        if m["role"] in ("user", "assistant") and m.get("content")
-                    ]
-            else:
-                memory.create_session(
-                    session_id=session_id,
-                    user_id=str(current_user.id) if current_user else None,
-                    media_id=str(project.source_media_id),
-                )
 
             # Emit session ID first
             yield f"data: {json.dumps({'event': 'session', 'data': {'session_id': session_id}})}\n\n"
 
-            # Save user message
-            memory.add_message(session_id, "user", request.message)
-
-            # Stream agent responses
-            final_response = ""
+            # Stream agent responses using LangGraph
             async for event in agent.run_stream(
                 message=request.message,
                 project_id=project_id,
                 media_id=str(project.source_media_id),
-                chat_history=chat_history,
+                chat_history=request.chat_history,
                 user_id=str(current_user.id) if current_user else None,
                 session_id=session_id,
             ):
                 yield f"data: {json.dumps(event)}\n\n"
-
-                # Capture final response for memory
-                if event.get("event") == "done":
-                    final_response = event.get("data", {}).get("response", "")
-
-            # Save assistant message
-            if final_response:
-                memory.add_message(session_id, "assistant", final_response)
 
         except Exception as e:
             logger.error(f"Editor chat stream error: {e}", exc_info=True)
