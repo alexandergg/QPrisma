@@ -4,10 +4,10 @@ import React, { useState, useEffect } from 'react';
 import { Film, Video, Clock, Search as SearchIcon, Play, Sparkles, Plus, Trash2, Grid, List, LogOut, ChevronRight, Zap, BarChart3, Eye, Layers, Cpu } from 'lucide-react';
 import VideoUpload from './VideoUpload';
 import { apiClient } from '@/lib/api';
+import { API_URL } from '@/lib/config';
+import { formatFileSize, formatDate } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface Preset {
   name: string;
@@ -89,21 +89,6 @@ export default function VideoProcessingStudio() {
   const filteredMedia = mediaList.filter(item =>
     item.original_filename.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const formatFileSize = (bytes?: number) => {
-    if (!bytes) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return 'Unknown date';
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return 'Unknown date';
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  };
 
   const processedCount = mediaList.filter(m => m.processed).length;
   const pendingCount = mediaList.filter(m => !m.processed).length;

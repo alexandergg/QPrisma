@@ -11,6 +11,7 @@ import {
   Sparkles,
   Tag,
 } from 'lucide-react';
+import { formatTime } from '@/lib/utils';
 
 interface Scene {
   scene_id: number;
@@ -95,12 +96,6 @@ export default function ChapterNavigation({
       newExpanded.add(chapterId);
     }
     setExpandedChapters(newExpanded);
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const getProgressPercent = (start: number, end: number) => {

@@ -26,7 +26,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Verify token and load user
       apiClient
         .getCurrentUser()
-        .then((userData) => {
+        .then((userData: User) => {
           if (isMounted) {
             setUser(userData);
           }

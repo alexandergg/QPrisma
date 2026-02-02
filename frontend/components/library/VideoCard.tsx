@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import Image from 'next/image';
 import { Play, Clock, Film, CheckCircle, Loader2, MoreVertical, Trash2 } from 'lucide-react';
+import { formatTime, formatFileSize, formatDate } from '@/lib/utils';
 
 interface VideoCardProps {
   id: string;
@@ -19,35 +20,7 @@ interface VideoCardProps {
   isSelected?: boolean;
 }
 
-function formatDuration(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '0:00';
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-
-  if (hours > 0) {
-    return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  }
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
-
-function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-export default function VideoCard({
+function VideoCard({
   name,
   thumbnail,
   duration,
@@ -92,7 +65,7 @@ export default function VideoCard({
         {/* Duration badge */}
         {duration !== undefined && (
           <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs font-mono px-2 py-1 rounded-md">
-            {formatDuration(duration)}
+            {formatTime(duration)}
           </div>
         )}
 
@@ -194,3 +167,5 @@ export default function VideoCard({
     </div>
   );
 }
+
+export default memo(VideoCard);

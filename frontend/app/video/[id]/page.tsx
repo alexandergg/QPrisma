@@ -677,7 +677,7 @@ export default function VideoDetailPage() {
     if (videoId) {
       apiClient
         .getVideoStructure(videoId)
-        .then((response) => {
+        .then((response: { structure?: VideoStructure }) => {
           if (response?.structure) {
             setVideoStructure(response.structure)
           }
