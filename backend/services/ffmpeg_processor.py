@@ -440,16 +440,16 @@ class FFmpegVideoProcessor:
                 'file_path': str (si return_as_bytes=False)
             }
         """
-        print("🎬 extract_frames_ffmpeg iniciado")
-        print(f"   Video path: {video_path}")
-        print(f"   Video existe: {os.path.exists(video_path)}")
+        logger.info(f"extract_frames_ffmpeg iniciado para: {video_path}")
+        logger.debug(f"Video existe: {os.path.exists(video_path)}")
 
         video_info = self.get_video_info(video_path)
 
-        print("📊 Video Info:")
-        print(f"   Duración: {video_info.get('duration', 'N/A')}s")
-        print(f"   FPS: {video_info.get('fps', 'N/A')}")
-        print(f"   Resolución: {video_info.get('width', 'N/A')}x{video_info.get('height', 'N/A')}")
+        logger.info(
+            f"Video Info: duración={video_info.get('duration', 'N/A')}s, "
+            f"fps={video_info.get('fps', 'N/A')}, "
+            f"resolución={video_info.get('width', 'N/A')}x{video_info.get('height', 'N/A')}"
+        )
 
         # Actualizar status
         self.status.video_duration = video_info["duration"]
@@ -464,19 +464,19 @@ class FFmpegVideoProcessor:
         else:
             os.makedirs(output_dir, exist_ok=True)
 
-        print(f"📁 Output directory: {output_dir}")
+        logger.debug(f"Output directory: {output_dir}")
 
         start_time = time.time()
-        frames = []
+        frames: list[dict[str, Any]] = []
 
         try:
             extraction = self.config.frame_extraction
 
-            print("⚙️  Extraction config:")
-            print(f"   Method: {extraction.method}")
-            print(f"   Max frames: {extraction.max_frames}")
+            logger.info(
+                f"Extraction config: method={extraction.method}, max_frames={extraction.max_frames}"
+            )
             if extraction.method == FrameExtractionMethod.FPS:
-                print(f"   FPS: {extraction.fps}")
+                logger.debug(f"FPS: {extraction.fps}")
 
             # Construir filtros
             filters = self._build_filter_chain(video_info)
@@ -505,17 +505,20 @@ class FFmpegVideoProcessor:
                 timestamps = self._calculate_frame_timestamps(video_info)
                 self.status.total_frames = len(timestamps)
 
-                print(f"📐 Calculated timestamps: {len(timestamps)} frames")
+                logger.info(f"Calculated timestamps: {len(timestamps)} frames")
                 if timestamps:
-                    print(f"   First timestamp: {timestamps[0]:.2f}s")
-                    print(f"   Last timestamp: {timestamps[-1]:.2f}s")
+                    logger.debug(f"First timestamp: {timestamps[0]:.2f}s, Last: {timestamps[-1]:.2f}s")
 
                     # Calcular y mostrar métricas de cobertura
                     coverage = self.calculate_coverage_metrics(timestamps, video_info["duration"])
-                    print(f"📊 Coverage score: {coverage['coverage_score']}%")
-                    print(f"   Avg gap: {coverage['average_gap']:.1f}s, Max gap: {coverage['max_gap']:.1f}s")
+                    logger.info(
+                        f"Coverage score: {coverage['coverage_score']}%, "
+                        f"avg_gap={coverage['average_gap']:.1f}s, max_gap={coverage['max_gap']:.1f}s"
+                    )
                     if coverage['total_problematic_gaps'] > 0:
-                        print(f"   ⚠️  {coverage['total_problematic_gaps']} gaps over {coverage['gap_threshold']}s")
+                        logger.warning(
+                            f"{coverage['total_problematic_gaps']} gaps over {coverage['gap_threshold']}s"
+                        )
 
                 self._extract_at_timestamps(video_path, output_dir, timestamps, filters, frames)
 
@@ -605,17 +608,23 @@ class FFmpegVideoProcessor:
         timestamps: list[float],
         filters: list[str],
         frames: list[dict[str, Any]],
-    ):
-        """Extraer frames en timestamps específicos usando ffmpeg directamente"""
-
-        print(f"🎬 Extrayendo {len(timestamps)} frames en timestamps específicos")
-        print(f"   Video: {video_path}")
-        print(f"   Output dir: {output_dir}")
-        print(
-            f"   Timestamps: {timestamps[:5]}..."
-            if len(timestamps) > 5
-            else f"   Timestamps: {timestamps}"
-        )
+    ) -> None:
+        """
+        Extraer frames en timestamps específicos usando ffmpeg directamente.
+        
+        Args:
+            video_path: Ruta al archivo de video.
+            output_dir: Directorio de salida para frames.
+            timestamps: Lista de timestamps a extraer.
+            filters: Filtros FFmpeg a aplicar.
+            frames: Lista donde agregar los frames extraídos.
+        """
+        logger.info(f"Extrayendo {len(timestamps)} frames en timestamps específicos")
+        logger.debug(f"Video: {video_path}, Output dir: {output_dir}")
+        if len(timestamps) > 5:
+            logger.debug(f"Timestamps: {timestamps[:5]}...")
+        else:
+            logger.debug(f"Timestamps: {timestamps}")
 
         for idx, timestamp in enumerate(timestamps):
             try:
@@ -638,7 +647,7 @@ class FFmpegVideoProcessor:
 
                 # Debug: mostrar comando solo para el primer frame
                 if idx == 0:
-                    print(f"   Comando FFmpeg: {' '.join(cmd)}")
+                    logger.debug(f"Comando FFmpeg: {' '.join(cmd)}")
 
                 # Ejecutar comando
                 result = subprocess.run(
@@ -661,18 +670,20 @@ class FFmpegVideoProcessor:
 
                     # Log cada 10 frames
                     if (idx + 1) % 10 == 0:
-                        print(f"   ✓ {idx + 1}/{len(timestamps)} frames extraídos")
+                        logger.debug(f"{idx + 1}/{len(timestamps)} frames extraídos")
                 else:
-                    print(f"⚠ Warning: Frame no creado o vacío en t={timestamp}")
-                    print(f"   Return code: {result.returncode}")
+                    logger.warning(f"Frame no creado o vacío en t={timestamp}, rc={result.returncode}")
                     if result.stderr:
-                        print(f"   FFmpeg stderr: {result.stderr[:500]}")
+                        logger.debug(f"FFmpeg stderr: {result.stderr[:500]}")
 
             except subprocess.TimeoutExpired:
-                print(f"Timeout extrayendo frame en t={timestamp}")
+                logger.warning(f"Timeout extrayendo frame en t={timestamp}")
+                continue
+            except subprocess.SubprocessError as e:
+                logger.error(f"Error de subprocess en t={timestamp}: {e}")
                 continue
             except Exception as e:
-                print(f"Error inesperado en t={timestamp}: {type(e).__name__}: {e}")
+                logger.exception(f"Error inesperado en t={timestamp}: {type(e).__name__}: {e}")
                 continue
 
     def frame_to_base64(self, frame_data: bytes) -> str:

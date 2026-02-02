@@ -9,7 +9,7 @@ import hashlib
 import logging
 import os
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -141,8 +141,8 @@ class EmbeddingService:
                 model=self.deployment,
                 input=text,
             )
-        except Exception:
-            logger.exception("Embedding generation failed")
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error generating embedding: {e}")
             raise
 
         embedding = response.data[0].embedding
@@ -168,19 +168,19 @@ class EmbeddingService:
         Genera embeddings para múltiples textos en batch.
 
         Args:
-            texts: Lista de textos
-            use_cache: Si usar cache
-            batch_size: Tamaño máximo de batch
+            texts: Lista de textos.
+            use_cache: Si usar cache.
+            batch_size: Tamaño máximo de batch.
 
         Returns:
-            Lista de embeddings
+            Lista de embeddings.
         """
         if not texts:
             return []
 
-        results = [None] * len(texts)
-        texts_to_embed = []
-        indices_to_embed = []
+        results: list[list[float] | None] = [None] * len(texts)
+        texts_to_embed: list[str] = []
+        indices_to_embed: list[int] = []
 
         # Verificar cache primero
         for i, text in enumerate(texts):
@@ -213,8 +213,8 @@ class EmbeddingService:
                     model=self.deployment,
                     input=batch_texts,
                 )
-            except Exception:
-                logger.exception("Batch embedding generation failed")
+            except (APIError, APIConnectionError, RateLimitError) as e:
+                logger.error(f"OpenAI API error in batch embedding: {e}")
                 raise
 
             self.stats["tokens_used"] += response.usage.total_tokens

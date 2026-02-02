@@ -108,7 +108,13 @@ class ExportService:
                 "has_audio": audio_stream is not None,
                 "audio_codec": audio_stream.get("codec_name", "") if audio_stream else None,
             }
-        except Exception as e:
+        except subprocess.CalledProcessError as e:
+            logger.error(f"FFprobe process error: {e}")
+            return {}
+        except json.JSONDecodeError as e:
+            logger.error(f"Error parsing video info JSON: {e}")
+            return {}
+        except (OSError, ValueError) as e:
             logger.error(f"Error getting video info: {e}")
             return {}
 
@@ -198,8 +204,12 @@ class ExportService:
             logger.info(f"Downloaded source video: {blob_name} -> {local_path}")
             return local_path
 
+        except OSError as e:
+            logger.error(f"File error downloading source video: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Error downloading source video: {e}")
+            # Catch Azure SDK exceptions
+            logger.error(f"Azure error downloading source video: {e}")
             return None
 
     def _upload_exported_video(
@@ -239,8 +249,12 @@ class ExportService:
             logger.info(f"Uploaded exported video: {blob_name}")
             return url
 
+        except OSError as e:
+            logger.error(f"File error uploading exported video: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Error uploading exported video: {e}")
+            # Catch Azure SDK exceptions
+            logger.error(f"Azure error uploading exported video: {e}")
             return None
 
     def _build_ffmpeg_filter(

@@ -15,12 +15,12 @@ Features:
 import asyncio
 import json
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
 
 from openai import AzureOpenAI
 
+from core.config import create_azure_openai_client, get_settings
 from models.graph_models import NodeType
 from services.graph_search_service import get_graph_search_service
 
@@ -111,15 +111,8 @@ class QueryUnderstanding:
     """Understands and expands user queries for better search."""
 
     def __init__(self, openai_client: AzureOpenAI | None = None):
-        self.client = openai_client or self._create_client()
-        self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
-
-    def _create_client(self) -> AzureOpenAI:
-        return AzureOpenAI(
-            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        )
+        self.client = openai_client or create_azure_openai_client()
+        self.deployment = get_settings().azure.openai_deployment_gpt
 
     async def analyze_query(self, query: str) -> dict[str, Any]:
         """
@@ -197,15 +190,8 @@ class ReRanker:
     """
 
     def __init__(self, openai_client: AzureOpenAI | None = None):
-        self.client = openai_client or self._create_client()
-        self.deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
-
-    def _create_client(self) -> AzureOpenAI:
-        return AzureOpenAI(
-            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        )
+        self.client = openai_client or create_azure_openai_client()
+        self.deployment = get_settings().azure.openai_deployment_gpt
 
     async def rerank(
         self, query: str, results: list[dict[str, Any]], top_k: int = 10
@@ -287,21 +273,12 @@ class EnhancedSearchService:
         openai_client: AzureOpenAI | None = None,
     ):
         # Retrieval is handled by Neo4j Knowledge Graph.
-        self.openai_client = openai_client or self._create_openai_client()
+        self.openai_client = openai_client or create_azure_openai_client()
 
         self.query_understanding = QueryUnderstanding(self.openai_client)
         self.reranker = ReRanker(self.openai_client)
 
         self.graph_search = get_graph_search_service()
-
-    def _create_openai_client(self) -> AzureOpenAI:
-        return AzureOpenAI(
-            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        )
-
-    # External search client removed
 
     async def search(
         self,

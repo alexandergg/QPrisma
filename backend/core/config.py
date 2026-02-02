@@ -7,9 +7,13 @@ All environment variables are loaded and validated here.
 
 from functools import lru_cache
 import os
+from typing import TYPE_CHECKING
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from openai import AzureOpenAI
 
 
 class AzureSettings(BaseSettings):
@@ -205,6 +209,35 @@ def get_settings() -> Settings:
     settings_obj = Settings()
     settings_obj.apply_env_overrides()
     return settings_obj
+
+
+def create_azure_openai_client() -> "AzureOpenAI":
+    """
+    Create and return an Azure OpenAI client using environment configuration.
+    
+    This is the canonical factory function for creating Azure OpenAI clients.
+    Use this instead of creating clients directly to ensure consistent configuration.
+    
+    Returns:
+        Configured AzureOpenAI client instance.
+        
+    Raises:
+        ValueError: If required Azure OpenAI configuration is missing.
+    """
+    from openai import AzureOpenAI
+    
+    azure_settings = get_settings().azure
+    
+    if not azure_settings.is_openai_configured:
+        raise ValueError(
+            "Azure OpenAI not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY."
+        )
+    
+    return AzureOpenAI(
+        api_key=azure_settings.openai_api_key,
+        api_version=azure_settings.openai_api_version,
+        azure_endpoint=azure_settings.openai_endpoint,
+    )
 
 
 # Convenience exports

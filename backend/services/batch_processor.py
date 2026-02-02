@@ -10,8 +10,9 @@ import logging
 import os
 import tempfile
 import time
+from typing import Any
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -168,13 +169,21 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
         return requests
 
     def submit_batch_job(
-        self, requests: list[dict], description: str = "Video frame analysis"
+        self, requests: list[dict[str, Any]], description: str = "Video frame analysis"
     ) -> str:
         """
         Envía un batch job a Azure OpenAI.
 
+        Args:
+            requests: Lista de requests en formato batch API.
+            description: Descripción del batch job.
+
         Returns:
-            batch_id del job creado
+            batch_id del job creado.
+            
+        Raises:
+            APIError: Si hay un error de API.
+            OSError: Si hay error escribiendo el archivo temporal.
         """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             for request in requests:
@@ -182,11 +191,11 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
             temp_path = f.name
 
         try:
-            logger.info(f"Uploading batch file ({len(requests)} requests)...")
+            logger.info(f"Uploading batch file ({len(requests)} requests)")
             with open(temp_path, "rb") as f:
                 batch_file = self.client.files.create(file=f, purpose="batch")
 
-            logger.info(f"Creating batch job with file {batch_file.id}...")
+            logger.info(f"Creating batch job with file {batch_file.id}")
             batch = self.client.batches.create(
                 input_file_id=batch_file.id,
                 endpoint="/chat/completions",
@@ -197,12 +206,23 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
             logger.info(f"Batch job created: {batch.id} ({batch.request_counts.total} requests)")
             return batch.id
 
+        except (APIError, APIConnectionError, RateLimitError) as e:
+            logger.error(f"OpenAI API error submitting batch: {e}")
+            raise
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def check_batch_status(self, batch_id: str) -> dict:
-        """Verifica el estado de un batch job."""
+    def check_batch_status(self, batch_id: str) -> dict[str, Any]:
+        """
+        Verifica el estado de un batch job.
+        
+        Args:
+            batch_id: ID del batch job.
+            
+        Returns:
+            Diccionario con estado del batch.
+        """
         batch = self.client.batches.retrieve(batch_id)
 
         return {
@@ -223,10 +243,15 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
         """
         Espera a que un batch job complete.
 
+        Args:
+            batch_id: ID del batch job.
+            check_interval: Intervalo de verificación en segundos.
+            max_wait_time: Tiempo máximo de espera en segundos.
+
         Returns:
-            True si completó exitosamente
+            True si completó exitosamente, False si falló o timeout.
         """
-        logger.info(f"Waiting for batch {batch_id} to complete...")
+        logger.info(f"Waiting for batch {batch_id} to complete")
         start_time = time.time()
 
         while True:
@@ -236,7 +261,13 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
                 logger.error(f"Batch timeout after {max_wait_time}s")
                 return False
 
-            status_info = self.check_batch_status(batch_id)
+            try:
+                status_info = self.check_batch_status(batch_id)
+            except (APIError, APIConnectionError) as e:
+                logger.warning(f"Error checking batch status: {e}, retrying...")
+                time.sleep(check_interval)
+                continue
+
             status = status_info["status"]
             completed = status_info["request_counts"]["completed"]
             total = status_info["request_counts"]["total"]
@@ -252,8 +283,19 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
 
             time.sleep(check_interval)
 
-    def get_batch_results(self, batch_id: str) -> list[dict]:
-        """Obtiene los resultados de un batch job completado."""
+    def get_batch_results(self, batch_id: str) -> list[dict[str, Any]]:
+        """
+        Obtiene los resultados de un batch job completado.
+        
+        Args:
+            batch_id: ID del batch job.
+            
+        Returns:
+            Lista de resultados del batch.
+            
+        Raises:
+            ValueError: Si el batch no está completado o no hay archivo de salida.
+        """
         batch = self.client.batches.retrieve(batch_id)
 
         if batch.status != "completed":
@@ -262,10 +304,10 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
         if not batch.output_file_id:
             raise ValueError("No output file available")
 
-        logger.info("Downloading batch results...")
+        logger.info("Downloading batch results")
         file_response = self.client.files.content(batch.output_file_id)
 
-        results = []
+        results: list[dict[str, Any]] = []
         for line in file_response.text.strip().split("\n"):
             if line:
                 results.append(json.loads(line))
@@ -273,9 +315,17 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
         logger.info(f"Retrieved {len(results)} results")
         return results
 
-    def parse_vision_results(self, results: list[dict]) -> dict[str, dict]:
-        """Parsea resultados de análisis de visión."""
-        parsed = {}
+    def parse_vision_results(self, results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        """
+        Parsea resultados de análisis de visión.
+        
+        Args:
+            results: Lista de resultados del batch API.
+            
+        Returns:
+            Diccionario mapeando custom_id a resultados parseados.
+        """
+        parsed: dict[str, dict[str, Any]] = {}
 
         for result in results:
             custom_id = result.get("custom_id")

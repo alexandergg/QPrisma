@@ -8,7 +8,7 @@ This package contains:
 - logging_config: Logging configuration
 """
 
-from .config import Settings, get_settings, settings
+from .config import Settings, create_azure_openai_client, get_settings, settings
 from .constants import (
     DEFAULT_MAX_FRAMES,
     DEFAULT_PAGE_SIZE,
@@ -36,6 +36,7 @@ __all__ = [
     "Settings",
     "get_settings",
     "settings",
+    "create_azure_openai_client",
     # Constants
     "DEFAULT_MAX_FRAMES",
     "DEFAULT_PAGE_SIZE",

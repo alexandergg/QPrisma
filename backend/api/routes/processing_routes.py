@@ -9,7 +9,6 @@ import json
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
 
 from api.dependencies import (
     get_blob_service,
@@ -18,6 +17,7 @@ from api.dependencies import (
     get_video_processor,
 )
 from core.serializers import sanitize_for_json
+from models.api_schemas import EnhancedSearchRequest, ProcessingSearchRequest
 from models.ffmpeg_config import (
     FFmpegProcessingConfig,
     FrameExtractionConfig,
@@ -43,29 +43,6 @@ def _get_preset_description(preset: ProcessingPreset) -> str:
         ProcessingPreset.TIMELINE_PREVIEW: "30 frames uniformly distributed, low resolution (320x180)",
     }
     return descriptions.get(preset, "No description")
-
-
-# =============================================================================
-# Request/Response Models
-# =============================================================================
-
-
-class SearchRequest(BaseModel):
-    """Request for global search."""
-
-    query: str
-    media_type: str | None = None
-    top: int = 5
-
-
-class EnhancedSearchRequest(BaseModel):
-    """Request for enhanced search."""
-
-    query: str
-    media_id: str | None = None
-    top_k: int = 20
-    use_reranking: bool = True
-    expand_query: bool = True
 
 
 # =============================================================================
@@ -499,7 +476,7 @@ async def get_available_presets():
 
 
 @router.post("/search")
-async def search_media(request: SearchRequest, current_user: User = Depends(get_current_user)):
+async def search_media(request: ProcessingSearchRequest, current_user: User = Depends(get_current_user)):
     """Global search (Neo4j Knowledge Graph)."""
     try:
         from models.graph_models import NodeType
