@@ -3,12 +3,13 @@ LangGraph Editor Tools
 ======================
 
 Editor-specific tools for the Chat-to-Edit agent.
-Uses InjectedToolArg for proper context injection from RunnableConfig.
+Uses InjectedState for proper context injection from graph state.
 """
 
 from typing import Annotated, Any
 
-from langchain_core.tools import InjectedToolArg, tool
+from langchain_core.tools import tool
+from langgraph.prebuilt import InjectedState
 
 from agent.tools.base import format_timestamp
 
@@ -22,7 +23,7 @@ async def create_clip(
     start_time: Annotated[float, "Start time in seconds"],
     end_time: Annotated[float, "End time in seconds"],
     title: Annotated[str | None, "Optional title for the clip"] = None,
-    project_id: Annotated[str | None, InjectedToolArg] = None,
+    project_id: Annotated[str | None, InjectedState("project_id")] = None,
 ) -> dict[str, Any]:
     """
     Create a new clip from a time range in the video.
@@ -161,7 +162,7 @@ async def delete_clip(
 
 @tool
 async def list_clips(
-    project_id: Annotated[str | None, InjectedToolArg] = None,
+    project_id: Annotated[str | None, InjectedState("project_id")] = None,
 ) -> dict[str, Any]:
     """
     List all clips in the current project.
@@ -209,7 +210,7 @@ async def list_clips(
 async def reorder_clips(
     clip_id: Annotated[str, "ID of the clip to move"],
     new_position: Annotated[int, "New position (0-based index)"],
-    project_id: Annotated[str | None, InjectedToolArg] = None,
+    project_id: Annotated[str | None, InjectedState("project_id")] = None,
 ) -> dict[str, Any]:
     """
     Change the order of clips in the timeline.
@@ -242,7 +243,7 @@ async def generate_auto_clips(
     count: Annotated[int, "Number of clips to generate"] = 5,
     min_duration: Annotated[float, "Minimum clip duration in seconds"] = 15,
     max_duration: Annotated[float, "Maximum clip duration in seconds"] = 60,
-    media_id: Annotated[str | None, InjectedToolArg] = None,
+    media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
     Use AI to find the best/most viral moments in the video automatically.
@@ -286,7 +287,7 @@ async def generate_auto_clips(
 async def add_suggested_clips(
     suggestion_indices: Annotated[list[int], "Indices of suggestions to add (1-based)"],
     suggestions: Annotated[list[dict], "The suggestions list from generate_auto_clips"],
-    project_id: Annotated[str | None, InjectedToolArg] = None,
+    project_id: Annotated[str | None, InjectedState("project_id")] = None,
 ) -> dict[str, Any]:
     """
     Add AI-suggested clips to the project.
@@ -487,7 +488,7 @@ async def export_clip(
 async def export_all_clips(
     platform: Annotated[str, "Target platform"] = "tiktok",
     quality: Annotated[str, "Quality level"] = "standard",
-    project_id: Annotated[str | None, InjectedToolArg] = None,
+    project_id: Annotated[str | None, InjectedState("project_id")] = None,
 ) -> dict[str, Any]:
     """
     Export all clips in the project.

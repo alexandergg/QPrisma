@@ -308,7 +308,7 @@ async def search(request: SearchRequest, current_user: User = Depends(get_curren
 # =============================================================================
 
 
-from models.api_schemas import AgentChatRequest, AgentChatResponse
+from models.api_schemas import AgentChatRequest, AgentChatResponse, VideoSource, NavigationAction, SuggestedQuestion
 
 
 @router.post("/chat/agent", response_model=AgentChatResponse)
@@ -325,9 +325,17 @@ async def agent_chat(
     - Navigate video structure (chapters, scenes)
     - Explore the knowledge graph for relationships
     - Make multiple tool calls to gather comprehensive information
+    - Find highlights and suggest clips
+    - Compare moments and track entities
 
     The agent automatically decides which tools to use based on the user's question.
     Uses Redis checkpointing for conversation persistence.
+    
+    Response includes:
+    - Rich sources with timestamps and thumbnails
+    - Navigation actions for UI seeking
+    - Suggested follow-up questions
+    - Clip suggestions for export
     """
     import uuid
 
@@ -350,11 +358,59 @@ async def agent_chat(
             session_id=session_id,
         )
 
+        # Build structured response with all metadata
+        sources = [
+            VideoSource(
+                timestamp=s.get("timestamp", 0),
+                timestamp_formatted=s.get("timestamp_formatted", ""),
+                type=s.get("type", "unknown"),
+                description=s.get("description", ""),
+                score=s.get("score", 0),
+                thumbnail_url=s.get("thumbnail_url"),
+                frame_id=s.get("frame_id"),
+            )
+            for s in result.get("sources", [])
+        ]
+        
+        navigation_actions = [
+            NavigationAction(
+                action=n.get("action", "jump_to"),
+                label=n.get("label", ""),
+                timestamp=n.get("timestamp"),
+                end_timestamp=n.get("end_timestamp"),
+                parameters=n.get("parameters"),
+            )
+            for n in result.get("navigation_actions", [])
+        ]
+        
+        suggested_questions = [
+            SuggestedQuestion(
+                question=q.get("question", ""),
+                category=q.get("category", "related"),
+            )
+            for q in result.get("suggested_questions", [])
+        ]
+        
+        clip_suggestions = [
+            NavigationAction(
+                action=c.get("action", "create_clip"),
+                label=c.get("label", ""),
+                timestamp=c.get("timestamp"),
+                end_timestamp=c.get("end_timestamp"),
+                parameters=c.get("parameters"),
+            )
+            for c in result.get("clip_suggestions", [])
+        ]
+
         return AgentChatResponse(
             response=result["response"],
-            sources=result.get("sources", []),
+            sources=sources,
             tool_calls_made=result.get("tool_calls_made", 0),
             session_id=session_id,
+            navigation_actions=navigation_actions,
+            suggested_questions=suggested_questions,
+            clip_suggestions=clip_suggestions,
+            entities_mentioned=result.get("entities_mentioned", []),
         )
 
     except Exception as e:

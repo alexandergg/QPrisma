@@ -25,15 +25,21 @@ from langgraph.graph import START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from agent.graph_editor_tools import EDITOR_TOOLS
-from agent.graph_state import AgentState, ProjectContext, create_agent_state, get_message_trimmer
+from agent.graph_state import (
+    AgentState,
+    ProjectContext,
+    _truncate_tool_message_content,
+    create_agent_state,
+    get_message_trimmer,
+)
 from agent.graph_tools import SEARCH_TOOLS
 from agent.prompts import EDITOR_NO_PROJECT_PROMPT, build_editor_prompt
 from agent.tools.base import format_timestamp
 
 logger = logging.getLogger(__name__)
 
-# Message trimmer to prevent context overflow
-_message_trimmer = get_message_trimmer(max_tokens=8000)
+# Message trimmer to prevent context overflow - use conservative limit
+_message_trimmer = get_message_trimmer(max_tokens=80000)
 
 # Tools that modify clips (for human-in-the-loop support)
 CLIP_MODIFICATION_TOOLS = {
@@ -168,9 +174,18 @@ async def call_editor_model(state: AgentState, config: RunnableConfig) -> dict:
     project_context = state.get("project_context")
     system_msg = build_editor_system_message(project_context)
 
+    # Truncate tool messages to prevent large results from overflowing context
+    truncated_messages = [
+        _truncate_tool_message_content(msg) for msg in state["messages"]
+    ]
+
     # Apply message trimming to prevent context overflow
-    trimmed_messages = _message_trimmer.invoke(list(state["messages"]))
+    trimmed_messages = _message_trimmer.invoke(truncated_messages)
     messages = [system_msg] + trimmed_messages
+    
+    # Log context size for debugging
+    total_chars = sum(len(str(m.content)) for m in messages if m.content)
+    logger.info(f"Editor calling model with {len(messages)} messages (~{total_chars // 4} tokens)")
 
     # Invoke model
     response = await model.ainvoke(messages, config)

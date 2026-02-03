@@ -274,6 +274,19 @@ def extract_frames_task(self, download_result: dict, job_id: str, max_frames: in
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         duration = total_frames / fps if fps > 0 else 0
 
+        # Helper functions for frame quality metrics
+        def calculate_blur_score(frame) -> float:
+            """Calculate blur using Laplacian variance. Higher = sharper."""
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+            # Normalize to 0-1 range (typical values 0-500+, cap at 500)
+            return min(laplacian_var / 500.0, 1.0)
+
+        def calculate_brightness(frame) -> float:
+            """Calculate average brightness. 0=dark, 1=bright."""
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            return float(gray.mean() / 255.0)
+
         # Extraer frames distribuidos uniformemente
         frames_data = []
         if total_frames > 0:
@@ -285,6 +298,10 @@ def extract_frames_task(self, download_result: dict, job_id: str, max_frames: in
                 ret, frame = cap.read()
 
                 if ret:
+                    # Calculate quality metrics
+                    blur_score = calculate_blur_score(frame)
+                    brightness = calculate_brightness(frame)
+
                     # Codificar como JPEG
                     _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                     frame_bytes = buffer.tobytes()
@@ -296,6 +313,8 @@ def extract_frames_task(self, download_result: dict, job_id: str, max_frames: in
                             "frame_number": pos,
                             "timestamp": round(timestamp, 2),
                             "image_bytes": frame_bytes,  # Nota: bytes se serializan en base64
+                            "blur_score": round(blur_score, 4),
+                            "brightness": round(brightness, 4),
                         }
                     )
 
@@ -461,7 +480,7 @@ def cleanup_task(self, temp_path: str):
         logger.warning(f"Cleanup failed: {e}")
 
 
-@celery_app.task(bind=True, name="tasks.video_tasks.index_transcription_to_graph", max_retries=2)
+@celery_app.task(bind=True, name="tasks.video_tasks.index_transcription_to_graph", max_retries=3)
 def index_transcription_to_graph(
     self, video_id: str, transcription_data: dict, job_id: str
 ) -> dict:
@@ -483,25 +502,34 @@ def index_transcription_to_graph(
         from services.knowledge_graph import get_knowledge_graph_service
 
         graph = get_knowledge_graph_service()
+        
+        # Asegurar conexión a Neo4j
+        if not graph.is_connected:
+            graph.connect()
 
         # Obtener segmentos de la transcripción
         segments = transcription_data.get("segments", [])
         if not segments:
             logger.info(f"No transcript segments to index for video {video_id}")
-            return {"indexed": 0, "success": True}
+            return {"indexed": 0, "success": True, "message": "No segments to index"}
+        
+        logger.info(f"Starting transcript indexing: {len(segments)} segments for video {video_id}")
 
         # Eliminar transcripciones existentes para este video
-        deleted = graph.delete_video_transcripts(video_id)
-        if deleted > 0:
-            logger.info(f"Deleted {deleted} existing transcript segments for video {video_id}")
+        try:
+            deleted = graph.delete_video_transcripts(video_id)
+            if deleted > 0:
+                logger.info(f"Deleted {deleted} existing transcript segments for video {video_id}")
+        except Exception as e:
+            logger.warning(f"Could not delete existing transcripts: {e}")
 
         # Crear nodos AudioSegment
         language = transcription_data.get("language", "unknown")
         audio_segments = []
 
-        for segment in segments:
+        for idx, segment in enumerate(segments):
             segment_node = AudioSegmentNode(
-                id=f"{video_id}_audio_{segment.get('id', len(audio_segments))}",
+                id=f"{video_id}_audio_{idx}",  # Usar índice para evitar IDs duplicados
                 video_id=video_id,
                 start_time=segment.get("start", 0),
                 end_time=segment.get("end", 0),
@@ -511,20 +539,37 @@ def index_transcription_to_graph(
             )
             audio_segments.append(segment_node)
 
-        # Indexar en batch
+        # Indexar en batch (con manejo de batches internos)
         created = graph.create_audio_segments_batch(audio_segments)
+        
+        success = created > 0 or len(segments) == 0
+        
+        if created < len(segments) * 0.5:  # Menos del 50% indexado
+            logger.error(
+                f"Transcript indexing partial failure: only {created}/{len(segments)} segments indexed"
+            )
 
-        logger.info(f"Indexed {created} transcript segments for video {video_id}")
+        logger.info(f"Indexed {created}/{len(segments)} transcript segments for video {video_id}")
 
         return {
             "indexed": created,
             "total_segments": len(segments),
             "language": language,
-            "success": True,
+            "success": success,
+            "error": None if success else f"Only indexed {created}/{len(segments)} segments"
         }
 
     except Exception as e:
-        logger.error(f"Failed to index transcription: {e}")
+        error_msg = f"Failed to index transcription for video {video_id}: {e}"
+        logger.error(error_msg, exc_info=True)
+        
+        # Reintentar si es un error de conexión
+        if "connection" in str(e).lower() or "timeout" in str(e).lower():
+            try:
+                self.retry(countdown=5, exc=e)
+            except Exception:
+                pass  # Max retries alcanzados
+        
         return {"indexed": 0, "success": False, "error": str(e)}
 
 
@@ -639,6 +684,8 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     "timestamp": frame_data.get("timestamp", 0),
                     "analysis": analysis_text,
                     "tokens_used": 0,
+                    "blur_score": frame_data.get("blur_score", 0.0),
+                    "brightness": frame_data.get("brightness", 0.0),
                 })
 
             logger.info(f"Batch API completed: {len(frame_analyses)} frames analyzed")
@@ -660,6 +707,9 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     ).decode()
 
                 analysis = analyze_frame_task(frame_data_copy, job_id, custom_prompt)
+                # Preserve quality metrics from original frame extraction
+                analysis["blur_score"] = frame_data.get("blur_score", 0.0)
+                analysis["brightness"] = frame_data.get("brightness", 0.0)
                 frame_analyses.append(analysis)
 
         # 5. Transcribir audio
@@ -832,6 +882,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         boundaries,
                         duration_sec,
                         fps_val,
+                        frame_analyses=frame_analyses,  # Pass frame analyses for scene descriptions
                     )
 
                     for s in detected_scenes:
@@ -841,6 +892,9 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             end_time=float(s.end_time),
                             scene_index=int(s.scene_id),
                             description=s.visual_description,
+                            visual_change_score=float(getattr(s, 'visual_change_score', 0.0)),
+                            dominant_colors=getattr(s, 'dominant_colors', None) or [],
+                            transition_type=getattr(s, 'transition_type', 'cut'),
                         )
                         graph.create_scene_node(sn)
                         scene_nodes.append(sn)
@@ -864,6 +918,8 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         timestamp=float(a.get("timestamp", 0) or 0),
                         frame_number=int(a.get("frame_number") or a.get("index") or 0),
                         description=text,
+                        blur_score=float(a.get("blur_score", 0.0)),
+                        brightness=float(a.get("brightness", 0.0)),
                     )
                     frame_nodes_with_embeddings.append((frame_node, emb))
 
@@ -900,6 +956,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
         # 8b. Index transcription to Knowledge Graph
         transcript_indexed = 0
+        transcript_indexing_error = None
         if transcription_result.get("success") and transcription_result.get("transcription"):
             try:
                 update_job_status(
@@ -910,13 +967,32 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     "Indexando transcripción en Knowledge Graph...",
                 )
                 transcript_data = transcription_result.get("transcription", {})
+                total_segments = len(transcript_data.get("segments", []))
+                
                 index_result_transcript = index_transcription_to_graph(
                     video_id, transcript_data, job_id
                 )
                 transcript_indexed = index_result_transcript.get("indexed", 0)
-                logger.info(f"Indexed {transcript_indexed} transcript segments to graph")
+                
+                # Verificar que se indexaron los segmentos esperados
+                if total_segments > 0 and transcript_indexed == 0:
+                    transcript_indexing_error = index_result_transcript.get("error", "Unknown indexing error")
+                    logger.error(
+                        f"Transcript indexing failed for video {video_id}: "
+                        f"expected {total_segments} segments, indexed {transcript_indexed}. "
+                        f"Error: {transcript_indexing_error}"
+                    )
+                elif transcript_indexed < total_segments * 0.9:  # Menos del 90%
+                    logger.warning(
+                        f"Partial transcript indexing for video {video_id}: "
+                        f"indexed {transcript_indexed}/{total_segments} segments"
+                    )
+                else:
+                    logger.info(f"Indexed {transcript_indexed}/{total_segments} transcript segments to graph")
+                    
             except Exception as e:
-                logger.warning(f"Transcript graph indexing skipped: {e}")
+                transcript_indexing_error = str(e)
+                logger.error(f"Transcript graph indexing failed: {e}", exc_info=True)
 
         # 8c. Update Video node with summary and topics in Neo4j
         if video_summary or key_topics:
@@ -949,22 +1025,34 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         # 9. Calcular estadísticas
         elapsed_time = time.time() - start_time
         total_tokens = sum(a.get("tokens_used", 0) for a in frame_analyses)
+        
+        # Determinar si hubo warnings durante el procesamiento
+        processing_warnings = []
+        if transcript_indexing_error:
+            processing_warnings.append(f"Transcript indexing error: {transcript_indexing_error}")
+        
+        # Determinar estado: completed_with_warnings si hubo errores parciales
+        final_status = "completed"
+        if transcript_indexing_error and transcript_indexed == 0:
+            final_status = "completed_with_warnings"
 
         result = {
             "video_id": video_id,
             "blob_name": blob_name,
             "job_id": job_id,
-            "status": "completed",
+            "status": final_status,
             "metadata": metadata,
             "frame_analyses": frame_analyses,
             "transcription": transcription_result.get("transcription"),
             "embeddings_count": len(embeddings),
             "transcript_segments_indexed": transcript_indexed,
+            "transcript_indexing_error": transcript_indexing_error,
             "video_summary": video_summary,
             "key_topics": key_topics,
             "graph_indexed": graph_indexed,
             "total_tokens": total_tokens,
             "processing_time_seconds": round(elapsed_time, 2),
+            "processing_warnings": processing_warnings if processing_warnings else None,
         }
 
         # 10. Actualizar estado final

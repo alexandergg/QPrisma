@@ -107,15 +107,70 @@ class AgentChatRequest(BaseModel):
     media_id: str | None = None
     chat_history: list[dict[str, Any]] | None = None
     session_id: str | None = None
+    output_format: str | None = Field(
+        default="markdown",
+        description="Response format: 'markdown' (default), 'json', or 'structured'"
+    )
+
+
+class VideoSource(BaseModel):
+    """A source reference in the video."""
+
+    timestamp: float
+    timestamp_formatted: str
+    type: str  # visual, audio, entity, scene
+    description: str
+    score: float = 0.0
+    thumbnail_url: str | None = None
+    frame_id: str | None = None
+
+
+class NavigationAction(BaseModel):
+    """A suggested navigation action for the UI."""
+
+    action: str  # jump_to, create_clip, explore
+    label: str
+    timestamp: float | None = None
+    end_timestamp: float | None = None
+    parameters: dict[str, Any] | None = None
+
+
+class SuggestedQuestion(BaseModel):
+    """A suggested follow-up question."""
+
+    question: str
+    category: str  # related, deeper, compare
 
 
 class AgentChatResponse(BaseModel):
-    """Agent chat response."""
+    """Enhanced agent chat response with rich metadata."""
 
     response: str
-    sources: list[dict[str, Any]] = Field(default_factory=list)
+    sources: list[VideoSource] = Field(default_factory=list)
     tool_calls_made: int = 0
     session_id: str | None = None
+    
+    # New fields for enhanced UX
+    navigation_actions: list[NavigationAction] = Field(
+        default_factory=list,
+        description="Suggested UI actions like seeking to timestamps"
+    )
+    suggested_questions: list[SuggestedQuestion] = Field(
+        default_factory=list,
+        description="Follow-up questions the user might want to ask"
+    )
+    clip_suggestions: list[NavigationAction] = Field(
+        default_factory=list,
+        description="Exportable clip time ranges found"
+    )
+    entities_mentioned: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Entities referenced in the response"
+    )
+    token_usage: dict[str, int] | None = Field(
+        default=None,
+        description="Token consumption for this request"
+    )
 
 
 # =============================================================================

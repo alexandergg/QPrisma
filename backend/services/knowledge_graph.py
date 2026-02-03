@@ -631,49 +631,72 @@ class KnowledgeGraphService:
                 return record["id"]
             return segment.id
 
-    def create_audio_segments_batch(self, segments: list[AudioSegmentNode]) -> int:
-        """Crea múltiples segmentos de audio en batch."""
+    def create_audio_segments_batch(self, segments: list[AudioSegmentNode], batch_size: int = 100) -> int:
+        """
+        Crea múltiples segmentos de audio en batches.
+        
+        Args:
+            segments: Lista de AudioSegmentNode a crear
+            batch_size: Tamaño de cada batch para evitar timeouts
+            
+        Returns:
+            Número total de segmentos creados
+        """
         if not segments:
             return 0
 
+        # Usar MERGE para evitar errores de duplicados
         query = """
         UNWIND $segments as seg
-        MATCH (v:Video)
+        MERGE (a:AudioSegment {id: seg.id})
+        SET a.video_id = seg.video_id,
+            a.start_time = seg.start_time,
+            a.end_time = seg.end_time,
+            a.text = seg.text,
+            a.language = seg.language,
+            a.confidence = seg.confidence,
+            a.created_at = datetime(seg.created_at)
+        WITH a, seg
+        OPTIONAL MATCH (v:Video)
         WHERE v.video_id = seg.video_id OR v.id = seg.video_id
-        CREATE (a:AudioSegment {
-            id: seg.id,
-            video_id: seg.video_id,
-            start_time: seg.start_time,
-            end_time: seg.end_time,
-            text: seg.text,
-            language: seg.language,
-            confidence: seg.confidence,
-            created_at: datetime(seg.created_at)
-        })
-        CREATE (v)-[:HAS_TRANSCRIPT]->(a)
+        FOREACH (_ IN CASE WHEN v IS NOT NULL THEN [1] ELSE [] END |
+            MERGE (v)-[:HAS_TRANSCRIPT]->(a)
+        )
         RETURN count(a) as created
         """
 
-        segments_data = [
-            {
-                "id": s.id,
-                "video_id": s.video_id,
-                "start_time": s.start_time,
-                "end_time": s.end_time,
-                "text": s.text,
-                "language": s.language,
-                "confidence": s.confidence,
-                "created_at": s.created_at.isoformat(),
-            }
-            for s in segments
-        ]
+        total_created = 0
+        
+        # Procesar en batches para evitar timeouts con grandes volúmenes
+        for i in range(0, len(segments), batch_size):
+            batch = segments[i:i + batch_size]
+            segments_data = [
+                {
+                    "id": s.id,
+                    "video_id": s.video_id,
+                    "start_time": s.start_time,
+                    "end_time": s.end_time,
+                    "text": s.text,
+                    "language": s.language,
+                    "confidence": s.confidence,
+                    "created_at": s.created_at.isoformat(),
+                }
+                for s in batch
+            ]
 
-        with self.get_session() as session:
-            result = session.run(query, segments=segments_data)
-            record = result.single()
-            count = record["created"] if record else 0
-            logger.info(f"Created {count} AudioSegment nodes in batch")
-            return count
+            try:
+                with self.get_session() as session:
+                    result = session.run(query, segments=segments_data)
+                    record = result.single()
+                    count = record["created"] if record else 0
+                    total_created += count
+            except Exception as e:
+                logger.error(f"Failed to create batch {i//batch_size + 1}: {e}")
+                # Continuar con el siguiente batch en lugar de fallar completamente
+                continue
+        
+        logger.info(f"Created {total_created} AudioSegment nodes in {(len(segments) + batch_size - 1) // batch_size} batches")
+        return total_created
 
     def get_video_transcripts(self, video_id: str) -> list[dict]:
         """Obtiene todos los segmentos de transcripción de un video."""
@@ -730,16 +753,33 @@ class KnowledgeGraphService:
 
     def delete_video_transcripts(self, video_id: str) -> int:
         """Elimina todos los segmentos de transcripción de un video."""
-        query = """
-        MATCH (v:Video)-[:HAS_TRANSCRIPT]->(a:AudioSegment)
-        WHERE v.video_id = $video_id OR v.id = $video_id
-        DETACH DELETE a
-        RETURN count(a) as deleted
+        # Primero contar, luego eliminar
+        count_query = """
+        MATCH (a:AudioSegment)
+        WHERE a.video_id = $video_id
+        RETURN count(a) as count
         """
-        result = self._execute_query(query, {"video_id": video_id}, single=True)
-        count = result["deleted"] if result else 0
-        logger.info(f"Deleted {count} AudioSegment nodes for video {video_id}")
-        return count
+        
+        delete_query = """
+        MATCH (a:AudioSegment)
+        WHERE a.video_id = $video_id
+        DETACH DELETE a
+        """
+        
+        try:
+            # Contar antes de eliminar
+            result = self._execute_query(count_query, {"video_id": video_id}, single=True)
+            count = result["count"] if result else 0
+            
+            if count > 0:
+                # Eliminar en batches para evitar memory issues
+                self._execute_query(delete_query, {"video_id": video_id})
+                logger.info(f"Deleted {count} AudioSegment nodes for video {video_id}")
+            
+            return count
+        except Exception as e:
+            logger.error(f"Error deleting transcripts for video {video_id}: {e}")
+            return 0
 
     # =========================================================================
     # Relation Operations

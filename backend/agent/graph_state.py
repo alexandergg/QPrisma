@@ -13,17 +13,69 @@ Best Practices:
 
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import AnyMessage, trim_messages
+from langchain_core.messages import AnyMessage, ToolMessage, trim_messages
 from langgraph.graph.message import add_messages
+
+# Token limits for context management
+MAX_CONTEXT_TOKENS = 200000  # Conservative limit below 272k for gpt-5
+MAX_TOOL_RESULT_CHARS = 6000  # ~1500 tokens per tool result
+CHARS_PER_TOKEN = 4  # Rough estimate
+
+
+def _estimate_tokens(text: str) -> int:
+    """Estimate token count from text. Rough estimate: ~4 chars per token."""
+    if not text:
+        return 0
+    return len(text) // CHARS_PER_TOKEN
+
+
+def _token_counter(messages: list[AnyMessage]) -> int:
+    """
+    Count approximate tokens in message list.
+    Used by trim_messages to prevent context overflow.
+    """
+    total = 0
+    for msg in messages:
+        # Message role/structure overhead
+        total += 10
+        
+        # Content tokens
+        content = msg.content if isinstance(msg.content, str) else str(msg.content) if msg.content else ""
+        total += _estimate_tokens(content)
+        
+        # Tool calls overhead
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                total += _estimate_tokens(str(tc))
+    
+    return total
+
+
+def _truncate_tool_message_content(msg: AnyMessage) -> AnyMessage:
+    """Truncate tool message content if too large."""
+    if not isinstance(msg, ToolMessage):
+        return msg
+    
+    content = msg.content if isinstance(msg.content, str) else str(msg.content)
+    
+    if len(content) > MAX_TOOL_RESULT_CHARS:
+        truncated = content[:MAX_TOOL_RESULT_CHARS] + "... [truncated for context limit]"
+        # Create new ToolMessage with truncated content
+        return ToolMessage(
+            content=truncated,
+            tool_call_id=msg.tool_call_id,
+            name=msg.name if hasattr(msg, 'name') else None,
+        )
+    return msg
 
 
 # Message trimmer to prevent context window overflow
-def get_message_trimmer(max_tokens: int = 8000):
+def get_message_trimmer(max_tokens: int = 80000):
     """
     Create a message trimmer to prevent context window overflow.
 
     Args:
-        max_tokens: Maximum tokens to keep in context
+        max_tokens: Maximum tokens to keep in context (default 80k for safety margin)
 
     Returns:
         Configured trim_messages function
@@ -31,7 +83,7 @@ def get_message_trimmer(max_tokens: int = 8000):
     return trim_messages(
         max_tokens=max_tokens,
         strategy="last",
-        token_counter=len,  # Simple approximation; use tiktoken for accuracy
+        token_counter=_token_counter,  # Use proper token estimation
         include_system=True,
         allow_partial=False,
         start_on="human",
@@ -71,6 +123,9 @@ class AgentState(TypedDict, total=False):
     # Messages with reducer - LangGraph handles accumulation
     messages: Annotated[list[AnyMessage], add_messages]
 
+    # Media ID - top-level for easy InjectedState access by tools
+    media_id: str | None
+
     # Video context (for VideoAgent)
     video_context: VideoContext | None
 
@@ -80,6 +135,14 @@ class AgentState(TypedDict, total=False):
 
     # Sources found during search
     sources: list[dict]
+
+    # Planning and iteration tracking
+    tool_calls_count: int  # Track number of tool calls made
+    conversation_context: list[str]  # Key topics/entities discussed
+    
+    # Conversation summarization for long chats
+    conversation_summary: str | None  # Summary of prior conversation turns
+    total_turns: int  # Total conversation turns for summarization trigger
 
     # Metadata
     user_id: str | None
@@ -123,6 +186,7 @@ def create_agent_state(
 
     return AgentState(
         messages=messages,
+        media_id=media_id,
         video_context=video_context,
         project_context=project_context,
         project_id=project_id,

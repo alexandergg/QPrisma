@@ -608,6 +608,9 @@ class HierarchicalContextService:
                 description=scene.summary or scene.visual_description,
                 embedding=scene.embedding if self.config.store_scene_embeddings else None,
                 embedding_model="text-embedding-3-large",
+                visual_change_score=getattr(scene, 'visual_change_score', 0.0),
+                dominant_colors=getattr(scene, 'dominant_colors', None) or [],
+                transition_type=getattr(scene, 'transition_type', 'cut'),
             )
 
             scene_id = self._create_scene_node(scene_node)

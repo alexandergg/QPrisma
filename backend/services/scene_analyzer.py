@@ -32,6 +32,7 @@ class SceneBoundary:
     frame_number: int
     confidence: float
     detection_method: str  # 'ffmpeg', 'semantic', 'audio'
+    transition_type: str = "cut"  # cut, fade, dissolve - default is cut for hard scene changes
 
 
 @dataclass
@@ -62,6 +63,8 @@ class Scene:
     frame_count: int = 0
     avg_motion: float = 0.0
     dominant_colors: list[str] = None
+    visual_change_score: float = 0.0  # Confidence score from scene detection
+    transition_type: str = "cut"  # cut, fade, dissolve
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -185,6 +188,27 @@ class SceneAnalyzer:
                             frame_match = line.split("n:")[1].split()[0]
                             frame_num = int(frame_match)
 
+                        # Extract scene change score if available
+                        scene_score = 0.8  # Default confidence
+                        if "scene:" in line.lower():
+                            try:
+                                # Look for pattern like "scene:0.456789"
+                                import re
+                                scene_match = re.search(r'scene[:\s]+(\d+\.?\d*)', line.lower())
+                                if scene_match:
+                                    scene_score = float(scene_match.group(1))
+                            except (ValueError, IndexError):
+                                pass
+
+                        # Classify transition type based on scene score
+                        # High scores (>0.7) = hard cut, medium (0.4-0.7) = dissolve, low (<0.4) = fade
+                        if scene_score > 0.7:
+                            transition_type = "cut"
+                        elif scene_score > 0.4:
+                            transition_type = "dissolve"
+                        else:
+                            transition_type = "fade"
+
                         # Only add if it's far enough from the last boundary
                         if (
                             not boundaries
@@ -194,8 +218,9 @@ class SceneAnalyzer:
                                 SceneBoundary(
                                     timestamp=timestamp,
                                     frame_number=frame_num,
-                                    confidence=0.8,
+                                    confidence=scene_score,
                                     detection_method="ffmpeg",
+                                    transition_type=transition_type,
                                 )
                             )
                     except (ValueError, IndexError):
@@ -298,9 +323,11 @@ class SceneAnalyzer:
                     f for f in frame_analyses if start_frame <= f.get("frame_number", 0) < end_frame
                 ]
                 if scene_frames:
-                    # Combine descriptions
+                    # Combine descriptions (check both "description" and "analysis" keys for compatibility)
                     descriptions = [
-                        f.get("description", "") for f in scene_frames if f.get("description")
+                        f.get("description") or f.get("analysis", "")
+                        for f in scene_frames
+                        if f.get("description") or f.get("analysis")
                     ]
                     visual_desc = " ".join(descriptions[:3])  # First 3 for context
 
@@ -332,6 +359,8 @@ class SceneAnalyzer:
                 transcript_segment=transcript_text,
                 detected_objects=detected_objects or [],
                 frame_count=frame_count,
+                visual_change_score=boundary.confidence,  # From scene detection confidence
+                transition_type=boundary.transition_type,  # cut, fade, or dissolve
             )
 
             scenes.append(scene)

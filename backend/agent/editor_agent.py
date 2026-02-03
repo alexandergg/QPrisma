@@ -18,6 +18,13 @@ from agent.prompts import EDITOR_NO_PROJECT_PROMPT, build_editor_prompt
 from agent.state import AgentConfig, VideoAgentState, create_initial_state
 from agent.tools import EDITOR_TOOLS, SEARCH_TOOLS
 from agent.tools.base import format_timestamp
+from agent.video_agent import (
+    MAX_CONTEXT_TOKENS,
+    MAX_TOOL_RESULT_CHARS,
+    estimate_messages_tokens,
+    estimate_tokens,
+    truncate_tool_result,
+)
 from services.database_service import get_database_service
 
 logger = logging.getLogger(__name__)
@@ -360,9 +367,11 @@ class EditorAgent:
 
                         result = await tool(media_id=media_id, **func_args)
 
+                        # Truncate result to prevent context overflow
+                        truncated_content = truncate_tool_result(result)
                         state["messages"].append({
                             "role": "tool",
-                            "content": json.dumps(result, default=str),
+                            "content": truncated_content,
                             "tool_call_id": tool_call["id"],
                             "name": func_name,
                         })
@@ -601,9 +610,11 @@ class EditorAgent:
 
                 result = await tool(media_id=media_id, **func_args)
 
+                # Truncate result to prevent context overflow
+                truncated_content = truncate_tool_result(result)
                 state["messages"].append({
                     "role": "tool",
-                    "content": json.dumps(result, default=str),
+                    "content": truncated_content,
                     "tool_call_id": tool_call["id"],
                     "name": func_name,
                 })
@@ -623,20 +634,40 @@ class EditorAgent:
     # =========================================================================
 
     def _build_messages(self, state: VideoAgentState) -> list[dict]:
-        """Build messages array for the LLM call."""
+        """
+        Build messages array for the LLM call with context limit management.
+        
+        Ensures total context stays under MAX_CONTEXT_TOKENS by:
+        1. Truncating tool results
+        2. Limiting conversation history
+        3. Prioritizing recent messages
+        """
         messages = []
 
         # System prompt with project context
         project_context = state.get("project_context", {})
         system_content = self._build_system_prompt(project_context)
         messages.append({"role": "system", "content": system_content})
+        system_tokens = estimate_tokens(system_content)
 
-        # Conversation history
+        # Calculate available tokens for conversation (leave room for response)
+        available_tokens = MAX_CONTEXT_TOKENS - system_tokens - 2000
+
+        # Build conversation messages with truncation
+        conversation_messages = []
         for msg in state.get("messages", []):
             formatted_msg = {"role": msg["role"]}
 
             if msg.get("content") is not None:
-                formatted_msg["content"] = msg["content"]
+                content = msg["content"]
+                # Truncate tool results that are too large
+                if msg["role"] == "tool" and len(content) > MAX_TOOL_RESULT_CHARS:
+                    try:
+                        result_data = json.loads(content)
+                        content = truncate_tool_result(result_data)
+                    except (json.JSONDecodeError, TypeError):
+                        content = content[:MAX_TOOL_RESULT_CHARS] + "... [truncated]"
+                formatted_msg["content"] = content
 
             if msg.get("tool_calls"):
                 formatted_msg["tool_calls"] = [
@@ -654,8 +685,43 @@ class EditorAgent:
             if msg.get("name"):
                 formatted_msg["name"] = msg["name"]
 
-            messages.append(formatted_msg)
+            conversation_messages.append(formatted_msg)
 
+        # Check if we need to trim conversation history
+        total_conv_tokens = estimate_messages_tokens(conversation_messages)
+        
+        if total_conv_tokens > available_tokens:
+            logger.warning(
+                f"Editor context too large ({total_conv_tokens} tokens). "
+                f"Trimming to fit {available_tokens} tokens."
+            )
+            # Keep first user message and most recent messages
+            if len(conversation_messages) > 2:
+                first_msg = conversation_messages[0]
+                remaining_tokens = available_tokens - estimate_messages_tokens([first_msg])
+                
+                trimmed_messages = [first_msg]
+                recent_messages = []
+                
+                for msg in reversed(conversation_messages[1:]):
+                    msg_tokens = estimate_messages_tokens([msg])
+                    if remaining_tokens >= msg_tokens:
+                        recent_messages.insert(0, msg)
+                        remaining_tokens -= msg_tokens
+                    else:
+                        break
+                
+                if recent_messages:
+                    trimmed_messages.append({
+                        "role": "system",
+                        "content": "[Previous conversation truncated to fit context limit.]"
+                    })
+                    trimmed_messages.extend(recent_messages)
+                
+                conversation_messages = trimmed_messages
+                logger.info(f"Trimmed to {len(conversation_messages)} messages")
+
+        messages.extend(conversation_messages)
         return messages
 
     def _build_fallback_response(self, state: VideoAgentState) -> str:

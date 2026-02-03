@@ -25,6 +25,12 @@ from typing import Any
 
 from openai import AzureOpenAI
 
+# Token limits for context management
+MAX_CONTEXT_TOKENS = 100000  # Leave headroom below 128k limit
+MAX_TOOL_RESULT_CHARS = 8000  # ~2000 tokens per tool result
+MAX_TOOL_RESULT_TOKENS = 2000
+CHARS_PER_TOKEN = 4  # Rough estimate for token counting
+
 from agent.prompts import NO_VIDEO_CONTEXT_PROMPT, SYSTEM_PROMPT
 from agent.state import (
     AgentConfig,
@@ -34,6 +40,84 @@ from agent.state import (
 from agent.tools import ALL_TOOLS, TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
+
+
+def estimate_tokens(text: str | None) -> int:
+    """Estimate token count from text. Rough estimate: ~4 chars per token."""
+    if not text:
+        return 0
+    return len(text) // CHARS_PER_TOKEN
+
+
+def truncate_tool_result(result: Any, max_chars: int = MAX_TOOL_RESULT_CHARS) -> str:
+    """
+    Truncate tool result to prevent context overflow.
+    
+    Preserves structure while limiting size:
+    - For search results: keep first N results
+    - For transcripts: truncate text
+    - For descriptions: truncate content
+    """
+    result_str = json.dumps(result, default=str)
+    
+    if len(result_str) <= max_chars:
+        return result_str
+    
+    # Try to intelligently truncate based on content type
+    if isinstance(result, dict):
+        # Handle search results
+        if "results" in result and isinstance(result["results"], list):
+            truncated = result.copy()
+            results = result["results"]
+            # Keep reducing results until we fit
+            while len(results) > 1:
+                results = results[:len(results) // 2 + 1]
+                truncated["results"] = results
+                truncated["_truncated"] = True
+                truncated["_original_count"] = len(result["results"])
+                result_str = json.dumps(truncated, default=str)
+                if len(result_str) <= max_chars:
+                    break
+            return result_str[:max_chars]
+        
+        # Handle transcripts
+        if "full_transcript" in result:
+            truncated = result.copy()
+            transcript = result["full_transcript"]
+            if len(transcript) > max_chars // 2:
+                truncated["full_transcript"] = transcript[:max_chars // 2] + "... [truncated]"
+                truncated["_truncated"] = True
+            # Also truncate segments
+            if "segments" in truncated and len(truncated["segments"]) > 10:
+                truncated["segments"] = truncated["segments"][:10]
+                truncated["_segments_truncated"] = True
+            result_str = json.dumps(truncated, default=str)
+            return result_str[:max_chars]
+        
+        # Handle scene descriptions
+        if "frames" in result and isinstance(result["frames"], list):
+            truncated = result.copy()
+            truncated["frames"] = result["frames"][:5]
+            truncated["_truncated"] = True
+            result_str = json.dumps(truncated, default=str)
+            return result_str[:max_chars]
+    
+    # Fallback: simple truncation
+    return result_str[:max_chars] + '..."}'
+
+
+def estimate_messages_tokens(messages: list[dict]) -> int:
+    """Estimate total tokens in message list."""
+    total = 0
+    for msg in messages:
+        # Role and structure overhead
+        total += 10
+        if msg.get("content"):
+            total += estimate_tokens(msg["content"])
+        if msg.get("tool_calls"):
+            for tc in msg["tool_calls"]:
+                total += estimate_tokens(json.dumps(tc, default=str))
+    return total
 
 
 # Event types for streaming
@@ -230,10 +314,11 @@ class VideoAgent:
                     if tool:
                         result = await tool(media_id=media_id, **func_args)
 
-                        # Add tool message to conversation
+                        # Add tool message to conversation with truncation
+                        truncated_content = truncate_tool_result(result)
                         state["messages"].append({
                             "role": "tool",
-                            "content": json.dumps(result, default=str),
+                            "content": truncated_content,
                             "tool_call_id": tool_call["id"],
                             "name": func_name,
                         })
@@ -526,6 +611,7 @@ class VideoAgent:
     async def _execute_tools(self, state: VideoAgentState) -> VideoAgentState:
         """
         Execute pending tool calls and add results to state.
+        Results are truncated to prevent context overflow.
         """
         pending_calls = state.get("pending_tool_calls", [])
         media_id = state.get("video_context", {}).get("media_id") if state.get("video_context") else None
@@ -566,15 +652,16 @@ class VideoAgent:
                             "score": r.get("score", 0),
                         })
 
-                # Add tool message to conversation
+                # Add tool message to conversation with truncation to prevent overflow
+                truncated_content = truncate_tool_result(result)
                 state["messages"].append({
                     "role": "tool",
-                    "content": json.dumps(result, default=str),
+                    "content": truncated_content,
                     "tool_call_id": tool_call["id"],
                     "name": func_name,
                 })
 
-                logger.info(f"Tool {func_name} executed successfully")
+                logger.info(f"Tool {func_name} executed successfully (result size: {len(truncated_content)} chars)")
 
             else:
                 logger.warning(f"Unknown tool requested: {func_name}")
@@ -598,7 +685,12 @@ class VideoAgent:
 
     def _build_messages(self, state: VideoAgentState) -> list[dict]:
         """
-        Build messages array for the LLM call.
+        Build messages array for the LLM call with context limit management.
+        
+        Ensures total context stays under MAX_CONTEXT_TOKENS by:
+        1. Truncating tool results
+        2. Limiting conversation history
+        3. Prioritizing recent messages
         """
         messages = []
 
@@ -615,13 +707,27 @@ class VideoAgent:
             system_content = NO_VIDEO_CONTEXT_PROMPT
 
         messages.append({"role": "system", "content": system_content})
+        system_tokens = estimate_tokens(system_content)
+        
+        # Calculate available tokens for conversation (leave room for response)
+        available_tokens = MAX_CONTEXT_TOKENS - system_tokens - 2000  # 2k for response
 
-        # Add conversation history
+        # Build conversation messages with truncation
+        conversation_messages = []
         for msg in state.get("messages", []):
             formatted_msg = {"role": msg["role"]}
 
             if msg.get("content") is not None:
-                formatted_msg["content"] = msg["content"]
+                content = msg["content"]
+                # Truncate tool results that are too large
+                if msg["role"] == "tool" and len(content) > MAX_TOOL_RESULT_CHARS:
+                    try:
+                        # Try to parse and intelligently truncate
+                        result_data = json.loads(content)
+                        content = truncate_tool_result(result_data)
+                    except (json.JSONDecodeError, TypeError):
+                        content = content[:MAX_TOOL_RESULT_CHARS] + "... [truncated]"
+                formatted_msg["content"] = content
 
             if msg.get("tool_calls"):
                 formatted_msg["tool_calls"] = [
@@ -639,8 +745,47 @@ class VideoAgent:
             if msg.get("name"):
                 formatted_msg["name"] = msg["name"]
 
-            messages.append(formatted_msg)
+            conversation_messages.append(formatted_msg)
 
+        # Check if we need to trim conversation history
+        total_conv_tokens = estimate_messages_tokens(conversation_messages)
+        
+        if total_conv_tokens > available_tokens:
+            logger.warning(
+                f"Context too large ({total_conv_tokens} tokens). "
+                f"Trimming to fit {available_tokens} tokens."
+            )
+            # Keep first user message and most recent messages
+            if len(conversation_messages) > 2:
+                # Keep first message (initial user query) and trim from the middle
+                first_msg = conversation_messages[0]
+                # Calculate how many recent messages we can keep
+                remaining_tokens = available_tokens - estimate_messages_tokens([first_msg])
+                
+                # Add messages from the end until we run out of space
+                trimmed_messages = [first_msg]
+                recent_messages = []
+                
+                for msg in reversed(conversation_messages[1:]):
+                    msg_tokens = estimate_messages_tokens([msg])
+                    if remaining_tokens >= msg_tokens:
+                        recent_messages.insert(0, msg)
+                        remaining_tokens -= msg_tokens
+                    else:
+                        break
+                
+                if recent_messages:
+                    # Add a marker that context was trimmed
+                    trimmed_messages.append({
+                        "role": "system",
+                        "content": "[Previous conversation truncated to fit context limit. Continuing with recent context.]"
+                    })
+                    trimmed_messages.extend(recent_messages)
+                
+                conversation_messages = trimmed_messages
+                logger.info(f"Trimmed to {len(conversation_messages)} messages")
+
+        messages.extend(conversation_messages)
         return messages
 
     def _build_fallback_response(self, state: VideoAgentState) -> str:
