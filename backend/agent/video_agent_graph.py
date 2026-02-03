@@ -501,12 +501,23 @@ def get_video_agent_graph(checkpointer=None) -> VideoAgentGraph:
 
 
 def create_redis_checkpointer():
-    """Create Redis checkpointer from environment."""
+    """Create Redis checkpointer from environment.
+    
+    Uses langgraph-checkpoint-redis package. Falls back to MemorySaver if not installed.
+    See: https://github.com/redis-developer/langgraph-redis
+    """
     try:
-        from langgraph.checkpoint.redis import RedisSaver
+        import redis
+        from langgraph_checkpoint_redis import RedisSaver
 
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        return RedisSaver.from_conn_string(redis_url)
+        # Create Redis client directly - from_conn_string returns a context manager
+        # which cannot be passed directly as a checkpointer
+        redis_client = redis.Redis.from_url(redis_url)
+        return RedisSaver(redis_client)
+    except ImportError as e:
+        logger.warning(f"Redis checkpoint packages not installed: {e}. Using memory saver.")
+        return MemorySaver()
     except Exception as e:
         logger.warning(f"Failed to create Redis checkpointer: {e}. Using memory saver.")
         return MemorySaver()
