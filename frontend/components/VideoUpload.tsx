@@ -4,6 +4,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import { Film, AlertCircle, CheckCircle, Loader, Play, CloudUpload, Sparkles } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 import { API_URL } from '@/lib/config';
+import { ChunkedUploader, shouldUseChunkedUpload, UploadProgress } from '@/lib/chunked-upload';
 
 interface UploadedVideo {
   media_id: string;
@@ -17,6 +18,8 @@ interface UploadedVideo {
   error_message?: string;
   frames_analyzed?: number;
   processing_time?: number;
+  upload_speed?: string;
+  eta?: string;
 }
 
 interface VideoUploadProps {
@@ -139,6 +142,21 @@ export default function VideoUpload({
     }, 3000);
   }, [onVideoProcessed]);
 
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  };
+
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs}s`;
+  };
+
   const handleFiles = useCallback(async (files: File[]) => {
     for (const file of files) {
       if (!file.type.startsWith('video/')) {
@@ -160,40 +178,86 @@ export default function VideoUpload({
       setUploadedVideos(prev => [newVideo, ...prev]);
 
       try {
-        // Upload video with authentication - use optimized pipeline if enabled
-        let response;
-        if (useOptimizedPipeline) {
-          response = await apiClient.uploadVideoOptimized(file, {
+        // Use chunked upload for large files (>100MB)
+        if (shouldUseChunkedUpload(file)) {
+          const uploader = new ChunkedUploader(file, {
             preset: selectedPreset,
             maxFrames: maxFrames,
             useSceneDetection: sceneDetectionEnabled,
             useHierarchicalSummary: hierarchicalSummaryEnabled,
+            blockSizeMb: 8,
+            concurrency: 4,
+            onProgress: (progress: UploadProgress) => {
+              setUploadedVideos(prev => prev.map(v =>
+                v.media_id === tempId ? {
+                  ...v,
+                  progress: progress.percent,
+                  upload_speed: progress.speedBytesPerSecond 
+                    ? `${formatBytes(progress.speedBytesPerSecond)}/s` 
+                    : undefined,
+                  eta: progress.estimatedSecondsRemaining 
+                    ? formatTime(progress.estimatedSecondsRemaining)
+                    : undefined,
+                } : v
+              ));
+            },
           });
+
+          const result = await uploader.upload();
+
+          if (result.success && result.mediaId) {
+            setUploadedVideos(prev => prev.map(v =>
+              v.media_id === tempId ? {
+                ...v,
+                media_id: result.mediaId!,
+                blob_name: result.blobName || '',
+                job_id: result.jobId,
+                status: 'processing',
+                progress: 0,
+                upload_speed: undefined,
+                eta: undefined,
+              } : v
+            ));
+
+            pollProcessingStatus(result.mediaId, result.jobId);
+          } else {
+            throw new Error(result.error || 'Chunked upload failed');
+          }
         } else {
-          response = await apiClient.uploadVideo(file, selectedPreset, maxFrames);
+          // Use standard upload for smaller files
+          let response;
+          if (useOptimizedPipeline) {
+            response = await apiClient.uploadVideoOptimized(file, {
+              preset: selectedPreset,
+              maxFrames: maxFrames,
+              useSceneDetection: sceneDetectionEnabled,
+              useHierarchicalSummary: hierarchicalSummaryEnabled,
+            });
+          } else {
+            response = await apiClient.uploadVideo(file, selectedPreset, maxFrames);
+          }
+          const { media_id, blob_name, job_id } = response;
+
+          setUploadedVideos(prev => prev.map(v =>
+            v.media_id === tempId ? {
+              ...v,
+              media_id,
+              blob_name,
+              job_id,
+              status: 'processing',
+              progress: 0
+            } : v
+          ));
+
+          pollProcessingStatus(media_id, job_id);
         }
-        const { media_id, blob_name, job_id } = response;
-
-        setUploadedVideos(prev => prev.map(v =>
-          v.media_id === tempId ? {
-            ...v,
-            media_id,
-            blob_name,
-            job_id,
-            status: 'processing',
-            progress: 0
-          } : v
-        ));
-
-        pollProcessingStatus(media_id, job_id);
-
       } catch (error) {
         console.error('Upload error:', error);
         setUploadedVideos(prev => prev.map(v =>
           v.media_id === tempId ? {
             ...v,
             status: 'error',
-            error_message: 'Upload failed'
+            error_message: error instanceof Error ? error.message : 'Upload failed'
           } : v
         ));
       }
@@ -331,7 +395,15 @@ export default function VideoUpload({
                 {/* Status Text */}
                 <div className="flex items-center gap-4 mt-2 text-sm font-medium">
                   {video.status === 'uploading' && (
-                    <span className="text-indigo-600">Uploading {video.progress}%...</span>
+                    <span className="text-indigo-600 flex items-center gap-2">
+                      Uploading {video.progress}%
+                      {video.upload_speed && (
+                        <span className="text-gray-400">• {video.upload_speed}</span>
+                      )}
+                      {video.eta && (
+                        <span className="text-gray-400">• ETA: {video.eta}</span>
+                      )}
+                    </span>
                   )}
                   {video.status === 'processing' && (
                     <span className="text-indigo-600 flex items-center gap-2">
