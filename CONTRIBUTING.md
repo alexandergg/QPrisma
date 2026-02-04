@@ -2,6 +2,18 @@
 
 Thank you for your interest in contributing to QPrisma! This document provides guidelines and instructions for contributing.
 
+## AI-Assisted Development
+
+This repository is configured with **Claude Code** commands to help you contribute faster. These slash commands automate common tasks following QPrisma's architectural patterns.
+
+See [.claude/README.md](.claude/README.md) for the full list of 20+ commands.
+
+**Common helpers:**
+- `/create-test` - Generate tests for your changes
+- `/create-route` - Add new API endpoints
+- `/code-review` - Check your code before PR
+- `/troubleshoot` - Debug issues
+
 ## Code of Conduct
 
 Please be respectful and considerate in all interactions. We're building a welcoming community.

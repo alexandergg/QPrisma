@@ -320,6 +320,7 @@ qprisma/
 *   **[Security Policy](./SECURITY.md)** - Security guidelines and vulnerability reporting
 *   **[Code of Conduct](./CODE_OF_CONDUCT.md)** - Community guidelines
 *   **[Interactive API Docs](http://localhost:8000/docs)** - Swagger UI (requires backend running)
+*   **[AI Agent Guide](.claude/README.md)** - Guide to using the built-in Claude Code commands and agents
 
 ## Contributing
 
