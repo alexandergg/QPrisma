@@ -7,37 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-02-04
+
 ### Added
-- **LangGraph Agent Migration**: Complete rewrite of agent system using LangGraph StateGraph
-  - `VideoAgentGraph`: New video agent with declarative graph architecture
-  - `EditorAgentGraph`: New editor agent for Chat-to-Edit functionality
-  - `@tool` decorator with `InjectedToolArg` for modern context injection
-  - `tools_condition` prebuilt for cleaner conditional routing
-  - `handle_tool_errors=True` for graceful tool error handling
-  - `trim_messages` to prevent context window overflow
-  - `interrupt_before` for human-in-the-loop clip confirmation
-  - `get_graph_diagram()` for Mermaid/ASCII graph visualization
-  - `get_state_history()` for debugging and audit trails
-  - `resume_from_checkpoint()` to resume from saved state
-  - `confirm_and_continue()` for editor human-in-the-loop flow
-  - Redis checkpointer (`RedisSaver`) for persistent conversation memory
-- Video editor with Chat-to-Edit functionality
-- Storage tiering for cost optimization
-- Agentic chat system with 9+ tools
-- Export to multiple platforms (TikTok, Reels, Shorts, YouTube)
-- Subtitle generation with multiple styles
+- **Professional Documentation**: Added `GOVERNANCE.md`, `CITATION.cff`, `SUPPORT.md`, and Architecture Decision Records (`docs/adr/`).
+- **AI-Assisted Development**: Comprehensive `.claude` configuration with 20+ slash commands and 17 specialist agent definitions.
+- **Large File Support**: High-performance chunked upload for files >1GB.
+- **LangGraph Agent Migration**: Complete rewrite of agent system using LangGraph StateGraph.
+  - `VideoAgentGraph`: New video agent with declarative graph architecture.
+  - `EditorAgentGraph`: New editor agent for Chat-to-Edit functionality.
+  - `@tool` decorator with `InjectedToolArg` for modern context injection.
+  - `handle_tool_errors=True` for graceful tool error handling.
+  - `trim_messages` to prevent context window overflow.
+  - `interrupt_before` for human-in-the-loop clip confirmation.
+  - Redis checkpointer (`RedisSaver`) for persistent conversation memory.
+- **Video Editor**: Chat-to-Edit functionality with React Flow visualization.
+- **Export**: Multi-platform export support (TikTok, Reels, Shorts, YouTube).
+- **Subtitles**: Automated generation with customizable styles.
 
 ### Changed
-- Migrated from Cosmos DB to PostgreSQL
-- Improved frontend UX with 3-column layout
-- **Agent architecture**: Migrated from manual ReAct loop to LangGraph StateGraph pattern
-  - Uses `START` constant for modern entry points
-  - Uses `add_messages` reducer for automatic message accumulation
-  - Backward compatible: Legacy `VideoAgent`/`EditorAgent` still available
+- **Architecture**:
+  - Migrated agent loop to `StateGraph` pattern with `add_messages` reducer.
+  - Refactored Auth Service to use Singleton pattern.
+  - Centralized backend settings and helpers.
+- **Infrastructure**:
+  - Updated Dockerfiles for improved build caching and structure.
+  - Added enterprise-grade GitHub documentation (`.github` folder).
+- **Frontend**:
+  - Comprehensive code cleanup and optimization.
+  - Improved API client JSON handling.
+  - Enhanced UX with 3-column layout.
 
 ### Fixed
-- Audio transcript access in agent tools
-- Session management for chat conversations
+- `RedisSaver` usage with direct client (removed incorrect context manager).
+- Audio transcript access in agent tools.
+- Frontend typecheck and CI build issues.
+- Security vulnerabilities in backend dependencies.
 
 ## [0.13.0] - 2026-01-16
 
