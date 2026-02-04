@@ -287,6 +287,77 @@ export interface StreamEvent {
 }
 
 // ============================================================================
+// A2A Protocol Types
+// ============================================================================
+
+export interface A2APart {
+  text?: string;
+  data?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface A2AMessage {
+  messageId?: string;
+  contextId?: string;
+  taskId?: string;
+  role: 'ROLE_USER' | 'ROLE_AGENT';
+  parts: A2APart[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface A2ATaskStatus {
+  state: string;
+  message?: A2AMessage;
+  timestamp?: string;
+}
+
+export interface A2AArtifact {
+  artifactId: string;
+  name?: string;
+  description?: string;
+  parts: A2APart[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface A2ATask {
+  id: string;
+  contextId: string;
+  status: A2ATaskStatus;
+  artifacts?: A2AArtifact[];
+  history?: A2AMessage[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface A2ATaskStatusUpdateEvent {
+  taskId: string;
+  contextId: string;
+  status: A2ATaskStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export interface A2ATaskArtifactUpdateEvent {
+  taskId: string;
+  contextId: string;
+  artifact: A2AArtifact;
+  append?: boolean;
+  lastChunk?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface A2AStreamResponse {
+  task?: A2ATask;
+  message?: A2AMessage;
+  statusUpdate?: A2ATaskStatusUpdateEvent;
+  artifactUpdate?: A2ATaskArtifactUpdateEvent;
+}
+
+export interface A2ASendMessageRequest {
+  message: A2AMessage;
+  configuration?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -686,21 +757,43 @@ export const apiClient = {
     return handleResponse<SearchResponse>(response);
   },
 
+  /**
+   * Stream chat with Video Agent via A2A protocol.
+   * 
+   * Yields A2AStreamResponse objects containing:
+   * - task: Initial task object with SUBMITTED status
+   * - statusUpdate: Status changes (WORKING, tool usage, COMPLETED/FAILED)
+   * - artifactUpdate: Streaming response chunks
+   */
   async *chatWithAgentStream(
     message: string,
     videoId: string | null,
     chatHistory: Array<{ role: string; content: string }>,
     sessionId?: string
   ): AsyncGenerator<StreamEvent> {
-    const response = await fetch(`${API_URL}/chat/agent/stream`, {
+    // Build A2A message
+    const a2aMessage: A2AMessage = {
+      contextId: sessionId,
+      role: 'ROLE_USER',
+      parts: [{ text: message }],
+      metadata: videoId ? { media_id: videoId } : undefined,
+    };
+
+    // Include chat history in metadata
+    const metadata: Record<string, unknown> = {};
+    if (chatHistory.length > 0) {
+      metadata.chat_history = chatHistory;
+    }
+
+    const request: A2ASendMessageRequest = {
+      message: a2aMessage,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    };
+
+    const response = await fetch(`${API_URL}/a2a/message:stream`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({
-        message,
-        media_id: videoId,
-        chat_history: chatHistory,
-        session_id: sessionId,
-      }),
+      body: JSON.stringify(request),
     });
 
     if (!response.ok) {
@@ -714,6 +807,10 @@ export const apiClient = {
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let currentTaskId: string | undefined;
+    let currentContextId: string | undefined;
+    let accumulatedContent = '';
+    let toolsUsed: string[] = [];
 
     while (true) {
       const { done, value } = await reader.read();
@@ -730,7 +827,88 @@ export const apiClient = {
             return;
           }
           try {
-            yield JSON.parse(data) as StreamEvent;
+            const a2aResponse = JSON.parse(data) as A2AStreamResponse;
+            
+            // Convert A2A events to legacy StreamEvent format for backward compatibility
+            if (a2aResponse.task) {
+              currentTaskId = a2aResponse.task.id;
+              currentContextId = a2aResponse.task.contextId;
+              yield {
+                event: 'session',
+                data: { session_id: currentContextId },
+              };
+            }
+            
+            if (a2aResponse.statusUpdate) {
+              const status = a2aResponse.statusUpdate.status;
+              const state = status.state;
+              
+              if (state === 'TASK_STATE_WORKING') {
+                // Check if this is a tool update
+                const toolMessage = status.message?.parts?.[0]?.text;
+                if (toolMessage?.startsWith('Using tool:')) {
+                  const toolName = toolMessage.replace('Using tool:', '').trim();
+                  toolsUsed.push(toolName);
+                  yield {
+                    event: 'tool_start',
+                    data: { tool: toolName },
+                  };
+                } else {
+                  yield {
+                    event: 'thinking',
+                    data: {},
+                  };
+                }
+              } else if (state === 'TASK_STATE_COMPLETED') {
+                yield {
+                  event: 'done',
+                  data: {
+                    response: accumulatedContent,
+                    tool_calls_made: toolsUsed.length,
+                  },
+                };
+              } else if (state === 'TASK_STATE_FAILED') {
+                const errorMsg = status.message?.parts?.[0]?.text || 'Unknown error';
+                yield {
+                  event: 'error',
+                  data: { error: errorMsg },
+                };
+              }
+            }
+            
+            if (a2aResponse.artifactUpdate) {
+              const artifact = a2aResponse.artifactUpdate.artifact;
+              const textPart = artifact.parts.find(p => p.text);
+              
+              if (textPart?.text) {
+                if (a2aResponse.artifactUpdate.append) {
+                  // Streaming token
+                  yield {
+                    event: 'token',
+                    data: { token: textPart.text },
+                  };
+                  accumulatedContent += textPart.text;
+                } else if (a2aResponse.artifactUpdate.lastChunk) {
+                  // Final artifact - content is complete
+                  accumulatedContent = textPart.text;
+                }
+              }
+              
+              // Check for sources artifact
+              const dataPart = artifact.parts.find(p => p.data);
+              if (dataPart?.data && 'sources' in dataPart.data) {
+                const sources = dataPart.data.sources as Array<{
+                  timestamp: number;
+                  type?: string;
+                  description?: string;
+                  score?: number;
+                }>;
+                yield {
+                  event: 'sources',
+                  data: { sources },
+                };
+              }
+            }
           } catch {
             // Ignore parse errors
           }
@@ -739,21 +917,37 @@ export const apiClient = {
     }
   },
 
+  /**
+   * Stream chat with Editor Agent via A2A protocol.
+   */
   async *chatWithEditorAgentStream(
     message: string,
     projectId: string,
     chatHistory: Array<{ role: string; content: string }>,
     sessionId?: string
   ): AsyncGenerator<StreamEvent> {
-    const response = await fetch(`${API_URL}/editor/chat/stream`, {
+    // Build A2A message
+    const a2aMessage: A2AMessage = {
+      contextId: sessionId,
+      role: 'ROLE_USER',
+      parts: [{ text: message }],
+      metadata: { project_id: projectId },
+    };
+
+    const metadata: Record<string, unknown> = {};
+    if (chatHistory.length > 0) {
+      metadata.chat_history = chatHistory;
+    }
+
+    const request: A2ASendMessageRequest = {
+      message: a2aMessage,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    };
+
+    const response = await fetch(`${API_URL}/a2a/editor/message:stream`, {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({
-        message,
-        project_id: projectId,
-        chat_history: chatHistory,
-        session_id: sessionId,
-      }),
+      body: JSON.stringify(request),
     });
 
     if (!response.ok) {
@@ -767,6 +961,9 @@ export const apiClient = {
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let currentContextId: string | undefined;
+    let accumulatedContent = '';
+    let toolsUsed: string[] = [];
 
     while (true) {
       const { done, value } = await reader.read();
@@ -783,7 +980,78 @@ export const apiClient = {
             return;
           }
           try {
-            yield JSON.parse(data) as StreamEvent;
+            const a2aResponse = JSON.parse(data) as A2AStreamResponse;
+            
+            // Convert A2A events to legacy StreamEvent format
+            if (a2aResponse.task) {
+              currentContextId = a2aResponse.task.contextId;
+              yield {
+                event: 'session',
+                data: { session_id: currentContextId },
+              };
+            }
+            
+            if (a2aResponse.statusUpdate) {
+              const status = a2aResponse.statusUpdate.status;
+              const state = status.state;
+              
+              if (state === 'TASK_STATE_WORKING') {
+                const toolMessage = status.message?.parts?.[0]?.text;
+                if (toolMessage?.startsWith('Using tool:')) {
+                  const toolName = toolMessage.replace('Using tool:', '').trim();
+                  toolsUsed.push(toolName);
+                  yield {
+                    event: 'tool_start',
+                    data: { tool: toolName },
+                  };
+                } else {
+                  yield {
+                    event: 'thinking',
+                    data: {},
+                  };
+                }
+              } else if (state === 'TASK_STATE_COMPLETED') {
+                yield {
+                  event: 'done',
+                  data: {
+                    response: accumulatedContent,
+                    tool_calls_made: toolsUsed.length,
+                  },
+                };
+              } else if (state === 'TASK_STATE_FAILED') {
+                const errorMsg = status.message?.parts?.[0]?.text || 'Unknown error';
+                yield {
+                  event: 'error',
+                  data: { error: errorMsg },
+                };
+              }
+            }
+            
+            if (a2aResponse.artifactUpdate) {
+              const artifact = a2aResponse.artifactUpdate.artifact;
+              const textPart = artifact.parts.find(p => p.text);
+              
+              if (textPart?.text) {
+                if (a2aResponse.artifactUpdate.append) {
+                  yield {
+                    event: 'token',
+                    data: { token: textPart.text },
+                  };
+                  accumulatedContent += textPart.text;
+                } else if (a2aResponse.artifactUpdate.lastChunk) {
+                  accumulatedContent = textPart.text;
+                }
+              }
+              
+              // Check for clips update in artifact data
+              const dataPart = artifact.parts.find(p => p.data);
+              if (dataPart?.data && 'clips' in dataPart.data) {
+                yield {
+                  event: 'clips_updated',
+                  data: { clips: dataPart.data.clips as Clip[] },
+                };
+              }
+            }
           } catch {
             // Ignore parse errors
           }
