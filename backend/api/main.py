@@ -157,6 +157,7 @@ app.add_middleware(
 # =============================================================================
 
 from api.routes import (
+    a2a_router,
     auth_router,
     batch_router,
     cache_router,
@@ -171,6 +172,9 @@ from api.routes import (
     structure_router,
     websocket_router,
 )
+
+# A2A Protocol routes (Agent-to-Agent communication)
+app.include_router(a2a_router, tags=["A2A Protocol"])
 
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(batch_router, tags=["Batch API"])

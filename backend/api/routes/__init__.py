@@ -5,6 +5,7 @@ This package contains all the route modules for the QPrisma API.
 Each module handles a specific domain of functionality.
 """
 
+from api.routes.a2a_routes import router as a2a_router
 from api.routes.auth_routes import router as auth_router
 from api.routes.batch_routes import router as batch_router
 from api.routes.cache_routes import router as cache_router
@@ -20,6 +21,7 @@ from api.routes.structure_routes import router as structure_router
 from api.routes.websocket_routes import router as websocket_router
 
 __all__ = [
+    "a2a_router",
     "auth_router",
     "batch_router",
     "cache_router",

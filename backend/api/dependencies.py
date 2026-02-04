@@ -125,6 +125,9 @@ def get_media_or_404(
 # Authentication Dependency
 # =============================================================================
 
+# Optional security scheme that doesn't require authentication
+security_optional = HTTPBearer(auto_error=False)
+
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -156,3 +159,36 @@ async def get_current_user(
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),
+) -> User | None:
+    """
+    Optionally validate JWT token and return current user.
+    
+    Returns None if no token is provided or if token is invalid.
+    Does not raise exceptions - useful for endpoints that work with or without auth.
+    """
+    if credentials is None:
+        return None
+    
+    from datetime import datetime
+
+    auth_service = get_auth_service()
+
+    try:
+        token_data = auth_service.verify_token(credentials.credentials)
+        now = datetime.utcnow()
+        return User(
+            id=token_data.user_id,
+            email=token_data.email or "",
+            full_name=None,
+            is_active=True,
+            is_superuser=False,
+            created_at=now,
+            updated_at=now,
+        )
+    except Exception:
+        # Token invalid or expired - return None instead of raising
+        return None
