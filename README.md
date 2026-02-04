@@ -34,50 +34,54 @@ The solution implements a modern microservices architecture, separating the fron
 
 ```mermaid
 graph TD
-    %% Styles
-    classDef frontend fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1
-    classDef backend fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
-    classDef ai fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c
-    classDef data fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#e65100
-    classDef user fill:#fafafa,stroke:#333,stroke-width:2px
+    %% Brand Colors
+    classDef user fill:#ffffff,stroke:#333333,stroke-width:2px,color:#333333
+    classDef next fill:#000000,stroke:#333333,stroke-width:2px,color:#ffffff
+    classDef fastapi fill:#009688,stroke:#004d40,stroke-width:2px,color:#ffffff
+    classDef azure fill:#0078D4,stroke:#004377,stroke-width:2px,color:#ffffff
+    classDef redis fill:#DC382D,stroke:#a31c12,stroke-width:2px,color:#ffffff
+    classDef neo4j fill:#008CC1,stroke:#005e82,stroke-width:2px,color:#ffffff
+    classDef postgres fill:#336791,stroke:#1d3a52,stroke-width:2px,color:#ffffff
+    classDef python fill:#3776AB,stroke:#1e415e,stroke-width:2px,color:#ffffff
+    classDef processing fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#ffffff
 
-    User([👤 User]) -->|Browser| Frontend[💻 Frontend<br/>Next.js 16 / React 19]
-    Frontend <-->|REST / WebSocket| API[⚡ Backend API<br/>FastAPI / Python 3.11+]
+    %% User Interaction
+    User([👤 User]) -->|Browser| Frontend[💻 Frontend<br/>Next.js 16 / React 19]:::next
+    Frontend <-->|REST / WebSocket| API[⚡ Backend API<br/>FastAPI / Python 3.11+]:::fastapi
     
+    %% Processing Layer
     subgraph Processing["⚙️ Processing Layer"]
         direction TB
-        API --> Manager[🔄 Task Manager<br/>Celery / LangGraph]
-        Manager --> Video[🎬 Video Processor<br/>FFmpeg / OpenCV]
-        Manager --> Audio[🎤 Audio Processor<br/>Extraction]
-        Manager --> Graph[🕸️ KG Builder<br/>Relation Mapping]
+        API --> Manager[🔄 Task Manager<br/>Celery]:::python
+        Manager --> Video[🎬 Video Processor<br/>FFmpeg]:::processing
+        Manager --> Audio[🎤 Audio Processor<br/>Extraction]:::processing
+        Manager --> Graph[🕸️ KG Builder<br/>Relation Mapping]:::processing
     end
     
+    %% AI Services
     subgraph AI["🧠 Azure AI Services"]
         direction TB
-        Video <-->|Vision Analysis| GPT4o[👁️ GPT-4o<br/>Multimodal]
-        Audio <-->|Transcription| Whisper[🗣️ Whisper<br/>Speech-to-Text]
-        Graph <-->|Vectorization| Ada[🔢 Embedding 3<br/>Vector Search]
+        Video <-->|Vision| GPT4o[👁️ GPT-4o<br/>Multimodal]:::azure
+        Audio <-->|Speech| Whisper[🗣️ Whisper<br/>Speech-to-Text]:::azure
+        Graph <-->|Vectors| Ada[🔢 Embedding 3<br/>Vector Search]:::azure
     end
     
+    %% Data Persistence
     subgraph Data["💾 Data Persistence"]
         direction TB
-        Blob[(☁️ Azure Blob<br/>Media Storage)]
-        SQL[(🐘 PostgreSQL<br/>Metadata)]
-        Neo4j[(🕸️ Neo4j<br/>Knowledge Graph)]
-        Redis[(⚡ Redis Stack<br/>Cache / Queue)]
+        Blob[(☁️ Azure Blob<br/>Media Storage)]:::azure
+        SQL[(🐘 PostgreSQL<br/>Metadata)]:::postgres
+        Neo4j[(🕸️ Neo4j<br/>Knowledge Graph)]:::neo4j
+        Redis[(⚡ Redis Stack<br/>Cache / Queue)]:::redis
     end
     
-    %% Data Connections
+    %% Connections
     Processing --> Blob
     Processing --> SQL
     Graph <--> Neo4j
     Manager <--> Redis
 
-    %% Class Assignments
-    class Frontend frontend
-    class API,Manager,Video,Audio,Graph backend
-    class GPT4o,Whisper,Ada ai
-    class Blob,SQL,Neo4j,Redis data
+    %% Styling
     class User user
 ```
 
