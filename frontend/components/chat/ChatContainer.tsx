@@ -2,10 +2,10 @@
 
 import React, { useState, useCallback } from 'react';
 import WelcomeScreen from './WelcomeScreen';
-import MessageList, { ChatMessageData } from './MessageList';
+import MessageList, { ChatMessageData, ToolStatus } from './MessageList';
 import ChatInput from './ChatInput';
 import { apiClient } from '@/lib/api';
-import { Wrench, Search, Brain } from 'lucide-react';
+
 
 interface ChatContainerProps {
   videoId?: string;
@@ -15,11 +15,6 @@ interface ChatContainerProps {
   onUploadVideo?: () => void;
   onBrowseLibrary?: () => void;
   userName?: string;
-}
-
-interface ToolStatus {
-  name: string;
-  status: 'running' | 'success' | 'error';
 }
 
 interface ChatSource {
@@ -195,38 +190,9 @@ export default function ChatContainer({
             isLoading={isLoading}
             onTimestampClick={onTimestampClick}
             streamingContent={streamingContent}
+            activeTools={activeTools}
+            onSuggestionClick={handleQuickSuggestion}
           />
-
-          {/* Active Tools Indicator */}
-          {activeTools.length > 0 && (
-            <div className="px-4 py-2 bg-indigo-50/80 border-t border-indigo-100">
-              <div className="flex items-center gap-2 text-sm text-indigo-700">
-                <Brain className="w-4 h-4 animate-pulse" />
-                <span className="font-medium">Agent working:</span>
-                <div className="flex gap-2">
-                  {activeTools.map((tool, idx) => (
-                    <span
-                      key={idx}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
-                        tool.status === 'running'
-                          ? 'bg-amber-100 text-amber-700'
-                          : tool.status === 'success'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-red-100 text-red-700'
-                      }`}
-                    >
-                      {tool.status === 'running' ? (
-                        <Search className="w-3 h-3 animate-spin" />
-                      ) : (
-                        <Wrench className="w-3 h-3" />
-                      )}
-                      {tool.name.replace(/_/g, ' ')}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Input */}
           <ChatInput
