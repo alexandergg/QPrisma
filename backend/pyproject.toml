@@ -32,6 +32,8 @@ dependencies = [
     "langchain-core>=1.2.8",
     "langchain-openai>=1.1.7",
     "langgraph-checkpoint-redis>=0.3.3",
+    # A2A (Agent-to-Agent) Protocol
+    "a2a-sdk[http-server]>=0.3.22",
     # Utils
     "python-dotenv>=1.0.1",
     "httpx>=0.28.0",
