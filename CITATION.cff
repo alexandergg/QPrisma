@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: "QPrisma: Intelligent Multimedia Processing Platform"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: "Gonzalez"
+    given-names: "Alexander"
+    # orcid: "https://orcid.org/0000-0000-0000-0000" # Optional: Add ORCID if you have one
+repository-code: "https://github.com/alexandergg/QPrisma"
+url: "https://github.com/alexandergg/QPrisma"
+abstract: "An enterprise-grade, AI-powered multimedia processing platform combining computer vision, LLMs, and Knowledge Graphs (Neo4j) to transform unstructured media into searchable knowledge."
+keywords:
+  - "multimedia-processing"
+  - "artificial-intelligence"
+  - "knowledge-graph"
+  - "rag"
+  - "fastapi"
+  - "react"
+  - "neo4j"
+license: MIT
+version: 0.1.0
+date-released: 2024-01-01
