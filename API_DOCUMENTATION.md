@@ -41,6 +41,175 @@ Include the token in the Authorization header:
 Authorization: Bearer eyJhbGc...
 ```
 
+## A2A Protocol (Agent-to-Agent)
+
+QPrisma implements the [A2A Protocol](https://a2a-protocol.org/) for standardized agent communication. This enables interoperability with other A2A-compliant agents.
+
+### Agent Discovery
+
+#### Get Agent Card
+```http
+GET /.well-known/agent-card.json
+```
+
+**Response:**
+```json
+{
+  "name": "QPrisma Video Agent",
+  "description": "Intelligent video analysis and search agent",
+  "url": "http://localhost:8000",
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "skills": [
+    {
+      "id": "video-search",
+      "name": "Video Search",
+      "description": "Search video content semantically",
+      "tags": ["search", "semantic", "video"]
+    }
+  ]
+}
+```
+
+#### Video Agent Card
+```http
+GET /a2a/agent-card.json
+```
+
+#### Editor Agent Card
+```http
+GET /a2a/editor/agent-card.json
+```
+
+### Message Operations
+
+#### Send Message (Sync)
+```http
+POST /a2a/message:send
+Content-Type: application/json
+
+{
+  "message": {
+    "contextId": "optional-session-id",
+    "role": "ROLE_USER",
+    "parts": [{"text": "Find all safety violations in this video"}],
+    "metadata": {"media_id": "video-uuid"}
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "task": {
+    "id": "task-uuid",
+    "contextId": "session-uuid",
+    "status": {"state": "TASK_STATE_COMPLETED"},
+    "artifacts": [
+      {
+        "artifactId": "artifact-uuid",
+        "name": "Agent Response",
+        "parts": [{"text": "I found 3 safety violations..."}]
+      }
+    ]
+  }
+}
+```
+
+#### Send Message (Streaming)
+```http
+POST /a2a/message:stream
+Content-Type: application/json
+
+{
+  "message": {
+    "contextId": "session-uuid",
+    "role": "ROLE_USER",
+    "parts": [{"text": "What happens at the beginning of the video?"}],
+    "metadata": {"media_id": "video-uuid"}
+  }
+}
+```
+
+**Response (SSE Stream):**
+```
+data: {"task":{"id":"task-id","contextId":"ctx-id","status":{"state":"TASK_STATE_SUBMITTED"}}}
+data: {"statusUpdate":{"taskId":"task-id","status":{"state":"TASK_STATE_WORKING"}}}
+data: {"statusUpdate":{"taskId":"task-id","status":{"state":"TASK_STATE_WORKING","message":{"parts":[{"text":"Using tool: search_video_content"}]}}}}
+data: {"artifactUpdate":{"taskId":"task-id","artifact":{"parts":[{"text":"The video begins with"}]},"append":true}}
+data: {"artifactUpdate":{"taskId":"task-id","artifact":{"parts":[{"text":" an introduction..."}]},"append":true}}
+data: {"statusUpdate":{"taskId":"task-id","status":{"state":"TASK_STATE_COMPLETED"}}}
+```
+
+#### Editor Agent Message (Streaming)
+```http
+POST /a2a/editor/message:stream
+Content-Type: application/json
+
+{
+  "message": {
+    "role": "ROLE_USER",
+    "parts": [{"text": "Create 5 viral clips from this video"}],
+    "metadata": {"project_id": "project-uuid"}
+  }
+}
+```
+
+### Task Operations
+
+#### Get Task
+```http
+GET /a2a/tasks/{task_id}?historyLength=10
+```
+
+**Response:**
+```json
+{
+  "id": "task-uuid",
+  "contextId": "session-uuid",
+  "status": {"state": "TASK_STATE_COMPLETED"},
+  "artifacts": [...],
+  "history": [...]
+}
+```
+
+#### List Tasks
+```http
+GET /a2a/tasks?contextId=session-uuid&status=TASK_STATE_COMPLETED&pageSize=20
+```
+
+#### Cancel Task
+```http
+POST /a2a/tasks/{task_id}:cancel
+```
+
+#### Subscribe to Task Updates
+```http
+POST /a2a/tasks/{task_id}:subscribe
+```
+
+**Response (SSE Stream):**
+```
+data: {"statusUpdate":{"taskId":"task-id","status":{"state":"TASK_STATE_WORKING"}}}
+data: {"artifactUpdate":{"taskId":"task-id","artifact":{...}}}
+data: {"statusUpdate":{"taskId":"task-id","status":{"state":"TASK_STATE_COMPLETED"}}}
+```
+
+### A2A Task States
+
+| State | Description |
+|-------|-------------|
+| `TASK_STATE_SUBMITTED` | Task received and queued |
+| `TASK_STATE_WORKING` | Task is being processed |
+| `TASK_STATE_COMPLETED` | Task finished successfully |
+| `TASK_STATE_FAILED` | Task failed with error |
+| `TASK_STATE_CANCELED` | Task was canceled |
+| `TASK_STATE_INPUT_REQUIRED` | Waiting for user input |
+
 ## Core Endpoints
 
 ### Media Management
@@ -317,23 +486,27 @@ Content-Type: application/json
 GET /editor/clips/{clip_id}/export/status
 ```
 
-#### Chat-to-Edit Stream (SSE)
+#### Chat-to-Edit Stream (SSE) - A2A Protocol
 ```http
-POST /editor/projects/{project_id}/chat/stream
+POST /a2a/editor/message:stream
 Content-Type: application/json
 
 {
-  "message": "Crea 3 clips virales de 30 segundos",
-  "session_id": "session-uuid"
+  "message": {
+    "contextId": "session-uuid",
+    "role": "ROLE_USER",
+    "parts": [{"text": "Create 3 viral clips of 30 seconds each"}],
+    "metadata": {"project_id": "project-uuid"}
+  }
 }
 ```
 
-**Response (Streaming):**
+**Response (Streaming A2A Format):**
 ```
-data: {"event": "session", "data": {"session_id": "session-uuid"}}
-data: {"event": "token", "data": {"content": "Claro, generando clips..."}}
-data: {"event": "clips_updated", "data": {"clips": []}}
-data: {"event": "done", "data": {"response": "Listo"}}
+data: {"task":{"id":"task-uuid","contextId":"session-uuid","status":{"state":"TASK_STATE_SUBMITTED"}}}
+data: {"statusUpdate":{"taskId":"task-uuid","status":{"state":"TASK_STATE_WORKING"}}}
+data: {"artifactUpdate":{"taskId":"task-uuid","artifact":{"parts":[{"text":"Analyzing video..."}]},"append":true}}
+data: {"statusUpdate":{"taskId":"task-uuid","status":{"state":"TASK_STATE_COMPLETED"}}}
 ```
 
 ### Storage Tiering
@@ -434,24 +607,28 @@ Content-Type: application/json
 }
 ```
 
-#### Chat with Media
+#### Chat with Media - A2A Protocol
 ```http
-POST /chat
+POST /a2a/message:stream
 Content-Type: application/json
 
 {
-  "message": "What safety issues are present in the video?",
-  "video_id": "uuid",
-  "session_id": "chat-session-uuid"
+  "message": {
+    "contextId": "chat-session-uuid",
+    "role": "ROLE_USER",
+    "parts": [{"text": "What safety issues are present in the video?"}],
+    "metadata": {"media_id": "uuid"}
+  }
 }
 ```
 
-**Response (Streaming):**
+**Response (Streaming A2A Format):**
 ```
-data: {"type": "text", "content": "I found several safety issues:\n"}
-data: {"type": "text", "content": "1. Worker without helmet at 00:45\n"}
-data: {"type": "reference", "timestamp": 45.2, "description": "..."}
-data: {"type": "done"}
+data: {"task":{"id":"task-uuid","contextId":"chat-session-uuid","status":{"state":"TASK_STATE_SUBMITTED"}}}
+data: {"statusUpdate":{"taskId":"task-uuid","status":{"state":"TASK_STATE_WORKING"}}}
+data: {"artifactUpdate":{"taskId":"task-uuid","artifact":{"parts":[{"text":"I found several safety issues:"}]},"append":true}}
+data: {"artifactUpdate":{"taskId":"task-uuid","artifact":{"parts":[{"data":{"sources":[{"timestamp":45.2,"type":"visual"}]}}]}}}
+data: {"statusUpdate":{"taskId":"task-uuid","status":{"state":"TASK_STATE_COMPLETED"}}}
 ```
 
 ### Knowledge Graph
