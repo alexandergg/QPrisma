@@ -34,28 +34,51 @@ The solution implements a modern microservices architecture, separating the fron
 
 ```mermaid
 graph TD
-    Client[Client Browser] -->|HTTPS| Frontend["Frontend (Next.js 16)"]
-    Frontend -->|REST/WS| API["Backend API (FastAPI)"]
+    %% Styles
+    classDef frontend fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1
+    classDef backend fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
+    classDef ai fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c
+    classDef data fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#e65100
+    classDef user fill:#fafafa,stroke:#333,stroke-width:2px
+
+    User([👤 User]) -->|Browser| Frontend[💻 Frontend<br/>Next.js 16 / React 19]
+    Frontend <-->|REST / WebSocket| API[⚡ Backend API<br/>FastAPI / Python 3.11+]
     
-    subgraph "Processing Layer"
-    API --> Manager[Task Manager]
-    Manager --> Video[Video Processor]
-    Manager --> Audio[Audio Processor]
-    Manager --> Graph[Knowledge Graph Builder]
+    subgraph Processing["⚙️ Processing Layer"]
+        direction TB
+        API --> Manager[🔄 Task Manager<br/>Celery / LangGraph]
+        Manager --> Video[🎬 Video Processor<br/>FFmpeg / OpenCV]
+        Manager --> Audio[🎤 Audio Processor<br/>Extraction]
+        Manager --> Graph[🕸️ KG Builder<br/>Relation Mapping]
     end
     
-    subgraph "Azure AI Services"
-    Video -->|Vision| GPT4o["Azure OpenAI GPT-4o"]
-    Audio -->|Speech| Whisper["Azure OpenAI Whisper"]
-    Graph -->|Embeddings| Ada["Text Embedding 3"]
+    subgraph AI["🧠 Azure AI Services"]
+        direction TB
+        Video <-->|Vision Analysis| GPT4o[👁️ GPT-4o<br/>Multimodal]
+        Audio <-->|Transcription| Whisper[🗣️ Whisper<br/>Speech-to-Text]
+        Graph <-->|Vectorization| Ada[🔢 Embedding 3<br/>Vector Search]
     end
     
-    subgraph "Data Persistence"
-    Video & Audio & Graph --> Blob["Azure Blob Storage"]
-    Video & Audio & Graph --> SQL["PostgreSQL (Metadata)"]
-    Graph --> Neo4j["Neo4j (Knowledge Graph)"]
-    Manager --> Redis["Redis (Cache/Queue)"]
+    subgraph Data["💾 Data Persistence"]
+        direction TB
+        Blob[(☁️ Azure Blob<br/>Media Storage)]
+        SQL[(🐘 PostgreSQL<br/>Metadata)]
+        Neo4j[(🕸️ Neo4j<br/>Knowledge Graph)]
+        Redis[(⚡ Redis Stack<br/>Cache / Queue)]
     end
+    
+    %% Data Connections
+    Processing --> Blob
+    Processing --> SQL
+    Graph <--> Neo4j
+    Manager <--> Redis
+
+    %% Class Assignments
+    class Frontend frontend
+    class API,Manager,Video,Audio,Graph backend
+    class GPT4o,Whisper,Ada ai
+    class Blob,SQL,Neo4j,Redis data
+    class User user
 ```
 
 ### Technology Stack
