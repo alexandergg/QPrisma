@@ -1084,5 +1084,232 @@ class TestStateValidation:
         assert "tool_calls_count" not in output_annotations
 
 
+class TestMultiVideoState:
+    """Test multi-video agent state creation and routing."""
+
+    def test_create_agent_state_with_media_ids(self):
+        """Test state creation with multiple video IDs."""
+        from agent.state.agent_state import create_agent_state
+
+        messages = [HumanMessage(content="Compare these videos")]
+        state = create_agent_state(
+            messages=messages,
+            media_id="vid-1",
+            media_ids=["vid-1", "vid-2", "vid-3"],
+        )
+
+        assert state["media_id"] == "vid-1"
+        assert state["media_ids"] == ["vid-1", "vid-2", "vid-3"]
+        assert state["video_context"]["media_id"] == "vid-1"
+
+    def test_create_agent_state_dedup_media_ids(self):
+        """Test deduplication of media_ids."""
+        from agent.state.agent_state import create_agent_state
+
+        messages = [HumanMessage(content="test")]
+        state = create_agent_state(
+            messages=messages,
+            media_id="vid-1",
+            media_ids=["vid-1", "vid-2", "vid-1", "vid-2"],
+        )
+
+        assert state["media_ids"] == ["vid-1", "vid-2"]
+
+    def test_create_agent_state_single_media_ids_is_none(self):
+        """Test that media_ids is None when only one video."""
+        from agent.state.agent_state import create_agent_state
+
+        messages = [HumanMessage(content="test")]
+        state = create_agent_state(
+            messages=messages,
+            media_id="vid-1",
+            media_ids=["vid-1"],
+        )
+
+        assert state["media_id"] == "vid-1"
+        assert state["media_ids"] is None
+
+    def test_create_agent_state_max_10_videos(self):
+        """Test that media_ids is capped at 10."""
+        from agent.state.agent_state import create_agent_state
+
+        ids = [f"vid-{i}" for i in range(15)]
+        messages = [HumanMessage(content="test")]
+        state = create_agent_state(
+            messages=messages,
+            media_ids=ids,
+        )
+
+        assert len(state["media_ids"]) == 10
+        assert state["media_id"] == "vid-0"
+
+    def test_create_agent_state_merge_media_id_and_ids(self):
+        """Test merging media_id with media_ids preserving order."""
+        from agent.state.agent_state import create_agent_state
+
+        messages = [HumanMessage(content="test")]
+        state = create_agent_state(
+            messages=messages,
+            media_id="vid-0",
+            media_ids=["vid-1", "vid-2"],
+        )
+
+        assert state["media_ids"] == ["vid-0", "vid-1", "vid-2"]
+        assert state["media_id"] == "vid-0"
+
+    def test_extract_metadata_from_cross_video_results(self):
+        """Test extracting sources from cross-video tool output."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "results_by_video": [
+                {
+                    "video_id": "vid-1",
+                    "video_title": "Video One",
+                    "matches": [
+                        {
+                            "timestamp": 30.0,
+                            "timestamp_formatted": "0:30",
+                            "content": "A topic discussed",
+                            "score": 0.9,
+                        }
+                    ],
+                },
+                {
+                    "video_id": "vid-2",
+                    "video_title": "Video Two",
+                    "matches": [
+                        {
+                            "timestamp": 60.0,
+                            "timestamp_formatted": "1:00",
+                            "content": "Same topic here",
+                            "score": 0.85,
+                        }
+                    ],
+                },
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 2
+        assert meta["sources"][0]["video_id"] == "vid-1"
+        assert meta["sources"][0]["video_title"] == "Video One"
+        assert meta["sources"][1]["video_id"] == "vid-2"
+
+    def test_extract_metadata_from_comparison_results(self):
+        """Test extracting sources from compare_videos output."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "comparison": [
+                {
+                    "video_id": "vid-1",
+                    "video_title": "Video A",
+                    "relevant_moments": [
+                        {
+                            "timestamp": 45.0,
+                            "timestamp_formatted": "0:45",
+                            "content": "Key moment",
+                            "score": 0.88,
+                        }
+                    ],
+                },
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["video_title"] == "Video A"
+        assert meta["sources"][0]["timestamp"] == 45.0
+
+    def test_multi_video_prompt_selection(self):
+        """Test that multi-video prompt is selected."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": {"media_id": "vid-1"},
+            "media_id": "vid-1",
+            "media_ids": ["vid-1", "vid-2", "vid-3"],
+        }
+
+        msg = get_system_message(state)
+        assert "cross-video" in msg.content.lower() or \
+            "multiple videos" in msg.content.lower()
+
+    def test_single_video_prompt_without_media_ids(self):
+        """Test single-video prompt is used without media_ids."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": {"media_id": "vid-1"},
+            "media_id": "vid-1",
+            "media_ids": None,
+        }
+
+        msg = get_system_message(state)
+        assert "cross-video" not in msg.content.lower()
+
+
+class TestMultiVideoApiSchemas:
+    """Test API schema validation for multi-video."""
+
+    def test_chat_request_media_ids(self):
+        """Test ChatRequest with media_ids."""
+        from models.api_schemas import ChatRequest
+
+        req = ChatRequest(
+            message="Compare videos",
+            media_id="vid-1",
+            media_ids=["vid-1", "vid-2", "vid-3"],
+        )
+        ids = req.get_effective_media_ids()
+        assert ids == ["vid-1", "vid-2", "vid-3"]
+
+    def test_chat_request_media_ids_dedup(self):
+        """Test deduplication in get_effective_media_ids."""
+        from models.api_schemas import ChatRequest
+
+        req = ChatRequest(
+            message="test",
+            media_id="vid-1",
+            media_ids=["vid-1", "vid-2"],
+        )
+        ids = req.get_effective_media_ids()
+        assert ids == ["vid-1", "vid-2"]
+
+    def test_chat_request_no_media_ids(self):
+        """Test get_effective_media_ids with only media_id."""
+        from models.api_schemas import ChatRequest
+
+        req = ChatRequest(message="test", media_id="vid-1")
+        ids = req.get_effective_media_ids()
+        assert ids == ["vid-1"]
+
+    def test_chat_request_max_10(self):
+        """Test max 10 videos validation at schema level."""
+        from models.api_schemas import ChatRequest
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            ChatRequest(
+                message="test",
+                media_ids=[f"v-{i}" for i in range(15)],
+            )
+
+    def test_agent_chat_request_media_ids(self):
+        """Test AgentChatRequest with media_ids."""
+        from models.api_schemas import AgentChatRequest
+
+        req = AgentChatRequest(
+            message="Compare",
+            media_id="vid-1",
+            media_ids=["vid-2", "vid-3"],
+        )
+        ids = req.get_effective_media_ids()
+        assert "vid-1" in ids
+        assert "vid-2" in ids
+        assert "vid-3" in ids
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
