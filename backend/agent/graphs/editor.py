@@ -6,10 +6,13 @@ Specialized agent for video editing through natural conversation (Chat-to-Edit).
 Extends the video agent with editor-specific tools and context.
 
 Features:
-- Human-in-the-loop: Uses interrupt_before for clip confirmation
+- Human-in-the-loop: Uses interrupt() for granular confirmation of destructive tools
+- Input/Output schema separation for clean API boundaries
+- Error handler node for graceful degradation
 - tools_condition: Modern LangGraph conditional routing
 - handle_tool_errors: Graceful error handling for tools
 - Graph visualization: get_graph_diagram() method
+- Per-exception retry policies
 """
 
 import logging
@@ -17,180 +20,121 @@ import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import AzureChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import START, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.graph import END, START, StateGraph
+from langgraph.prebuilt import ToolNode
 
-from agent.graph_editor_tools import EDITOR_TOOLS
-from agent.graph_state import (
+from agent.nodes.editor_nodes import call_editor_model, get_project_context, should_continue_editor
+from agent.nodes.base import error_handler_node
+from agent.state.agent_state import (
     AgentState,
-    ProjectContext,
-    _truncate_tool_message_content,
+    AgentInputState,
+    AgentOutputState,
     create_agent_state,
-    get_message_trimmer,
 )
-from agent.graph_tools import SEARCH_TOOLS
-from agent.prompts import EDITOR_NO_PROJECT_PROMPT, build_editor_prompt
-from agent.tools.base import format_timestamp
+from agent.tools import EDITOR_TOOLS, SEARCH_TOOLS
+from agent.graphs.video import create_smart_retry_policy
 
 logger = logging.getLogger(__name__)
 
-# Message trimmer to prevent context overflow - use conservative limit
-_message_trimmer = get_message_trimmer(max_tokens=80000)
-
 # Tools that modify clips (for human-in-the-loop support)
-CLIP_MODIFICATION_TOOLS = {
+DESTRUCTIVE_TOOLS = {
     "create_clip", "modify_clip", "delete_clip", "reorder_clips",
     "add_suggested_clips", "add_subtitles", "change_subtitle_style", "remove_subtitles",
+    "export_clip", "export_all_clips",
+}
+
+# Read-only tools that don't need confirmation
+SAFE_TOOLS = {
+    "list_clips", "generate_auto_clips", "list_subtitle_styles", 
+    "get_export_status", "list_export_presets",
 }
 
 
 # =============================================================================
-# Context Building
+# Custom Tool Node with Granular Interrupts (LangGraph v1.0+ Best Practice)
 # =============================================================================
 
 
-def get_project_context(project_id: str | None) -> ProjectContext | None:
-    """Get current project context for the agent."""
-    if not project_id:
-        return None
-
-    try:
-        from services.database_service import get_database_service
-
-        db = get_database_service()
-        project = db.get_project_with_clips(project_id)
-
-        if not project:
-            return None
-
-        # Get source video info
-        media = db.get_media(project.source_media_id)
-        video_duration = 0
-        video_title = "Unknown"
-
-        if media:
-            video_title = media.original_filename or media.blob_name
-            if media.video_metadata:
-                video_duration = media.video_metadata.get("duration", 0)
-
-        clips = project.clips or []
-
-        return ProjectContext(
-            project_id=project.id,
-            project_name=project.name,
-            source_media_id=project.source_media_id,
-            video_title=video_title,
-            video_duration=video_duration,
-            clips_count=len(clips),
-            clips=[
-                {
-                    "id": c.id,
-                    "order": c.order,
-                    "start_time": c.start_time,
-                    "end_time": c.end_time,
-                    "title": c.title,
-                    "subtitle_style": c.subtitle_style if c.subtitles_enabled else None,
-                    "viral_score": c.viral_score,
-                }
-                for c in clips
-            ],
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to get project context: {e}")
-        return None
-
-
-def build_editor_system_message(project_context: ProjectContext | None) -> SystemMessage:
-    """Build editor system message with project context."""
-    if not project_context:
-        return SystemMessage(content=EDITOR_NO_PROJECT_PROMPT)
-
-    # Build clips list string
-    clips_list = ""
-    for i, clip in enumerate(project_context.get("clips", [])):
-        subtitle_info = f" [📝 {clip.get('subtitle_style')}]" if clip.get("subtitle_style") else ""
-        viral_info = f" ⭐{int(clip.get('viral_score', 0))}" if clip.get("viral_score") else ""
-        clips_list += (
-            f"{i + 1}. [{format_timestamp(clip['start_time'])} - {format_timestamp(clip['end_time'])}] "
-            f"{clip.get('title') or 'Untitled'}{viral_info}{subtitle_info} (id: {clip['id']})\n"
-        )
-
-    total_duration = sum(
-        c["end_time"] - c["start_time"] for c in project_context.get("clips", [])
-    )
-
-    content = build_editor_prompt(
-        project_name=project_context.get("project_name", "Unnamed Project"),
-        video_title=project_context.get("video_title", "Unknown"),
-        video_duration=format_timestamp(project_context.get("video_duration", 0)),
-        clips_count=project_context.get("clips_count", 0),
-        total_clips_duration=format_timestamp(total_duration),
-        clips_list=clips_list,
-    )
-
-    return SystemMessage(content=content)
-
-
-# =============================================================================
-# Graph Nodes
-# =============================================================================
-
-
-def create_editor_model(model_deployment: str | None = None) -> AzureChatOpenAI:
-    """Create Azure OpenAI chat model for editor."""
-    deployment = model_deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
-
-    return AzureChatOpenAI(
-        azure_deployment=deployment,
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        temperature=0.7,
-        max_tokens=1000,
-        streaming=True,
-    )
-
-
-async def call_editor_model(state: AgentState, config: RunnableConfig) -> dict:
+async def tools_with_interrupt(state: AgentState, config: RunnableConfig) -> dict:
     """
-    Call the LLM node for editor agent.
-
-    Binds both search tools and editor tools.
-    Uses message trimming to prevent context window overflow.
-    """
-    model_deployment = config.get("configurable", {}).get("model_deployment")
-    model = create_editor_model(model_deployment)
-
-    # Combine search and editor tools
-    all_tools = SEARCH_TOOLS + EDITOR_TOOLS
-    model = model.bind_tools(all_tools)
-
-    # Build messages with editor system prompt
-    project_context = state.get("project_context")
-    system_msg = build_editor_system_message(project_context)
-
-    # Truncate tool messages to prevent large results from overflowing context
-    truncated_messages = [
-        _truncate_tool_message_content(msg) for msg in state["messages"]
-    ]
-
-    # Apply message trimming to prevent context overflow
-    trimmed_messages = _message_trimmer.invoke(truncated_messages)
-    messages = [system_msg] + trimmed_messages
+    Tool execution node with granular interrupt() for destructive tools.
     
-    # Log context size for debugging
-    total_chars = sum(len(str(m.content)) for m in messages if m.content)
-    logger.info(f"Editor calling model with {len(messages)} messages (~{total_chars // 4} tokens)")
-
-    # Invoke model
-    response = await model.ainvoke(messages, config)
-
-    return {"messages": [response]}
+    This replaces interrupt_before=["tools"] with selective interruption:
+    - Safe tools (list_clips, etc.) execute immediately
+    - Destructive tools (create_clip, delete_clip) use interrupt() for confirmation
+    
+    The interrupt() function is the LangGraph v1.0+ way to handle HITL,
+    allowing per-tool-call decisions instead of all-or-nothing.
+    """
+    from langgraph.types import interrupt
+    
+    messages = state.get("messages", [])
+    if not messages:
+        return {"messages": []}
+    
+    last_message = messages[-1]
+    if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
+        return {"messages": []}
+    
+    # Check if any tool calls require confirmation
+    needs_confirmation = []
+    safe_calls = []
+    
+    for tool_call in last_message.tool_calls:
+        tool_name = tool_call.get("name", "")
+        if tool_name in DESTRUCTIVE_TOOLS:
+            needs_confirmation.append(tool_call)
+        else:
+            safe_calls.append(tool_call)
+    
+    # If there are destructive tools, interrupt for confirmation
+    if needs_confirmation:
+        # Build confirmation message
+        tool_descriptions = []
+        for tc in needs_confirmation:
+            name = tc.get("name", "unknown")
+            args = tc.get("args", {})
+            if name == "create_clip":
+                desc = f"Create clip from {args.get('start_time', '?')}s to {args.get('end_time', '?')}s"
+            elif name == "delete_clip":
+                desc = f"Delete clip {args.get('clip_id', 'unknown')}"
+            elif name == "modify_clip":
+                desc = f"Modify clip {args.get('clip_id', 'unknown')}"
+            else:
+                desc = f"{name} with {args}"
+            tool_descriptions.append(desc)
+        
+        confirmation_msg = (
+            "I'm about to perform the following action(s):\n"
+            + "\n".join(f"  • {d}" for d in tool_descriptions)
+            + "\n\nWould you like me to proceed?"
+        )
+        
+        # Use interrupt() - this is the LangGraph v1.0+ HITL pattern
+        # The graph will pause here and resume when the user responds
+        user_response = interrupt({"message": confirmation_msg, "pending_tools": needs_confirmation})
+        
+        # If user didn't confirm, skip the destructive tools
+        if not user_response.get("confirmed", False):
+            from langchain_core.messages import ToolMessage
+            
+            cancelled_messages = []
+            for tc in needs_confirmation:
+                cancelled_messages.append(ToolMessage(
+                    content='{"cancelled": true, "message": "Operation cancelled by user."}',
+                    tool_call_id=tc.get("id", ""),
+                    name=tc.get("name", ""),
+                ))
+            return {"messages": cancelled_messages}
+    
+    # Execute all approved tools
+    all_tools = SEARCH_TOOLS + EDITOR_TOOLS
+    tool_node = ToolNode(all_tools, handle_tool_errors=True)
+    
+    return await tool_node.ainvoke(state, config)
 
 
 # =============================================================================
@@ -207,45 +151,74 @@ def create_editor_agent_graph(
 
     Args:
         checkpointer: LangGraph checkpointer for persistence
-        interrupt_before_clips: If True, interrupt before clip modification tools
-                               for human-in-the-loop confirmation
+        interrupt_before_clips: If True, use granular interrupt() for destructive tools
+                               (recommended for production)
 
     Returns a compiled StateGraph with search and editor tools.
+    
+    Architecture:
+        START → call_model → should_continue?
+                    ↓ tools          ↓ end
+                  tools → call_model
+                    ↓ error_handler
+              error_handler → END
+    
+    Input/Output Schema Separation:
+    - Input: AgentInputState (clean API interface)
+    - Output: AgentOutputState (only relevant results)
     """
-    # Combine all tools
     all_tools = SEARCH_TOOLS + EDITOR_TOOLS
 
-    # Create graph
-    workflow = StateGraph(AgentState)
+    # Use input/output schema separation
+    workflow = StateGraph(
+        AgentState,
+        input_schema=AgentInputState,
+        output_schema=AgentOutputState,
+    )
 
-    # Add nodes
-    workflow.add_node("call_model", call_editor_model)
-    # Use ToolNode with handle_tool_errors for graceful error handling
-    workflow.add_node("tools", ToolNode(all_tools, handle_tool_errors=True))
+    # Add nodes with smart retry policies
+    workflow.add_node(
+        "call_model",
+        call_editor_model,
+        retry_policy=create_smart_retry_policy(max_attempts=3),
+    )
+    
+    # Use granular interrupt tool node or standard ToolNode
+    if interrupt_before_clips:
+        workflow.add_node("tools", tools_with_interrupt)
+    else:
+        workflow.add_node(
+            "tools",
+            ToolNode(all_tools, handle_tool_errors=True),
+            retry_policy=create_smart_retry_policy(max_attempts=2),
+        )
+    
+    workflow.add_node("error_handler", error_handler_node)
 
-    # Use START constant for entry point (modern pattern)
     workflow.add_edge(START, "call_model")
 
-    # Use tools_condition from prebuilt (cleaner than custom function)
+    # Use custom should_continue_editor for iteration limits and error handling
     workflow.add_conditional_edges(
         "call_model",
-        tools_condition,
+        should_continue_editor,
+        {
+            "tools": "tools",
+            "error_handler": "error_handler",
+            END: END,
+        }
     )
 
-    # Tools always go back to model
     workflow.add_edge("tools", "call_model")
+    workflow.add_edge("error_handler", END)
 
-    # Compile with checkpointer
     if checkpointer is None:
+        logger.warning(
+            "No checkpointer provided, using in-memory MemorySaver. "
+            "This is NOT suitable for production - use Redis or PostgreSQL checkpointer."
+        )
         checkpointer = MemorySaver()
 
-    # Optional: interrupt before clip modification for human confirmation
-    interrupt_before = ["tools"] if interrupt_before_clips else None
-
-    return workflow.compile(
-        checkpointer=checkpointer,
-        interrupt_before=interrupt_before,
-    )
+    return workflow.compile(checkpointer=checkpointer)
 
 
 # =============================================================================
@@ -495,7 +468,7 @@ class EditorAgentGraph:
                     }
 
                     # Emit clips_updated for editor tools
-                    if tool_name in CLIP_MODIFICATION_TOOLS:
+                    if tool_name in DESTRUCTIVE_TOOLS:
                         updated_context = get_project_context(project_id)
                         if updated_context:
                             yield {

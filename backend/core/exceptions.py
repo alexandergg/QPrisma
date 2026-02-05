@@ -2,9 +2,128 @@
 Custom Exceptions
 
 Application-specific exceptions for better error handling.
+Includes HTTPException subclasses with structured error codes.
 """
 
 from typing import Any
+
+from fastapi import HTTPException
+from fastapi.responses import JSONResponse
+
+
+# =============================================================================
+# Structured API Error
+# =============================================================================
+
+
+class APIError(HTTPException):
+    """
+    Structured API error with consistent error codes.
+    
+    Use this instead of bare HTTPException for machine-readable error responses.
+    
+    Example:
+        raise APIError(
+            code="MEDIA_NOT_FOUND",
+            status_code=404,
+            detail="Media item not found",
+            context={"media_id": "abc123"}
+        )
+    
+    Response format:
+        {
+            "error": {
+                "code": "MEDIA_NOT_FOUND",
+                "message": "Media item not found",
+                "context": {"media_id": "abc123"}
+            }
+        }
+    """
+
+    def __init__(
+        self,
+        code: str,
+        status_code: int,
+        detail: str,
+        context: dict[str, Any] | None = None,
+    ):
+        self.code = code
+        self.context = context or {}
+        super().__init__(
+            status_code=status_code,
+            detail={
+                "error": {
+                    "code": code,
+                    "message": detail,
+                    "context": self.context,
+                }
+            },
+        )
+
+
+# Common API error factory functions
+def not_found_error(resource_type: str, resource_id: str) -> APIError:
+    """Create a 404 Not Found error."""
+    return APIError(
+        code=f"{resource_type.upper()}_NOT_FOUND",
+        status_code=404,
+        detail=f"{resource_type} '{resource_id}' not found",
+        context={"resource_type": resource_type, "resource_id": resource_id},
+    )
+
+
+def access_denied_error(resource_type: str, resource_id: str) -> APIError:
+    """Create a 403 Access Denied error."""
+    return APIError(
+        code="ACCESS_DENIED",
+        status_code=403,
+        detail=f"Access denied to {resource_type} '{resource_id}'",
+        context={"resource_type": resource_type, "resource_id": resource_id},
+    )
+
+
+def validation_error(message: str, field: str | None = None) -> APIError:
+    """Create a 400 Validation Error."""
+    return APIError(
+        code="VALIDATION_ERROR",
+        status_code=400,
+        detail=message,
+        context={"field": field} if field else {},
+    )
+
+
+def service_unavailable_error(service_name: str) -> APIError:
+    """Create a 503 Service Unavailable error."""
+    return APIError(
+        code="SERVICE_UNAVAILABLE",
+        status_code=503,
+        detail=f"Service '{service_name}' is temporarily unavailable",
+        context={"service": service_name},
+    )
+
+
+def rate_limit_error(retry_after: int | None = None) -> APIError:
+    """Create a 429 Rate Limit error."""
+    return APIError(
+        code="RATE_LIMIT_EXCEEDED",
+        status_code=429,
+        detail="Too many requests. Please try again later.",
+        context={"retry_after": retry_after} if retry_after else {},
+    )
+
+
+def internal_error(message: str = "An internal error occurred") -> APIError:
+    """Create a 500 Internal Server Error."""
+    return APIError(
+        code="INTERNAL_ERROR",
+        status_code=500,
+        detail=message,
+    )
+
+
+# =============================================================================
+# Base Exception
+# =============================================================================
 
 
 class QPrismaException(Exception):

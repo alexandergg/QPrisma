@@ -71,8 +71,7 @@ class Part(BaseModel):
     filename: str | None = None
     mediaType: str | None = Field(None, alias="media_type")
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
 
 class TextPart(Part):
@@ -267,8 +266,7 @@ class AgentCard(BaseModel):
     skills: list[AgentSkill] = Field(default_factory=list)
     iconUrl: str | None = None
 
-    class Config:
-        populate_by_name = True
+    model_config = {"populate_by_name": True}
 
 
 # =============================================================================

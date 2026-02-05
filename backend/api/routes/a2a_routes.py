@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from api.dependencies import get_current_user_optional
-from agent.a2a_executor import (
+from agent.a2a import (
     A2AAgentExecutor,
     get_editor_a2a_executor,
     get_video_a2a_executor,

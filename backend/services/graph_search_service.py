@@ -381,7 +381,7 @@ class GraphSearchService:
                         node_type=node_type,
                         content=node_data,
                         vector_score=record["score"],
-                        timestamp=node_data.get("timestamp"),
+                        timestamp=node_data.get("timestamp") or node_data.get("start_time"),
                         video_id=node_data.get("video_id"),
                     )
                     results.append(scored)
@@ -445,7 +445,7 @@ class GraphSearchService:
                             node_type=node_type,
                             content=node_data,
                             vector_score=score,
-                            timestamp=node_data.get("timestamp"),
+                            timestamp=node_data.get("timestamp") or node_data.get("start_time"),
                             video_id=node_data.get("video_id"),
                         )
                         results.append(scored)
@@ -943,6 +943,7 @@ class GraphSearchService:
                         node_type=node_type,
                         content=node_data,
                         vector_score=record["score"],
+                        timestamp=node_data.get("timestamp") or node_data.get("start_time"),
                         video_id=node_data.get("video_id"),
                     )
                     results.append(scored)

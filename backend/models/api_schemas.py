@@ -7,9 +7,53 @@ for better reusability and maintainability.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field
+from typing_extensions import TypedDict
+
+
+# =============================================================================
+# TypedDict Definitions (for structured dict typing)
+# =============================================================================
+
+
+class ChatHistoryMessage(TypedDict, total=False):
+    """Structure for chat history messages."""
+    
+    role: Literal["user", "assistant", "system"]
+    content: str
+    timestamp: str | None
+    tool_calls: list[dict[str, Any]] | None
+
+
+class EntityReference(TypedDict, total=False):
+    """Structure for entity references in responses."""
+    
+    name: str
+    type: str  # person, organization, location, topic, etc.
+    confidence: float
+    mentions: list[float]  # timestamps where mentioned
+    description: str | None
+
+
+class TokenUsage(TypedDict, total=False):
+    """Structure for token usage tracking."""
+    
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    cached_tokens: int | None
+
+
+class SourceReference(TypedDict, total=False):
+    """Structure for source references."""
+    
+    timestamp: float
+    type: str  # visual, audio, entity, scene
+    content: str
+    score: float
+    frame_id: str | None
 
 
 # =============================================================================
@@ -56,7 +100,7 @@ class UserResponse(BaseModel):
 class ChatMessage(BaseModel):
     """A single chat message."""
 
-    role: str = Field(..., pattern="^(user|assistant)$")
+    role: Literal["user", "assistant"] = Field(..., description="Message role")
     content: str
 
 
@@ -65,14 +109,14 @@ class ChatRequest(BaseModel):
 
     message: str
     media_id: str | None = None
-    chat_history: list[dict[str, Any]] | None = None
+    chat_history: list[ChatHistoryMessage] | None = None
 
 
 class ChatResponse(BaseModel):
     """Chat response with sources."""
 
     response: str
-    sources: list[dict[str, Any]] = Field(default_factory=list)
+    sources: list[SourceReference] = Field(default_factory=list)
 
 
 class SearchRequest(BaseModel):
@@ -105,9 +149,9 @@ class AgentChatRequest(BaseModel):
 
     message: str
     media_id: str | None = None
-    chat_history: list[dict[str, Any]] | None = None
+    chat_history: list[ChatHistoryMessage] | None = None
     session_id: str | None = None
-    output_format: str | None = Field(
+    output_format: Literal["markdown", "json", "structured"] = Field(
         default="markdown",
         description="Response format: 'markdown' (default), 'json', or 'structured'"
     )
@@ -118,7 +162,7 @@ class VideoSource(BaseModel):
 
     timestamp: float
     timestamp_formatted: str
-    type: str  # visual, audio, entity, scene
+    type: Literal["visual", "audio", "entity", "scene"] = "visual"
     description: str
     score: float = 0.0
     thumbnail_url: str | None = None
@@ -128,7 +172,7 @@ class VideoSource(BaseModel):
 class NavigationAction(BaseModel):
     """A suggested navigation action for the UI."""
 
-    action: str  # jump_to, create_clip, explore
+    action: Literal["jump_to", "create_clip", "explore", "compare"]
     label: str
     timestamp: float | None = None
     end_timestamp: float | None = None
@@ -139,7 +183,7 @@ class SuggestedQuestion(BaseModel):
     """A suggested follow-up question."""
 
     question: str
-    category: str  # related, deeper, compare
+    category: Literal["related", "deeper", "compare"]
 
 
 class AgentChatResponse(BaseModel):
@@ -163,11 +207,11 @@ class AgentChatResponse(BaseModel):
         default_factory=list,
         description="Exportable clip time ranges found"
     )
-    entities_mentioned: list[dict[str, Any]] = Field(
+    entities_mentioned: list[EntityReference] = Field(
         default_factory=list,
         description="Entities referenced in the response"
     )
-    token_usage: dict[str, int] | None = Field(
+    token_usage: TokenUsage | None = Field(
         default=None,
         description="Token consumption for this request"
     )

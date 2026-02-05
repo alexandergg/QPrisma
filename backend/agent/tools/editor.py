@@ -11,7 +11,7 @@ from typing import Annotated, Any
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
-from agent.tools.base import format_timestamp
+from agent.utils.formatting import format_timestamp
 
 # =============================================================================
 # Clip Management Tools

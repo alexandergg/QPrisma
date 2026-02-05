@@ -49,8 +49,8 @@ class ProcessingConfig(BaseModel):
     index_content: bool = Field(default=True, description="Indexar para búsqueda (Knowledge Graph)")
     priority: int = Field(default=5, ge=1, le=10, description="Prioridad del job (1-10)")
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "max_frames": 100,
                 "custom_prompt": None,
@@ -60,6 +60,7 @@ class ProcessingConfig(BaseModel):
                 "priority": 5,
             }
         }
+    }
 
 
 class JobSubmitRequest(BaseModel):

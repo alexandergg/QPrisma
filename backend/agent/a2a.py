@@ -20,9 +20,9 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from agent.editor_agent_graph import EditorAgentGraph, create_editor_agent_graph
-from agent.graph_state import create_agent_state
-from agent.video_agent_graph import VideoAgentGraph, create_video_agent_graph
+from agent.graphs.editor import create_editor_agent_graph
+from agent.state.agent_state import create_agent_state
+from agent.graphs.video import create_video_agent_graph
 from models.a2a_models import (
     Artifact,
     Message,
@@ -258,7 +258,7 @@ class A2AAgentExecutor:
         context_id: str,
     ) -> Artifact | None:
         """Extract sources/references from agent result as an artifact."""
-        from agent.tools.base import format_timestamp
+        from agent.utils.formatting import format_timestamp
         
         sources = []
         

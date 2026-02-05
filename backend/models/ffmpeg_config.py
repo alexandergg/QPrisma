@@ -7,7 +7,7 @@ Inspirado en la arquitectura de Edconv para máxima customización.
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class LogLevel(str, Enum):
@@ -117,10 +117,11 @@ class FrameExtractionConfig(BaseModel):
         default=None, description="Tiempo de fin en segundos (None = hasta el final)", gt=0
     )
 
-    @validator("end_time")
-    def end_time_must_be_after_start(cls, v, values):
+    @field_validator("end_time")
+    @classmethod
+    def end_time_must_be_after_start(cls, v: float | None, info) -> float | None:
         """Validar que end_time > start_time"""
-        if v is not None and values.get("start_time") is not None and v <= values["start_time"]:
+        if v is not None and info.data.get("start_time") is not None and v <= info.data["start_time"]:
             raise ValueError("end_time debe ser mayor que start_time")
         return v
 
@@ -173,8 +174,9 @@ class VideoFilterConfig(BaseModel):
         default=None, description="Filtros FFmpeg personalizados adicionales"
     )
 
-    @validator("rotate")
-    def validate_rotation(cls, v):
+    @field_validator("rotate")
+    @classmethod
+    def validate_rotation(cls, v: int | None) -> int | None:
         """Validar rotación"""
         if v is not None and v not in [0, 90, 180, 270]:
             raise ValueError("rotate debe ser 0, 90, 180 o 270")
@@ -266,8 +268,7 @@ class FFmpegProcessingConfig(BaseModel):
         default=None, description="Metadatos a incluir en el output"
     )
 
-    class Config:
-        use_enum_values = True
+    model_config = {"use_enum_values": True}
 
 
 class ProcessingPreset(str, Enum):

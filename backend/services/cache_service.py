@@ -244,7 +244,7 @@ class CacheService:
     async def disconnect(self):
         """Cierra la conexión a Redis"""
         if self._redis:
-            await self._redis.close()
+            await self._redis.aclose()
             self._redis = None
         self._connected = False
 

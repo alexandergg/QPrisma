@@ -1,55 +1,29 @@
 """
-Video Agent Tools
-=================
+Agent Tools
+===========
 
-Exports all tools available to the video agent.
+LangGraph tools for video search and editor functionality.
+All tools use the @tool decorator and InjectedState for context.
 """
 
-from agent.tools.auto_clip_tools import (
-    add_suggested_clips,
-    generate_auto_clips,
-)
-
-# Editor tools for Chat-to-Edit
-from agent.tools.editor_tools import (
-    create_clip,
-    delete_clip,
-    list_clips,
-    modify_clip,
-    reorder_clips,
-)
-from agent.tools.export_tools import (
-    export_all_clips,
-    export_clip,
-    get_export_status,
-    list_export_presets,
-)
-from agent.tools.graph_tools import get_related_content, navigate_timeline
-from agent.tools.navigation_tools import describe_scene, get_transcript
-from agent.tools.search_tools import find_entity, search_video
-from agent.tools.structure_tools import get_summary, get_video_info, list_chapters
-from agent.tools.subtitle_tools import (
-    add_subtitles,
-    change_subtitle_style,
-    list_subtitle_styles,
-    remove_subtitles,
-)
-
-# Search and navigation tools (original)
-SEARCH_TOOLS = [
+from .general import (
+    SEARCH_TOOLS,
     search_video,
     find_entity,
     get_transcript,
     describe_scene,
+    get_scene_context,
     list_chapters,
     get_video_info,
     get_summary,
     get_related_content,
-    navigate_timeline,
-]
-
-# Editor tools (Chat-to-Edit)
-EDITOR_TOOLS = [
+    get_entity_timeline,
+    compare_moments,
+    find_highlights,
+    search_across_videos,
+)
+from .editor import (
+    EDITOR_TOOLS,
     create_clip,
     modify_clip,
     delete_clip,
@@ -61,41 +35,30 @@ EDITOR_TOOLS = [
     change_subtitle_style,
     remove_subtitles,
     list_subtitle_styles,
-    # Export tools
     export_clip,
     export_all_clips,
     get_export_status,
     list_export_presets,
-]
-
-# All tools available to the agent
-ALL_TOOLS = SEARCH_TOOLS + EDITOR_TOOLS
-
-# Tool definitions for Azure OpenAI function calling
-TOOL_DEFINITIONS = [tool.definition for tool in ALL_TOOLS]
-
-# Separate definitions for different agent modes
-SEARCH_TOOL_DEFINITIONS = [tool.definition for tool in SEARCH_TOOLS]
-EDITOR_TOOL_DEFINITIONS = [tool.definition for tool in EDITOR_TOOLS]
+)
 
 __all__ = [
-    # Collections
-    "ALL_TOOLS",
+    # Tool collections
     "SEARCH_TOOLS",
     "EDITOR_TOOLS",
-    "TOOL_DEFINITIONS",
-    "SEARCH_TOOL_DEFINITIONS",
-    "EDITOR_TOOL_DEFINITIONS",
     # Search tools
     "search_video",
     "find_entity",
     "get_transcript",
     "describe_scene",
+    "get_scene_context",
     "list_chapters",
     "get_video_info",
     "get_summary",
     "get_related_content",
-    "navigate_timeline",
+    "get_entity_timeline",
+    "compare_moments",
+    "find_highlights",
+    "search_across_videos",
     # Editor tools
     "create_clip",
     "modify_clip",
@@ -108,9 +71,9 @@ __all__ = [
     "change_subtitle_style",
     "remove_subtitles",
     "list_subtitle_styles",
-    # Export tools
     "export_clip",
     "export_all_clips",
     "get_export_status",
     "list_export_presets",
 ]
+

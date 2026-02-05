@@ -5,8 +5,8 @@ Centralized configuration using Pydantic Settings.
 All environment variables are loaded and validated here.
 """
 
-from functools import lru_cache
 import os
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from pydantic import Field, field_validator
@@ -14,6 +14,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
     from openai import AzureOpenAI
+
+
+def _is_production() -> bool:
+    """Check if running in production environment."""
+    env = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "dev"))
+    return env.lower() in ("production", "prod")
 
 
 class AzureSettings(BaseSettings):
@@ -68,9 +74,22 @@ class PostgresSettings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore")
 
+    # In production, DATABASE_URL must be set via environment variable
     database_url: str = Field(
-        default="postgresql://qprisma:qprisma123@localhost:5432/qprisma"
+        default="postgresql://qprisma:qprisma123@localhost:5432/qprisma",
+        description="PostgreSQL connection URL. Override in production!",
     )
+
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, v: str) -> str:
+        """Warn about default credentials in production."""
+        if _is_production() and "qprisma123" in v:
+            raise ValueError(
+                "Default database credentials detected in production. "
+                "Set DATABASE_URL environment variable with secure credentials."
+            )
+        return v
 
     @property
     def is_configured(self) -> bool:
@@ -84,8 +103,23 @@ class Neo4jSettings(BaseSettings):
 
     uri: str = Field(default="bolt://localhost:7687")
     user: str = Field(default="neo4j")
-    password: str = Field(default="qprisma123")
+    # Password should be set via NEO4J_PASSWORD environment variable
+    password: str = Field(
+        default="qprisma123",
+        description="Neo4j password. Override via NEO4J_PASSWORD in production!",
+    )
     database: str = Field(default="neo4j")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Warn about default password in production."""
+        if _is_production() and v == "qprisma123":
+            raise ValueError(
+                "Default Neo4j password detected in production. "
+                "Set NEO4J_PASSWORD environment variable."
+            )
+        return v
 
     @property
     def is_configured(self) -> bool:
@@ -109,16 +143,30 @@ class AuthSettings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore")
 
-    jwt_secret_key: str = Field(default="your-secret-key-change-in-production")
+    # JWT secret MUST be set via JWT_SECRET_KEY environment variable in production
+    jwt_secret_key: str = Field(
+        default="your-secret-key-change-in-production",
+        description="JWT signing secret. MUST be changed in production!",
+    )
     jwt_algorithm: str = Field(default="HS256")
     jwt_access_token_expire_minutes: int = Field(default=1440)  # 24 hours
 
     @field_validator("jwt_secret_key")
     @classmethod
-    def warn_default_secret(cls, v: str) -> str:
-        if v == "your-secret-key-change-in-production":
+    def validate_jwt_secret(cls, v: str) -> str:
+        """Enforce secure JWT secret in production."""
+        if _is_production():
+            if v == "your-secret-key-change-in-production":
+                raise ValueError(
+                    "Default JWT secret detected in production. "
+                    "Set JWT_SECRET_KEY environment variable with a secure random string."
+                )
+            if len(v) < 32:
+                raise ValueError(
+                    "JWT_SECRET_KEY must be at least 32 characters in production."
+                )
+        elif v == "your-secret-key-change-in-production":
             import warnings
-
             warnings.warn(
                 "Using default JWT secret key. Set JWT_SECRET_KEY in production!",
                 UserWarning,

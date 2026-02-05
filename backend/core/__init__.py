@@ -8,6 +8,14 @@ This package contains:
 - logging_config: Logging configuration
 """
 
+from .async_utils import (
+    async_wrap,
+    get_executor,
+    read_file_async,
+    run_sync,
+    shutdown_executor,
+    write_file_async,
+)
 from .config import Settings, create_azure_openai_client, get_settings, settings
 from .constants import (
     DEFAULT_MAX_FRAMES,
@@ -18,6 +26,15 @@ from .constants import (
     WHISPER_MAX_FILE_SIZE_MB,
 )
 from .exceptions import (
+    # Structured API errors (recommended)
+    APIError,
+    access_denied_error,
+    internal_error,
+    not_found_error,
+    rate_limit_error,
+    service_unavailable_error,
+    validation_error,
+    # Base exceptions
     AccessDeniedError,
     ConfigurationError,
     GraphConnectionError,
@@ -32,6 +49,13 @@ from .exceptions import (
 from .logging_config import PipelineLogger, get_logger, setup_logging
 
 __all__ = [
+    # Async Utilities
+    "run_sync",
+    "async_wrap",
+    "get_executor",
+    "shutdown_executor",
+    "read_file_async",
+    "write_file_async",
     # Config
     "Settings",
     "get_settings",
@@ -44,7 +68,15 @@ __all__ = [
     "MAX_PAGE_SIZE",
     "MAX_SEARCH_LIMIT",
     "WHISPER_MAX_FILE_SIZE_MB",
-    # Exceptions
+    # Structured API Errors (recommended for routes)
+    "APIError",
+    "not_found_error",
+    "access_denied_error",
+    "validation_error",
+    "service_unavailable_error",
+    "rate_limit_error",
+    "internal_error",
+    # Base Exceptions (for services)
     "QPrismaException",
     "ServiceUnavailableError",
     "ConfigurationError",

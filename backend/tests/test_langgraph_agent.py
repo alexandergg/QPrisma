@@ -5,8 +5,12 @@ LangGraph Agent Tests
 Tests for the LangGraph-based video and editor agents.
 """
 
+import json
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch, MagicMock, AsyncMock
+
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 
 class TestGraphState:
@@ -14,9 +18,7 @@ class TestGraphState:
 
     def test_create_agent_state(self):
         """Test agent state creation."""
-        from langchain_core.messages import HumanMessage
-
-        from agent.graph_state import create_agent_state
+        from agent.state.agent_state import create_agent_state
 
         messages = [HumanMessage(content="What happens in the video?")]
         state = create_agent_state(
@@ -34,9 +36,7 @@ class TestGraphState:
 
     def test_create_agent_state_without_video(self):
         """Test state creation without video context."""
-        from langchain_core.messages import HumanMessage
-
-        from agent.graph_state import create_agent_state
+        from agent.state.agent_state import create_agent_state
 
         messages = [HumanMessage(content="Hello")]
         state = create_agent_state(messages=messages)
@@ -44,37 +44,181 @@ class TestGraphState:
         assert state["video_context"] is None
         assert state["sources"] == []
 
+    def test_create_agent_state_with_project(self):
+        """Test state creation with project context."""
+        from agent.state.agent_state import ProjectContext, create_agent_state
+
+        project = ProjectContext(
+            project_id="proj-1",
+            project_name="Test Project",
+            source_media_id="vid-1",
+        )
+        messages = [HumanMessage(content="Create a clip")]
+        state = create_agent_state(
+            messages=messages,
+            project_id="proj-1",
+            project_context=project,
+        )
+
+        assert state["project_id"] == "proj-1"
+        assert state["project_context"]["project_name"] == "Test Project"
+
+    def test_truncate_tool_message_content(self):
+        """Test that large tool messages are truncated."""
+        from agent.state.agent_state import truncate_tool_message_content, MAX_TOOL_RESULT_CHARS
+
+        # Small message - should pass through unchanged
+        small_msg = ToolMessage(content="short result", tool_call_id="tc-1", name="test")
+        result = truncate_tool_message_content(small_msg)
+        assert result.content == "short result"
+
+        # Large message - should be truncated
+        large_content = "x" * (MAX_TOOL_RESULT_CHARS + 1000)
+        large_msg = ToolMessage(content=large_content, tool_call_id="tc-2", name="test")
+        result = truncate_tool_message_content(large_msg)
+        assert len(result.content) < len(large_content)
+        assert "truncated" in result.content
+
+        # Non-tool message - should pass through unchanged
+        human_msg = HumanMessage(content="hello")
+        result = truncate_tool_message_content(human_msg)
+        assert result.content == "hello"
+
+
+class TestMetadataExtraction:
+    """Test metadata extraction helpers."""
+
+    def test_extract_metadata_from_tool_result_search(self):
+        """Test extracting metadata from search results."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "results": [
+                {
+                    "timestamp": 30.5,
+                    "timestamp_formatted": "0:30",
+                    "type": "visual",
+                    "content": "A person speaking on stage",
+                    "score": 0.95,
+                }
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["timestamp"] == 30.5
+        assert len(meta["navigation_actions"]) == 1
+        assert meta["navigation_actions"][0]["action"] == "jump_to"
+
+    def test_extract_metadata_from_tool_result_entity(self):
+        """Test extracting entity occurrences."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "occurrences": [
+                {
+                    "timestamp": 60.0,
+                    "timestamp_formatted": "1:00",
+                    "occurrence_type": "visible",
+                    "context": "Person appears on screen",
+                    "confidence": 0.85,
+                }
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["type"] == "visible"
+
+    def test_extract_metadata_from_tool_result_highlights(self):
+        """Test extracting highlight suggestions."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "highlights": [
+                {
+                    "title": "Key Moment",
+                    "start_time": 120,
+                    "end_time": 150,
+                    "description": "An exciting moment",
+                    "highlight_reason": "High engagement",
+                }
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["clip_suggestions"]) == 1
+        assert meta["clip_suggestions"][0]["label"] == "Key Moment"
+
+    def test_extract_metadata_from_tool_result_entities(self):
+        """Test extracting related entities."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "related_entities": [
+                {"name": "John", "type": "person", "relevance": 0.9},
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["entities"]) == 1
+        assert meta["entities"][0]["name"] == "John"
+
+    def test_extract_metadata_from_tool_result_empty(self):
+        """Test extracting from empty/irrelevant result."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        meta = extract_metadata_from_tool_result({"message": "No results found"})
+        assert meta["sources"] == []
+        assert meta["navigation_actions"] == []
+        assert meta["clip_suggestions"] == []
+        assert meta["entities"] == []
+
+    def test_extract_metadata_from_messages(self):
+        """Test full message-level metadata extraction."""
+        from agent.graphs.video import extract_metadata_from_messages
+
+        messages = [
+            HumanMessage(content="Find highlights"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "search_video", "args": {"query": "test"}, "id": "tc1"}],
+            ),
+            ToolMessage(
+                content=json.dumps({
+                    "results": [{"timestamp": 10, "timestamp_formatted": "0:10", "type": "visual", "content": "test", "score": 0.8}]
+                }),
+                tool_call_id="tc1",
+                name="search_video",
+            ),
+            AIMessage(content="Here are the results"),
+        ]
+
+        meta = extract_metadata_from_messages(messages)
+        assert meta["tool_calls"] == 1
+        assert len(meta["sources"]) == 1
+
 
 class TestVideoAgentGraph:
     """Test the LangGraph video agent."""
-
-    @pytest.fixture
-    def mock_azure_openai(self):
-        """Mock Azure OpenAI chat model."""
-        with patch("agent.video_agent_graph.AzureChatOpenAI") as mock:
-            mock_instance = MagicMock()
-            mock.return_value = mock_instance
-            yield mock_instance
 
     @pytest.mark.asyncio
     async def test_agent_graph_creation(self):
         """Test that the graph compiles successfully."""
         from langgraph.checkpoint.memory import MemorySaver
 
-        from agent.video_agent_graph import create_video_agent_graph
+        from agent.graphs.video import create_video_agent_graph
 
         checkpointer = MemorySaver()
         graph = create_video_agent_graph(checkpointer)
 
-        # Graph should be compiled
         assert graph is not None
-        # CompiledStateGraph type check
         assert "CompiledStateGraph" in type(graph).__name__
 
     @pytest.mark.asyncio
     async def test_video_agent_graph_class(self):
         """Test VideoAgentGraph class initialization."""
-        from agent.video_agent_graph import VideoAgentGraph
+        from agent.graphs.video import VideoAgentGraph
 
         agent = VideoAgentGraph(model_deployment="gpt-4o")
 
@@ -84,16 +228,30 @@ class TestVideoAgentGraph:
     @pytest.mark.asyncio
     async def test_video_agent_graph_singleton(self):
         """Test that get_video_agent_graph returns singleton."""
-        from agent.video_agent_graph import get_video_agent_graph
+        from agent.graphs.video import get_video_agent_graph
 
         # Reset singleton
-        import agent.video_agent_graph as module
+        import agent.graphs.video as module
         module._graph_instance = None
 
         agent1 = get_video_agent_graph()
         agent2 = get_video_agent_graph()
 
         assert agent1 is agent2
+
+    def test_video_agent_has_proper_methods(self):
+        """Test that VideoAgentGraph has all methods as proper class methods."""
+        from agent.graphs.video import VideoAgentGraph
+
+        agent = VideoAgentGraph(model_deployment="gpt-4o")
+
+        assert hasattr(agent, "run")
+        assert hasattr(agent, "run_stream")
+        assert hasattr(agent, "get_state_history")
+        assert hasattr(agent, "resume_from_checkpoint")
+        assert hasattr(agent, "get_graph_diagram")
+        assert hasattr(agent, "_build_messages")
+        assert hasattr(agent, "_build_config")
 
 
 class TestEditorAgentGraph:
@@ -104,7 +262,7 @@ class TestEditorAgentGraph:
         """Test that the editor graph compiles successfully."""
         from langgraph.checkpoint.memory import MemorySaver
 
-        from agent.editor_agent_graph import create_editor_agent_graph
+        from agent.graphs.editor import create_editor_agent_graph
 
         checkpointer = MemorySaver()
         graph = create_editor_agent_graph(checkpointer)
@@ -114,7 +272,7 @@ class TestEditorAgentGraph:
     @pytest.mark.asyncio
     async def test_editor_agent_graph_class(self):
         """Test EditorAgentGraph class initialization."""
-        from agent.editor_agent_graph import EditorAgentGraph
+        from agent.graphs.editor import EditorAgentGraph
 
         agent = EditorAgentGraph(model_deployment="gpt-4o")
 
@@ -123,10 +281,10 @@ class TestEditorAgentGraph:
     @pytest.mark.asyncio
     async def test_editor_agent_graph_singleton(self):
         """Test that get_editor_agent_graph returns singleton."""
-        from agent.editor_agent_graph import get_editor_agent_graph
+        from agent.graphs.editor import get_editor_agent_graph
 
         # Reset singleton
-        import agent.editor_agent_graph as module
+        import agent.graphs.editor as module
         module._editor_graph_instance = None
 
         agent1 = get_editor_agent_graph()
@@ -135,12 +293,82 @@ class TestEditorAgentGraph:
         assert agent1 is agent2
 
 
+class TestIterationLimits:
+    """Test agent iteration limit behavior."""
+
+    def test_video_should_continue_no_tool_calls(self):
+        """Test should_continue returns END when no tool calls."""
+        from agent.nodes.video_nodes import should_continue
+
+        state = {"messages": [AIMessage(content="Final answer")], "tool_calls_count": 0}
+        assert should_continue(state) == "__end__"
+
+    def test_video_should_continue_at_limit(self):
+        """Test should_continue returns END when at max iterations."""
+        from agent.nodes.video_nodes import should_continue, MAX_TOOL_ITERATIONS
+
+        state = {
+            "messages": [AIMessage(
+                content="",
+                tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
+            )],
+            "tool_calls_count": MAX_TOOL_ITERATIONS,
+        }
+        assert should_continue(state) == "__end__"
+
+    def test_video_should_continue_with_tool_calls(self):
+        """Test should_continue returns 'tools' when under limit."""
+        from agent.nodes.video_nodes import should_continue
+
+        state = {
+            "messages": [AIMessage(
+                content="",
+                tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
+            )],
+            "tool_calls_count": 1,
+        }
+        assert should_continue(state) == "tools"
+
+    def test_editor_should_continue_no_tool_calls(self):
+        """Test editor should_continue returns END when no tool calls."""
+        from agent.nodes.editor_nodes import should_continue_editor
+
+        state = {"messages": [AIMessage(content="Done")], "tool_calls_count": 0}
+        assert should_continue_editor(state) == "__end__"
+
+    def test_editor_should_continue_at_limit(self):
+        """Test editor should_continue returns END at max iterations."""
+        from agent.nodes.editor_nodes import should_continue_editor, MAX_EDITOR_TOOL_ITERATIONS
+
+        state = {
+            "messages": [AIMessage(
+                content="",
+                tool_calls=[{"name": "create_clip", "args": {}, "id": "tc1"}],
+            )],
+            "tool_calls_count": MAX_EDITOR_TOOL_ITERATIONS,
+        }
+        assert should_continue_editor(state) == "__end__"
+
+    def test_editor_should_continue_with_tool_calls(self):
+        """Test editor should_continue returns 'tools' under limit."""
+        from agent.nodes.editor_nodes import should_continue_editor
+
+        state = {
+            "messages": [AIMessage(
+                content="",
+                tool_calls=[{"name": "create_clip", "args": {}, "id": "tc1"}],
+            )],
+            "tool_calls_count": 2,
+        }
+        assert should_continue_editor(state) == "tools"
+
+
 class TestLangGraphTools:
     """Test LangGraph tool definitions."""
 
     def test_search_tools_defined(self):
         """Test that search tools are properly defined."""
-        from agent.graph_tools import SEARCH_TOOLS
+        from agent.tools.general import SEARCH_TOOLS
 
         assert len(SEARCH_TOOLS) >= 5
 
@@ -153,7 +381,7 @@ class TestLangGraphTools:
 
     def test_editor_tools_defined(self):
         """Test that editor tools are properly defined."""
-        from agent.graph_editor_tools import EDITOR_TOOLS
+        from agent.tools.editor import EDITOR_TOOLS
 
         assert len(EDITOR_TOOLS) >= 10
 
@@ -168,7 +396,7 @@ class TestLangGraphTools:
     @pytest.mark.asyncio
     async def test_search_video_no_context(self):
         """Test search_video returns error without media_id."""
-        from agent.graph_tools import search_video
+        from agent.tools.general import search_video
 
         result = await search_video.ainvoke(
             {"query": "test"},
@@ -181,7 +409,7 @@ class TestLangGraphTools:
     @pytest.mark.asyncio
     async def test_create_clip_no_project(self):
         """Test create_clip returns error without project_id."""
-        from agent.graph_editor_tools import create_clip
+        from agent.tools.editor import create_clip
 
         result = await create_clip.ainvoke(
             {"start_time": 0, "end_time": 10},
@@ -200,12 +428,10 @@ class TestRedisCheckpointer:
         from langgraph.checkpoint.memory import MemorySaver
 
         with patch.dict("os.environ", {"REDIS_URL": "redis://invalid:6379"}):
-            # Import fresh to test with patched env
             import importlib
-            import agent.video_agent_graph as module
+            import agent.graphs.video as module
             importlib.reload(module)
 
-            # Force an error by patching the import
             original_func = module.create_redis_checkpointer
 
             def mock_create():
@@ -217,7 +443,6 @@ class TestRedisCheckpointer:
 
             with patch.object(module, "create_redis_checkpointer", mock_create):
                 checkpointer = mock_create()
-                # Should fall back to MemorySaver
                 assert isinstance(checkpointer, MemorySaver)
 
 
@@ -236,7 +461,6 @@ class TestAgentImports:
             get_video_agent_graph,
         )
 
-        # All should be importable
         assert VideoAgentGraph is not None
         assert EditorAgentGraph is not None
         assert AgentState is not None
@@ -245,22 +469,619 @@ class TestAgentImports:
         assert get_editor_agent_graph is not None
         assert create_redis_checkpointer is not None
 
-    def test_legacy_exports(self):
-        """Test legacy exports still work."""
-        from agent import (
-            EditorAgent,
-            VideoAgent,
-            VideoAgentState,
-            get_editor_agent,
-            get_video_agent,
+    def test_metadata_extraction_exports(self):
+        """Test metadata extraction helpers are importable."""
+        from agent.graphs.video import (
+            extract_metadata_from_messages,
+            extract_metadata_from_tool_result,
         )
 
-        # Legacy imports should still work
-        assert VideoAgent is not None
-        assert EditorAgent is not None
-        assert VideoAgentState is not None
-        assert get_video_agent is not None
-        assert get_editor_agent is not None
+        assert extract_metadata_from_messages is not None
+        assert extract_metadata_from_tool_result is not None
+
+    def test_state_exports(self):
+        """Test state module exports."""
+        from agent.state import (
+            AgentState,
+            ProjectContext,
+            VideoContext,
+            truncate_tool_message_content,
+            get_message_trimmer,
+        )
+
+        assert AgentState is not None
+        assert truncate_tool_message_content is not None
+
+
+class TestFormattingUtils:
+    """Test formatting utility functions."""
+
+    def test_format_timestamp(self):
+        """Test timestamp formatting."""
+        from agent.utils.formatting import format_timestamp
+
+        assert format_timestamp(0) == "0:00"
+        assert format_timestamp(61) == "1:01"
+        assert format_timestamp(3661) == "1:01:01"
+
+    def test_parse_timestamp(self):
+        """Test timestamp parsing."""
+        from agent.utils.formatting import parse_timestamp
+
+        assert parse_timestamp("1:30") == 90
+        assert parse_timestamp("1:01:01") == 3661
+
+    def test_get_timestamp_from_content(self):
+        """Test extracting timestamps from node content."""
+        from agent.utils.formatting import get_timestamp_from_content
+
+        assert get_timestamp_from_content({"timestamp": 30.5}) == 30.5
+        assert get_timestamp_from_content({"start_time": 60.0}) == 60.0
+        assert get_timestamp_from_content({}) == 0.0
+        assert get_timestamp_from_content({}, default=99.0) == 99.0
+
+
+# =============================================================================
+# Graph Execution Tests with Mocked LLM (P0 Item #6)
+# =============================================================================
+
+
+class TestGraphExecutionPaths:
+    """
+    Test full graph execution paths with mocked LLM.
+    
+    These tests verify the graph structure and routing logic
+    without requiring actual LLM API calls.
+    """
+
+    @pytest.mark.asyncio
+    async def test_video_graph_structure(self):
+        """Test that the video graph compiles with expected nodes."""
+        from langgraph.checkpoint.memory import MemorySaver
+        from agent.graphs.video import create_video_agent_graph
+
+        checkpointer = MemorySaver()
+        graph = create_video_agent_graph(checkpointer)
+
+        # Verify graph structure
+        graph_nodes = graph.get_graph().nodes
+        node_names = list(graph_nodes.keys())
+        
+        # Should have all expected nodes
+        assert "call_model" in node_names
+        assert "tools" in node_names
+        assert "update_context" in node_names
+        assert "error_handler" in node_names
+
+    @pytest.mark.asyncio
+    async def test_video_graph_edges(self):
+        """Test that the video graph has correct edge connections."""
+        from langgraph.checkpoint.memory import MemorySaver
+        from agent.graphs.video import create_video_agent_graph
+
+        checkpointer = MemorySaver()
+        graph = create_video_agent_graph(checkpointer)
+
+        # Get graph structure
+        graph_repr = graph.get_graph()
+        
+        # Verify we can generate a diagram (means graph is well-formed)
+        mermaid = graph_repr.draw_mermaid()
+        assert "call_model" in mermaid
+        assert "tools" in mermaid
+
+    @pytest.mark.asyncio
+    async def test_video_graph_max_iterations(self):
+        """Test that graph respects max iteration limits."""
+        from agent.nodes.video_nodes import MAX_TOOL_ITERATIONS, should_continue
+
+        # Simulate state at max iterations
+        state = {
+            "messages": [AIMessage(
+                content="",
+                tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
+            )],
+            "tool_calls_count": MAX_TOOL_ITERATIONS,
+            "consecutive_errors": 0,
+        }
+
+        # Should return END even though there are tool calls
+        result = should_continue(state)
+        assert result == "__end__"
+
+    @pytest.mark.asyncio  
+    async def test_editor_graph_destructive_tools_list(self):
+        """Test that destructive tools are properly categorized."""
+        from agent.graphs.editor import DESTRUCTIVE_TOOLS, SAFE_TOOLS
+
+        # Verify tool categorization
+        assert "create_clip" in DESTRUCTIVE_TOOLS
+        assert "delete_clip" in DESTRUCTIVE_TOOLS
+        assert "modify_clip" in DESTRUCTIVE_TOOLS
+        assert "export_clip" in DESTRUCTIVE_TOOLS
+
+        assert "list_clips" in SAFE_TOOLS
+        assert "list_subtitle_styles" in SAFE_TOOLS
+
+        # Ensure no overlap
+        assert len(DESTRUCTIVE_TOOLS & SAFE_TOOLS) == 0
+
+
+class TestErrorHandling:
+    """Test error handling and graceful degradation."""
+
+    @pytest.mark.asyncio
+    async def test_error_handler_with_partial_results(self):
+        """Test error handler generates helpful response with partial results."""
+        from agent.nodes.base import error_handler_node
+
+        state = {
+            "messages": [],
+            "consecutive_errors": 3,
+            "last_error": "Connection timeout",
+            "partial_results": [
+                {"tool": "search_video", "summary": "Found 3 results about topic X"},
+                {"tool": "find_entity", "summary": "Located person at 1:30"},
+            ],
+        }
+
+        result = await error_handler_node(state, {})
+
+        # Should generate a helpful response
+        assert "messages" in result
+        assert len(result["messages"]) == 1
+        assert "partial" in result["messages"][0].content.lower() or "found" in result["messages"][0].content.lower()
+        # Should reset error state
+        assert result["consecutive_errors"] == 0
+
+    @pytest.mark.asyncio
+    async def test_error_handler_without_partial_results(self):
+        """Test error handler with no partial results."""
+        from agent.nodes.base import error_handler_node
+
+        state = {
+            "messages": [],
+            "consecutive_errors": 3,
+            "last_error": "Service unavailable",
+            "partial_results": [],
+        }
+
+        result = await error_handler_node(state, {})
+
+        # Should ask user to try again
+        assert "messages" in result
+        response_content = result["messages"][0].content.lower()
+        assert "error" in response_content or "issue" in response_content
+
+    def test_should_retry_exception_transient(self):
+        """Test retry policy for transient errors."""
+        from agent.state.agent_state import should_retry_exception
+
+        # Transient errors should retry
+        assert should_retry_exception(ConnectionError("Network issue")) == True
+        assert should_retry_exception(TimeoutError("Request timed out")) == True
+        assert should_retry_exception(Exception("rate limit exceeded")) == True
+        assert should_retry_exception(Exception("503 Service Unavailable")) == True
+
+    def test_should_retry_exception_permanent(self):
+        """Test retry policy for permanent errors."""
+        from agent.state.agent_state import should_retry_exception
+
+        # Permanent errors should not retry
+        assert should_retry_exception(ValueError("Invalid input")) == False
+        assert should_retry_exception(TypeError("Wrong type")) == False
+        assert should_retry_exception(KeyError("Missing key")) == False
+        assert should_retry_exception(PermissionError("Access denied")) == False
+
+    def test_error_threshold_routing(self):
+        """Test that error threshold routes to error_handler."""
+        from agent.nodes.base import base_should_continue, MAX_CONSECUTIVE_ERRORS
+
+        # State with errors but partial results
+        state = {
+            "messages": [AIMessage(
+                content="",
+                tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
+            )],
+            "tool_calls_count": 1,
+            "consecutive_errors": MAX_CONSECUTIVE_ERRORS,
+            "partial_results": [{"tool": "test", "summary": "some result"}],
+        }
+
+        result = base_should_continue(state, max_iterations=5)
+        assert result == "error_handler"
+
+
+class TestInputOutputSchemaSeparation:
+    """Test Input/Output schema separation (P0 Item #1)."""
+
+    def test_input_state_excludes_internal_fields(self):
+        """Test that AgentInputState doesn't expose internal bookkeeping."""
+        from agent.state.agent_state import AgentInputState
+
+        # These fields should be in InputState
+        input_fields = AgentInputState.__annotations__
+        assert "messages" in input_fields
+        assert "media_id" in input_fields
+        assert "user_id" in input_fields
+        
+        # These internal fields should NOT be in InputState
+        assert "tool_calls_count" not in input_fields
+        assert "consecutive_errors" not in input_fields
+        assert "partial_results" not in input_fields
+
+    def test_output_state_excludes_internal_fields(self):
+        """Test that AgentOutputState doesn't expose internal bookkeeping."""
+        from agent.state.agent_state import AgentOutputState
+
+        output_fields = AgentOutputState.__annotations__
+        
+        # Should have results
+        assert "messages" in output_fields
+        assert "sources" in output_fields
+        
+        # Should NOT have internal tracking
+        assert "tool_calls_count" not in output_fields
+        assert "consecutive_errors" not in output_fields
+        assert "conversation_context" not in output_fields
+
+    def test_internal_state_has_all_fields(self):
+        """Test that AgentState has all fields including internal ones."""
+        from agent.state.agent_state import AgentState
+
+        state_fields = AgentState.__annotations__
+        
+        # Should have all fields
+        assert "messages" in state_fields
+        assert "tool_calls_count" in state_fields
+        assert "consecutive_errors" in state_fields
+        assert "partial_results" in state_fields
+        assert "conversation_context" in state_fields
+
+
+class TestDynamicToolBinding:
+    """Test dynamic tool binding (P1 Item #8)."""
+
+    def test_select_tools_for_search_query(self):
+        """Test tool selection for search-like queries."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Find where the speaker mentions AI"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=5)
+
+        assert len(selected) <= 5
+        # Should prioritize search tools
+        tool_names = [t.name for t in selected]
+        assert any("search" in name.lower() for name in tool_names)
+
+    def test_select_tools_for_entity_query(self):
+        """Test tool selection for entity-focused queries."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Who is the main person speaking?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=5)
+
+        assert len(selected) <= 5
+
+    def test_select_tools_for_edit_query(self):
+        """Test tool selection for editing queries."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS, EDITOR_TOOLS
+
+        all_tools = SEARCH_TOOLS + EDITOR_TOOLS
+        query = "Create a clip from 1:00 to 2:00"
+        selected = select_tools_for_query(query, all_tools, max_tools=8)
+
+        assert len(selected) <= 8
+        # Should include clip-related tools
+        tool_names = [t.name for t in selected]
+        assert "create_clip" in tool_names or any("clip" in name for name in tool_names)
+
+    def test_select_tools_max_limit(self):
+        """Test that tool selection respects max_tools limit."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS, EDITOR_TOOLS
+
+        all_tools = SEARCH_TOOLS + EDITOR_TOOLS
+        query = "Do everything"  # Vague query that might match many tools
+
+        for max_tools in [3, 5, 8, 10]:
+            selected = select_tools_for_query(query, all_tools, max_tools=max_tools)
+            assert len(selected) <= max_tools
+
+
+class TestProductionCheckpointerFactory:
+    """Test production checkpointer factory (P1 Item #9)."""
+
+    def test_checkpointer_cascade_fallback(self):
+        """Test that checkpointer factory falls back correctly."""
+        from agent.graphs.video import create_production_checkpointer
+        from langgraph.checkpoint.memory import MemorySaver
+
+        # When no persistent stores are available, should fall back to MemorySaver
+        with patch("agent.graphs.video.create_postgres_checkpointer", return_value=None):
+            with patch("agent.graphs.video.create_redis_checkpointer", return_value=None):
+                checkpointer = create_production_checkpointer()
+                assert isinstance(checkpointer, MemorySaver)
+
+    def test_checkpointer_prefers_postgres(self):
+        """Test that PostgreSQL is preferred when available."""
+        from agent.graphs.video import create_production_checkpointer
+        
+        mock_postgres = MagicMock()
+        mock_redis = MagicMock()
+
+        with patch("agent.graphs.video.create_postgres_checkpointer", return_value=mock_postgres):
+            with patch("agent.graphs.video.create_redis_checkpointer", return_value=mock_redis):
+                checkpointer = create_production_checkpointer()
+                # Should use PostgreSQL, not Redis
+                assert checkpointer is mock_postgres
+
+    def test_checkpointer_uses_redis_when_no_postgres(self):
+        """Test that Redis is used when PostgreSQL unavailable."""
+        from agent.graphs.video import create_production_checkpointer
+
+        mock_redis = MagicMock()
+
+        with patch("agent.graphs.video.create_postgres_checkpointer", return_value=None):
+            with patch("agent.graphs.video.create_redis_checkpointer", return_value=mock_redis):
+                checkpointer = create_production_checkpointer()
+                assert checkpointer is mock_redis
+
+
+class TestMultiTenantSecurity:
+    """Test multi-tenant security (P0 Item #5)."""
+
+    def test_state_includes_user_id(self):
+        """Test that state properly tracks user_id."""
+        from agent.state.agent_state import create_agent_state
+
+        state = create_agent_state(
+            messages=[HumanMessage(content="test")],
+            user_id="user-123",
+            session_id="session-456",
+        )
+
+        assert state["user_id"] == "user-123"
+        assert state["session_id"] == "session-456"
+
+    def test_config_scopes_by_thread(self):
+        """Test that config properly scopes by thread_id."""
+        from agent.graphs.video import VideoAgentGraph
+
+        agent = VideoAgentGraph()
+        config = agent._build_config(media_id="vid-1", session_id="user-123-session-1")
+
+        # Thread ID should be set for checkpointer isolation
+        assert config["configurable"]["thread_id"] == "user-123-session-1"
+
+
+# =============================================================================
+# Observability Tests
+# =============================================================================
+
+
+class TestObservability:
+    """Test observability utilities (logging, metrics, tracing)."""
+
+    def test_request_context_creation(self):
+        """Test RequestContext creation with defaults."""
+        from agent.utils.observability import RequestContext
+
+        ctx = RequestContext()
+        assert ctx.request_id is not None
+        assert len(ctx.request_id) == 8
+        assert ctx.node_path == []
+        assert ctx.tool_calls == []
+
+    def test_request_context_tracking(self):
+        """Test RequestContext tracks nodes and tool calls."""
+        from agent.utils.observability import RequestContext
+
+        ctx = RequestContext(user_id="user-1")
+        
+        ctx.add_node("call_model")
+        ctx.add_node("tools")
+        ctx.add_tool_call("search_video", 150.5, True)
+        ctx.add_tool_call("find_entity", 200.0, False)
+        ctx.add_error("Connection timeout", "tools")
+
+        assert len(ctx.node_path) == 2
+        assert len(ctx.tool_calls) == 2
+        assert len(ctx.errors) == 1
+        assert ctx.tool_calls[0]["success"] is True
+        assert ctx.tool_calls[1]["success"] is False
+
+    def test_request_context_manager(self):
+        """Test request_context context manager."""
+        from agent.utils.observability import request_context, get_request_context
+
+        with request_context(user_id="test-user", media_id="test-video") as ctx:
+            assert ctx.user_id == "test-user"
+            assert ctx.media_id == "test-video"
+            
+            # Should be accessible via get_request_context
+            current = get_request_context()
+            assert current.user_id == "test-user"
+
+    def test_metrics_counter(self):
+        """Test Metrics counter operations."""
+        from agent.utils.observability import Metrics
+
+        Metrics.reset()
+        
+        Metrics.inc_counter("test_counter", {"label": "a"})
+        Metrics.inc_counter("test_counter", {"label": "a"})
+        Metrics.inc_counter("test_counter", {"label": "b"})
+
+        all_metrics = Metrics.get_all()
+        assert all_metrics["counters"]["test_counter{label=a}"] == 2
+        assert all_metrics["counters"]["test_counter{label=b}"] == 1
+
+    def test_metrics_histogram(self):
+        """Test Metrics histogram operations."""
+        from agent.utils.observability import Metrics
+
+        Metrics.reset()
+
+        Metrics.observe_histogram("test_duration", 0.1)
+        Metrics.observe_histogram("test_duration", 0.2)
+        Metrics.observe_histogram("test_duration", 0.3)
+
+        all_metrics = Metrics.get_all()
+        assert len(all_metrics["histograms"]["test_duration"]) == 3
+        assert abs(sum(all_metrics["histograms"]["test_duration"]) - 0.6) < 0.001
+
+    def test_record_tool_call_metrics(self):
+        """Test convenience method for recording tool calls."""
+        from agent.utils.observability import Metrics
+
+        Metrics.reset()
+
+        Metrics.record_tool_call("search_video", 0.15, True, "video")
+        Metrics.record_tool_call("search_video", 0.20, False, "video")
+
+        all_metrics = Metrics.get_all()
+        
+        # Should have call counter
+        assert "agent_tool_calls_total{agent=video,tool=search_video}" in all_metrics["counters"]
+        assert all_metrics["counters"]["agent_tool_calls_total{agent=video,tool=search_video}"] == 2
+        
+        # Should have error counter
+        assert all_metrics["counters"]["agent_tool_call_errors_total{agent=video,tool=search_video}"] == 1
+
+    def test_structured_logger(self):
+        """Test StructuredLogger includes context."""
+        from agent.utils.observability import get_logger, request_context
+        import logging
+
+        logger = get_logger("test_module")
+        
+        # Capture log output
+        with request_context(user_id="log-test-user", request_id="req-123"):
+            # Logger should work without errors
+            logger.info("Test message", extra_field="value")
+            logger.tool_start("test_tool")
+            logger.tool_end("test_tool", 100.0, True)
+
+    def test_inject_request_context_to_config(self):
+        """Test injecting context into RunnableConfig."""
+        from agent.utils.observability import (
+            inject_request_context_to_config,
+            RequestContext,
+        )
+
+        ctx = RequestContext(
+            request_id="test-req-1",
+            user_id="user-1",
+            session_id="session-1",
+        )
+        
+        config = {"configurable": {"thread_id": "t1"}}
+        updated = inject_request_context_to_config(config, ctx)
+
+        assert updated["configurable"]["request_id"] == "test-req-1"
+        assert updated["configurable"]["user_id"] == "user-1"
+        assert updated["metadata"]["request_id"] == "test-req-1"
+
+
+class TestHITLFlow:
+    """Test Human-in-the-Loop interrupt/resume flow."""
+
+    def test_destructive_tools_categorized(self):
+        """Test that destructive tools are properly identified."""
+        from agent.graphs.editor import DESTRUCTIVE_TOOLS, SAFE_TOOLS
+
+        # Destructive tools that modify state
+        assert "create_clip" in DESTRUCTIVE_TOOLS
+        assert "delete_clip" in DESTRUCTIVE_TOOLS
+        assert "modify_clip" in DESTRUCTIVE_TOOLS
+        assert "export_clip" in DESTRUCTIVE_TOOLS
+
+        # Safe tools that only read
+        assert "list_clips" in SAFE_TOOLS
+        assert "list_subtitle_styles" in SAFE_TOOLS
+        assert "get_export_status" in SAFE_TOOLS
+
+    @pytest.mark.asyncio
+    async def test_editor_graph_with_interrupt_compiles(self):
+        """Test that editor graph with interrupt_before_clips compiles."""
+        from langgraph.checkpoint.memory import MemorySaver
+        from agent.graphs.editor import create_editor_agent_graph
+
+        checkpointer = MemorySaver()
+        
+        # Should compile without errors
+        graph = create_editor_agent_graph(
+            checkpointer=checkpointer,
+            interrupt_before_clips=True,
+        )
+
+        assert graph is not None
+        
+        # Verify graph structure
+        nodes = list(graph.get_graph().nodes.keys())
+        assert "tools" in nodes
+        assert "call_model" in nodes
+
+    def test_editor_agent_has_confirm_method(self):
+        """Test EditorAgentGraph has confirm_and_continue method."""
+        from agent.graphs.editor import EditorAgentGraph
+
+        agent = EditorAgentGraph()
+        
+        assert hasattr(agent, "confirm_and_continue")
+        assert callable(agent.confirm_and_continue)
+
+
+class TestStateValidation:
+    """Test Pydantic-style state validation."""
+
+    def test_state_has_required_fields(self):
+        """Test that create_agent_state initializes all fields."""
+        from agent.state.agent_state import create_agent_state
+
+        state = create_agent_state(
+            messages=[HumanMessage(content="test")],
+            media_id="vid-1",
+        )
+
+        # All tracking fields should be initialized
+        assert state["tool_calls_count"] == 0
+        assert state["consecutive_errors"] == 0
+        assert state["partial_results"] == []
+        assert state["conversation_context"] == []
+        assert state["sources"] == []
+
+    def test_state_types_correct(self):
+        """Test that state fields have correct types."""
+        from agent.state.agent_state import (
+            AgentState,
+            AgentInputState,
+            AgentOutputState,
+        )
+
+        # Check AgentState has all expected fields
+        state_annotations = AgentState.__annotations__
+        
+        assert "messages" in state_annotations
+        assert "tool_calls_count" in state_annotations
+        assert "consecutive_errors" in state_annotations
+        assert "partial_results" in state_annotations
+
+        # Check Input/Output schemas are subsets
+        input_annotations = AgentInputState.__annotations__
+        output_annotations = AgentOutputState.__annotations__
+
+        # Input should not have internal tracking
+        assert "tool_calls_count" not in input_annotations
+        assert "consecutive_errors" not in input_annotations
+
+        # Output should have results but not tracking
+        assert "sources" in output_annotations
+        assert "tool_calls_count" not in output_annotations
 
 
 if __name__ == "__main__":

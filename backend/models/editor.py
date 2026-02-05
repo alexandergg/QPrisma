@@ -77,8 +77,8 @@ class ProjectCreate(BaseModel):
     description: str | None = Field(default=None, description="Project description")
     settings: ProjectSettings | None = Field(default=None, description="Project settings")
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "source_media_id": "media_abc123",
                 "name": "My Podcast Ep.42 Clips",
@@ -86,6 +86,7 @@ class ProjectCreate(BaseModel):
                 "settings": {"target_aspect_ratio": "9:16", "target_resolution": "1080x1920"},
             }
         }
+    }
 
 
 class ProjectUpdate(BaseModel):
@@ -113,8 +114,7 @@ class ProjectResponse(BaseModel):
     updated_at: datetime
     clips_count: int = 0
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class SourceMediaInfo(BaseModel):
@@ -155,8 +155,8 @@ class ClipCreate(BaseModel):
     viral_reasons: list[str] | None = None
     transcript_snippet: str | None = None
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "start_time": 734.5,
                 "end_time": 764.5,
@@ -164,6 +164,7 @@ class ClipCreate(BaseModel):
                 "notes": "Good hook at the start",
             }
         }
+    }
 
 
 class ClipUpdate(BaseModel):
@@ -227,8 +228,7 @@ class ClipResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 # =============================================================================
