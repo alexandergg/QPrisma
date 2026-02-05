@@ -6,12 +6,15 @@ Tools for the video agent using LangGraph @tool decorator.
 Uses InjectedState for proper context injection from graph state.
 """
 
+import logging
 from typing import Annotated, Any
 
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
 from agent.utils.formatting import format_timestamp, get_timestamp_from_content
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Search Tools
@@ -33,7 +36,10 @@ async def search_video(
     Search for specific moments, topics, objects, or spoken words in the video.
     Returns timestamped results with descriptions.
     """
+    logger.info(f"search_video called with query='{query}', media_id='{media_id}'")
+    
     if not media_id:
+        logger.warning("search_video: No media_id provided via InjectedState")
         return {"error": "No video context available. Please select a video first.", "results": []}
 
     try:

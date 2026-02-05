@@ -485,6 +485,8 @@ class A2AAgentExecutor:
         media_id = message.metadata.get("media_id") if message.metadata else None
         project_id = message.metadata.get("project_id") if message.metadata else None
         
+        logger.info(f"A2A streaming: extracted media_id='{media_id}' from message.metadata={message.metadata}")
+        
         # Convert message
         lc_message = self._a2a_message_to_langchain(message)
         

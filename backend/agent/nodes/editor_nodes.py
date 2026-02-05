@@ -151,7 +151,7 @@ async def call_editor_model(state: AgentState, config: RunnableConfig) -> dict:
         system_message=system_msg,
         max_iterations=MAX_EDITOR_TOOL_ITERATIONS,
         warn_iterations=EDITOR_WARN_TOOL_ITERATIONS,
-        temperature=0.7,
+        temperature=1,
     )
 
 

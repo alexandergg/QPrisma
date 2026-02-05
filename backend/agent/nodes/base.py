@@ -61,7 +61,7 @@ MAX_CONSECUTIVE_ERRORS = 3
 @lru_cache(maxsize=8)
 def create_model(
     model_deployment: str | None = None,
-    temperature: float = 0.7,
+    temperature: float = 1,
     streaming: bool = True,
 ) -> AzureChatOpenAI:
     """
@@ -131,7 +131,7 @@ async def base_call_model(
     system_message: SystemMessage,
     max_iterations: int = DEFAULT_MAX_TOOL_ITERATIONS,
     warn_iterations: int = DEFAULT_WARN_TOOL_ITERATIONS,
-    temperature: float = 0.7,
+    temperature: float = 1,
 ) -> dict:
     """
     Base implementation for calling the LLM.
@@ -166,6 +166,15 @@ async def base_call_model(
     tool_calls_count = state.get("tool_calls_count", 0)
     approaching_limit = tool_calls_count >= warn_iterations
     consecutive_errors = state.get("consecutive_errors", 0)
+    
+    logger.info(
+        "base_call_model: checking tools",
+        tools_provided=len(tools) if tools else 0,
+        tool_names=[t.name for t in tools] if tools else [],
+        tool_calls_count=tool_calls_count,
+        approaching_limit=approaching_limit,
+        consecutive_errors=consecutive_errors,
+    )
 
     # If approaching limit or too many errors, don't bind tools
     should_bind_tools = (

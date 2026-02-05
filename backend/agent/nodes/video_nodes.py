@@ -69,6 +69,8 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
     media_id = state.get("media_id")
     has_video = (video_context and video_context.get("media_id")) or media_id
     
+    logger.info(f"call_model: video_context={video_context}, media_id={media_id}, has_video={has_video}")
+    
     # Get tools - use dynamic binding if enabled
     tools = []
     if has_video:
@@ -85,6 +87,10 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
             tools = select_tools_for_query(user_query, SEARCH_TOOLS, max_tools=8)
         else:
             tools = SEARCH_TOOLS
+        
+        logger.info(f"call_model: selected {len(tools)} tools for query: '{user_query[:50]}...'")
+    else:
+        logger.warning("call_model: NO VIDEO CONTEXT - tools will be empty!")
     
     system_message = get_system_message(state)
     
@@ -95,7 +101,7 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
         system_message=system_message,
         max_iterations=MAX_TOOL_ITERATIONS,
         warn_iterations=WARN_TOOL_ITERATIONS,
-        temperature=0.7,
+        temperature=1,
     )
 
 

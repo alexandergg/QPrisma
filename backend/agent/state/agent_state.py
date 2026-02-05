@@ -13,10 +13,14 @@ Best Practices (LangGraph v1.0+):
 - Multi-tenant security via user_id scoping
 """
 
+import logging
+
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage, ToolMessage, trim_messages
 from langgraph.graph.message import add_messages
+
+logger = logging.getLogger(__name__)
 
 # Token limits for context management
 MAX_CONTEXT_TOKENS = 200000  # Conservative limit below 272k for gpt-5
@@ -244,6 +248,8 @@ def create_agent_state(
     Returns:
         Initial AgentState
     """
+    logger.info(f"create_agent_state: media_id='{media_id}', session_id='{session_id}'")
+    
     video_context: VideoContext | None = None
     if media_id:
         video_context = VideoContext(media_id=media_id)

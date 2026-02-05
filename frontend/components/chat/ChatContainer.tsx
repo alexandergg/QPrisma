@@ -76,7 +76,7 @@ export default function ChatContainer({
 
       for await (const event of apiClient.chatWithAgentStream(
         userMessage.content,
-        mode === 'single' && videoId ? videoId : null,
+        videoId || null,  // Always send videoId when available
         chatHistory,
         sessionId
       )) {
