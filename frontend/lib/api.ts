@@ -769,14 +769,27 @@ export const apiClient = {
     message: string,
     videoId: string | null,
     chatHistory: Array<{ role: string; content: string }>,
-    sessionId?: string
+    sessionId?: string,
+    videoIds?: string[]
   ): AsyncGenerator<StreamEvent> {
-    // Build A2A message
+    // Build A2A message metadata
+    const messageMetadata: Record<string, unknown> = {};
+    if (videoId) {
+      messageMetadata.media_id = videoId;
+    }
+    if (videoIds && videoIds.length > 0) {
+      messageMetadata.media_ids = videoIds;
+      // If no single videoId but we have videoIds, use the first as primary
+      if (!videoId && videoIds.length > 0) {
+        messageMetadata.media_id = videoIds[0];
+      }
+    }
+
     const a2aMessage: A2AMessage = {
       contextId: sessionId,
       role: 'ROLE_USER',
       parts: [{ text: message }],
-      metadata: videoId ? { media_id: videoId } : undefined,
+      metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
     };
 
     // Include chat history in metadata

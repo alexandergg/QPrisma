@@ -10,6 +10,8 @@ import { apiClient } from '@/lib/api';
 interface ChatContainerProps {
   videoId?: string;
   videoName?: string;
+  videoIds?: string[];
+  videoNames?: string[];
   mode?: 'single' | 'library';
   onTimestampClick?: (timestamp: number) => void;
   onUploadVideo?: () => void;
@@ -22,11 +24,15 @@ interface ChatSource {
   type?: string;
   description?: string;
   score?: number;
+  video_id?: string;
+  video_title?: string;
 }
 
 export default function ChatContainer({
   videoId,
   videoName,
+  videoIds,
+  videoNames,
   mode = 'single',
   onTimestampClick,
   onUploadVideo,
@@ -41,7 +47,8 @@ export default function ChatContainer({
   const [sessionId, setSessionId] = useState<string | undefined>();
 
   const hasMessages = messages.length > 0;
-  const hasVideo = mode === 'library' || (mode === 'single' && videoId);
+  const isMultiVideo = videoIds && videoIds.length > 1;
+  const hasVideo = isMultiVideo || mode === 'library' || (mode === 'single' && videoId);
 
   const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -78,7 +85,8 @@ export default function ChatContainer({
         userMessage.content,
         videoId || null,  // Always send videoId when available
         chatHistory,
-        sessionId
+        sessionId,
+        videoIds
       )) {
         switch (event.event) {
           case 'session':
@@ -137,6 +145,8 @@ export default function ChatContainer({
           type: (s.type === 'visual' || s.type === 'audio' || s.type === 'entity') ? s.type : 'visual',
           description: s.description,
           score: s.score,
+          videoId: s.video_id,
+          videoTitle: s.video_title,
         })),
         toolCalls: toolCallsMade > 0 ? toolCallsMade : undefined,
       };
@@ -163,7 +173,7 @@ export default function ChatContainer({
     } finally {
       setIsLoading(false);
     }
-  }, [inputValue, isLoading, messages, videoId, videoName, mode, sessionId]);
+  }, [inputValue, isLoading, messages, videoId, videoName, videoIds, mode, sessionId]);
 
   const handleQuickSuggestion = (suggestion: string) => {
     setInputValue(suggestion);
@@ -203,9 +213,11 @@ export default function ChatContainer({
             isDisabled={!hasVideo && mode === 'single'}
             mode={mode}
             attachedVideos={
-              mode === 'single' && videoId && videoName
-                ? [{ id: videoId, name: videoName }]
-                : []
+              isMultiVideo && videoIds && videoNames
+                ? videoIds.map((id, i) => ({ id, name: videoNames?.[i] || 'Video' }))
+                : mode === 'single' && videoId && videoName
+                  ? [{ id: videoId, name: videoName }]
+                  : []
             }
           />
         </>

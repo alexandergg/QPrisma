@@ -46,6 +46,7 @@ interface VideoData {
 interface SavedConversation {
   id: string;
   videoId?: string;
+  videoIds?: string[];
   title?: string;
 }
 

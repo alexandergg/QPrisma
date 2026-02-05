@@ -9,7 +9,7 @@ import { UploadZone, ProcessingCard } from '@/components/upload';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import RequireAuth from '@/components/RequireAuth';
-import { X, Film, Settings2, ChevronDown } from 'lucide-react';
+import { X, Film, Settings2, ChevronDown, Library, Columns2 } from 'lucide-react';
 
 interface Scene {
   scene_id: number;
@@ -66,13 +66,20 @@ function NewChatContent() {
 
   const [currentMode, setCurrentMode] = useState<'single' | 'library'>('single');
   const [selectedVideo, setSelectedVideo] = useState<VideoData | null>(null);
+  const [selectedVideos, setSelectedVideos] = useState<VideoData[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [showVideoSelector, setShowVideoSelector] = useState(false);
+  const [showMultiVideoSelector, setShowMultiVideoSelector] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
   const [uploadingVideo, setUploadingVideo] = useState<UploadingVideo | null>(null);
   const [uploadPreset, setUploadPreset] = useState<string>('balanced');
   const [uploadMaxFrames, setUploadMaxFrames] = useState(200);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [activeVideoTab, setActiveVideoTab] = useState(0);
+  const [comparisonMode, setComparisonMode] = useState<'tabs' | 'side-by-side'>('tabs');
+  const [showLibraryHelp, setShowLibraryHelp] = useState(true);
+
+  const isMultiVideo = selectedVideos.length > 1;
 
   const loadVideo = useCallback(async (videoId: string) => {
     try {
@@ -114,6 +121,55 @@ function NewChatContent() {
     const videoData = await loadVideo(video.id);
     if (videoData) {
       setSelectedVideo(videoData);
+      setSelectedVideos([videoData]);
+    }
+  };
+
+  const handleMultiVideoSelectionChange = async (ids: string[]) => {
+    // Load all selected videos
+    const videos: VideoData[] = [];
+    for (const id of ids.slice(0, 10)) {
+      // Check if already loaded
+      const existing = selectedVideos.find((v) => v.id === id);
+      if (existing) {
+        videos.push(existing);
+      } else {
+        const videoData = await loadVideo(id);
+        if (videoData) videos.push(videoData);
+      }
+    }
+    setSelectedVideos(videos);
+    if (videos.length === 1) {
+      setSelectedVideo(videos[0]);
+    } else if (videos.length > 1) {
+      setSelectedVideo(videos[0]); // Primary video for the viewer
+    } else {
+      setSelectedVideo(null);
+    }
+  };
+
+  const handleConfirmMultiSelect = () => {
+    setShowMultiVideoSelector(false);
+    if (selectedVideos.length > 1) {
+      setCurrentMode('library');
+    }
+  };
+
+  const handleRemoveVideo = (videoId: string) => {
+    const updated = selectedVideos.filter((v) => v.id !== videoId);
+    setSelectedVideos(updated);
+    if (updated.length !== 2) setComparisonMode('tabs');
+    if (activeVideoTab >= updated.length) {
+      setActiveVideoTab(Math.max(0, updated.length - 1));
+    }
+    if (updated.length === 0) {
+      setSelectedVideo(null);
+      setCurrentMode('single');
+    } else if (updated.length === 1) {
+      setSelectedVideo(updated[0]);
+      setCurrentMode('single');
+    } else {
+      setSelectedVideo(updated[0]);
     }
   };
 
@@ -152,33 +208,98 @@ function NewChatContent() {
       </div>
 
       {/* Main Content */}
-      <div className="relative z-10 flex-1 flex min-w-0">
+      <div className="relative z-10 flex-1 flex flex-col md:flex-row min-w-0">
         {/* Chat Area */}
         <main
           className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${
-            selectedVideo && currentMode === 'single' ? 'w-[60%]' : 'w-full'
+            (selectedVideo && currentMode === 'single') || isMultiVideo ? 'md:w-[60%]' : 'w-full'
           }`}
         >
-          {/* Video Selection Bar (when video is selected) */}
-          {selectedVideo && currentMode === 'single' && (
+          {/* Video Selection Bar */}
+          {(selectedVideo || isMultiVideo) && (
             <div className="flex items-center gap-3 px-4 py-3 bg-white/80 backdrop-blur-sm border-b border-gray-100">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full">
-                <Film className="w-4 h-4" />
-                <span className="text-sm font-medium truncate max-w-[200px]">
-                  {selectedVideo.title}
-                </span>
-                <button
-                  onClick={() => setSelectedVideo(null)}
-                  className="p-0.5 hover:bg-indigo-100 rounded-full"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+              {isMultiVideo ? (
+                <>
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full">
+                    <Library className="w-4 h-4" />
+                    <span className="text-sm font-medium">
+                      {selectedVideos.length} videos selected
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 overflow-x-auto max-w-[40%] md:max-w-[60%]">
+                    {selectedVideos.map((v) => (
+                      <div
+                        key={v.id}
+                        className="flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs whitespace-nowrap"
+                      >
+                        <Film className="w-3 h-3" />
+                        <span className="max-w-[120px] truncate">{v.title}</span>
+                        <button
+                          onClick={() => handleRemoveVideo(v.id)}
+                          className="p-0.5 hover:bg-indigo-100 rounded-full"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setShowMultiVideoSelector(true)}
+                    className="text-sm text-gray-500 hover:text-purple-600"
+                  >
+                    Edit selection
+                  </button>
+                </>
+              ) : selectedVideo && currentMode === 'single' ? (
+                <>
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full">
+                    <Film className="w-4 h-4" />
+                    <span className="text-sm font-medium truncate max-w-[200px]">
+                      {selectedVideo.title}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setSelectedVideo(null);
+                        setSelectedVideos([]);
+                      }}
+                      className="p-0.5 hover:bg-indigo-100 rounded-full"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setShowVideoSelector(true)}
+                    className="text-sm text-gray-500 hover:text-indigo-600"
+                  >
+                    Change video
+                  </button>
+                  <button
+                    onClick={() => setShowMultiVideoSelector(true)}
+                    className="text-sm text-gray-500 hover:text-purple-600 ml-1"
+                  >
+                    + Add more videos
+                  </button>
+                </>
+              ) : null}
+            </div>
+          )}
+
+          {/* Library Mode Help */}
+          {isMultiVideo && showLibraryHelp && (
+            <div className="flex items-start gap-3 mx-4 mt-2 px-4 py-3 bg-purple-50/80 border border-purple-100 rounded-xl text-sm text-purple-800">
+              <span className="text-purple-500 mt-0.5">💡</span>
+              <div className="flex-1">
+                <p className="font-medium">Library Mode</p>
+                <p className="text-purple-600 mt-0.5">
+                  Ask questions across all selected videos. Try &quot;Compare the topics in these videos&quot;,
+                  &quot;What do these videos have in common?&quot;, or &quot;Search for [topic] across all videos&quot;.
+                </p>
               </div>
               <button
-                onClick={() => setShowVideoSelector(true)}
-                className="text-sm text-gray-500 hover:text-indigo-600"
+                onClick={() => setShowLibraryHelp(false)}
+                className="p-1 hover:bg-purple-100 rounded-lg text-purple-400 hover:text-purple-600 flex-shrink-0"
               >
-                Change video
+                <X className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -187,7 +308,9 @@ function NewChatContent() {
             <ChatContainer
               videoId={selectedVideo?.id}
               videoName={selectedVideo?.title}
-              mode={currentMode}
+              videoIds={isMultiVideo ? selectedVideos.map((v) => v.id) : undefined}
+              videoNames={isMultiVideo ? selectedVideos.map((v) => v.title || 'Video') : undefined}
+              mode={isMultiVideo ? 'library' : currentMode}
               onTimestampClick={handleTimestampClick}
               onUploadVideo={() => setShowUploader(true)}
               onBrowseLibrary={() => setShowVideoSelector(true)}
@@ -197,7 +320,7 @@ function NewChatContent() {
 
         {/* Video Panel (Single Video Mode) */}
         {selectedVideo && currentMode === 'single' && (
-          <div className="w-[40%] min-w-[400px] max-w-[600px] flex-shrink-0 h-screen">
+          <div className="w-full md:w-[40%] md:min-w-[400px] md:max-w-[600px] flex-shrink-0 h-[40vh] md:h-screen">
             <VideoPanel
               videoUrl={selectedVideo.url}
               videoTitle={selectedVideo.title}
@@ -213,9 +336,87 @@ function NewChatContent() {
             />
           </div>
         )}
+
+        {/* Multi-Video Panel (Library Mode) */}
+        {isMultiVideo && (
+          <div className="w-full md:w-[40%] md:min-w-[400px] md:max-w-[600px] flex-shrink-0 h-[40vh] md:h-screen flex flex-col">
+            {/* Video Tabs */}
+            <div className="flex border-b border-gray-200 bg-white overflow-x-auto">
+              {selectedVideos.map((v, idx) => (
+                <button
+                  key={v.id}
+                  onClick={() => {
+                    setActiveVideoTab(idx);
+                    setSelectedVideo(v);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm whitespace-nowrap border-b-2 transition-colors ${
+                    activeVideoTab === idx
+                      ? 'border-purple-500 text-purple-700 bg-purple-50/50'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <Film className="w-3.5 h-3.5" />
+                  <span className="max-w-[100px] truncate">{v.title}</span>
+                </button>
+              ))}
+              {selectedVideos.length === 2 && (
+                <button
+                  onClick={() => setComparisonMode(comparisonMode === 'tabs' ? 'side-by-side' : 'tabs')}
+                  className={`ml-auto flex items-center gap-1.5 px-3 py-2 text-xs whitespace-nowrap border-b-2 transition-colors ${
+                    comparisonMode === 'side-by-side'
+                      ? 'border-purple-500 text-purple-700 bg-purple-50/50'
+                      : 'border-transparent text-gray-400 hover:text-gray-600'
+                  }`}
+                  title="Toggle side-by-side view"
+                >
+                  <Columns2 className="w-3.5 h-3.5" />
+                  <span>Compare</span>
+                </button>
+              )}
+            </div>
+            {/* Video Content */}
+            {comparisonMode === 'side-by-side' && selectedVideos.length === 2 ? (
+              <div className="flex-1 min-h-0 flex flex-col">
+                {selectedVideos.map((v, idx) => (
+                  <div key={v.id} className="flex-1 min-h-0 border-b border-gray-200 last:border-b-0">
+                    <VideoPanel
+                      videoUrl={v.url}
+                      videoTitle={v.title}
+                      duration={v.duration}
+                      scenes={v.scenes}
+                      chapters={v.chapters}
+                      transcript={v.transcript}
+                      currentTime={currentTime}
+                      onTimeUpdate={setCurrentTime}
+                      onSeek={setCurrentTime}
+                      isVisible={true}
+                      onClose={() => handleRemoveVideo(v.id)}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : selectedVideos[activeVideoTab] ? (
+              <div className="flex-1 min-h-0">
+                <VideoPanel
+                  videoUrl={selectedVideos[activeVideoTab].url}
+                  videoTitle={selectedVideos[activeVideoTab].title}
+                  duration={selectedVideos[activeVideoTab].duration}
+                  scenes={selectedVideos[activeVideoTab].scenes}
+                  chapters={selectedVideos[activeVideoTab].chapters}
+                  transcript={selectedVideos[activeVideoTab].transcript}
+                  currentTime={currentTime}
+                  onTimeUpdate={setCurrentTime}
+                  onSeek={setCurrentTime}
+                  isVisible={true}
+                  onClose={() => handleRemoveVideo(selectedVideos[activeVideoTab].id)}
+                />
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
 
-      {/* Video Selector Modal */}
+      {/* Video Selector Modal (single) */}
       {showVideoSelector && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden">
@@ -233,6 +434,49 @@ function NewChatContent() {
                 onSelectVideo={handleSelectVideoFromLibrary}
                 selectedVideoId={selectedVideo?.id}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-Video Selector Modal */}
+      {showMultiVideoSelector && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">Select Multiple Videos</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Select up to 10 videos to chat across them. {selectedVideos.length > 0 && `(${selectedVideos.length} selected)`}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowMultiVideoSelector(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="h-[50vh]">
+              <VideoGrid
+                selectionMode="multiple"
+                selectedVideoIds={selectedVideos.map((v) => v.id)}
+                onSelectionChange={handleMultiVideoSelectionChange}
+              />
+            </div>
+            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50">
+              <span className="text-sm text-gray-600">
+                {selectedVideos.length === 0
+                  ? 'No videos selected'
+                  : `${selectedVideos.length} video${selectedVideos.length !== 1 ? 's' : ''} selected`}
+              </span>
+              <button
+                onClick={handleConfirmMultiSelect}
+                disabled={selectedVideos.length === 0}
+                className="px-6 py-2 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 disabled:opacity-50 text-white rounded-xl font-semibold transition-all shadow-lg shadow-purple-500/30"
+              >
+                {selectedVideos.length > 1 ? `Chat with ${selectedVideos.length} Videos` : 'Confirm Selection'}
+              </button>
             </div>
           </div>
         </div>

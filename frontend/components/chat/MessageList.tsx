@@ -15,6 +15,8 @@ export interface ChatMessageSource {
   type: 'visual' | 'audio' | 'entity';
   description?: string;
   score?: number;
+  videoId?: string;
+  videoTitle?: string;
 }
 
 export interface ChatMessageData {
@@ -190,6 +192,7 @@ function MessageBubble({
                         key={index}
                         timestamp={source.timestamp}
                         type={source.type}
+                        label={source.videoTitle || undefined}
                         onClick={() => onTimestampClick?.(source.timestamp)}
                       />
                     ))}
