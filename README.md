@@ -102,6 +102,7 @@ graph TD
 *   **🧠 Semantic Search & RAG**: Vector-based retrieval allows users to search for concepts ("show me safety violations") rather than just keywords.
 *   **🕸️ Knowledge Graph Integration**: Maps entities and relationships within videos using Neo4j to understand context and connections.
 *   **💬 Conversational Interface**: Chat with your media library using natural language to extract summaries, insights, and specific timestamps.
+*   **🎥 Multi-Video Chat**: Select 2-10 videos and ask questions across all of them simultaneously. Compare videos, find common themes, and search your entire collection.
 *   **⚡ Real-time Processing**: WebSocket-enabled status updates provide immediate feedback on long-running ingestion tasks.
 *   **💰 Cost Optimization**: Integrated support for Azure OpenAI Batch API to reduce processing costs by up to 50% for non-urgent workloads.
 

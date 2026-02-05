@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-02-05
+
+### Added
+- **Multi-Video Chat**: Users can now select 2-10 videos from their library and ask questions across all of them simultaneously.
+  - `ChatRequest` and `AgentChatRequest` now accept `media_ids: list[str] | None` alongside existing `media_id`.
+  - Both fields can be provided; they are merged, deduplicated, and capped at 10 videos.
+  - New cross-video agent tools: `search_across_videos`, `compare_videos`, `find_common_entities`, `get_library_overview`.
+  - `GraphSearchService.hybrid_search()` now accepts `video_ids: list[str]` for multi-video queries.
+  - `KnowledgeGraphService` added methods: `find_common_entities()`, `get_video_topics()`.
+  - Frontend video selection bar with chips and remove buttons.
+  - Tabbed video viewer panel for switching between selected videos.
+  - Source citations now show video titles when from cross-video results.
+
 ## [0.14.0] - 2026-02-04
 
 ### Added

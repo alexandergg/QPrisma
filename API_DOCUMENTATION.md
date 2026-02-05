@@ -608,6 +608,8 @@ Content-Type: application/json
 ```
 
 #### Chat with Media - A2A Protocol
+
+**Single Video Chat:**
 ```http
 POST /a2a/message:stream
 Content-Type: application/json
@@ -622,14 +624,39 @@ Content-Type: application/json
 }
 ```
 
+**Multi-Video Chat (2-10 videos):**
+```http
+POST /a2a/message:stream
+Content-Type: application/json
+
+{
+  "message": {
+    "contextId": "chat-session-uuid",
+    "role": "ROLE_USER",
+    "parts": [{"text": "Which videos contain safety violations?"}],
+    "metadata": {"media_ids": ["uuid1", "uuid2", "uuid3"]}
+  }
+}
+```
+
+> **Note**: Both `media_id` and `media_ids` can be provided simultaneously. They will be merged, deduplicated, and capped at 10 videos maximum.
+
 **Response (Streaming A2A Format):**
 ```
 data: {"task":{"id":"task-uuid","contextId":"chat-session-uuid","status":{"state":"TASK_STATE_SUBMITTED"}}}
 data: {"statusUpdate":{"taskId":"task-uuid","status":{"state":"TASK_STATE_WORKING"}}}
 data: {"artifactUpdate":{"taskId":"task-uuid","artifact":{"parts":[{"text":"I found several safety issues:"}]},"append":true}}
-data: {"artifactUpdate":{"taskId":"task-uuid","artifact":{"parts":[{"data":{"sources":[{"timestamp":45.2,"type":"visual"}]}}]}}}
+data: {"artifactUpdate":{"taskId":"task-uuid","artifact":{"parts":[{"data":{"sources":[{"timestamp":45.2,"type":"visual","video_id":"uuid1"}]}}]}}}
 data: {"statusUpdate":{"taskId":"task-uuid","status":{"state":"TASK_STATE_COMPLETED"}}}
 ```
+
+**Multi-Video Tools:**
+
+When using `media_ids`, the agent has access to specialized cross-video tools:
+- `search_across_videos`: Search for content across all selected videos
+- `compare_videos`: Compare specific aspects between videos
+- `find_common_entities`: Find entities that appear in multiple videos
+- `get_library_overview`: Get high-level overview of video collection
 
 ### Knowledge Graph
 
@@ -641,6 +668,18 @@ Content-Type: application/json
 {
   "query": "find all scenes with people and machinery",
   "video_id": "uuid",
+  "depth": 2
+}
+```
+
+**Multi-Video Graph Search:**
+```http
+POST /graph/search
+Content-Type: application/json
+
+{
+  "query": "find common entities across videos",
+  "video_ids": ["uuid1", "uuid2", "uuid3"],
   "depth": 2
 }
 ```
