@@ -314,6 +314,7 @@ class GraphSearchService:
         node_type: NodeType,
         limit: int = 20,
         video_id: str | None = None,
+        video_ids: list[str] | None = None,
         min_score: float = 0.5,
     ) -> list[ScoredNode]:
         """
@@ -323,7 +324,8 @@ class GraphSearchService:
             query_embedding: Embedding de la query
             node_type: Tipo de nodo a buscar
             limit: Máximo de resultados
-            video_id: Filtrar por video
+            video_id: Filtrar por un video
+            video_ids: Filtrar por múltiples videos
             min_score: Score mínimo
 
         Returns:
@@ -333,7 +335,26 @@ class GraphSearchService:
         index_name = f"{label.lower()}_embedding"
 
         # Query usando el índice vectorial de Neo4j
-        if video_id:
+        if video_ids:
+            query = """
+                CALL db.index.vector.queryNodes(
+                    $index_name, $limit * 2, $embedding
+                )
+                YIELD node, score
+                WHERE node.video_id IN $video_ids
+                    AND score >= $min_score
+                RETURN node, score
+                ORDER BY score DESC
+                LIMIT $limit
+            """
+            params = {
+                "index_name": index_name,
+                "embedding": query_embedding,
+                "limit": limit,
+                "video_ids": video_ids,
+                "min_score": min_score,
+            }
+        elif video_id:
             query = """
                 CALL db.index.vector.queryNodes($index_name, $limit * 2, $embedding)
                 YIELD node, score
@@ -390,7 +411,8 @@ class GraphSearchService:
             logger.warning(f"Vector search failed (index may not exist): {e}")
             # Fallback a búsqueda manual si el índice no existe
             results = self._fallback_vector_search(
-                query_embedding, node_type, limit, video_id, min_score
+                query_embedding, node_type, limit,
+                video_id, min_score, video_ids
             )
 
         return results
@@ -402,6 +424,7 @@ class GraphSearchService:
         limit: int,
         video_id: str | None,
         min_score: float,
+        video_ids: list[str] | None = None,
     ) -> list[ScoredNode]:
         """
         Búsqueda vectorial manual cuando el índice no está disponible.
@@ -409,7 +432,15 @@ class GraphSearchService:
         """
         label = node_type.value
 
-        if video_id:
+        if video_ids:
+            query = f"""
+                MATCH (n:{label})
+                WHERE n.video_id IN $video_ids
+                    AND n.embedding IS NOT NULL
+                RETURN n
+            """
+            params: dict = {"video_ids": video_ids}
+        elif video_id:
             query = f"""
                 MATCH (n:{label})
                 WHERE n.video_id = $video_id AND n.embedding IS NOT NULL
@@ -463,6 +494,7 @@ class GraphSearchService:
         query_text: str,
         node_types: list[NodeType] | None = None,
         video_id: str | None = None,
+        video_ids: list[str] | None = None,
         time_range: tuple[float, float] | None = None,
         limit: int = 20,
         expansion_hops: int = 2,
@@ -474,7 +506,8 @@ class GraphSearchService:
         Args:
             query_text: Texto de búsqueda
             node_types: Tipos de nodos a buscar (default: Frame, Entity)
-            video_id: Filtrar por video
+            video_id: Filtrar por un video
+            video_ids: Filtrar por múltiples videos (IN clause)
             time_range: Rango temporal (start, end) en segundos
             limit: Máximo de resultados
             expansion_hops: Hops para expansión de contexto
@@ -484,6 +517,13 @@ class GraphSearchService:
             GraphSearchResponse con resultados ordenados
         """
         start_time = datetime.utcnow()
+
+        # Resolve video_id vs video_ids
+        effective_video_id = video_id
+        effective_video_ids = video_ids
+        if video_ids and len(video_ids) == 1:
+            effective_video_id = video_ids[0]
+            effective_video_ids = None
 
         if node_types is None:
             node_types = [NodeType.FRAME, NodeType.ENTITY, NodeType.AUDIO_SEGMENT]
@@ -501,8 +541,9 @@ class GraphSearchService:
             vector_results = self.vector_search(
                 query_embedding=query_embedding,
                 node_type=node_type,
-                limit=limit * 2,  # Obtener más para re-ranking
-                video_id=video_id,
+                limit=limit * 2,
+                video_id=effective_video_id,
+                video_ids=effective_video_ids,
                 min_score=0.3,
             )
             all_candidates.extend(vector_results)
@@ -512,11 +553,17 @@ class GraphSearchService:
                 query_text=query_text,
                 node_type=node_type,
                 limit=limit,
-                video_id=video_id,
+                video_id=effective_video_id,
+                video_ids=effective_video_ids,
             )
 
-            # Merge full-text scores con candidatos existentes y añadir nuevos
-            self._merge_fulltext_scores(all_candidates, fulltext_results, node_type, video_id)
+            # Merge full-text scores
+            vid = effective_video_id or (
+                effective_video_ids[0] if effective_video_ids else None
+            )
+            self._merge_fulltext_scores(
+                all_candidates, fulltext_results, node_type, vid
+            )
 
         vector_search_time = (datetime.utcnow() - vector_start).total_seconds() * 1000
 
@@ -585,6 +632,7 @@ class GraphSearchService:
         node_type: NodeType,
         limit: int,
         video_id: str | None,
+        video_ids: list[str] | None = None,
     ) -> list[tuple[str, float]]:
         """Búsqueda full-text y retorna [(node_id, score)]."""
         label = node_type.value
@@ -599,8 +647,24 @@ class GraphSearchService:
             return []
 
         try:
-            # Filter by video_id if provided
-            if video_id:
+            if video_ids:
+                query = f"""
+                    CALL db.index.fulltext.queryNodes(
+                        $index_name, $query_text
+                    )
+                    YIELD node, score
+                    WHERE node:{label}
+                        AND node.video_id IN $video_ids
+                    RETURN node.id as id, score
+                    LIMIT $limit
+                """
+                params: dict = {
+                    "index_name": index_name,
+                    "query_text": query_text,
+                    "video_ids": video_ids,
+                    "limit": limit,
+                }
+            elif video_id:
                 query = f"""
                     CALL db.index.fulltext.queryNodes($index_name, $query_text)
                     YIELD node, score

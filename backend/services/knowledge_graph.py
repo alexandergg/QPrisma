@@ -1033,6 +1033,68 @@ class KnowledgeGraphService:
         ]
 
     # =========================================================================
+    # Cross-Video Queries
+    # =========================================================================
+
+    def find_common_entities(
+        self,
+        video_ids: list[str],
+        entity_type: str | None = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Find entities that appear in multiple videos."""
+        type_filter = ""
+        if entity_type and entity_type != "any":
+            type_filter = "AND e.entity_type = $entity_type"
+
+        cypher = f"""
+        MATCH (f:Frame)-[:CONTAINS]->(e:Entity)
+        WHERE f.video_id IN $video_ids {type_filter}
+        WITH e.name AS name, e.entity_type AS etype,
+             collect(DISTINCT f.video_id) AS videos,
+             count(DISTINCT f) AS total_appearances
+        WHERE size(videos) >= 2
+        RETURN name, etype, videos, total_appearances
+        ORDER BY size(videos) DESC, total_appearances DESC
+        LIMIT $limit
+        """
+
+        params: dict = {"video_ids": video_ids, "limit": limit}
+        if entity_type and entity_type != "any":
+            params["entity_type"] = entity_type
+
+        with self.get_session() as session:
+            result = session.run(cypher, **params)
+            return [
+                {
+                    "name": r["name"],
+                    "entity_type": r["etype"],
+                    "shared_across": r["videos"],
+                    "total_appearances": r["total_appearances"],
+                }
+                for r in result
+            ]
+
+    def get_video_topics(
+        self,
+        video_ids: list[str],
+    ) -> list[dict]:
+        """Get topics and summaries for multiple videos."""
+        cypher = """
+        MATCH (v:Video)
+        WHERE v.video_id IN $video_ids
+        RETURN v.video_id AS video_id,
+               v.title AS title,
+               v.summary AS summary,
+               v.topics AS topics,
+               v.duration AS duration
+        """
+
+        with self.get_session() as session:
+            result = session.run(cypher, video_ids=video_ids)
+            return [dict(r) for r in result]
+
+    # =========================================================================
     # Statistics
     # =========================================================================
 
