@@ -158,6 +158,42 @@ def extract_metadata_from_tool_result(
             "relevance": e.get("relevance", 0),
         })
 
+    # Extract from cross-video results (search_across_videos)
+    for vr in tool_result.get("results_by_video", []):
+        vid = vr.get("video_id", "")
+        vtitle = vr.get("video_title", "")
+        for m in vr.get("matches", []):
+            if isinstance(m, dict) and "timestamp" in m:
+                sources.append({
+                    "timestamp": m.get("timestamp", 0),
+                    "timestamp_formatted": m.get(
+                        "timestamp_formatted", ""
+                    ),
+                    "type": m.get("type", "visual"),
+                    "description": m.get("content", "")[:150],
+                    "score": m.get("score", 0),
+                    "video_id": vid,
+                    "video_title": vtitle,
+                })
+
+    # Extract from cross-video comparison (compare_videos)
+    for cv in tool_result.get("comparison", []):
+        vid = cv.get("video_id", "")
+        vtitle = cv.get("video_title", "")
+        for m in cv.get("relevant_moments", []):
+            if isinstance(m, dict) and "timestamp" in m:
+                sources.append({
+                    "timestamp": m.get("timestamp", 0),
+                    "timestamp_formatted": m.get(
+                        "timestamp_formatted", ""
+                    ),
+                    "type": "visual",
+                    "description": m.get("content", "")[:150],
+                    "score": m.get("score", 0),
+                    "video_id": vid,
+                    "video_title": vtitle,
+                })
+
     return {
         "sources": sources,
         "navigation_actions": navigation_actions,
@@ -412,13 +448,14 @@ class VideoAgentGraph:
         return messages
 
     def _build_config(
-        self, media_id: str | None, session_id: str | None
+        self, media_id: str | None, session_id: str | None, media_ids: list[str] | None = None,
     ) -> RunnableConfig:
         """Build RunnableConfig for graph invocation."""
         return RunnableConfig(
             configurable={
                 "thread_id": session_id or "default",
                 "media_id": media_id,
+                "media_ids": media_ids,
                 "model_deployment": self.model_deployment,
             }
         )
@@ -427,6 +464,7 @@ class VideoAgentGraph:
         self,
         message: str,
         media_id: str | None = None,
+        media_ids: list[str] | None = None,
         chat_history: list[dict] | None = None,
         user_id: str | None = None,
         session_id: str | None = None,
@@ -441,12 +479,16 @@ class VideoAgentGraph:
         state = create_agent_state(
             messages=messages,
             media_id=media_id,
+            media_ids=media_ids,
             user_id=user_id,
             session_id=session_id,
         )
-        config = self._build_config(media_id, session_id)
+        config = self._build_config(media_id, session_id, media_ids)
 
-        logger.info(f"Agent starting - media_id={media_id}, message={message[:50]}...")
+        logger.info(
+            f"Agent starting - media_id={media_id}, "
+            f"media_ids={media_ids}, msg={message[:50]}..."
+        )
 
         try:
             result = await self.graph.ainvoke(state, config)
@@ -484,6 +526,7 @@ class VideoAgentGraph:
         self,
         message: str,
         media_id: str | None = None,
+        media_ids: list[str] | None = None,
         chat_history: list[dict] | None = None,
         user_id: str | None = None,
         session_id: str | None = None,
@@ -504,12 +547,13 @@ class VideoAgentGraph:
         state = create_agent_state(
             messages=messages,
             media_id=media_id,
+            media_ids=media_ids,
             user_id=user_id,
             session_id=session_id,
         )
-        config = self._build_config(media_id, session_id)
+        config = self._build_config(media_id, session_id, media_ids)
 
-        logger.info(f"Agent stream starting - media_id={media_id}")
+        logger.info(f"Agent stream starting - media_id={media_id}, media_ids={media_ids}")
 
         sources = []
         navigation_actions = []

@@ -8,6 +8,7 @@ All tools use the @tool decorator and InjectedState for context.
 
 from .general import (
     SEARCH_TOOLS,
+    MULTI_VIDEO_TOOLS,
     search_video,
     find_entity,
     get_transcript,
@@ -21,6 +22,9 @@ from .general import (
     compare_moments,
     find_highlights,
     search_across_videos,
+    compare_videos,
+    find_common_entities,
+    get_library_overview,
 )
 from .editor import (
     EDITOR_TOOLS,
@@ -44,6 +48,7 @@ from .editor import (
 __all__ = [
     # Tool collections
     "SEARCH_TOOLS",
+    "MULTI_VIDEO_TOOLS",
     "EDITOR_TOOLS",
     # Search tools
     "search_video",
@@ -59,6 +64,9 @@ __all__ = [
     "compare_moments",
     "find_highlights",
     "search_across_videos",
+    "compare_videos",
+    "find_common_entities",
+    "get_library_overview",
     # Editor tools
     "create_clip",
     "modify_clip",

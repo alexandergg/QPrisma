@@ -20,7 +20,7 @@ from agent.nodes.base import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_WARN_TOOL_ITERATIONS,
 )
-from agent.prompts import NO_VIDEO_CONTEXT_PROMPT, SYSTEM_PROMPT
+from agent.prompts import MULTI_VIDEO_SYSTEM_PROMPT, NO_VIDEO_CONTEXT_PROMPT, SYSTEM_PROMPT
 from agent.state.agent_state import AgentState
 from agent.tools import SEARCH_TOOLS
 
@@ -34,12 +34,17 @@ def get_system_message(state: AgentState) -> SystemMessage:
     """Build system message based on video context and conversation history."""
     video_context = state.get("video_context")
     media_id = state.get("media_id")
+    media_ids = state.get("media_ids")
     conversation_context = state.get("conversation_context", [])
 
-    # Check if we have video context (either from video_context dict or media_id field)
-    has_video = (video_context and video_context.get("media_id")) or media_id
+    # Determine mode: multi-video, single-video, or no video
+    is_multi_video = media_ids and len(media_ids) > 1
+    has_video = is_multi_video or (video_context and video_context.get("media_id")) or media_id
 
-    if has_video:
+    if is_multi_video:
+        content = MULTI_VIDEO_SYSTEM_PROMPT
+        content += f"\n\n**Selected Videos:** {len(media_ids)} videos in context"
+    elif has_video:
         content = SYSTEM_PROMPT
         if video_context and video_context.get("title"):
             content += f"\n\n**Current Video:** {video_context.get('title')}"
@@ -47,12 +52,12 @@ def get_system_message(state: AgentState) -> SystemMessage:
             from agent.utils.formatting import format_timestamp as fmt_ts
             duration = video_context.get("duration")
             content += f" (Duration: {fmt_ts(duration)})"
-        
-        # Add conversation context for memory
-        if conversation_context:
-            content += f"\n\n**Previous Topics Discussed:** {', '.join(conversation_context[-5:])}"
     else:
         content = NO_VIDEO_CONTEXT_PROMPT
+
+    # Add conversation context for memory
+    if conversation_context:
+        content += f"\n\n**Previous Topics Discussed:** {', '.join(conversation_context[-5:])}"
 
     return SystemMessage(content=content)
 
@@ -67,9 +72,14 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
     """
     video_context = state.get("video_context")
     media_id = state.get("media_id")
-    has_video = (video_context and video_context.get("media_id")) or media_id
+    media_ids = state.get("media_ids")
+    is_multi_video = media_ids and len(media_ids) > 1
+    has_video = is_multi_video or (video_context and video_context.get("media_id")) or media_id
     
-    logger.info(f"call_model: video_context={video_context}, media_id={media_id}, has_video={has_video}")
+    logger.info(
+        f"call_model: media_id={media_id}, "
+        f"media_ids={media_ids}, has_video={has_video}"
+    )
     
     # Get tools - use dynamic binding if enabled
     tools = []
