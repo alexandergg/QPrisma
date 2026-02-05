@@ -354,9 +354,11 @@ class A2AAgentExecutor:
         
         # Extract metadata from message
         media_id = None
+        media_ids = None
         project_id = None
         if message.metadata:
             media_id = message.metadata.get("media_id")
+            media_ids = message.metadata.get("media_ids")
             project_id = message.metadata.get("project_id")
         
         # Convert message to LangChain format
@@ -366,6 +368,7 @@ class A2AAgentExecutor:
         state = create_agent_state(
             messages=[lc_message],
             media_id=media_id,
+            media_ids=media_ids,
             session_id=task.contextId,
         )
         
@@ -376,6 +379,7 @@ class A2AAgentExecutor:
             configurable={
                 "thread_id": task.contextId,
                 "media_id": media_id,
+                "media_ids": media_ids,
                 "project_id": project_id,
                 "model_deployment": self.model_deployment,
             }
@@ -483,9 +487,13 @@ class A2AAgentExecutor:
         
         # Extract metadata
         media_id = message.metadata.get("media_id") if message.metadata else None
+        media_ids = message.metadata.get("media_ids") if message.metadata else None
         project_id = message.metadata.get("project_id") if message.metadata else None
         
-        logger.info(f"A2A streaming: extracted media_id='{media_id}' from message.metadata={message.metadata}")
+        logger.info(
+            f"A2A streaming: media_id='{media_id}', "
+            f"media_ids={media_ids}"
+        )
         
         # Convert message
         lc_message = self._a2a_message_to_langchain(message)
@@ -494,6 +502,7 @@ class A2AAgentExecutor:
         state = create_agent_state(
             messages=[lc_message],
             media_id=media_id,
+            media_ids=media_ids,
             session_id=task.contextId,
         )
         
@@ -503,6 +512,7 @@ class A2AAgentExecutor:
             configurable={
                 "thread_id": task.contextId,
                 "media_id": media_id,
+                "media_ids": media_ids,
                 "project_id": project_id,
                 "model_deployment": self.model_deployment,
             }

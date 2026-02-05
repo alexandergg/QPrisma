@@ -109,7 +109,24 @@ class ChatRequest(BaseModel):
 
     message: str
     media_id: str | None = None
+    media_ids: list[str] | None = Field(default=None, max_length=10)
     chat_history: list[ChatHistoryMessage] | None = None
+
+    def get_effective_media_ids(self) -> list[str]:
+        """Merge media_id and media_ids into a deduplicated list."""
+        ids: list[str] = []
+        if self.media_id:
+            ids.append(self.media_id)
+        if self.media_ids:
+            ids.extend(self.media_ids)
+        # Deduplicate preserving order
+        seen: set[str] = set()
+        result: list[str] = []
+        for mid in ids:
+            if mid not in seen:
+                seen.add(mid)
+                result.append(mid)
+        return result[:10]
 
 
 class ChatResponse(BaseModel):
@@ -149,12 +166,28 @@ class AgentChatRequest(BaseModel):
 
     message: str
     media_id: str | None = None
+    media_ids: list[str] | None = Field(default=None, max_length=10)
     chat_history: list[ChatHistoryMessage] | None = None
     session_id: str | None = None
     output_format: Literal["markdown", "json", "structured"] = Field(
         default="markdown",
         description="Response format: 'markdown' (default), 'json', or 'structured'"
     )
+
+    def get_effective_media_ids(self) -> list[str]:
+        """Merge media_id and media_ids into a deduplicated list."""
+        ids: list[str] = []
+        if self.media_id:
+            ids.append(self.media_id)
+        if self.media_ids:
+            ids.extend(self.media_ids)
+        seen: set[str] = set()
+        result: list[str] = []
+        for mid in ids:
+            if mid not in seen:
+                seen.add(mid)
+                result.append(mid)
+        return result[:10]
 
 
 class VideoSource(BaseModel):
@@ -167,6 +200,8 @@ class VideoSource(BaseModel):
     score: float = 0.0
     thumbnail_url: str | None = None
     frame_id: str | None = None
+    media_id: str | None = None
+    video_title: str | None = None
 
 
 class NavigationAction(BaseModel):

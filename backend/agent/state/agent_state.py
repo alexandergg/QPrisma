@@ -133,6 +133,9 @@ class AgentState(TypedDict, total=False):
     # Media ID - top-level for easy InjectedState access by tools
     media_id: str | None
 
+    # Multiple media IDs for cross-video analysis
+    media_ids: list[str] | None
+
     # Video context (for VideoAgent)
     video_context: VideoContext | None
 
@@ -171,6 +174,7 @@ class AgentInputState(TypedDict, total=False):
     """
     messages: Annotated[list[AnyMessage], add_messages]
     media_id: str | None
+    media_ids: list[str] | None
     video_context: VideoContext | None
     project_context: ProjectContext | None
     project_id: str | None
@@ -229,6 +233,7 @@ class EntityMention(TypedDict, total=False):
 def create_agent_state(
     messages: list[AnyMessage],
     media_id: str | None = None,
+    media_ids: list[str] | None = None,
     project_id: str | None = None,
     project_context: ProjectContext | None = None,
     user_id: str | None = None,
@@ -239,7 +244,8 @@ def create_agent_state(
 
     Args:
         messages: Initial messages (including user message)
-        media_id: Optional video ID for context
+        media_id: Optional video ID for context (single-video mode)
+        media_ids: Optional list of video IDs for cross-video analysis
         project_id: Optional project ID for editor
         project_context: Optional project context
         user_id: User identifier
@@ -248,15 +254,37 @@ def create_agent_state(
     Returns:
         Initial AgentState
     """
-    logger.info(f"create_agent_state: media_id='{media_id}', session_id='{session_id}'")
+    # Merge media_id and media_ids into a single deduplicated list
+    effective_ids: list[str] = []
+    if media_id:
+        effective_ids.append(media_id)
+    if media_ids:
+        effective_ids.extend(media_ids)
+    # Deduplicate preserving order
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for mid in effective_ids:
+        if mid not in seen:
+            seen.add(mid)
+            deduped.append(mid)
+    effective_ids = deduped[:10]
+
+    # For backward compatibility, media_id is the first ID (or None)
+    primary_media_id = effective_ids[0] if effective_ids else None
+
+    logger.info(
+        f"create_agent_state: media_id='{primary_media_id}', "
+        f"media_ids={effective_ids}, session_id='{session_id}'"
+    )
     
     video_context: VideoContext | None = None
-    if media_id:
-        video_context = VideoContext(media_id=media_id)
+    if primary_media_id:
+        video_context = VideoContext(media_id=primary_media_id)
 
     return AgentState(
         messages=messages,
-        media_id=media_id,
+        media_id=primary_media_id,
+        media_ids=effective_ids if len(effective_ids) > 1 else None,
         video_context=video_context,
         project_context=project_context,
         project_id=project_id,

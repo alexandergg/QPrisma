@@ -353,6 +353,7 @@ async def agent_chat(
         result = await agent.run(
             message=request.message,
             media_id=request.media_id,
+            media_ids=request.get_effective_media_ids() or None,
             chat_history=request.chat_history,
             user_id=str(current_user.id) if current_user else None,
             session_id=session_id,
