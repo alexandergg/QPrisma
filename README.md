@@ -217,6 +217,12 @@ Ensure you have the following Azure resources provisioned:
 qprisma/
 ├── backend/                # FastAPI Application
 │   ├── api/               # Routes and Controllers
+│   ├── agent/             # LangGraph Agent System
+│   │   ├── graphs/        # StateGraph definitions (video, editor)
+│   │   ├── nodes/         # Graph node implementations
+│   │   ├── state/         # State definitions with reducers
+│   │   ├── tools/         # @tool implementations
+│   │   └── utils/         # Helper functions
 │   ├── services/          # Core Business Logic (AI, Processing)
 │   ├── models/            # Data Models (Pydantic, SQLModel)
 │   └── tasks/             # Async Workers (Celery)
@@ -322,23 +328,6 @@ docker-compose logs -f postgres
 - Process videos in smaller batches
 - Enable caching with Redis
 - Consider using storage tiering for large files
-
-## Project Structure
-
-```bash
-qprisma/
-├── backend/                # FastAPI Application
-│   ├── api/               # Routes and Controllers
-│   ├── services/          # Core Business Logic (AI, Processing)
-│   ├── models/            # Data Models (Pydantic, SQLModel)
-│   └── tasks/             # Async Workers (Celery)
-├── frontend/               # Next.js Application
-│   ├── app/               # App Router Pages
-│   ├── components/        # Reusable UI Components
-│   └── lib/               # Utility Functions
-├── scripts/                # DevOps & Setup Scripts
-└── docker-compose.yml     # Local Dev Infrastructure
-```
 
 ## Documentation
 

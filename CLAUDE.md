@@ -44,35 +44,63 @@ Frontend (Next.js 16) ←→ Backend API (FastAPI) ←→ Azure Services
 
 ## LangGraph Agent System
 
-The platform uses two agent implementations in `backend/agent/`:
+The platform uses LangGraph StateGraph agents in `backend/agent/`:
 
-### VideoAgent (`video_agent.py`)
-Custom ReAct-style agent using Azure OpenAI function calling directly:
+### Directory Structure
 ```
-START → call_model → has_tool_calls? → execute_tools → call_model → ... → END
+agent/
+├── __init__.py           # Main exports (VideoAgentGraph, EditorAgentGraph, AgentState)
+├── a2a.py               # A2A protocol bridge for inter-agent communication
+├── prompts.py           # System prompts and templates
+├── graphs/              # LangGraph StateGraph definitions
+│   ├── video.py         # Video analysis agent graph
+│   └── editor.py        # Chat-to-Edit agent graph
+├── nodes/               # Graph node implementations
+│   ├── base.py          # Shared node utilities
+│   ├── video_nodes.py   # Video agent nodes (call_model, should_continue)
+│   └── editor_nodes.py  # Editor agent nodes
+├── state/               # State definitions with reducers
+│   └── agent_state.py   # AgentState, VideoContext, ProjectContext
+├── tools/               # LangGraph @tool implementations
+│   ├── general.py       # Search & analysis tools
+│   └── editor.py        # Clip management tools
+└── utils/               # Helper functions
+    ├── formatting.py    # Timestamp formatting
+    └── observability.py # Tracing and metrics
+```
+
+### Video Agent Graph (`graphs/video.py`)
+```
+START → call_model → has_tool_calls? → tools → update_context → call_model → ... → END
                           ↓ no
                          END
 ```
 
-### VideoAgentGraph (`video_agent_graph.py`)
-LangGraph StateGraph implementation with built-in streaming and checkpointing:
+### Editor Agent Graph (`graphs/editor.py`)
 ```
-START → call_model → should_continue? → tools → update_context → call_model → ... → END
-                          ↓ end
+START → call_model → tools_condition? → tools → call_model → ... → END
+                          ↓ no
                          END
 ```
 
 **Key files:**
-- `agent/state.py`, `agent/graph_state.py`: TypedDict state definitions
-- `agent/tools/`: Tool implementations (search, navigation, structure, graph, export, subtitles)
+- `agent/state/agent_state.py`: TypedDict state definitions with `add_messages` reducer
+- `agent/tools/general.py`: Search and analysis tools with `InjectedState`
+- `agent/tools/editor.py`: Clip modification tools
 - `agent/prompts.py`: System prompts for video context
-- `agent/memory.py`: Conversation memory handling
 
 **Tool registration pattern:**
 ```python
-# In agent/tools/__init__.py - tools are LangChain-style
-TOOL_DEFINITIONS = [tool.to_openai_tool() for tool in ALL_TOOLS]
-SEARCH_TOOLS = [search_video, get_transcript, ...]  # For LangGraph ToolNode
+# In agent/tools/__init__.py - tools use InjectedState for context
+from langgraph.prebuilt import InjectedState
+
+@tool
+async def search_video(
+    query: Annotated[str, "What to search for"],
+    media_id: Annotated[str | None, InjectedState("media_id")] = None,
+) -> dict[str, Any]:
+    """Search video content."""
+    ...
 ```
 
 ## Development Commands
@@ -249,10 +277,10 @@ Interactive docs at `http://localhost:8000/docs`
 4. Register router in `api/main.py`
 
 ### New Agent Tool
-1. Create tool function in `backend/agent/tools/`
-2. Use `@tool` decorator from langchain_core.tools
-3. Export in `agent/tools/__init__.py`
-4. Add to `SEARCH_TOOLS` for LangGraph or `ALL_TOOLS` for custom agent
+1. Create tool function in `backend/agent/tools/general.py` or `editor.py`
+2. Use `@tool` decorator from `langchain_core.tools`
+3. Use `InjectedState` for context (media_id, video_context, etc.)
+4. Export in `agent/tools/__init__.py` under `SEARCH_TOOLS` or `EDITOR_TOOLS`
 
 ## System Requirements
 
