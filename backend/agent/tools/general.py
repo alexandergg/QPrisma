@@ -59,7 +59,7 @@ async def search_video(
         else:
             node_types = [NodeType.FRAME, NodeType.AUDIO_SEGMENT, NodeType.ENTITY]
 
-        search_response = search_service.hybrid_search(
+        search_response = await search_service.hybrid_search(
             query_text=query,
             node_types=node_types,
             video_id=media_id,
@@ -140,7 +140,7 @@ async def find_entity(
         if not search_service.graph_service.is_connected:
             search_service.graph_service.connect()
 
-        search_response = search_service.hybrid_search(
+        search_response = await search_service.hybrid_search(
             query_text=entity_name,
             node_types=[NodeType.ENTITY, NodeType.FRAME, NodeType.AUDIO_SEGMENT],
             video_id=media_id,
@@ -662,7 +662,7 @@ async def get_related_content(
             search_service.graph_service.connect()
 
         # Search with graph expansion
-        search_response = search_service.hybrid_search(
+        search_response = await search_service.hybrid_search(
             query_text=topic,
             node_types=[NodeType.ENTITY, NodeType.TOPIC, NodeType.FRAME, NodeType.SCENE],
             video_id=media_id,

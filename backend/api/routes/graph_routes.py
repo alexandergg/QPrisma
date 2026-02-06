@@ -561,7 +561,7 @@ async def hybrid_search(request: HybridSearchRequest):
         if request.time_start is not None and request.time_end is not None:
             time_range = (request.time_start, request.time_end)
 
-        response = search_service.hybrid_search(
+        response = await search_service.hybrid_search(
             query_text=request.query,
             node_types=request.node_types,
             video_id=request.video_id,
@@ -644,7 +644,7 @@ async def generate_embeddings(
         elif request.node_type == NodeType.AUDIO_SEGMENT:
             text_field = "text"
 
-        count = search_service.bulk_generate_embeddings(
+        count = await search_service.bulk_generate_embeddings(
             node_type=request.node_type,
             text_field=text_field,
             batch_size=request.batch_size,

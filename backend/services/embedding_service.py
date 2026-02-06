@@ -9,7 +9,7 @@ import hashlib
 import logging
 import os
 
-from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
+from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,8 @@ class EmbeddingService:
 
     # Dimensiones del modelo text-embedding-3-large
     EMBEDDING_DIMENSIONS = 3072
+    # Coarse dimensions for fast initial filtering (Matryoshka)
+    COARSE_DIMENSIONS = 512
 
     def __init__(
         self,
@@ -55,7 +57,7 @@ class EmbeddingService:
         self.api_version = api_version
         self.cache_service = cache_service
 
-        self._client: AzureOpenAI | None = None
+        self._client: AzureOpenAI | AsyncAzureOpenAI | None = None
 
         # Estadísticas
         self.stats = {
@@ -65,10 +67,10 @@ class EmbeddingService:
         }
 
     @property
-    def client(self) -> AzureOpenAI:
+    def client(self) -> AzureOpenAI | AsyncAzureOpenAI:
         """Lazy initialization del cliente Azure OpenAI."""
         if self._client is None:
-            self._client = AzureOpenAI(
+            self._client = AsyncAzureOpenAI(
                 api_key=self.api_key,
                 api_version=self.api_version,
                 azure_endpoint=self.endpoint,
@@ -108,7 +110,7 @@ class EmbeddingService:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
     )
-    def generate_embedding(self, text: str, use_cache: bool = True) -> list[float]:
+    async def generate_embedding(self, text: str, use_cache: bool = True) -> list[float]:
         """
         Genera embedding para un texto.
 
@@ -137,7 +139,7 @@ class EmbeddingService:
         self.stats["total_requests"] += 1
 
         try:
-            response = self.client.embeddings.create(
+            response = await self.client.embeddings.create(
                 model=self.deployment,
                 input=text,
             )
@@ -154,11 +156,15 @@ class EmbeddingService:
 
         return embedding
 
+    def truncate_to_coarse(self, embedding: list[float]) -> list[float]:
+        """Truncate a full embedding to coarse dimensions (Matryoshka property)."""
+        return embedding[: self.COARSE_DIMENSIONS]
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
     )
-    def generate_embeddings_batch(
+    async def generate_embeddings_batch(
         self,
         texts: list[str],
         use_cache: bool = True,
@@ -209,7 +215,7 @@ class EmbeddingService:
             self.stats["total_requests"] += 1
 
             try:
-                response = self.client.embeddings.create(
+                response = await self.client.embeddings.create(
                     model=self.deployment,
                     input=batch_texts,
                 )

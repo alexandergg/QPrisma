@@ -353,7 +353,7 @@ class EnhancedSearchService:
     ) -> list[dict[str, Any]]:
         """Hybrid search using Neo4j Knowledge Graph (vector + fulltext + graph)."""
         try:
-            resp = self.graph_search.hybrid_search(
+            resp = await self.graph_search.hybrid_search(
                 query_text=query,
                 node_types=[NodeType.FRAME],
                 video_id=media_id,

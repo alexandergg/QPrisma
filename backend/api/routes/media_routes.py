@@ -535,7 +535,7 @@ async def search_in_video(
     from services.graph_search_service import get_graph_search_service
 
     graph_search = get_graph_search_service()
-    graph_resp = graph_search.hybrid_search(
+    graph_resp = await graph_search.hybrid_search(
         query_text=query,
         node_types=[NodeType.FRAME],
         video_id=media_id,

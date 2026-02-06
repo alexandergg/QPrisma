@@ -109,7 +109,7 @@ async def process_video_ffmpeg_background(
         update_processing_status("processing", "Extracting frames from video...", 10)
 
         # Use Batch API (50% cheaper, no rate limits) - always enabled
-        result = processor.process_video_ffmpeg(
+        result = await processor.process_video_ffmpeg(
             blob_name=blob_name,
             config=config,
             preset=preset,
@@ -327,7 +327,7 @@ async def process_video_with_ffmpeg_batch(
             final_config = config
 
         # Process with Batch API (always enabled - 50% cheaper)
-        result = processor.process_video_ffmpeg(
+        result = await processor.process_video_ffmpeg(
             blob_name=blob_name, config=final_config, preset=preset
         )
 
@@ -483,7 +483,7 @@ async def search_media(request: ProcessingSearchRequest, current_user: User = De
         from services.graph_search_service import get_graph_search_service
 
         graph_search = get_graph_search_service()
-        resp = graph_search.hybrid_search(
+        resp = await graph_search.hybrid_search(
             query_text=request.query,
             node_types=[NodeType.FRAME],
             video_id=None,

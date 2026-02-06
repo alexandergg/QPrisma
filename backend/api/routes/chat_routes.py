@@ -89,7 +89,7 @@ async def chat(request: ChatRequest, current_user: User = Depends(get_current_us
                 else:
                     # Hybrid search: vector + fulltext + graph + temporal
                     # Use more results for comprehensive context
-                    search_response = search_service.hybrid_search(
+                    search_response = await search_service.hybrid_search(
                         query_text=request.message,
                         node_types=[NodeType.FRAME, NodeType.AUDIO_SEGMENT, NodeType.ENTITY],
                         video_id=request.media_id,
@@ -253,7 +253,7 @@ async def search(request: SearchRequest, current_user: User = Depends(get_curren
             search_service.graph_service.connect()
 
         # Hybrid search
-        search_response = search_service.hybrid_search(
+        search_response = await search_service.hybrid_search(
             query_text=request.query,
             node_types=[NodeType.FRAME, NodeType.AUDIO_SEGMENT, NodeType.ENTITY],
             video_id=request.media_id,
