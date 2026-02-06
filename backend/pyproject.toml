@@ -34,6 +34,8 @@ dependencies = [
     "langgraph-checkpoint-redis>=0.3.3",
     # A2A (Agent-to-Agent) Protocol
     "a2a-sdk[http-server]>=0.3.22",
+    # Async I/O
+    "aiofiles>=24.1.0",
     # Utils
     "python-dotenv>=1.0.1",
     "httpx>=0.28.0",

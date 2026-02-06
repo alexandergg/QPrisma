@@ -34,6 +34,7 @@ Uso:
     print(status.info)   # Metadata del progreso
 """
 
+import asyncio
 import os
 import sys
 import tempfile
@@ -81,18 +82,18 @@ def _initialize_services():
     load_dotenv()
 
     from azure.storage.blob import BlobServiceClient
-    from openai import AzureOpenAI
+    from openai import AsyncAzureOpenAI
 
     # Azure Blob Storage
     conn_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
     if conn_string:
         _blob_service = BlobServiceClient.from_connection_string(conn_string)
 
-    # Azure OpenAI
+    # Azure OpenAI (async for non-blocking pipeline)
     endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
     api_key = os.getenv("AZURE_OPENAI_API_KEY")
     if endpoint and api_key:
-        _openai_client = AzureOpenAI(
+        _openai_client = AsyncAzureOpenAI(
             azure_endpoint=endpoint,
             api_key=api_key,
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
@@ -373,11 +374,11 @@ def analyze_frame_task(
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         # Analizar con GPT-4V
-        analysis = _video_processor.analyze_frame_with_gpt4v(
+        analysis = asyncio.run(_video_processor.analyze_frame_with_gpt4v(
             frame,
             custom_prompt=custom_prompt,
             timestamp=frame_data.get("timestamp"),
-        )
+        ))
 
         return {
             "index": frame_data["index"],
@@ -411,7 +412,7 @@ def generate_embedding_task(self, text: str) -> list[float]:
         return []
 
     try:
-        return _video_processor.generate_embedding(text)
+        return asyncio.run(_video_processor.generate_embedding(text))
     except Exception as e:
         logger.error(f"Embedding generation failed: {e}")
         if self.request.retries < self.max_retries:
@@ -433,7 +434,9 @@ def generate_embeddings_batch_task(self, texts: list[str], job_id: str) -> list[
         if not valid_texts:
             return []
 
-        embeddings = _video_processor.generate_embeddings_batch(valid_texts, batch_size=16)
+        embeddings = asyncio.run(
+            _video_processor.generate_embeddings_batch(valid_texts, batch_size=16)
+        )
         logger.info(f"Generated {len(embeddings)} embeddings")
 
         return embeddings

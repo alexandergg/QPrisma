@@ -8,7 +8,7 @@ that are used across multiple route modules.
 from azure.storage.blob import BlobServiceClient
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from openai import AzureOpenAI
+from openai import AsyncAzureOpenAI, AzureOpenAI
 
 from core.config import settings
 from models.user import User
@@ -28,6 +28,7 @@ security = HTTPBearer()
 
 _blob_service: BlobServiceClient | None = None
 _openai_client: AzureOpenAI | None = None
+_async_openai_client: AsyncAzureOpenAI | None = None
 _video_processor = None
 _auth_service: AuthService | None = None
 
@@ -43,7 +44,7 @@ def get_blob_service() -> BlobServiceClient | None:
 
 
 def get_openai_client() -> AzureOpenAI | None:
-    """Get or create Azure OpenAI client."""
+    """Get or create Azure OpenAI client (sync)."""
     global _openai_client
     if _openai_client is None:
         endpoint = settings.azure.openai_endpoint
@@ -55,6 +56,21 @@ def get_openai_client() -> AzureOpenAI | None:
                 api_version=settings.azure.openai_api_version,
             )
     return _openai_client
+
+
+def get_async_openai_client() -> AsyncAzureOpenAI | None:
+    """Get or create Azure OpenAI client (async)."""
+    global _async_openai_client
+    if _async_openai_client is None:
+        endpoint = settings.azure.openai_endpoint
+        api_key = settings.azure.openai_api_key
+        if endpoint and api_key:
+            _async_openai_client = AsyncAzureOpenAI(
+                azure_endpoint=endpoint,
+                api_key=api_key,
+                api_version=settings.azure.openai_api_version,
+            )
+    return _async_openai_client
 
 
 def get_video_processor():

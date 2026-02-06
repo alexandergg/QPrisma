@@ -13,7 +13,7 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
-    from openai import AzureOpenAI
+    from openai import AsyncAzureOpenAI, AzureOpenAI
 
 
 def _is_production() -> bool:
@@ -282,6 +282,35 @@ def create_azure_openai_client() -> "AzureOpenAI":
         )
     
     return AzureOpenAI(
+        api_key=azure_settings.openai_api_key,
+        api_version=azure_settings.openai_api_version,
+        azure_endpoint=azure_settings.openai_endpoint,
+    )
+
+
+def create_async_azure_openai_client() -> "AsyncAzureOpenAI":
+    """
+    Create and return an async Azure OpenAI client using environment configuration.
+    
+    Use this for async contexts (FastAPI routes, async services).
+    The async client shares the same configuration as the sync client.
+    
+    Returns:
+        Configured AsyncAzureOpenAI client instance.
+        
+    Raises:
+        ValueError: If required Azure OpenAI configuration is missing.
+    """
+    from openai import AsyncAzureOpenAI
+    
+    azure_settings = get_settings().azure
+    
+    if not azure_settings.is_openai_configured:
+        raise ValueError(
+            "Azure OpenAI not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY."
+        )
+    
+    return AsyncAzureOpenAI(
         api_key=azure_settings.openai_api_key,
         api_version=azure_settings.openai_api_version,
         azure_endpoint=azure_settings.openai_endpoint,
