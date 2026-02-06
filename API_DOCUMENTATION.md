@@ -337,6 +337,56 @@ Content-Type: application/json
 }
 ```
 
+**Processing Pipeline (v0.17.0):**
+The pipeline is fully async and processes frames and audio in parallel for maximum throughput:
+
+1. **Download** video from Azure Blob Storage (chunked streaming via `aiofiles` — low memory)
+2. **Extract frames** with FFmpeg (parallel extraction using ThreadPoolExecutor, pipe-to-memory)
+3. **Submit Batch API** job for vision analysis (structured JSON output)
+4. **Process audio** with Whisper during batch wait (overlapping async I/O)
+5. **Wait for batch completion** (exponential backoff: 10s → 120s cap, `asyncio.sleep`)
+6. **Generate embeddings** (text-embedding-3-large, 3072 dimensions, async `AsyncAzureOpenAI`)
+7. **Index** results into Knowledge Graph (Neo4j) and PostgreSQL
+
+> **v0.17.0 Note:** All pipeline services use `AsyncAzureOpenAI` with native `async/await`. 
+> Celery background tasks bridge to async via `asyncio.run()`. Neo4j supports both sync and 
+> async drivers for gradual migration.
+
+**Frame Analysis Output (v0.16.0):**
+Each frame result now includes both a flattened text `analysis` (for embeddings) and an `analysis_structured` JSON object:
+
+```json
+{
+  "frame_number": 0,
+  "timestamp": 5.0,
+  "analysis": "Scene: Indoor office. Lighting: bright. ...",
+  "analysis_structured": {
+    "scene_description": {
+      "setting": "Indoor office with modern furniture",
+      "lighting": "Bright fluorescent overhead",
+      "atmosphere": "Professional, focused",
+      "visual_style": "Corporate presentation"
+    },
+    "people": [
+      {
+        "description": "Male, 30s, blue shirt",
+        "role": "presenter",
+        "emotion": "confident",
+        "name": "John Smith"
+      }
+    ],
+    "ocr_text": ["Q3 Revenue Report", "Revenue: $4.2M"],
+    "visual_elements": ["laptop", "projection screen", "bar chart"],
+    "actions": "Presenting quarterly revenue results with slide deck",
+    "topics": ["quarterly results", "revenue growth", "financial report"],
+    "keywords": ["Q3 report", "revenue", "John Smith", "presenting"],
+    "questions_answered": ["What were Q3 revenues?", "Who presented?"]
+  },
+  "tokens_used": 650,
+  "embedding": [0.123, ...]
+}
+```
+
 #### Get Processing Status
 ```http
 GET /jobs/{job_id}
