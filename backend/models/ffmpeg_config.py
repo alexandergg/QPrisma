@@ -251,7 +251,8 @@ class FFmpegProcessingConfig(BaseModel):
     )
 
     hardware_accel: str | None = Field(
-        default=None, description="Aceleración por hardware (cuda, qsv, videotoolbox, etc)"
+        default=None,
+        description="Hardware acceleration: 'auto' (detect), 'cuda', 'qsv', 'vaapi', 'videotoolbox', or None (CPU only)",
     )
 
     # Opciones avanzadas

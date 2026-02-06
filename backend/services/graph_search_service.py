@@ -109,84 +109,42 @@ class GraphSearchService:
         """
         Crea índices vectoriales en Neo4j para búsqueda por similitud.
 
+        Creates both full (3072d) and coarse (512d) Matryoshka indexes
+        for two-pass search: fast filtering then precise ranking.
         Requiere Neo4j 5.11+ con soporte de vector indexes.
         """
+        index_configs = [
+            # Full precision indexes (3072d)
+            ("frame_embedding", "Frame", "embedding", 3072),
+            ("entity_embedding", "Entity", "embedding", 3072),
+            ("scene_embedding", "Scene", "embedding", 3072),
+            ("audiosegment_embedding", "AudioSegment", "embedding", 3072),
+            # Coarse Matryoshka indexes (512d) for fast initial filtering
+            ("frame_embedding_coarse", "Frame", "embedding_coarse", 512),
+            ("entity_embedding_coarse", "Entity", "embedding_coarse", 512),
+            ("scene_embedding_coarse", "Scene", "embedding_coarse", 512),
+            ("audiosegment_embedding_coarse", "AudioSegment", "embedding_coarse", 512),
+        ]
+
         with self.graph_service.get_session() as session:
-            # Índice vectorial para Frame embeddings
-            try:
-                session.run(
-                    """
-                    CREATE VECTOR INDEX frame_embedding IF NOT EXISTS
-                    FOR (f:Frame)
-                    ON f.embedding
-                    OPTIONS {
-                        indexConfig: {
-                            `vector.dimensions`: 3072,
-                            `vector.similarity_function`: 'cosine'
-                        }
-                    }
-                """
-                )
-                logger.info("Created vector index for Frame embeddings")
-            except Exception as e:
-                logger.debug(f"Frame vector index may already exist: {e}")
-
-            # Índice vectorial para Entity embeddings
-            try:
-                session.run(
-                    """
-                    CREATE VECTOR INDEX entity_embedding IF NOT EXISTS
-                    FOR (e:Entity)
-                    ON e.embedding
-                    OPTIONS {
-                        indexConfig: {
-                            `vector.dimensions`: 3072,
-                            `vector.similarity_function`: 'cosine'
-                        }
-                    }
-                """
-                )
-                logger.info("Created vector index for Entity embeddings")
-            except Exception as e:
-                logger.debug(f"Entity vector index may already exist: {e}")
-
-            # Índice vectorial para Scene embeddings
-            try:
-                session.run(
-                    """
-                    CREATE VECTOR INDEX scene_embedding IF NOT EXISTS
-                    FOR (s:Scene)
-                    ON s.embedding
-                    OPTIONS {
-                        indexConfig: {
-                            `vector.dimensions`: 3072,
-                            `vector.similarity_function`: 'cosine'
-                        }
-                    }
-                """
-                )
-                logger.info("Created vector index for Scene embeddings")
-            except Exception as e:
-                logger.debug(f"Scene vector index may already exist: {e}")
-
-            # Índice vectorial para AudioSegment embeddings (VideoRAG-style)
-            try:
-                session.run(
-                    """
-                    CREATE VECTOR INDEX audiosegment_embedding IF NOT EXISTS
-                    FOR (a:AudioSegment)
-                    ON a.embedding
-                    OPTIONS {
-                        indexConfig: {
-                            `vector.dimensions`: 3072,
-                            `vector.similarity_function`: 'cosine'
-                        }
-                    }
-                """
-                )
-                logger.info("Created vector index for AudioSegment embeddings")
-            except Exception as e:
-                logger.debug(f"AudioSegment vector index may already exist: {e}")
+            for index_name, label, prop, dims in index_configs:
+                try:
+                    session.run(
+                        f"""
+                        CREATE VECTOR INDEX {index_name} IF NOT EXISTS
+                        FOR (n:{label})
+                        ON n.{prop}
+                        OPTIONS {{
+                            indexConfig: {{
+                                `vector.dimensions`: {dims},
+                                `vector.similarity_function`: 'cosine'
+                            }}
+                        }}
+                        """
+                    )
+                    logger.info(f"Created vector index {index_name} ({dims}d)")
+                except Exception as e:
+                    logger.debug(f"Vector index {index_name} may already exist: {e}")
 
     def store_embedding(
         self,
@@ -195,18 +153,21 @@ class GraphSearchService:
         node_type: NodeType | None = None,
     ):
         """
-        Almacena un embedding en un nodo existente.
+        Almacena both full and coarse (Matryoshka) embeddings on a node.
 
         Args:
             node_id: ID del nodo
             embedding: Vector de embedding (3072 dims)
             node_type: Tipo de nodo (para query más eficiente)
         """
+        coarse = embedding[:512] if len(embedding) >= 512 else embedding
+
         if node_type:
             label = node_type.value
             query = f"""
                 MATCH (n:{label} {{id: $node_id}})
                 SET n.embedding = $embedding,
+                    n.embedding_coarse = $coarse,
                     n.embedding_updated_at = datetime()
                 RETURN n.id
             """
@@ -214,14 +175,15 @@ class GraphSearchService:
             query = """
                 MATCH (n {id: $node_id})
                 SET n.embedding = $embedding,
+                    n.embedding_coarse = $coarse,
                     n.embedding_updated_at = datetime()
                 RETURN n.id
             """
 
         with self.graph_service.get_session() as session:
-            session.run(query, node_id=node_id, embedding=embedding)
+            session.run(query, node_id=node_id, embedding=embedding, coarse=coarse)
 
-    def generate_and_store_embedding(
+    async def generate_and_store_embedding(
         self,
         node_id: str,
         text: str,
@@ -238,11 +200,11 @@ class GraphSearchService:
         Returns:
             El embedding generado
         """
-        embedding = self.embedding_service.generate_embedding(text)
+        embedding = await self.embedding_service.generate_embedding(text)
         self.store_embedding(node_id, embedding, node_type)
         return embedding
 
-    def bulk_generate_embeddings(
+    async def bulk_generate_embeddings(
         self,
         node_type: NodeType,
         text_field: str = "description",
@@ -293,7 +255,7 @@ class GraphSearchService:
 
             # Generar embeddings en batch
             texts = [text for _, text in nodes]
-            embeddings = self.embedding_service.generate_embeddings_batch(texts)
+            embeddings = await self.embedding_service.generate_embeddings_batch(texts)
 
             # Almacenar embeddings
             for (node_id, _), embedding in zip(nodes, embeddings):
@@ -318,41 +280,91 @@ class GraphSearchService:
         min_score: float = 0.5,
     ) -> list[ScoredNode]:
         """
-        Búsqueda por similitud vectorial usando índice de Neo4j.
+        Two-pass Matryoshka vector search: coarse 512d filtering then full 3072d ranking.
 
-        Args:
-            query_embedding: Embedding de la query
-            node_type: Tipo de nodo a buscar
-            limit: Máximo de resultados
-            video_id: Filtrar por un video
-            video_ids: Filtrar por múltiples videos
-            min_score: Score mínimo
-
-        Returns:
-            Lista de ScoredNode ordenados por similitud
+        Pass 1: Query coarse (512d) index with wider limit for fast candidate retrieval.
+        Pass 2: Re-rank candidates using full (3072d) embeddings for precise scoring.
+        Falls back to single-pass full index if coarse index is unavailable.
         """
         label = node_type.value
-        index_name = f"{label.lower()}_embedding"
 
-        # Query usando el índice vectorial de Neo4j
+        # --- Pass 1: Coarse search (512d, fast, wide net) ---
+        coarse_embedding = query_embedding[:512]
+        coarse_index = f"{label.lower()}_embedding_coarse"
+        coarse_limit = limit * 5  # Wide net for coarse filtering
+
+        coarse_candidates = self._run_vector_query(
+            index_name=coarse_index,
+            embedding=coarse_embedding,
+            limit=coarse_limit,
+            node_type=node_type,
+            video_id=video_id,
+            video_ids=video_ids,
+            min_score=max(min_score - 0.15, 0.1),  # Lower threshold for coarse
+        )
+
+        if coarse_candidates:
+            # --- Pass 2: Re-rank with full embeddings ---
+            full_index = f"{label.lower()}_embedding"
+            candidate_ids = [c.node_id for c in coarse_candidates]
+
+            reranked = self._rerank_with_full_embeddings(
+                candidate_ids=candidate_ids,
+                query_embedding=query_embedding,
+                node_type=node_type,
+                limit=limit,
+                min_score=min_score,
+                full_index=full_index,
+            )
+
+            if reranked:
+                return reranked
+            # If re-ranking fails, use coarse scores as-is
+            coarse_candidates.sort(key=lambda x: x.vector_score, reverse=True)
+            return coarse_candidates[:limit]
+
+        # --- Fallback: Direct full-precision search ---
+        full_index = f"{label.lower()}_embedding"
+        results = self._run_vector_query(
+            index_name=full_index,
+            embedding=query_embedding,
+            limit=limit,
+            node_type=node_type,
+            video_id=video_id,
+            video_ids=video_ids,
+            min_score=min_score,
+        )
+
+        if not results:
+            results = self._fallback_vector_search(
+                query_embedding, node_type, limit,
+                video_id, min_score, video_ids
+            )
+
+        return results
+
+    def _run_vector_query(
+        self,
+        index_name: str,
+        embedding: list[float],
+        limit: int,
+        node_type: NodeType,
+        video_id: str | None = None,
+        video_ids: list[str] | None = None,
+        min_score: float = 0.5,
+    ) -> list[ScoredNode]:
+        """Execute a vector index query and return scored nodes."""
         if video_ids:
             query = """
-                CALL db.index.vector.queryNodes(
-                    $index_name, $limit * 2, $embedding
-                )
+                CALL db.index.vector.queryNodes($index_name, $limit * 2, $embedding)
                 YIELD node, score
-                WHERE node.video_id IN $video_ids
-                    AND score >= $min_score
+                WHERE node.video_id IN $video_ids AND score >= $min_score
                 RETURN node, score
-                ORDER BY score DESC
-                LIMIT $limit
+                ORDER BY score DESC LIMIT $limit
             """
             params = {
-                "index_name": index_name,
-                "embedding": query_embedding,
-                "limit": limit,
-                "video_ids": video_ids,
-                "min_score": min_score,
+                "index_name": index_name, "embedding": embedding,
+                "limit": limit, "video_ids": video_ids, "min_score": min_score,
             }
         elif video_id:
             query = """
@@ -360,15 +372,11 @@ class GraphSearchService:
                 YIELD node, score
                 WHERE node.video_id = $video_id AND score >= $min_score
                 RETURN node, score
-                ORDER BY score DESC
-                LIMIT $limit
+                ORDER BY score DESC LIMIT $limit
             """
             params = {
-                "index_name": index_name,
-                "embedding": query_embedding,
-                "limit": limit,
-                "video_id": video_id,
-                "min_score": min_score,
+                "index_name": index_name, "embedding": embedding,
+                "limit": limit, "video_id": video_id, "min_score": min_score,
             }
         else:
             query = """
@@ -376,44 +384,80 @@ class GraphSearchService:
                 YIELD node, score
                 WHERE score >= $min_score
                 RETURN node, score
-                ORDER BY score DESC
-                LIMIT $limit
+                ORDER BY score DESC LIMIT $limit
             """
             params = {
-                "index_name": index_name,
-                "embedding": query_embedding,
-                "limit": limit,
-                "min_score": min_score,
+                "index_name": index_name, "embedding": embedding,
+                "limit": limit, "min_score": min_score,
             }
 
         results = []
-
         try:
             with self.graph_service.get_session() as session:
                 result = session.run(query, **params)
-
                 for record in result:
                     node_data = dict(record["node"])
-                    # Remover embedding del resultado (muy grande)
                     node_data.pop("embedding", None)
+                    node_data.pop("embedding_coarse", None)
 
-                    scored = ScoredNode(
+                    results.append(ScoredNode(
                         node_id=node_data.get("id"),
                         node_type=node_type,
                         content=node_data,
                         vector_score=record["score"],
                         timestamp=node_data.get("timestamp") or node_data.get("start_time"),
                         video_id=node_data.get("video_id"),
-                    )
-                    results.append(scored)
-
+                    ))
         except Exception as e:
-            logger.warning(f"Vector search failed (index may not exist): {e}")
-            # Fallback a búsqueda manual si el índice no existe
-            results = self._fallback_vector_search(
-                query_embedding, node_type, limit,
-                video_id, min_score, video_ids
-            )
+            logger.debug(f"Vector query on {index_name} failed: {e}")
+
+        return results
+
+    def _rerank_with_full_embeddings(
+        self,
+        candidate_ids: list[str],
+        query_embedding: list[float],
+        node_type: NodeType,
+        limit: int,
+        min_score: float,
+        full_index: str,
+    ) -> list[ScoredNode]:
+        """Re-rank coarse candidates using full 3072d embeddings."""
+        label = node_type.value
+        query = f"""
+            MATCH (n:{label})
+            WHERE n.id IN $ids AND n.embedding IS NOT NULL
+            WITH n,
+                 gds.similarity.cosine(n.embedding, $embedding) AS score
+            WHERE score >= $min_score
+            RETURN n AS node, score
+            ORDER BY score DESC
+            LIMIT $limit
+        """
+
+        results = []
+        try:
+            with self.graph_service.get_session() as session:
+                result = session.run(
+                    query, ids=candidate_ids,
+                    embedding=query_embedding, min_score=min_score, limit=limit,
+                )
+                for record in result:
+                    node_data = dict(record["node"])
+                    node_data.pop("embedding", None)
+                    node_data.pop("embedding_coarse", None)
+
+                    results.append(ScoredNode(
+                        node_id=node_data.get("id"),
+                        node_type=node_type,
+                        content=node_data,
+                        vector_score=record["score"],
+                        timestamp=node_data.get("timestamp") or node_data.get("start_time"),
+                        video_id=node_data.get("video_id"),
+                    ))
+        except Exception as e:
+            # gds.similarity.cosine may not be available — fall back gracefully
+            logger.debug(f"Full embedding re-rank failed (GDS may not be installed): {e}")
 
         return results
 
@@ -464,6 +508,7 @@ class GraphSearchService:
             for record in result:
                 node_data = dict(record["n"])
                 node_embedding = node_data.pop("embedding", None)
+                node_data.pop("embedding_coarse", None)
 
                 if node_embedding:
                     score = self.embedding_service.compute_similarity(
@@ -489,7 +534,7 @@ class GraphSearchService:
     # Hybrid Search
     # =========================================================================
 
-    def hybrid_search(
+    async def hybrid_search(
         self,
         query_text: str,
         node_types: list[NodeType] | None = None,
@@ -529,7 +574,7 @@ class GraphSearchService:
             node_types = [NodeType.FRAME, NodeType.ENTITY, NodeType.AUDIO_SEGMENT]
 
         # 1. Generar embedding de la query
-        query_embedding = self.embedding_service.generate_embedding(query_text)
+        query_embedding = await self.embedding_service.generate_embedding(query_text)
         (datetime.utcnow() - start_time).total_seconds() * 1000
 
         # 2. Buscar en cada tipo de nodo
@@ -1001,6 +1046,7 @@ class GraphSearchService:
                 for record in result:
                     node_data = dict(record["node"])
                     node_data.pop("embedding", None)
+                    node_data.pop("embedding_coarse", None)
 
                     scored = ScoredNode(
                         node_id=node_data.get("id"),
