@@ -12,10 +12,11 @@ import tempfile
 import time
 from typing import Any
 
+import aiofiles
 import cv2
 import numpy as np
 from azure.storage.blob import BlobServiceClient
-from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
+from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 
 from models.ffmpeg_config import (
     FFmpegProcessingConfig,
@@ -41,14 +42,19 @@ class VideoProcessor:
     """
 
     # Processing constants
-    BATCH_CHECK_INTERVAL_SECONDS = 30
+    BATCH_CHECK_INTERVAL_SECONDS = 10  # Start at 10s, exponential backoff
     BATCH_MAX_WAIT_TIME_SECONDS = 600  # 10 minutes
     EMBEDDING_BATCH_SIZE = 16
     DEFAULT_PARALLEL_WORKERS = 4
 
+    # Adaptive token budget thresholds (image entropy)
+    COMPLEXITY_LOW_THRESHOLD = 5.5
+    COMPLEXITY_HIGH_THRESHOLD = 7.0
+    TOKEN_BUDGET = {"low": 300, "medium": 600, "high": 900}
+
     def __init__(
         self,
-        openai_client: AzureOpenAI,
+        openai_client: AzureOpenAI | AsyncAzureOpenAI,
         blob_service: BlobServiceClient,
         container_name: str = "media",
     ):
@@ -63,9 +69,11 @@ class VideoProcessor:
         whisper_rpm = int(os.getenv("AZURE_OPENAI_WHISPER_RPM", "3"))
         self.audio_processor = AudioProcessor(openai_client, rate_limit_rpm=whisper_rpm)
 
-    def _download_blob_to_file(self, blob_name: str, file_path: str) -> None:
+    async def _download_blob_streaming(self, blob_name: str, file_path: str) -> None:
         """
-        Download a blob from Azure Storage to a local file.
+        Stream download a blob from Azure Storage to a local file.
+
+        Uses chunked download to avoid loading entire file into memory.
 
         Args:
             blob_name: Name of the blob in Azure Storage
@@ -74,8 +82,10 @@ class VideoProcessor:
         blob_client = self.blob_service.get_blob_client(
             container=self.container_name, blob=blob_name
         )
-        with open(file_path, "wb") as f:
-            f.write(blob_client.download_blob().readall())
+        downloader = blob_client.download_blob()
+        async with aiofiles.open(file_path, "wb") as f:
+            for chunk in downloader.chunks():
+                await f.write(chunk)
 
     def extract_frames(
         self, video_path: str, max_frames: int = 10, interval_seconds: float | None = None
@@ -134,13 +144,14 @@ class VideoProcessor:
         _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
         return base64.b64encode(buffer).decode("utf-8")
 
-    def analyze_frame_with_gpt4v(
+    async def analyze_frame_with_gpt4v(
         self,
         frame: np.ndarray,
         custom_prompt: str | None = None,
         detail_level: str = "auto",
         *,
         timestamp: float | int | None = None,
+        max_tokens: int = 900,
     ) -> dict:
         """
         Analiza un frame con GPT-4o Vision
@@ -224,12 +235,12 @@ Be thorough but factual. Prioritize information that would help users find this 
 
             if is_o4_or_gpt5:
                 # o4-mini y GPT-5 solo soportan temperature=1 (default)
-                completion_params["max_completion_tokens"] = 900
+                completion_params["max_completion_tokens"] = max_tokens
             else:
                 completion_params["temperature"] = 0.7
-                completion_params["max_tokens"] = 900
+                completion_params["max_tokens"] = max_tokens
 
-            response = self.openai_client.chat.completions.create(**completion_params)
+            response = await self.openai_client.chat.completions.create(**completion_params)
 
             analysis = response.choices[0].message.content
 
@@ -246,7 +257,7 @@ Be thorough but factual. Prioritize information that would help users find this 
             logger.exception(f"Unexpected error in analyze_frame_with_gpt4v: {e}")
             return {"analysis": None, "error": str(e), "model": self.gpt_deployment}
 
-    def generate_embedding(self, text: str) -> list[float]:
+    async def generate_embedding(self, text: str) -> list[float]:
         """
         Genera embedding de un texto usando Azure OpenAI.
         
@@ -257,7 +268,7 @@ Be thorough but factual. Prioritize information that would help users find this 
             Lista de floats representando el embedding, o lista vacía en caso de error.
         """
         try:
-            response = self.openai_client.embeddings.create(
+            response = await self.openai_client.embeddings.create(
                 model=self.embedding_deployment, input=text
             )
             return response.data[0].embedding
@@ -268,7 +279,7 @@ Be thorough but factual. Prioritize information that would help users find this 
             logger.exception(f"Unexpected error generating embedding: {e}")
             return []
 
-    def generate_embeddings_batch(
+    async def generate_embeddings_batch(
         self, texts: list[str], batch_size: int = 16
     ) -> list[list[float]]:
         """
@@ -298,7 +309,7 @@ Be thorough but factual. Prioritize information that would help users find this 
             try:
                 logger.debug(f"Procesando batch {batch_num}/{total_batches} ({len(batch)} textos)")
 
-                response = self.openai_client.embeddings.create(
+                response = await self.openai_client.embeddings.create(
                     model=self.embedding_deployment, input=batch
                 )
 
@@ -323,7 +334,7 @@ Be thorough but factual. Prioritize information that would help users find this 
     # PROCESAMIENTO CON FFMPEG + BATCH API
     # =========================================================================
 
-    def process_video_ffmpeg(
+    async def process_video_ffmpeg(
         self,
         blob_name: str,
         config: FFmpegProcessingConfig | None = None,
@@ -373,7 +384,7 @@ Be thorough but factual. Prioritize information that would help users find this 
         try:
             # 1. Descargar video
             logger.info(f"Descargando video: {blob_name}")
-            self._download_blob_to_file(blob_name, tmp_path)
+            await self._download_blob_streaming(blob_name, tmp_path)
 
             # 2. Analizar metadata
             logger.info("Analizando información del video...")
@@ -384,11 +395,27 @@ Be thorough but factual. Prioritize information that would help users find this 
             frames = ffmpeg_proc.extract_frames_ffmpeg(video_path=tmp_path, return_as_bytes=True)
             logger.info(f"{len(frames)} frames extraídos")
 
-            # 4. Procesar audio si está habilitado
+            # 4. Submit batch job FIRST (non-blocking), then process audio
+            #    during batch wait — saves 30-60s by overlapping I/O
+            batch_proc = BatchProcessor(self.openai_client)
+            frames_for_batch = self._prepare_frames_for_batch(frames)
+
+            logger.info(f"Enviando batch job para análisis de {len(frames)} frames")
+            vision_requests = batch_proc.create_vision_batch_requests(
+                frames_for_batch, custom_prompt
+            )
+            vision_batch_id = await batch_proc.submit_batch_job(
+                vision_requests,
+                description=f"Vision analysis: {blob_name} ({len(frames)} frames)",
+            )
+            logger.info(f"Batch job enviado: {vision_batch_id} — procesando audio en paralelo")
+
+            # 5. Process audio DURING batch wait (overlapping I/O)
             audio_data = None
             if process_audio:
                 try:
-                    audio_data = self.audio_processor.process_video_audio(
+                    logger.info("Procesando audio mientras batch API analiza frames...")
+                    audio_data = await self.audio_processor.process_video_audio(
                         video_path=tmp_path,
                         language=audio_language,
                         video_descriptions=None,
@@ -400,12 +427,14 @@ Be thorough but factual. Prioritize information that would help users find this 
                     logger.warning(f"Error inesperado procesando audio: {e}")
                     audio_data = None
 
-            # 5. Procesar con Batch API (siempre - 50% más barato)
-            return self._process_with_batch_api(
+            # 6. Now wait for batch completion (may already be done if audio was slow)
+            return await self._wait_and_finalize_batch(
+                batch_proc=batch_proc,
+                vision_batch_id=vision_batch_id,
                 frames=frames,
+                frames_for_batch=frames_for_batch,
                 video_info=video_info,
                 blob_name=blob_name,
-                custom_prompt=custom_prompt,
                 ffmpeg_proc=ffmpeg_proc,
                 audio_data=audio_data,
             )
@@ -414,66 +443,92 @@ Be thorough but factual. Prioritize information that would help users find this 
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
-    def _process_with_batch_api(
-        self,
-        frames: list[dict[str, Any]],
-        video_info: dict[str, Any],
-        blob_name: str,
-        custom_prompt: str | None,
-        ffmpeg_proc: FFmpegVideoProcessor,
-        audio_data: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    def _prepare_frames_for_batch(
+        self, frames: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """
-        Procesa frames usando Azure Global Batch API.
-        
-        50% más barato y sin rate limits.
-        
+        Prepare extracted frames for Batch API submission.
+
+        Encodes images to base64 and estimates visual complexity for
+        adaptive token budgets.
+
         Args:
-            frames: Lista de frames con image_data y metadatos.
-            video_info: Información del video (duración, fps, etc.).
-            blob_name: Nombre del blob en Azure Storage.
-            custom_prompt: Prompt personalizado para análisis.
-            ffmpeg_proc: Procesador FFmpeg para obtener estado.
-            audio_data: Datos de audio procesado (opcional).
-            
+            frames: Raw frames with image_data bytes.
+
         Returns:
-            Diccionario con frames_data, video_metadata, audio_data, processing_stats.
+            List of frame dicts with image_base64 and max_tokens for batch API.
         """
-        batch_proc = BatchProcessor(self.openai_client)
-
-        logger.info("Iniciando procesamiento con Batch API (50%% más barato)")
-
-        # 1. Preparar frames para batch API
-        logger.info(f"Preparando {len(frames)} frames para Batch API")
         frames_for_batch: list[dict[str, Any]] = []
-
         for frame_info in frames:
             image_bytes = frame_info["image_data"]
             image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-
+            max_tokens = self._estimate_token_budget(image_bytes)
             frames_for_batch.append(
                 {
                     "frame_number": frame_info["frame_number"],
                     "timestamp": frame_info.get("timestamp"),
                     "image_base64": image_base64,
+                    "max_tokens": max_tokens,
                 }
             )
+        return frames_for_batch
 
-        # 2. Crear y enviar batch job para análisis de visión
-        logger.info(f"Enviando batch job para análisis de {len(frames)} frames")
-        vision_requests = batch_proc.create_vision_batch_requests(frames_for_batch, custom_prompt)
+    def _estimate_token_budget(self, image_bytes: bytes) -> int:
+        """Estimate token budget based on image entropy (visual complexity)."""
+        try:
+            img_array = np.frombuffer(image_bytes, dtype=np.uint8)
+            img = cv2.imdecode(img_array, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                return self.TOKEN_BUDGET["high"]
 
-        vision_batch_id = batch_proc.submit_batch_job(
-            vision_requests, description=f"Vision analysis: {blob_name} ({len(frames)} frames)"
-        )
+            histogram = cv2.calcHist([img], [0], None, [256], [0, 256]).flatten()
+            histogram = histogram[histogram > 0] / histogram.sum()
+            entropy = -np.sum(histogram * np.log2(histogram))
 
-        logger.info(f"Batch job creado: {vision_batch_id}")
+            if entropy < self.COMPLEXITY_LOW_THRESHOLD:
+                return self.TOKEN_BUDGET["low"]
+            elif entropy < self.COMPLEXITY_HIGH_THRESHOLD:
+                return self.TOKEN_BUDGET["medium"]
+            else:
+                return self.TOKEN_BUDGET["high"]
+        except Exception:
+            return self.TOKEN_BUDGET["high"]
 
-        # 3. Esperar a que complete el análisis
-        logger.info(f"Esperando completación del análisis (típicamente 3-5 min para {len(frames)} frames)")
+    async def _wait_and_finalize_batch(
+        self,
+        batch_proc: "BatchProcessor",
+        vision_batch_id: str,
+        frames: list[dict[str, Any]],
+        frames_for_batch: list[dict[str, Any]],
+        video_info: dict[str, Any],
+        blob_name: str,
+        ffmpeg_proc: FFmpegVideoProcessor,
+        audio_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Wait for batch completion and finalize results with embeddings.
+
+        This method is called after the batch job has been submitted and audio
+        processing has completed (or been skipped). The batch may already be
+        done by this point if audio processing took a while.
+
+        Args:
+            batch_proc: BatchProcessor instance.
+            vision_batch_id: ID of the submitted batch job.
+            frames: Original extracted frames.
+            frames_for_batch: Prepared frames with base64 data.
+            video_info: Video metadata.
+            blob_name: Azure blob name.
+            ffmpeg_proc: FFmpeg processor for status.
+            audio_data: Processed audio data (optional).
+
+        Returns:
+            Combined processing results dict.
+        """
+        logger.info(f"Esperando completación del análisis (batch: {vision_batch_id})")
 
         start_analysis = time.time()
-        success = batch_proc.wait_for_batch_completion(
+        success = await batch_proc.wait_for_batch_completion(
             vision_batch_id,
             check_interval=self.BATCH_CHECK_INTERVAL_SECONDS,
             max_wait_time=self.BATCH_MAX_WAIT_TIME_SECONDS,
@@ -487,7 +542,7 @@ Be thorough but factual. Prioritize information that would help users find this 
 
         # 4. Obtener y parsear resultados del análisis
         logger.info("Obteniendo resultados del análisis")
-        vision_results = batch_proc.get_batch_results(vision_batch_id)
+        vision_results = await batch_proc.get_batch_results(vision_batch_id)
         parsed_analyses = batch_proc.parse_vision_results(vision_results)
 
         # 5. Preparar textos para embeddings
@@ -516,7 +571,7 @@ Be thorough but factual. Prioritize information that would help users find this 
             for i in range(0, len(texts_to_embed), self.EMBEDDING_BATCH_SIZE):
                 batch_texts = texts_to_embed[i : i + self.EMBEDDING_BATCH_SIZE]
                 try:
-                    response = self.openai_client.embeddings.create(
+                    response = await self.openai_client.embeddings.create(
                         input=batch_texts, model=self.embedding_deployment
                     )
                     batch_embeddings = [item.embedding for item in response.data]
@@ -559,8 +614,10 @@ Be thorough but factual. Prioritize information that would help users find this 
                 "frame_number": frame_number,
                 "timestamp": frame_data.get("timestamp"),
                 "analysis": analysis_data.get("analysis"),
+                "analysis_structured": analysis_data.get("analysis_structured"),
                 "tokens_used": analysis_data.get("tokens_used", 0),
                 "embedding": embedding,
+                "embedding_coarse": embedding[:512] if len(embedding) >= 512 else embedding,
             }
 
             frames_data.append(frame_result)

@@ -5,6 +5,7 @@ Uses Azure OpenAI Global Batch deployments for 50% cost savings.
 All vision analysis goes through Batch API.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -12,7 +13,8 @@ import tempfile
 import time
 from typing import Any
 
-from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
+import aiofiles
+from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ class BatchProcessor:
     AVG_INPUT_TOKENS_PER_FRAME = 1000
     AVG_OUTPUT_TOKENS_PER_FRAME = 150
 
-    def __init__(self, openai_client: AzureOpenAI):
+    def __init__(self, openai_client: AzureOpenAI | AsyncAzureOpenAI):
         self.client = openai_client
 
         # Global Batch deployment (required)
@@ -70,105 +72,155 @@ class BatchProcessor:
             "savings_vs_regular_usd": round(input_cost + output_cost, 4),  # 50% savings
         }
 
+    # Structured JSON schema for vision analysis output
+    FRAME_ANALYSIS_SCHEMA = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "frame_analysis",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "scene_description": {
+                        "type": "object",
+                        "properties": {
+                            "setting": {"type": "string"},
+                            "lighting": {"type": "string"},
+                            "atmosphere": {"type": "string"},
+                            "visual_style": {"type": "string"},
+                        },
+                        "required": ["setting", "lighting", "atmosphere", "visual_style"],
+                        "additionalProperties": False,
+                    },
+                    "people": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "description": {"type": "string"},
+                                "role": {"type": "string"},
+                                "emotion": {"type": "string"},
+                                "name": {"type": ["string", "null"]},
+                            },
+                            "required": ["description", "role", "emotion", "name"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "ocr_text": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "visual_elements": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "actions": {"type": "string"},
+                    "topics": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "questions_answered": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": [
+                    "scene_description",
+                    "people",
+                    "ocr_text",
+                    "visual_elements",
+                    "actions",
+                    "topics",
+                    "keywords",
+                    "questions_answered",
+                ],
+                "additionalProperties": False,
+            },
+        },
+    }
+
     def create_vision_batch_requests(
         self, frames_data: list[dict], custom_prompt: str | None = None
     ) -> list[dict]:
         """
         Crea requests en formato JSONL para batch processing.
 
+        Uses structured JSON output (response_format) for reliable parsing,
+        lower token usage, and direct mapping to Knowledge Graph entities.
+
         Args:
             frames_data: Lista de frames con image_base64
-            custom_prompt: Prompt personalizado
+            custom_prompt: Prompt personalizado (disables structured output)
 
         Returns:
             Lista de requests en formato batch API
         """
         default_prompt = """You are analyzing frame #{frame_number} at timestamp {timestamp}s of a video. Provide a comprehensive analysis optimized for semantic search and RAG retrieval.
 
-## SCENE DESCRIPTION
-Describe the overall scene: setting (indoor/outdoor), environment type, lighting conditions, visual style, and atmosphere.
+Analyze the frame and return a JSON object with these fields:
 
-## PEOPLE & CHARACTERS
-For each person visible:
-- Physical appearance (age range, gender, clothing, distinguishing features)
-- Position and posture in frame
-- Facial expression and apparent emotion
-- Role if apparent (presenter, interviewer, audience, etc.)
-- Name if displayed (from name tags, lower-thirds, or introduced)
+- scene_description: Object with setting (indoor/outdoor, environment type), lighting (conditions), atmosphere (mood, energy), visual_style (cinematic, casual, professional, etc.)
+- people: Array of people visible. For each: description (appearance, age range, gender, clothing), role (presenter, interviewer, audience, etc.), emotion (facial expression, apparent mood), name (from name tags/lower-thirds, or null)
+- ocr_text: Array of ALL visible text exactly as shown — slide titles, bullet points, UI elements, signs, labels, watermarks. Use exact quotes.
+- visual_elements: Array of key objects, products, devices, brand logos, charts/graphs, animations
+- actions: String describing what is happening — use specific verbs (presenting, demonstrating, explaining, comparing)
+- topics: Array of 3-5 key topics/concepts (e.g., "cloud computing", "product launch")
+- keywords: Array of 8-12 searchable keywords/phrases including proper nouns, technical terms, action descriptions
+- questions_answered: Array of 2-3 questions this frame helps answer
 
-## ON-SCREEN TEXT (OCR) - CRITICAL
-Transcribe ALL visible text exactly as shown:
-- Slide titles, bullet points, and body text
-- Lower-thirds, name captions, titles
-- UI elements, buttons, menus (for screen recordings)
-- Signs, labels, logos with text
-- Watermarks or timestamps
-Use quotation marks for exact text.
-
-## VISUAL ELEMENTS
-- Key objects and their spatial arrangement
-- Products, devices, or technical equipment shown
-- Brand logos, company names, product names
-- Charts, graphs, diagrams - describe what they show
-- Animations or visual effects
-
-## ACTIONS & NARRATIVE
-- What is happening in this exact moment
-- Specific action verbs (presenting, demonstrating, explaining, comparing, introducing)
-- Is this a transition, introduction, key point, or conclusion?
-- Body language and gestures that convey meaning
-
-## TOPICS & CONCEPTS
-List 3-5 key topics or concepts this frame relates to (e.g., "cloud computing", "product launch", "quarterly results", "technical demo")
-
-## SEARCHABLE KEYWORDS
-Provide 8-12 keywords/phrases someone might use to find this moment:
-- Include proper nouns (people, companies, products)
-- Technical terms mentioned or shown
-- Action descriptions ("showing demo", "explaining chart")
-- Topic keywords
-
-## POTENTIAL QUESTIONS THIS ANSWERS
-List 2-3 questions this frame could help answer:
-- e.g., "What is [product name]?", "Who presented about [topic]?", "When was [feature] demonstrated?"
-
-Be thorough but factual. Include both obvious and subtle details. Prioritize information that would help users find this specific moment."""
+Be thorough but factual. Prioritize information that would help users find this specific moment."""
 
         requests = []
         for idx, frame_data in enumerate(frames_data):
-            # Replace placeholders with actual values for each frame
             prompt_text = custom_prompt or default_prompt
-            prompt_text = prompt_text.replace("{frame_number}", str(frame_data.get('frame_number', idx)))
-            prompt_text = prompt_text.replace("{timestamp}", str(frame_data.get('timestamp', 0)))
+            frame_num = frame_data.get('frame_number', idx)
+            timestamp = frame_data.get('timestamp', 0)
+            prompt_text = prompt_text.replace(
+                "{frame_number}", str(frame_num)
+            )
+            prompt_text = prompt_text.replace(
+                "{timestamp}", str(timestamp)
+            )
+
+            body: dict[str, Any] = {
+                "model": self.gpt_deployment,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt_text},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{frame_data['image_base64']}"
+                                },
+                            },
+                        ],
+                    }
+                ],
+                "max_tokens": frame_data.get("max_tokens", 900),
+            }
+
+            # Use structured output only with default prompt (custom prompts
+            # may not match the schema)
+            if custom_prompt is None:
+                body["response_format"] = self.FRAME_ANALYSIS_SCHEMA
 
             request = {
                 "custom_id": f"frame_{frame_data.get('frame_number', idx)}",
                 "method": "POST",
                 "url": "/chat/completions",
-                "body": {
-                    "model": self.gpt_deployment,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt_text},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{frame_data['image_base64']}"
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                    "max_tokens": 900,
-                },
+                "body": body,
             }
             requests.append(request)
 
         return requests
 
-    def submit_batch_job(
+    async def submit_batch_job(
         self, requests: list[dict[str, Any]], description: str = "Video frame analysis"
     ) -> str:
         """
@@ -192,11 +244,15 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
 
         try:
             logger.info(f"Uploading batch file ({len(requests)} requests)")
-            with open(temp_path, "rb") as f:
-                batch_file = self.client.files.create(file=f, purpose="batch")
+            async with aiofiles.open(temp_path, "rb") as f:
+                file_content = await f.read()
+
+            batch_file = await self.client.files.create(
+                file=(os.path.basename(temp_path), file_content), purpose="batch"
+            )
 
             logger.info(f"Creating batch job with file {batch_file.id}")
-            batch = self.client.batches.create(
+            batch = await self.client.batches.create(
                 input_file_id=batch_file.id,
                 endpoint="/chat/completions",
                 completion_window="24h",
@@ -213,7 +269,7 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
 
-    def check_batch_status(self, batch_id: str) -> dict[str, Any]:
+    async def check_batch_status(self, batch_id: str) -> dict[str, Any]:
         """
         Verifica el estado de un batch job.
         
@@ -223,7 +279,7 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
         Returns:
             Diccionario con estado del batch.
         """
-        batch = self.client.batches.retrieve(batch_id)
+        batch = await self.client.batches.retrieve(batch_id)
 
         return {
             "id": batch.id,
@@ -237,15 +293,15 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
             },
         }
 
-    def wait_for_batch_completion(
-        self, batch_id: str, check_interval: int = 30, max_wait_time: int = 3600
+    async def wait_for_batch_completion(
+        self, batch_id: str, check_interval: int = 10, max_wait_time: int = 3600
     ) -> bool:
         """
-        Espera a que un batch job complete.
+        Espera a que un batch job complete con exponential backoff.
 
         Args:
             batch_id: ID del batch job.
-            check_interval: Intervalo de verificación en segundos.
+            check_interval: Intervalo inicial de verificación en segundos.
             max_wait_time: Tiempo máximo de espera en segundos.
 
         Returns:
@@ -253,6 +309,9 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
         """
         logger.info(f"Waiting for batch {batch_id} to complete")
         start_time = time.time()
+        current_interval = float(check_interval)
+        max_interval = 120.0  # Cap at 2 minutes between polls
+        backoff_factor = 1.5
 
         while True:
             elapsed = time.time() - start_time
@@ -262,17 +321,21 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
                 return False
 
             try:
-                status_info = self.check_batch_status(batch_id)
+                status_info = await self.check_batch_status(batch_id)
             except (APIError, APIConnectionError) as e:
                 logger.warning(f"Error checking batch status: {e}, retrying...")
-                time.sleep(check_interval)
+                await asyncio.sleep(current_interval)
+                current_interval = min(current_interval * backoff_factor, max_interval)
                 continue
 
             status = status_info["status"]
             completed = status_info["request_counts"]["completed"]
             total = status_info["request_counts"]["total"]
 
-            logger.info(f"Batch status: {status} ({completed}/{total}) - {elapsed:.0f}s elapsed")
+            logger.info(
+                f"Batch status: {status} ({completed}/{total}) "
+                f"- {elapsed:.0f}s elapsed, next check in {current_interval:.0f}s"
+            )
 
             if status == "completed":
                 logger.info("Batch completed successfully")
@@ -281,9 +344,10 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
                 logger.error(f"Batch failed with status: {status}")
                 return False
 
-            time.sleep(check_interval)
+            await asyncio.sleep(current_interval)
+            current_interval = min(current_interval * backoff_factor, max_interval)
 
-    def get_batch_results(self, batch_id: str) -> list[dict[str, Any]]:
+    async def get_batch_results(self, batch_id: str) -> list[dict[str, Any]]:
         """
         Obtiene los resultados de un batch job completado.
         
@@ -296,7 +360,7 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
         Raises:
             ValueError: Si el batch no está completado o no hay archivo de salida.
         """
-        batch = self.client.batches.retrieve(batch_id)
+        batch = await self.client.batches.retrieve(batch_id)
 
         if batch.status != "completed":
             raise ValueError(f"Batch not completed: {batch.status}")
@@ -305,7 +369,7 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
             raise ValueError("No output file available")
 
         logger.info("Downloading batch results")
-        file_response = self.client.files.content(batch.output_file_id)
+        file_response = await self.client.files.content(batch.output_file_id)
 
         results: list[dict[str, Any]] = []
         for line in file_response.text.strip().split("\n"):
@@ -318,10 +382,14 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
     def parse_vision_results(self, results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """
         Parsea resultados de análisis de visión.
-        
+
+        Handles both structured JSON output (response_format) and plain text
+        responses (custom prompts). For JSON responses, the analysis field
+        contains both the parsed dict and a flattened text version for embeddings.
+
         Args:
             results: Lista de resultados del batch API.
-            
+
         Returns:
             Diccionario mapeando custom_id a resultados parseados.
         """
@@ -335,14 +403,26 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
                 content = body["choices"][0]["message"]["content"]
                 tokens = body.get("usage", {}).get("total_tokens", 0)
 
+                # Try parsing as structured JSON, fall back to plain text
+                analysis_structured = None
+                analysis_text = content
+                try:
+                    analysis_structured = json.loads(content)
+                    # Build a flattened text version for embedding generation
+                    analysis_text = self._structured_to_text(analysis_structured)
+                except (json.JSONDecodeError, TypeError):
+                    pass  # Plain text response (custom prompt)
+
                 parsed[custom_id] = {
-                    "analysis": content,
+                    "analysis": analysis_text,
+                    "analysis_structured": analysis_structured,
                     "tokens_used": tokens,
                     "success": True,
                 }
             else:
                 parsed[custom_id] = {
                     "analysis": None,
+                    "analysis_structured": None,
                     "tokens_used": 0,
                     "success": False,
                     "error": result.get("error", {}).get("message", "Unknown error"),
@@ -350,7 +430,61 @@ Be thorough but factual. Include both obvious and subtle details. Prioritize inf
 
         return parsed
 
-    def cancel_batch(self, batch_id: str):
+    @staticmethod
+    def _structured_to_text(data: dict[str, Any]) -> str:
+        """
+        Flatten structured JSON analysis into text for embedding generation.
+
+        Converts the JSON schema output into a coherent text representation
+        that produces high-quality embeddings for semantic search.
+        """
+        parts: list[str] = []
+
+        scene = data.get("scene_description", {})
+        if scene:
+            parts.append(
+                f"Scene: {scene.get('setting', '')}. "
+                f"Lighting: {scene.get('lighting', '')}. "
+                f"Atmosphere: {scene.get('atmosphere', '')}. "
+                f"Style: {scene.get('visual_style', '')}."
+            )
+
+        people = data.get("people", [])
+        if people:
+            for person in people:
+                name = person.get("name") or "Unknown"
+                parts.append(
+                    f"Person: {name} — {person.get('description', '')}. "
+                    f"Role: {person.get('role', '')}. Emotion: {person.get('emotion', '')}."
+                )
+
+        ocr = data.get("ocr_text", [])
+        if ocr:
+            parts.append(f"On-screen text: {'; '.join(ocr)}")
+
+        elements = data.get("visual_elements", [])
+        if elements:
+            parts.append(f"Visual elements: {', '.join(elements)}")
+
+        actions = data.get("actions", "")
+        if actions:
+            parts.append(f"Actions: {actions}")
+
+        topics = data.get("topics", [])
+        if topics:
+            parts.append(f"Topics: {', '.join(topics)}")
+
+        keywords = data.get("keywords", [])
+        if keywords:
+            parts.append(f"Keywords: {', '.join(keywords)}")
+
+        questions = data.get("questions_answered", [])
+        if questions:
+            parts.append(f"Questions answered: {'; '.join(questions)}")
+
+        return " ".join(parts)
+
+    async def cancel_batch(self, batch_id: str):
         """Cancela un batch job en progreso."""
-        self.client.batches.cancel(batch_id)
+        await self.client.batches.cancel(batch_id)
         logger.info(f"Batch {batch_id} cancelled")

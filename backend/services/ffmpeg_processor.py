@@ -10,6 +10,7 @@ import os
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 class FFmpegVideoProcessor:
     """Procesador de video con FFmpeg para extracción ultra-rápida de frames"""
 
+    # Cached result of hardware acceleration detection
+    _hwaccel_available: str | None = None
+    _hwaccel_checked: bool = False
+
     def __init__(self, config: FFmpegProcessingConfig | None = None):
         """
         Inicializar procesador
@@ -37,6 +42,56 @@ class FFmpegVideoProcessor:
         """
         self.config = config or FFmpegProcessingConfig()
         self.status = ProcessingStatus(status="pending")
+        self._resolved_hwaccel = self._resolve_hwaccel()
+
+    @staticmethod
+    def _detect_available_hwaccel() -> str | None:
+        """
+        Auto-detect available hardware acceleration using FFmpeg.
+
+        Returns the best available hwaccel method, or None if only CPU is available.
+        Priority: cuda > qsv > d3d11va > dxva2 > vaapi > videotoolbox
+        """
+        if FFmpegVideoProcessor._hwaccel_checked:
+            return FFmpegVideoProcessor._hwaccel_available
+
+        # Preferred order by decode performance
+        preferred = ["cuda", "qsv", "d3d11va", "dxva2", "vaapi", "videotoolbox"]
+
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-hwaccels"],
+                capture_output=True, text=True, timeout=10,
+            )
+            available = result.stdout.lower().split()
+            for method in preferred:
+                if method in available:
+                    FFmpegVideoProcessor._hwaccel_available = method
+                    FFmpegVideoProcessor._hwaccel_checked = True
+                    logger.info(f"Hardware acceleration detected: {method}")
+                    return method
+        except Exception as e:
+            logger.debug(f"Hardware acceleration detection failed: {e}")
+
+        FFmpegVideoProcessor._hwaccel_available = None
+        FFmpegVideoProcessor._hwaccel_checked = True
+        logger.info("No hardware acceleration available, using CPU decoding")
+        return None
+
+    def _resolve_hwaccel(self) -> str | None:
+        """Resolve hardware acceleration: use config value, auto-detect, or None."""
+        configured = self.config.hardware_accel
+        if configured == "auto":
+            return self._detect_available_hwaccel()
+        elif configured:
+            return configured
+        return None
+
+    def _build_hwaccel_args(self) -> list[str]:
+        """Build FFmpeg hardware acceleration arguments (inserted before -i)."""
+        if not self._resolved_hwaccel:
+            return []
+        return ["-hwaccel", self._resolved_hwaccel]
 
     def get_video_info(self, video_path: str) -> dict[str, Any]:
         """
@@ -385,7 +440,9 @@ class FFmpegVideoProcessor:
         try:
             # Usar FFmpeg para detectar escenas
             cmd = [
-                "ffmpeg", "-i", video_path,
+                "ffmpeg",
+                *self._build_hwaccel_args(),
+                "-i", video_path,
                 "-vf", f"select='gt(scene,{threshold})',showinfo",
                 "-f", "null", "-"
             ]
@@ -601,6 +658,63 @@ class FFmpegVideoProcessor:
                 100.0,
             )
 
+    # Max parallel FFmpeg workers for frame extraction
+    MAX_EXTRACTION_WORKERS = 8
+
+    def _extract_single_frame(
+        self,
+        video_path: str,
+        timestamp: float,
+        idx: int,
+        filters: list[str],
+    ) -> dict[str, Any] | None:
+        """
+        Extract a single frame via FFmpeg pipe-to-memory (no disk I/O).
+
+        Returns frame dict with image_data bytes, or None on failure.
+        """
+        try:
+            cmd = [
+                "ffmpeg",
+                *self._build_hwaccel_args(),
+                "-ss", str(timestamp),
+                "-i", video_path,
+                "-vframes", "1",
+                "-q:v", "2",
+                "-f", "image2pipe",
+                "-vcodec", "mjpeg",
+                "-",
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=30,
+                cwd=os.path.dirname(video_path) or ".",
+            )
+
+            if result.returncode == 0 and result.stdout and len(result.stdout) > 0:
+                return {
+                    "frame_number": idx,
+                    "timestamp": timestamp,
+                    "image_data": result.stdout,
+                }
+            else:
+                logger.warning(f"Frame vacío en t={timestamp}, rc={result.returncode}")
+                if result.stderr:
+                    logger.debug(f"FFmpeg stderr: {result.stderr[:500]}")
+                return None
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Timeout extrayendo frame en t={timestamp}")
+            return None
+        except subprocess.SubprocessError as e:
+            logger.error(f"Error de subprocess en t={timestamp}: {e}")
+            return None
+        except Exception as e:
+            logger.exception(f"Error inesperado en t={timestamp}: {type(e).__name__}: {e}")
+            return None
+
     def _extract_at_timestamps(
         self,
         video_path: str,
@@ -610,81 +724,73 @@ class FFmpegVideoProcessor:
         frames: list[dict[str, Any]],
     ) -> None:
         """
-        Extraer frames en timestamps específicos usando ffmpeg directamente.
-        
+        Extraer frames en timestamps específicos usando FFmpeg en paralelo.
+
+        Uses ThreadPoolExecutor for concurrent extraction with pipe-to-memory,
+        eliminating sequential subprocess overhead and disk I/O.
+
         Args:
             video_path: Ruta al archivo de video.
-            output_dir: Directorio de salida para frames.
+            output_dir: Directorio de salida para frames (used as fallback).
             timestamps: Lista de timestamps a extraer.
             filters: Filtros FFmpeg a aplicar.
             frames: Lista donde agregar los frames extraídos.
         """
-        logger.info(f"Extrayendo {len(timestamps)} frames en timestamps específicos")
-        logger.debug(f"Video: {video_path}, Output dir: {output_dir}")
-        if len(timestamps) > 5:
+        total = len(timestamps)
+        logger.info(
+            f"Extrayendo {total} frames en paralelo "
+            f"(max {self.MAX_EXTRACTION_WORKERS} workers)"
+        )
+        logger.debug(f"Video: {video_path}")
+        if total > 5:
             logger.debug(f"Timestamps: {timestamps[:5]}...")
         else:
             logger.debug(f"Timestamps: {timestamps}")
 
-        for idx, timestamp in enumerate(timestamps):
-            try:
-                output_file = os.path.join(output_dir, f"frame_{idx:06d}.jpg")
+        # Debug: log first command
+        if timestamps:
+            cmd_preview = (
+                f"ffmpeg -ss {timestamps[0]} -i {video_path} "
+                f"-vframes 1 -f image2pipe -vcodec mjpeg -"
+            )
+            logger.debug(f"Comando FFmpeg (ejemplo): {cmd_preview}")
 
-                # Comando FFmpeg simple y confiable
-                cmd = [
-                    "ffmpeg",
-                    "-ss",
-                    str(timestamp),  # Seek to timestamp
-                    "-i",
-                    video_path,
-                    "-vframes",
-                    "1",  # Extract 1 frame
-                    "-q:v",
-                    "2",  # Quality (2 = high quality JPEG)
-                    "-y",  # Overwrite
-                    output_file,
-                ]
+        extracted_count = 0
+        workers = min(self.MAX_EXTRACTION_WORKERS, total)
 
-                # Debug: mostrar comando solo para el primer frame
-                if idx == 0:
-                    logger.debug(f"Comando FFmpeg: {' '.join(cmd)}")
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    self._extract_single_frame, video_path, ts, idx, filters
+                ): idx
+                for idx, ts in enumerate(timestamps)
+            }
 
-                # Ejecutar comando
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                    cwd=os.path.dirname(video_path) or ".",
-                )
-
-                # Verificar que el archivo se creó
-                if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                    frames.append(
-                        {"frame_number": idx, "timestamp": timestamp, "file_path": output_file}
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    # Write to disk for caller's return_as_bytes handling
+                    frame_num = result['frame_number']
+                    output_file = os.path.join(
+                        output_dir, f"frame_{frame_num:06d}.jpg"
                     )
+                    with open(output_file, "wb") as f:
+                        f.write(result["image_data"])
+                    result["file_path"] = output_file
 
-                    # Actualizar progreso
-                    self.status.current_frame = idx + 1
-                    self.status.progress = (idx + 1) / len(timestamps) * 100
+                    frames.append(result)
+                    extracted_count += 1
 
-                    # Log cada 10 frames
-                    if (idx + 1) % 10 == 0:
-                        logger.debug(f"{idx + 1}/{len(timestamps)} frames extraídos")
-                else:
-                    logger.warning(f"Frame no creado o vacío en t={timestamp}, rc={result.returncode}")
-                    if result.stderr:
-                        logger.debug(f"FFmpeg stderr: {result.stderr[:500]}")
+                    # Update progress
+                    self.status.current_frame = extracted_count
+                    self.status.progress = extracted_count / total * 100
 
-            except subprocess.TimeoutExpired:
-                logger.warning(f"Timeout extrayendo frame en t={timestamp}")
-                continue
-            except subprocess.SubprocessError as e:
-                logger.error(f"Error de subprocess en t={timestamp}: {e}")
-                continue
-            except Exception as e:
-                logger.exception(f"Error inesperado en t={timestamp}: {type(e).__name__}: {e}")
-                continue
+                    if extracted_count % 10 == 0:
+                        logger.debug(f"{extracted_count}/{total} frames extraídos")
+
+        # Sort frames by frame_number to maintain temporal order
+        frames.sort(key=lambda f: f["frame_number"])
+        logger.info(f"Extracción paralela completada: {extracted_count}/{total} frames")
 
     def frame_to_base64(self, frame_data: bytes) -> str:
         """
