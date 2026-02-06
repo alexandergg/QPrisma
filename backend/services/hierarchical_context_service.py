@@ -234,7 +234,7 @@ class HierarchicalContextService:
         # Generate summary embedding (primary)
         summary_text = self._build_scene_text(scene)
         if summary_text:
-            summary_embedding = self.embedding_service.generate_embedding(summary_text)
+            summary_embedding = await self.embedding_service.generate_embedding(summary_text)
             embeddings_to_pool.append(summary_embedding)
             weights.append(2.0)  # Higher weight for summary
 
@@ -265,7 +265,7 @@ class HierarchicalContextService:
         # Generate chapter summary embedding
         chapter_text = self._build_chapter_text(chapter)
         if chapter_text:
-            chapter_embedding = self.embedding_service.generate_embedding(chapter_text)
+            chapter_embedding = await self.embedding_service.generate_embedding(chapter_text)
             embeddings_to_pool.append(chapter_embedding)
             weights.append(2.0)
 
@@ -304,7 +304,7 @@ class HierarchicalContextService:
         # Generate video summary embedding
         video_text = self._build_video_text(structure)
         if video_text:
-            video_embedding = self.embedding_service.generate_embedding(video_text)
+            video_embedding = await self.embedding_service.generate_embedding(video_text)
             embeddings_to_pool.append(video_embedding)
             weights.append(2.0)
 
@@ -528,7 +528,7 @@ class HierarchicalContextService:
     async def _store_hierarchy_in_graph(
         self, structure: VideoStructure, video_metadata: dict, video_embedding: list[float]
     ) -> dict:
-        """Store the hierarchical structure in Neo4j."""
+        """Store the hierarchical structure in Neo4j using batched UNWIND operations."""
         counts = {"video": 0, "chapters": 0, "scenes": 0}
 
         # Create Video node
@@ -560,8 +560,12 @@ class HierarchicalContextService:
                 node_type=NodeType.VIDEO,
             )
 
-        # Create Chapter nodes
+        # --- Batch create Chapter nodes + CONTAINS relationships ---
         chapter_node_ids = {}
+        chapters_data = []
+        chapter_rels = []
+        chapter_embeddings = []
+
         for chapter in structure.chapters:
             chapter_node = ChapterNode(
                 video_id=structure.media_id,
@@ -577,31 +581,48 @@ class HierarchicalContextService:
                 embedding_model="text-embedding-3-large",
             )
 
-            chapter_id = self._create_chapter_node(chapter_node)
-            chapter_node_ids[chapter.get("chapter_id", 0)] = chapter_id
+            chapter_node_ids[chapter.get("chapter_id", 0)] = chapter_node.id
+            chapters_data.append({
+                "id": chapter_node.id,
+                "video_id": chapter_node.video_id,
+                "start_time": chapter_node.start_time,
+                "end_time": chapter_node.end_time,
+                "chapter_index": chapter_node.chapter_index,
+                "title": chapter_node.title,
+                "summary": chapter_node.summary,
+                "topics": chapter_node.topics,
+            })
+            chapter_rels.append({
+                "source_id": f"video:{structure.media_id}",
+                "target_id": chapter_node.id,
+            })
 
-            # Create CONTAINS relationship
-            self._create_relationship(
-                source_id=f"video:{structure.media_id}",
-                target_id=chapter_id,
-                relation_type=RelationType.CONTAINS,
+            if self.config.store_chapter_embeddings and chapter.get("embedding"):
+                chapter_embeddings.append({
+                    "node_id": chapter_node.id,
+                    "embedding": chapter["embedding"],
+                })
+
+        if chapters_data:
+            self._create_chapters_batch(chapters_data)
+            self._create_relationships_batch(chapter_rels, RelationType.CONTAINS)
+            if chapter_embeddings:
+                self._store_embeddings_batch(chapter_embeddings)
+            counts["chapters"] = len(chapters_data)
+
+        # --- Batch create Scene nodes + CONTAINS relationships ---
+        scenes_data = []
+        scene_rels = []
+        scene_embeddings = []
+
+        for scene in structure.scenes:
+            chapter_id_for_scene = self._find_chapter_for_scene(
+                scene, structure.chapters, chapter_node_ids
             )
 
-            # Store chapter embedding
-            if self.config.store_chapter_embeddings and chapter.get("embedding"):
-                self._store_embedding_node(
-                    node_id=chapter_id, embedding=chapter["embedding"], node_type=NodeType.CHAPTER
-                )
-
-            counts["chapters"] += 1
-
-        # Create Scene nodes
-        for scene in structure.scenes:
             scene_node = SceneNode(
                 video_id=structure.media_id,
-                chapter_id=self._find_chapter_for_scene(
-                    scene, structure.chapters, chapter_node_ids
-                ),
+                chapter_id=chapter_id_for_scene,
                 start_time=scene.start_time,
                 end_time=scene.end_time,
                 scene_index=scene.scene_id,
@@ -613,26 +634,35 @@ class HierarchicalContextService:
                 transition_type=getattr(scene, 'transition_type', 'cut'),
             )
 
-            scene_id = self._create_scene_node(scene_node)
+            scenes_data.append({
+                "id": scene_node.id,
+                "video_id": scene_node.video_id,
+                "chapter_id": scene_node.chapter_id,
+                "start_time": scene_node.start_time,
+                "end_time": scene_node.end_time,
+                "scene_index": scene_node.scene_index,
+                "description": scene_node.description,
+            })
 
-            # Create CONTAINS relationship from chapter
-            chapter_id_for_scene = self._find_chapter_for_scene(
-                scene, structure.chapters, chapter_node_ids
-            )
             if chapter_id_for_scene:
-                self._create_relationship(
-                    source_id=chapter_id_for_scene,
-                    target_id=scene_id,
-                    relation_type=RelationType.CONTAINS,
-                )
+                scene_rels.append({
+                    "source_id": chapter_id_for_scene,
+                    "target_id": scene_node.id,
+                })
 
-            # Store scene embedding
             if self.config.store_scene_embeddings and scene.embedding:
-                self._store_embedding_node(
-                    node_id=scene_id, embedding=scene.embedding, node_type=NodeType.SCENE
-                )
+                scene_embeddings.append({
+                    "node_id": scene_node.id,
+                    "embedding": scene.embedding,
+                })
 
-            counts["scenes"] += 1
+        if scenes_data:
+            self._create_scenes_batch(scenes_data)
+            if scene_rels:
+                self._create_relationships_batch(scene_rels, RelationType.CONTAINS)
+            if scene_embeddings:
+                self._store_embeddings_batch(scene_embeddings)
+            counts["scenes"] = len(scenes_data)
 
         return counts
 
@@ -646,7 +676,7 @@ class HierarchicalContextService:
         return None
 
     def _create_chapter_node(self, chapter: ChapterNode) -> str:
-        """Create a chapter node in Neo4j."""
+        """Create a single chapter node in Neo4j."""
         query = """
         CREATE (c:Chapter {
             id: $id,
@@ -676,8 +706,27 @@ class HierarchicalContextService:
             )
             return result.single()["id"]
 
+    def _create_chapters_batch(self, chapters: list[dict]) -> None:
+        """Create all chapter nodes in a single UNWIND transaction."""
+        query = """
+        UNWIND $batch AS ch
+        CREATE (c:Chapter {
+            id: ch.id,
+            video_id: ch.video_id,
+            start_time: ch.start_time,
+            end_time: ch.end_time,
+            chapter_index: ch.chapter_index,
+            title: ch.title,
+            summary: ch.summary,
+            topics: ch.topics,
+            created_at: datetime()
+        })
+        """
+        with self.graph_service._driver.session() as session:
+            session.run(query, batch=chapters)
+
     def _create_scene_node(self, scene: SceneNode) -> str:
-        """Create a scene node in Neo4j."""
+        """Create a single scene node in Neo4j."""
         query = """
         CREATE (s:Scene {
             id: $id,
@@ -705,8 +754,26 @@ class HierarchicalContextService:
             )
             return result.single()["id"]
 
+    def _create_scenes_batch(self, scenes: list[dict]) -> None:
+        """Create all scene nodes in a single UNWIND transaction."""
+        query = """
+        UNWIND $batch AS sc
+        CREATE (s:Scene {
+            id: sc.id,
+            video_id: sc.video_id,
+            chapter_id: sc.chapter_id,
+            start_time: sc.start_time,
+            end_time: sc.end_time,
+            scene_index: sc.scene_index,
+            description: sc.description,
+            created_at: datetime()
+        })
+        """
+        with self.graph_service._driver.session() as session:
+            session.run(query, batch=scenes)
+
     def _create_relationship(self, source_id: str, target_id: str, relation_type: RelationType):
-        """Create a relationship between two nodes."""
+        """Create a single relationship between two nodes."""
         query = f"""
         MATCH (a), (b)
         WHERE a.id = $source_id AND b.id = $target_id
@@ -717,8 +784,21 @@ class HierarchicalContextService:
         with self.graph_service._driver.session() as session:
             session.run(query, source_id=source_id, target_id=target_id)
 
+    def _create_relationships_batch(
+        self, rels: list[dict], relation_type: RelationType
+    ) -> None:
+        """Create multiple relationships of the same type in a single UNWIND transaction."""
+        query = f"""
+        UNWIND $batch AS rel
+        MATCH (a), (b)
+        WHERE a.id = rel.source_id AND b.id = rel.target_id
+        CREATE (a)-[:{relation_type.value}]->(b)
+        """
+        with self.graph_service._driver.session() as session:
+            session.run(query, batch=rels)
+
     def _store_embedding_node(self, node_id: str, embedding: list[float], node_type: NodeType):
-        """Store embedding for a node (for vector index)."""
+        """Store embedding for a single node (for vector index)."""
         query = """
         MATCH (n) WHERE n.id = $node_id
         SET n.embedding = $embedding
@@ -728,20 +808,40 @@ class HierarchicalContextService:
         with self.graph_service._driver.session() as session:
             session.run(query, node_id=node_id, embedding=embedding)
 
+    def _store_embeddings_batch(self, embeddings: list[dict]) -> None:
+        """Store full and coarse embeddings for multiple nodes in a single UNWIND transaction."""
+        # Add coarse truncations
+        for item in embeddings:
+            emb = item.get("embedding", [])
+            item["embedding_coarse"] = emb[:512] if len(emb) >= 512 else emb
+
+        query = """
+        UNWIND $batch AS item
+        MATCH (n) WHERE n.id = item.node_id
+        SET n.embedding = item.embedding,
+            n.embedding_coarse = item.embedding_coarse
+        """
+        with self.graph_service._driver.session() as session:
+            session.run(query, batch=embeddings)
+
     async def _ensure_vector_indexes(self):
-        """Ensure vector indexes exist for all hierarchy levels."""
+        """Ensure vector indexes exist for all hierarchy levels (full + coarse)."""
         index_configs = [
-            ("video_embedding_idx", "Video", 3072),
-            ("chapter_embedding_idx", "Chapter", 3072),
-            ("scene_embedding_idx", "Scene", 3072),
+            ("video_embedding_idx", "Video", "embedding", 3072),
+            ("chapter_embedding_idx", "Chapter", "embedding", 3072),
+            ("scene_embedding_idx", "Scene", "embedding", 3072),
+            # Coarse Matryoshka indexes for fast filtering
+            ("video_embedding_coarse_idx", "Video", "embedding_coarse", 512),
+            ("chapter_embedding_coarse_idx", "Chapter", "embedding_coarse", 512),
+            ("scene_embedding_coarse_idx", "Scene", "embedding_coarse", 512),
         ]
 
-        for index_name, label, dims in index_configs:
+        for index_name, label, prop, dims in index_configs:
             try:
                 query = f"""
                 CREATE VECTOR INDEX {index_name} IF NOT EXISTS
                 FOR (n:{label})
-                ON n.embedding
+                ON n.{prop}
                 OPTIONS {{
                     indexConfig: {{
                         `vector.dimensions`: {dims},
@@ -785,7 +885,7 @@ class HierarchicalContextService:
             List of DrillDownResult with hierarchy path
         """
         # Generate query embedding
-        query_embedding = self.embedding_service.generate_embedding(query_text)
+        query_embedding = await self.embedding_service.generate_embedding(query_text)
 
         results = []
 

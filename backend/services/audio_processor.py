@@ -4,15 +4,17 @@ Extrae audio de videos, transcribe con Whisper y genera análisis enriquecido.
 Soporta chunking para archivos grandes (>25MB limit de Azure Whisper).
 """
 
+import asyncio
 import json
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import time
 from typing import Any
 
-from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
+from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,9 @@ logger = logging.getLogger(__name__)
 WHISPER_MAX_FILE_SIZE_MB = 25
 # Chunk duration objetivo para audio (5 minutos da ~5-8MB en mp3 128kbps)
 CHUNK_DURATION_SECONDS = 300  # 5 minutos
+# VAD silence detection defaults
+VAD_NOISE_THRESHOLD_DB = -30  # dB threshold for silence detection
+VAD_MIN_SILENCE_DURATION = 0.5  # minimum silence gap in seconds
 
 
 class AudioProcessor:
@@ -33,14 +38,14 @@ class AudioProcessor:
         rate_limit_rpm: Límite de requests por minuto para Whisper.
     """
 
-    def __init__(self, openai_client: AzureOpenAI, rate_limit_rpm: int = 3):
+    def __init__(self, openai_client: AzureOpenAI | AsyncAzureOpenAI, rate_limit_rpm: int = 3):
         self.openai_client = openai_client
         self.whisper_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_WHISPER", "whisper")
         self.gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
         self.rate_limit_rpm = rate_limit_rpm
         self._last_request_time = 0.0
 
-    def _wait_for_rate_limit(self) -> None:
+    async def _wait_for_rate_limit(self) -> None:
         """Espera si es necesario para respetar rate limit."""
         if self.rate_limit_rpm <= 0:
             return
@@ -51,7 +56,7 @@ class AudioProcessor:
         if elapsed < min_interval:
             wait_time = min_interval - elapsed
             logger.debug(f"Rate limit: esperando {wait_time:.1f}s")
-            time.sleep(wait_time)
+            await asyncio.sleep(wait_time)
 
         self._last_request_time = time.time()
 
@@ -133,19 +138,112 @@ class AudioProcessor:
             logger.warning(f"Error parseando duración de audio: {e}")
             return 0.0
 
+    def _detect_silence_boundaries(
+        self,
+        audio_path: str,
+        noise_db: float = VAD_NOISE_THRESHOLD_DB,
+        min_silence: float = VAD_MIN_SILENCE_DURATION,
+    ) -> list[dict[str, float]]:
+        """
+        Detect silence gaps in audio using FFmpeg silencedetect filter.
+
+        Returns list of silence intervals: [{"start": float, "end": float}, ...]
+        """
+        cmd = [
+            "ffmpeg", "-i", audio_path,
+            "-af", f"silencedetect=noise={noise_db}dB:d={min_silence}",
+            "-f", "null", "-",
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            stderr = result.stderr
+
+            starts = re.findall(r"silence_start: ([\d.]+)", stderr)
+            ends = re.findall(r"silence_end: ([\d.]+)", stderr)
+
+            silences = []
+            for i in range(min(len(starts), len(ends))):
+                silences.append({
+                    "start": float(starts[i]),
+                    "end": float(ends[i]),
+                })
+            return silences
+
+        except Exception as e:
+            logger.warning(f"Silence detection failed, falling back to fixed chunking: {e}")
+            return []
+
+    def _find_vad_split_points(
+        self,
+        total_duration: float,
+        silences: list[dict[str, float]],
+        target_chunk: float = CHUNK_DURATION_SECONDS,
+        min_chunk: float = 60.0,
+    ) -> list[float]:
+        """
+        Find optimal split points at silence boundaries near target chunk durations.
+
+        Args:
+            total_duration: Total audio duration in seconds.
+            silences: Silence intervals from _detect_silence_boundaries.
+            target_chunk: Target chunk duration (default 300s).
+            min_chunk: Minimum chunk size to prevent tiny fragments.
+
+        Returns:
+            List of split timestamps (excluding 0 and total_duration).
+        """
+        if not silences or total_duration <= target_chunk:
+            return []
+
+        split_points = []
+        current_start = 0.0
+
+        while current_start + target_chunk < total_duration:
+            target_time = current_start + target_chunk
+            # Search window: 80%-120% of target chunk boundary
+            window_start = current_start + target_chunk * 0.8
+            window_end = min(current_start + target_chunk * 1.2, total_duration)
+
+            # Find the silence gap closest to the target within the window
+            best_split = None
+            best_distance = float("inf")
+
+            for silence in silences:
+                midpoint = (silence["start"] + silence["end"]) / 2
+                if window_start <= midpoint <= window_end:
+                    distance = abs(midpoint - target_time)
+                    if distance < best_distance:
+                        best_distance = distance
+                        best_split = midpoint
+
+            if best_split and (best_split - current_start) >= min_chunk:
+                split_points.append(best_split)
+                current_start = best_split
+            else:
+                # No silence found in window — fall back to target time
+                split_points.append(target_time)
+                current_start = target_time
+
+        return split_points
+
     def split_audio_into_chunks(
         self,
         audio_path: str,
         chunk_duration: float = CHUNK_DURATION_SECONDS,
         output_dir: str | None = None,
+        use_vad: bool = True,
     ) -> list[dict[str, Any]]:
         """
-        Divide audio en chunks más pequeños para respetar límite de Whisper.
+        Divide audio en chunks using VAD-based silence detection for natural boundaries.
+
+        Falls back to fixed-duration chunking if VAD detection fails.
 
         Args:
             audio_path: Ruta al archivo de audio.
             chunk_duration: Duración máxima de cada chunk en segundos.
             output_dir: Directorio para chunks (temporal si None).
+            use_vad: Whether to use Voice Activity Detection for smart boundaries.
 
         Returns:
             Lista de dicts con info de cada chunk: {path, start_time, end_time, index}.
@@ -163,14 +261,42 @@ class AudioProcessor:
         if output_dir is None:
             output_dir = tempfile.mkdtemp(prefix="audio_chunks_")
 
+        # Determine split points using VAD or fixed intervals
+        if use_vad:
+            silences = self._detect_silence_boundaries(audio_path)
+            split_points = self._find_vad_split_points(
+                total_duration, silences, target_chunk=chunk_duration
+            )
+            if split_points:
+                logger.info(
+                    f"VAD: found {len(split_points)} silence-based split points "
+                    f"for {total_duration:.1f}s audio"
+                )
+            else:
+                logger.info("VAD: no split points found, using fixed intervals")
+        else:
+            split_points = []
+
+        # Build chunk boundaries from split points
+        boundaries = [0.0] + split_points + [total_duration]
+        # If no VAD splits, fall back to fixed-duration boundaries
+        if len(boundaries) == 2 and total_duration > chunk_duration:
+            boundaries = [0.0]
+            t = chunk_duration
+            while t < total_duration:
+                boundaries.append(t)
+                t += chunk_duration
+            boundaries.append(total_duration)
+
         chunks: list[dict[str, Any]] = []
-        current_time = 0.0
-        chunk_index = 0
+        logger.info(
+            f"Splitting {total_duration:.1f}s audio into {len(boundaries) - 1} chunks "
+            f"({'VAD' if split_points else 'fixed'})"
+        )
 
-        logger.info(f"Dividiendo audio de {total_duration:.1f}s en chunks de {chunk_duration}s")
-
-        while current_time < total_duration:
-            end_time = min(current_time + chunk_duration, total_duration)
+        for chunk_index in range(len(boundaries) - 1):
+            current_time = boundaries[chunk_index]
+            end_time = boundaries[chunk_index + 1]
             chunk_path = os.path.join(output_dir, f"chunk_{chunk_index:03d}.mp3")
 
             cmd = [
@@ -213,13 +339,10 @@ class AudioProcessor:
             except subprocess.CalledProcessError as e:
                 logger.warning(f"Error creando chunk {chunk_index}: {e}")
 
-            current_time = end_time
-            chunk_index += 1
-
         logger.info(f"Creados {len(chunks)} chunks")
         return chunks
 
-    def transcribe_audio(
+    async def transcribe_audio(
         self,
         audio_path: str,
         language: str | None = None,
@@ -253,16 +376,16 @@ class AudioProcessor:
 
         if file_size_mb > WHISPER_MAX_FILE_SIZE_MB:
             logger.info(f"Archivo excede {WHISPER_MAX_FILE_SIZE_MB}MB, usando chunking")
-            return self._transcribe_with_chunking(
+            return await self._transcribe_with_chunking(
                 audio_path, language, response_format, timestamp_granularities
             )
 
         # Transcripción directa para archivos pequeños
-        return self._transcribe_single_file(
+        return await self._transcribe_single_file(
             audio_path, language, response_format, timestamp_granularities, time_offset=0
         )
 
-    def _transcribe_single_file(
+    async def _transcribe_single_file(
         self,
         audio_path: str,
         language: str | None,
@@ -283,13 +406,13 @@ class AudioProcessor:
         Returns:
             Diccionario con resultados de transcripción.
         """
-        self._wait_for_rate_limit()
+        await self._wait_for_rate_limit()
 
         try:
             with open(audio_path, "rb") as audio_file:
                 start_time = time.time()
 
-                transcription = self.openai_client.audio.transcriptions.create(
+                transcription = await self.openai_client.audio.transcriptions.create(
                     model=self.whisper_deployment,
                     file=audio_file,
                     language=language,
@@ -321,7 +444,7 @@ class AudioProcessor:
             logger.error(f"Error de archivo en transcripción: {e}")
             raise
 
-    def _transcribe_with_chunking(
+    async def _transcribe_with_chunking(
         self,
         audio_path: str,
         language: str | None,
@@ -356,7 +479,7 @@ class AudioProcessor:
             )
 
             try:
-                result = self._transcribe_single_file(
+                result = await self._transcribe_single_file(
                     chunk["path"],
                     language,
                     response_format,
@@ -445,7 +568,7 @@ class AudioProcessor:
 
         return result
 
-    def analyze_transcription(
+    async def analyze_transcription(
         self, transcription_text: str, video_descriptions: list[str] | None = None
     ) -> dict[str, Any]:
         """
@@ -486,7 +609,7 @@ TRANSCRIPCIÓN:
 Responde SOLO con el JSON válido, sin markdown ni explicaciones adicionales."""
 
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model="gpt-5-mini",
                 messages=[
                     {
@@ -518,7 +641,7 @@ Responde SOLO con el JSON válido, sin markdown ni explicaciones adicionales."""
             logger.exception(f"Error inesperado analizando transcripción: {e}")
             return {}
 
-    def process_video_audio(
+    async def process_video_audio(
         self,
         video_path: str,
         language: str | None = None,
@@ -544,14 +667,14 @@ Responde SOLO con el JSON válido, sin markdown ni explicaciones adicionales."""
             audio_path = self.extract_audio_from_video(video_path)
 
             # 2. Transcribir
-            transcription = self.transcribe_audio(audio_path, language=language)
+            transcription = await self.transcribe_audio(audio_path, language=language)
 
             # 3. Analizar transcripción
             full_text = transcription.get("text", "")
             analysis: dict[str, Any] = {}
 
             if full_text and len(full_text.strip()) > 50:
-                analysis = self.analyze_transcription(full_text, video_descriptions)
+                analysis = await self.analyze_transcription(full_text, video_descriptions)
             else:
                 logger.warning("Transcripción muy corta o vacía, saltando análisis")
 
