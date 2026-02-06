@@ -236,7 +236,9 @@ def download_video_task(self, blob_name: str, job_id: str) -> dict:
         )
 
         with open(tmp_path, "wb") as f:
-            f.write(blob_client.download_blob().readall())
+            stream = blob_client.download_blob()
+            for chunk in stream.chunks():
+                f.write(chunk)
 
         file_size = os.path.getsize(tmp_path)
         logger.info(f"Downloaded {blob_name} ({file_size} bytes) to {tmp_path}")

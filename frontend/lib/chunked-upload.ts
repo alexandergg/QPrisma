@@ -23,9 +23,9 @@ export interface ChunkedUploadOptions {
   useSceneDetection?: boolean;
   /** Enable hierarchical summary */
   useHierarchicalSummary?: boolean;
-  /** Block size in MB (8-100, default 8) */
+  /** Block size in MB (8-100, default auto-selected based on file size) */
   blockSizeMb?: number;
-  /** Maximum concurrent uploads (default: 4) */
+  /** Maximum concurrent uploads (default: 6) */
   concurrency?: number;
   /** Progress callback */
   onProgress?: (progress: UploadProgress) => void;
@@ -124,6 +124,21 @@ async function retryWithBackoff<T>(
 }
 
 // =============================================================================
+// Adaptive Block Size
+// =============================================================================
+
+/**
+ * Select optimal block size based on file size.
+ * Larger blocks = fewer HTTP requests = better throughput for big files.
+ */
+function getAdaptiveBlockSizeMb(fileSizeBytes: number): number {
+  const GB = 1024 * 1024 * 1024;
+  if (fileSizeBytes > 5 * GB) return 64;   // 5GB+: 64MB blocks
+  if (fileSizeBytes > 1 * GB) return 32;   // 1-5GB: 32MB blocks
+  return 16;                                // <1GB: 16MB blocks
+}
+
+// =============================================================================
 // Chunked Upload Class
 // =============================================================================
 
@@ -142,8 +157,8 @@ export class ChunkedUploader {
       maxFrames: 150,
       useSceneDetection: true,
       useHierarchicalSummary: true,
-      blockSizeMb: 8,
-      concurrency: 4,
+      blockSizeMb: options.blockSizeMb ?? getAdaptiveBlockSizeMb(file.size),
+      concurrency: 6,
       ...options,
     };
   }
@@ -219,39 +234,31 @@ export class ChunkedUploader {
     if (!this.uploadSession) throw new Error('Upload not initialized');
 
     const { blocks, block_size, upload_url, total_blocks } = this.uploadSession;
-    const concurrency = this.options.concurrency || 4;
+    const concurrency = this.options.concurrency || 6;
 
-    // Create a queue of blocks to upload
+    // Semaphore-style concurrency: process blocks with a pool of workers
     const blockQueue = [...blocks];
-    const activeUploads: Promise<void>[] = [];
+    const errors: Error[] = [];
 
-    while (blockQueue.length > 0 || activeUploads.length > 0) {
-      // Check for abort
-      if (this.options.abortSignal?.aborted) {
-        throw new Error('Upload cancelled');
-      }
-
-      // Start new uploads up to concurrency limit
-      while (blockQueue.length > 0 && activeUploads.length < concurrency) {
-        const block = blockQueue.shift()!;
-        const uploadPromise = this.uploadBlock(block, block_size, upload_url, total_blocks);
-        activeUploads.push(uploadPromise);
-      }
-
-      // Wait for at least one upload to complete
-      if (activeUploads.length > 0) {
-        await Promise.race(activeUploads);
-        // Remove completed promises
-        for (let i = activeUploads.length - 1; i >= 0; i--) {
-          const status = await Promise.race([
-            activeUploads[i].then(() => 'fulfilled'),
-            Promise.resolve('pending'),
-          ]);
-          if (status === 'fulfilled') {
-            activeUploads.splice(i, 1);
-          }
+    const worker = async () => {
+      while (blockQueue.length > 0) {
+        if (this.options.abortSignal?.aborted) {
+          throw new Error('Upload cancelled');
         }
+        const block = blockQueue.shift();
+        if (!block) break;
+        await this.uploadBlock(block, block_size, upload_url, total_blocks);
       }
+    };
+
+    const workers = Array.from({ length: Math.min(concurrency, blocks.length) }, () =>
+      worker().catch(err => { errors.push(err); }),
+    );
+
+    await Promise.all(workers);
+
+    if (errors.length > 0) {
+      throw errors[0];
     }
   }
 

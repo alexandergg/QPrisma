@@ -199,7 +199,8 @@ class ExportService:
 
             with open(local_path, "wb") as f:
                 stream = blob_client.download_blob()
-                f.write(stream.readall())
+                for chunk in stream.chunks():
+                    f.write(chunk)
 
             logger.info(f"Downloaded source video: {blob_name} -> {local_path}")
             return local_path

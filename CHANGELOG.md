@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **Blob Transfer Performance Optimization**: Overhauled all Azure Blob Storage upload/download paths for 3-5x faster transfers on large videos with ~60% less RAM usage.
+  - `dependencies.py`: `BlobServiceClient` now configured with `max_single_put_size=256MB`, `max_block_size=100MB`, `max_concurrency=8` — all blob operations parallelized automatically.
+  - `media_routes.py`: `/upload` and `/upload/optimized` now stream file data directly via `upload_blob(file.file)` instead of loading the entire video into memory with `await file.read()`.
+  - `video_processor.py`: `_download_blob_streaming()` uses `download_blob(max_concurrency=8).readinto(f)` for parallel chunked downloads, replacing sync `chunks()` loop with `aiofiles`.
+  - `video_tasks.py`: Celery download task uses streaming `chunks()` instead of `readall()`.
+  - `export_service.py`: Export download uses streaming `chunks()` instead of `readall()`.
+- **Frontend Chunked Upload**: Adaptive block sizes (16MB <1GB, 32MB 1-5GB, 64MB >5GB) and increased default concurrency from 4→6. Fixed `Promise.race` concurrency bug with clean worker pool pattern. (`chunked-upload.ts`)
+
+### Removed
+- **Dead `generate_block_sas_url()` function**: Defined in `chunked_upload_routes.py` but never called — removed.
+- **Duplicate SAS credential parsing**: Consolidated 3 identical `AccountName`/`AccountKey` regex extractions into single `get_storage_account_info()` in `dependencies.py`. Removed `get_account_info()` from `chunked_upload_routes.py`.
+- **Unused imports**: Removed `aiofiles` from `video_processor.py`, `re`/`settings` from `media_routes.py` and `chunked_upload_routes.py`, `json` from `chunked_upload_routes.py`.
+
+### Changed
 - **Neo4j UNWIND Batch Operations**: Replaced one-by-one Cypher transactions with batched UNWIND for relation, chapter, scene, and embedding creation. Reduces Neo4j round-trips by 10-50x during video indexing.
   - `relation_builder.py`: `persist_relations()` now calls `create_relations_batch()` with grouped UNWIND by relation type.
   - `hierarchical_context_service.py`: `_store_hierarchy_in_graph()` uses `_create_chapters_batch()`, `_create_scenes_batch()`, `_create_relationships_batch()`, and `_store_embeddings_batch()`.

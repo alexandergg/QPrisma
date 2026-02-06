@@ -5,6 +5,8 @@ This module contains shared dependencies, utilities, and service getters
 that are used across multiple route modules.
 """
 
+import re
+
 from azure.storage.blob import BlobServiceClient
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -34,12 +36,17 @@ _auth_service: AuthService | None = None
 
 
 def get_blob_service() -> BlobServiceClient | None:
-    """Get or create Blob Storage client."""
+    """Get or create Blob Storage client with optimized transfer settings."""
     global _blob_service
     if _blob_service is None:
         conn_string = settings.azure.storage_connection_string
         if conn_string:
-            _blob_service = BlobServiceClient.from_connection_string(conn_string)
+            _blob_service = BlobServiceClient.from_connection_string(
+                conn_string,
+                max_single_put_size=256 * 1024 * 1024,  # 256MB: use blocks above this
+                max_block_size=100 * 1024 * 1024,  # 100MB blocks for parallel transfer
+                max_concurrency=8,  # parallel threads per blob operation
+            )
     return _blob_service
 
 
@@ -119,6 +126,25 @@ def get_graph_search_service():
 def get_storage_container_name() -> str:
     """Get Azure Storage container name for media."""
     return settings.azure.storage_container_name
+
+
+def get_storage_account_info() -> tuple[str, str, str] | None:
+    """Extract (account_name, account_key, container_name) from connection string.
+
+    Returns None if the connection string is missing or malformed.
+    """
+    conn_string = settings.azure.storage_connection_string or ""
+    account_name_match = re.search(r"AccountName=([^;]+)", conn_string)
+    account_key_match = re.search(r"AccountKey=([^;]+)", conn_string)
+
+    if not (account_name_match and account_key_match):
+        return None
+
+    return (
+        account_name_match.group(1),
+        account_key_match.group(1),
+        get_storage_container_name(),
+    )
 
 
 def get_media_or_404(

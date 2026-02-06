@@ -12,7 +12,6 @@ import tempfile
 import time
 from typing import Any
 
-import aiofiles
 import cv2
 import numpy as np
 from azure.storage.blob import BlobServiceClient
@@ -73,7 +72,7 @@ class VideoProcessor:
         """
         Stream download a blob from Azure Storage to a local file.
 
-        Uses chunked download to avoid loading entire file into memory.
+        Uses chunked download with max_concurrency for parallel transfer.
 
         Args:
             blob_name: Name of the blob in Azure Storage
@@ -82,10 +81,8 @@ class VideoProcessor:
         blob_client = self.blob_service.get_blob_client(
             container=self.container_name, blob=blob_name
         )
-        downloader = blob_client.download_blob()
-        async with aiofiles.open(file_path, "wb") as f:
-            for chunk in downloader.chunks():
-                await f.write(chunk)
+        with open(file_path, "wb") as f:
+            blob_client.download_blob(max_concurrency=8).readinto(f)
 
     def extract_frames(
         self, video_path: str, max_frames: int = 10, interval_seconds: float | None = None

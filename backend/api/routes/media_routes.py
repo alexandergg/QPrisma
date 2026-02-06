@@ -7,7 +7,6 @@ Uses PostgreSQL for metadata storage (replaces Cosmos DB).
 
 import json
 import logging
-import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -17,10 +16,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from api.dependencies import (
     get_blob_service,
     get_current_user,
+    get_storage_account_info,
     get_storage_container_name,
     get_video_processor,
 )
-from core.config import settings
 from models.user import User
 from services.database_service import get_database_service
 
@@ -34,21 +33,12 @@ logger = logging.getLogger(__name__)
 
 
 def generate_sas_url(blob_name: str, expiry_hours: int = 1) -> str | None:
-    """Generate a SAS URL for a blob."""
-    blob_service = get_blob_service()
-    if not blob_service:
+    """Generate a SAS URL for reading a blob."""
+    account_info = get_storage_account_info()
+    if not account_info:
         return None
 
-    conn_string = settings.azure.storage_connection_string or ""
-    account_key_match = re.search(r"AccountKey=([^;]+)", conn_string)
-    account_name_match = re.search(r"AccountName=([^;]+)", conn_string)
-
-    if not (account_key_match and account_name_match):
-        return None
-
-    account_key = account_key_match.group(1)
-    account_name = account_name_match.group(1)
-    container_name = get_storage_container_name()
+    account_name, account_key, container_name = account_info
 
     sas_token = generate_blob_sas(
         account_name=account_name,
@@ -161,13 +151,15 @@ async def upload_media(
         # Blob name
         blob_name = f"{media_id}.{file_extension}"
 
-        # Read content
-        content = await file.read()
-
-        # Upload to Blob Storage
+        # Stream upload to Blob Storage (avoids loading entire file into memory)
         container_name = get_storage_container_name()
         blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
-        blob_client.upload_blob(content, overwrite=True)
+        file_size = file.size or 0
+        blob_client.upload_blob(file.file, overwrite=True, length=file_size or None)
+
+        # Get actual size from blob if not known from the upload
+        if not file_size:
+            file_size = blob_client.get_blob_properties().size
 
         # Save metadata to PostgreSQL
         media_data = {
@@ -176,7 +168,7 @@ async def upload_media(
             "blob_name": blob_name,
             "original_filename": file.filename,
             "media_type": media_type,
-            "file_size": len(content),
+            "file_size": file_size,
             "content_type": file.content_type,
             "processing_status": "queued" if media_type == "video" else "uploaded",
         }
@@ -210,7 +202,7 @@ async def upload_media(
             "media_id": media_id,
             "blob_name": blob_name,
             "media_type": media_type,
-            "file_size": len(content),
+            "file_size": file_size,
             "job_id": job_id,
             "status": media_data.get("processing_status"),
             "message": "File uploaded. Processing queued." if job_id else "File uploaded.",
@@ -251,15 +243,18 @@ async def upload_media_optimized(
         media_id = str(uuid.uuid4())
         blob_name = f"{media_id}.{file_extension}"
 
-        # Read file
-        content = await file.read()
-        file_size_mb = len(content) / (1024 * 1024)
-        logger.info(f"File size: {file_size_mb:.2f} MB")
-
-        # Upload to Blob
+        # Stream upload to Blob (avoids loading entire file into memory)
         container_name = get_storage_container_name()
         blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
-        blob_client.upload_blob(content, overwrite=True)
+        file_size = file.size or 0
+        blob_client.upload_blob(file.file, overwrite=True, length=file_size or None)
+
+        # Get actual size from blob if not known
+        if not file_size:
+            file_size = blob_client.get_blob_properties().size
+
+        file_size_mb = file_size / (1024 * 1024)
+        logger.info(f"File size: {file_size_mb:.2f} MB")
 
         # Save to PostgreSQL
         pipeline_config = {
@@ -275,7 +270,7 @@ async def upload_media_optimized(
             "blob_name": blob_name,
             "original_filename": file.filename,
             "media_type": "video",
-            "file_size": len(content),
+            "file_size": file_size,
             "content_type": file.content_type,
             "processing_status": "queued",
             "optimized_pipeline": True,
@@ -311,7 +306,7 @@ async def upload_media_optimized(
             "media_id": media_id,
             "blob_name": blob_name,
             "media_type": "video",
-            "file_size": len(content),
+            "file_size": file_size,
             "job_id": job_id,
             "status": "queued" if job_id else "uploaded",
             "message": "Video uploaded. Processing queued.",

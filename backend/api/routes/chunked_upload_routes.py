@@ -7,9 +7,7 @@ High-performance upload endpoints for large files (1GB+) using:
 - Progress tracking and resumable uploads
 """
 
-import json
 import logging
-import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -25,9 +23,9 @@ from pydantic import BaseModel
 from api.dependencies import (
     get_blob_service,
     get_current_user,
+    get_storage_account_info,
     get_storage_container_name,
 )
-from core.config import settings
 from models.user import User
 from services.database_service import get_database_service
 
@@ -116,53 +114,6 @@ def generate_block_id(index: int) -> str:
     return base64.b64encode(block_id.encode()).decode()
 
 
-def generate_block_sas_url(
-    blob_name: str,
-    block_id: str,
-    expiry_hours: int = 2,
-) -> str | None:
-    """Generate a SAS URL for uploading a specific block."""
-    conn_string = settings.azure.storage_connection_string or ""
-    account_key_match = re.search(r"AccountKey=([^;]+)", conn_string)
-    account_name_match = re.search(r"AccountName=([^;]+)", conn_string)
-
-    if not (account_key_match and account_name_match):
-        return None
-
-    account_key = account_key_match.group(1)
-    account_name = account_name_match.group(1)
-    container_name = get_storage_container_name()
-
-    sas_token = generate_blob_sas(
-        account_name=account_name,
-        container_name=container_name,
-        blob_name=blob_name,
-        account_key=account_key,
-        permission=BlobSasPermissions(write=True, create=True),
-        expiry=datetime.now(UTC) + timedelta(hours=expiry_hours),
-    )
-
-    # Base URL with SAS token - client will add &comp=block&blockid=... for each block
-    base_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas_token}"
-    return base_url
-
-
-def get_account_info() -> tuple[str, str, str] | None:
-    """Extract account info from connection string."""
-    conn_string = settings.azure.storage_connection_string or ""
-    account_key_match = re.search(r"AccountKey=([^;]+)", conn_string)
-    account_name_match = re.search(r"AccountName=([^;]+)", conn_string)
-
-    if not (account_key_match and account_name_match):
-        return None
-
-    return (
-        account_name_match.group(1),
-        account_key_match.group(1),
-        get_storage_container_name(),
-    )
-
-
 # =============================================================================
 # Routes
 # =============================================================================
@@ -230,7 +181,7 @@ async def init_chunked_upload(
         })
 
     # Generate SAS URL for upload
-    account_info = get_account_info()
+    account_info = get_storage_account_info()
     if not account_info:
         raise HTTPException(status_code=503, detail="Cannot generate SAS token")
 
