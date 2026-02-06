@@ -498,7 +498,7 @@ Only include pairs where has_relation is true."""
         graph_service: KnowledgeGraphService | None = None,
     ) -> int:
         """
-        Persiste las relaciones en el Knowledge Graph.
+        Persiste las relaciones en el Knowledge Graph using batched UNWIND operations.
 
         Args:
             relations: Lista de RelationCandidate
@@ -511,25 +511,25 @@ Only include pairs where has_relation is true."""
         if not service:
             raise ValueError("No graph service configured")
 
-        created = 0
+        if not relations:
+            return 0
 
-        for rel in relations:
-            try:
-                success = service.create_relation(
-                    source_id=rel.source_name,  # Asumimos que source_name es el ID normalizado
-                    target_id=rel.target_name,
-                    relation_type=rel.relation_type,
-                    properties={
-                        "confidence": rel.confidence,
-                        "evidence_count": len(rel.evidence),
-                    },
-                )
-                if success:
-                    created += 1
-            except Exception as e:
-                logger.debug(
-                    f"Failed to create relation {rel.source_name} -> {rel.target_name}: {e}"
-                )
+        batch_data = [
+            {
+                "source_id": rel.source_name,
+                "target_id": rel.target_name,
+                "relation_type": rel.relation_type.value,
+                "confidence": rel.confidence,
+                "evidence_count": len(rel.evidence),
+            }
+            for rel in relations
+        ]
+
+        try:
+            created = service.create_relations_batch(batch_data)
+        except Exception as e:
+            logger.error(f"Batch relation persistence failed: {e}")
+            created = 0
 
         logger.info(f"Persisted {created}/{len(relations)} relations to graph")
         return created

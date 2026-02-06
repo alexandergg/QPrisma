@@ -9,9 +9,9 @@ Requiere Neo4j 5.x con plugin APOC.
 
 import logging
 import os
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 
-from neo4j import Driver, GraphDatabase, Session
+from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncSession, Driver, GraphDatabase, Session
 from neo4j.exceptions import AuthError, ServiceUnavailable
 
 from models.graph_models import (
@@ -62,7 +62,9 @@ class KnowledgeGraphService:
         self.database = database or os.getenv("NEO4J_DATABASE", "neo4j")
 
         self._driver: Driver | None = None
+        self._async_driver: AsyncDriver | None = None
         self._connected = False
+        self._async_connected = False
         self._schema_initialized = False
 
     # =========================================================================
@@ -114,6 +116,10 @@ class KnowledgeGraphService:
             self._connected = False
             self._schema_initialized = False
             logger.info("Disconnected from Neo4j")
+        if self._async_driver:
+            # For sync disconnect of async driver, caller should use async_disconnect
+            self._async_driver = None
+            self._async_connected = False
 
     @property
     def is_connected(self) -> bool:
@@ -164,6 +170,94 @@ class KnowledgeGraphService:
                 return dict(record)
 
             records = list(result)
+            if unpack_key:
+                return [dict(r[unpack_key]) for r in records]
+            return [dict(r) for r in records]
+
+    # =========================================================================
+    # Async Connection Management
+    # =========================================================================
+
+    async def async_connect(self) -> bool:
+        """Establece conexión async con Neo4j."""
+        try:
+            self._async_driver = AsyncGraphDatabase.driver(
+                self.uri,
+                auth=(self.user, self.password),
+                max_connection_lifetime=3600,
+                max_connection_pool_size=50,
+                connection_acquisition_timeout=60,
+            )
+            await self._async_driver.verify_connectivity()
+            self._async_connected = True
+            logger.info(f"Async connected to Neo4j at {self.uri}")
+            return True
+        except (AuthError, ServiceUnavailable) as e:
+            logger.error(f"Neo4j async connection failed: {e}")
+            self._async_connected = False
+            return False
+        except Exception as e:
+            logger.error(f"Failed async connect to Neo4j: {e}")
+            self._async_connected = False
+            return False
+
+    async def async_disconnect(self):
+        """Cierra la conexión async con Neo4j."""
+        if self._async_driver:
+            await self._async_driver.close()
+            self._async_driver = None
+            self._async_connected = False
+            logger.info("Async disconnected from Neo4j")
+
+    @property
+    def is_async_connected(self) -> bool:
+        """Verifica si hay conexión async activa."""
+        return self._async_connected and self._async_driver is not None
+
+    @asynccontextmanager
+    async def get_async_session(self) -> AsyncSession:
+        """Async context manager para obtener una sesión de Neo4j."""
+        if not self.is_async_connected:
+            await self.async_connect()
+
+        session = self._async_driver.session(database=self.database)
+        try:
+            yield session
+        finally:
+            await session.close()
+
+    async def async_execute_query(
+        self,
+        query: str,
+        params: dict | None = None,
+        single: bool = False,
+        unpack_key: str | None = None,
+    ) -> list[dict] | dict | None:
+        """
+        Execute a Neo4j query asynchronously.
+
+        Args:
+            query: Cypher query string
+            params: Query parameters (optional)
+            single: If True, return single record; otherwise return list
+            unpack_key: If provided, extract this key from each record
+
+        Returns:
+            Single dict, list of dicts, or None depending on params
+        """
+        params = params or {}
+        async with self.get_async_session() as session:
+            result = await session.run(query, **params)
+
+            if single:
+                record = await result.single()
+                if record is None:
+                    return None
+                if unpack_key:
+                    return dict(record[unpack_key])
+                return dict(record)
+
+            records = [record async for record in result]
             if unpack_key:
                 return [dict(r[unpack_key]) for r in records]
             return [dict(r) for r in records]
@@ -809,6 +903,57 @@ class KnowledgeGraphService:
             result = session.run(query, **params)
             record = result.single()
             return record is not None
+
+    def create_relations_batch(
+        self,
+        relations: list[dict],
+    ) -> int:
+        """
+        Create multiple relations in batched UNWIND operations, grouped by type.
+
+        Each dict in relations must have: source_id, target_id, relation_type (str),
+        and optionally confidence (float) and evidence_count (int).
+
+        Returns the total number of relations created.
+        """
+        from collections import defaultdict
+
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for rel in relations:
+            grouped[rel["relation_type"]].append(rel)
+
+        total_created = 0
+        for rel_type, rels in grouped.items():
+            batch_data = [
+                {
+                    "source_id": r["source_id"],
+                    "target_id": r["target_id"],
+                    "confidence": r.get("confidence", 0.0),
+                    "evidence_count": r.get("evidence_count", 0),
+                }
+                for r in rels
+            ]
+
+            query = f"""
+            UNWIND $batch AS rel
+            MATCH (a {{id: rel.source_id}})
+            MATCH (b {{id: rel.target_id}})
+            CREATE (a)-[r:{rel_type} {{
+                confidence: rel.confidence,
+                evidence_count: rel.evidence_count
+            }}]->(b)
+            RETURN count(r) as created
+            """
+
+            try:
+                with self.get_session() as session:
+                    result = session.run(query, batch=batch_data)
+                    record = result.single()
+                    total_created += record["created"] if record else 0
+            except Exception as e:
+                logger.error(f"Batch relation creation failed for type {rel_type}: {e}")
+
+        return total_created
 
     def create_temporal_relation(
         self,
