@@ -1,0 +1,30 @@
+{
+  "benchmarks": [
+    {
+      "name": "qprisma_first_eval",
+      "data_path": "data/benchmarks/qprisma_first_eval/benchmark.json",
+      "video_dir": "data/benchmarks/qprisma_first_eval/videos",
+      "task_type": "multiple_choice",
+      "has_temporal_annotations": false
+    }
+  ],
+  "methods": [
+    {
+      "name": "qprisma-full",
+      "display_name": "QPrisma (Full Pipeline)",
+      "is_baseline": false
+    },
+    {
+      "name": "naive-rag",
+      "display_name": "Direct Search (Baseline)",
+      "is_baseline": true
+    }
+  ],
+  "baseline_method": "naive-rag",
+  "judge_model": "gpt-4o",
+  "num_runs": 1,
+  "use_position_debiasing": false,
+  "use_batch_api": false,
+  "output_dir": "evaluation/results/custom_eval",
+  "max_concurrent_judges": 5
+}
