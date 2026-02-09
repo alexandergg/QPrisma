@@ -26,6 +26,7 @@ This directory contains custom skills (slash commands) for Claude Code to accele
 | `/git-workflow` | Git operations | `/git-workflow feature --branch add-upload` |
 | `/security-check` | Security audit | `/security-check --scope all` |
 | `/troubleshoot` | Debug common issues | `/troubleshoot connection-errors` |
+| `/run-eval` | Run evaluation benchmarks | `/run-eval --expanded` |
 
 ## Skills by Category
 
@@ -66,6 +67,12 @@ This directory contains custom skills (slash commands) for Claude Code to accele
 | `/db-migrate` | PostgreSQL/Neo4j migrations |
 | `/git-workflow` | Branch management, PR workflow |
 | `/troubleshoot` | Debug common issues |
+
+### Evaluation
+
+| Skill | Use Case |
+|-------|----------|
+| `/run-eval` | Run benchmarks (custom, Video-MME, MLVU, ablation) |
 
 ### Agent Development
 
