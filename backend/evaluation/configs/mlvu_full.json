@@ -1,0 +1,40 @@
+{
+  "benchmarks": [
+    {
+      "name": "mlvu",
+      "data_path": "data/benchmarks/mlvu/mlvu.json",
+      "video_dir": "data/benchmarks/mlvu/videos",
+      "task_type": "mixed",
+      "has_temporal_annotations": false
+    }
+  ],
+  "methods": [
+    {
+      "name": "qprisma-full",
+      "display_name": "QPrisma (Full Pipeline)",
+      "is_baseline": false
+    },
+    {
+      "name": "qprisma-noagent",
+      "display_name": "QPrisma (Single-Shot RAG)",
+      "is_baseline": false
+    },
+    {
+      "name": "naive-rag",
+      "display_name": "Naive RAG",
+      "is_baseline": true
+    },
+    {
+      "name": "uniform-16",
+      "display_name": "Uniform Sampling (16 frames)",
+      "is_baseline": true
+    }
+  ],
+  "baseline_method": "naive-rag",
+  "judge_model": "gpt-4o",
+  "num_runs": 5,
+  "use_position_debiasing": true,
+  "use_batch_api": true,
+  "output_dir": "evaluation/results/mlvu",
+  "max_concurrent_judges": 10
+}

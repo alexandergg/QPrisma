@@ -50,7 +50,7 @@ requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["api", "agent", "core", "models", "services", "tasks"]
+packages = ["api", "agent", "core", "models", "services", "tasks", "evaluation"]
 
 [tool.uv]
 dev-dependencies = [
@@ -99,7 +99,7 @@ ignore = [
 "tests/*" = ["F841"]  # unused variables OK in tests
 
 [tool.ruff.lint.isort]
-known-first-party = ["api", "services", "models", "tasks", "core"]
+known-first-party = ["api", "services", "models", "tasks", "core", "evaluation"]
 
 # =============================================================================
 # Black Configuration

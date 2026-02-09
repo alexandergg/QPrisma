@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**QPrisma** is an intelligent multimedia processing platform for analyzing video and image content using AI. It combines computer vision, LLMs, and advanced RAG to provide automatic content processing, conversational search, and semantic analysis of multimedia content.
+**QPrisma** is an intelligent multimedia processing platform for analyzing video/image content using AI. It combines computer vision, LLMs, and advanced RAG to provide automatic content processing, conversational search, and semantic analysis.
 
 ## Architecture
 
@@ -21,281 +21,160 @@ Frontend (Next.js 16) ←→ Backend API (FastAPI) ←→ Azure Services
                    (Blob, PostgreSQL, Neo4j)
 ```
 
-### Core Components
-
-**Backend (Python 3.11+)**
-- `backend/api/main.py`: FastAPI entry point with lazy-initialized Azure clients
-- `backend/api/routes/`: Modular route files (auth, batch, media, processing, graph, chat, etc.)
-- `backend/agent/`: LangGraph-based video agent with ReAct pattern
-- `backend/services/`: Processing services (video, audio, FFmpeg, knowledge graph, embeddings)
-- `backend/models/`: Pydantic configuration models
-- `backend/tasks/`: Celery background tasks
-
-**Frontend (TypeScript/React)**
-- Next.js 16 with App Router
-- React 19 with Tailwind CSS 4
-- SWR for data fetching, ReactFlow for pipeline visualization
-
-**Data Layer**
-- PostgreSQL: Metadata storage
-- Neo4j: Knowledge Graph for semantic retrieval
-- Redis Stack: Cache, Celery queue, and LangGraph checkpoints (RediSearch required)
-- Azure Blob Storage: Media files
-
-## LangGraph Agent System
-
-The platform uses LangGraph StateGraph agents in `backend/agent/`:
-
-### Directory Structure
-```
-agent/
-├── __init__.py           # Main exports (VideoAgentGraph, EditorAgentGraph, AgentState)
-├── a2a.py               # A2A protocol bridge for inter-agent communication
-├── prompts.py           # System prompts and templates
-├── graphs/              # LangGraph StateGraph definitions
-│   ├── video.py         # Video analysis agent graph
-│   └── editor.py        # Chat-to-Edit agent graph
-├── nodes/               # Graph node implementations
-│   ├── base.py          # Shared node utilities
-│   ├── video_nodes.py   # Video agent nodes (call_model, should_continue)
-│   └── editor_nodes.py  # Editor agent nodes
-├── state/               # State definitions with reducers
-│   └── agent_state.py   # AgentState, VideoContext, ProjectContext
-├── tools/               # LangGraph @tool implementations
-│   ├── general.py       # Search & analysis tools
-│   └── editor.py        # Clip management tools
-└── utils/               # Helper functions
-    ├── formatting.py    # Timestamp formatting
-    └── observability.py # Tracing and metrics
-```
-
-### Video Agent Graph (`graphs/video.py`)
-```
-START → call_model → has_tool_calls? → tools → update_context → call_model → ... → END
-                          ↓ no
-                         END
-```
-
-### Editor Agent Graph (`graphs/editor.py`)
-```
-START → call_model → tools_condition? → tools → call_model → ... → END
-                          ↓ no
-                         END
-```
-
-**Key files:**
-- `agent/state/agent_state.py`: TypedDict state definitions with `add_messages` reducer
-- `agent/tools/general.py`: Search and analysis tools with `InjectedState`
-- `agent/tools/editor.py`: Clip modification tools
-- `agent/prompts.py`: System prompts for video context
-
-**Tool registration pattern:**
-```python
-# In agent/tools/__init__.py - tools use InjectedState for context
-from langgraph.prebuilt import InjectedState
-
-@tool
-async def search_video(
-    query: Annotated[str, "What to search for"],
-    media_id: Annotated[str | None, InjectedState("media_id")] = None,
-) -> dict[str, Any]:
-    """Search video content."""
-    ...
-```
+**Backend** (Python 3.11+): FastAPI + LangGraph agents + Celery workers
+**Frontend** (TypeScript): Next.js 16 / React 19 / Tailwind CSS 4 / SWR
+**Data**: PostgreSQL (metadata), Neo4j (Knowledge Graph), Redis Stack (cache/queue/checkpoints), Azure Blob (media files)
 
 ## Development Commands
 
 ### Infrastructure
 ```bash
-# Start required services (PostgreSQL, Neo4j, Redis Stack)
-docker-compose up -d redis postgres neo4j
-
-# Full stack with Celery workers
-docker-compose --profile full up -d
-
-# With debug UIs (pgAdmin, Redis Commander)
-docker-compose --profile debug up -d
-```
-
-### AI-Assisted Development
-This project is configured with Claude Code commands (slash commands) to accelerate development. See [.claude/README.md](.claude/README.md) for details.
-
-```bash
-# Example commands
-/create-route media        # Create new API endpoint
-/create-component Player   # Create React component
-/create-service export     # Create backend service
-/process-video video.mp4   # Run video pipeline
-/debug-agent               # Debug LangGraph issues
+docker-compose up -d redis postgres neo4j          # Core services
+docker-compose --profile full up -d                 # Full stack + Celery
+docker-compose --profile debug up -d                # + pgAdmin, Redis Commander
 ```
 
 ### Backend
 ```bash
 cd backend
+uv venv && uv pip install -e .           # Install (uv recommended)
+.venv\Scripts\activate                    # Windows
+source .venv/bin/activate                 # Linux/Mac
+python api/main.py                        # API server (auto-reload) → http://localhost:8000/docs
 
-# Install with uv (recommended)
-uv venv && uv pip install -e .
+# Tests (asyncio_mode = "auto" in pyproject.toml — no @pytest.mark.asyncio needed)
+pytest tests/                             # All tests
+pytest tests/test_api.py -v               # Single file
+pytest tests/ -k "test_search"            # Pattern match
 
-# Activate environment
-source .venv/bin/activate  # Linux/Mac
-.venv\Scripts\activate     # Windows
-
-# Run API server (auto-reload enabled)
-python api/main.py
-# http://localhost:8000/docs for Swagger UI
-
-# Run tests
-pytest tests/
-pytest tests/test_api.py -v  # Specific file
-pytest tests/ -k "test_search"  # Pattern match
-
-# Linting
-ruff check .
-ruff check . --fix
-black .
+# Linting (line-length = 100, target = py311)
+ruff check .                              # Lint
+ruff check . --fix                        # Auto-fix
+black .                                   # Format
 ```
 
 ### Frontend
 ```bash
 cd frontend
 npm install
-npm run dev          # Development server at http://localhost:3000
-npm run build        # Production build
-npm run lint         # ESLint
-npm run typecheck    # TypeScript check
-npm test             # Jest tests
+npm run dev                               # Dev server → http://localhost:3000
+npm run build                             # Production build
+npm run lint                              # ESLint
+npm run typecheck                         # TypeScript check
+npm test                                  # Jest
+npm run test:coverage                     # With coverage
 ```
 
-## Environment Configuration
+## LangGraph Agent System
 
-### Backend (`backend/.env`)
-```bash
-# Azure OpenAI (required)
-AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
-AZURE_OPENAI_API_KEY=<key>
-AZURE_OPENAI_DEPLOYMENT_GPT=gpt-4o
-AZURE_OPENAI_DEPLOYMENT_GPT_BATCH=gpt-4o-global-batch  # For 50% cost savings
-AZURE_OPENAI_DEPLOYMENT_EMBEDDING=text-embedding-3-large
-AZURE_OPENAI_API_VERSION=2024-08-01-preview
+Two LangGraph StateGraph agents in `backend/agent/`:
 
-# Azure Storage
-AZURE_STORAGE_CONNECTION_STRING=<connection_string>
-AZURE_STORAGE_CONTAINER_NAME=media
+**Video Agent** (`graphs/video.py`): `START → call_model → has_tool_calls? → tools → update_context → call_model → ... → END`
+- 16 search/analysis tools in `tools/general.py` (SEARCH_TOOLS, MULTI_VIDEO_TOOLS)
+- MAX_TOOL_ITERATIONS = 5, MAX_CONTEXT_TOKENS = 100000
 
-# Databases
-DATABASE_URL=postgresql://qprisma:qprisma123@localhost:5432/qprisma
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=qprisma123
-REDIS_URL=redis://localhost:6379/0
+**Editor Agent** (`graphs/editor.py`): `START → call_model → tools_condition? → tools → call_model → ... → END`
+- 15 clip/subtitle/export tools in `tools/editor.py` (EDITOR_TOOLS)
+- MAX_EDITOR_TOOL_ITERATIONS = 8
+- Tools split into DESTRUCTIVE_TOOLS and SAFE_TOOLS for HITL confirmation
 
-# Auth
-JWT_SECRET_KEY=<secret>
-```
+**State**: TypedDict with `Annotated[list, add_messages]` reducer, input/output schema separation (AgentInputState/AgentOutputState)
 
-### Frontend (`frontend/.env.local`)
-```bash
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
+**Checkpointers**: Production cascade — PostgreSQL → Redis → MemorySaver
+
+### LangGraph Version Notes (v1.0+)
+- `from langgraph.types import RetryPolicy` (NOT `langgraph.pregel`)
+- Use `retry_policy=` parameter in `add_node()` (NOT `retry=`)
+- `langgraph.pregel.types` is deprecated — use `langgraph.types`
 
 ## Key Architecture Patterns
 
-### Lazy Initialization
-Azure clients use lazy initialization in `api/main.py`:
+### Agent Tools — Never Raise Exceptions
 ```python
-_blob_service = None
-
-def get_blob_service():
-    global _blob_service
-    if _blob_service is None:
-        _blob_service = BlobServiceClient.from_connection_string(...)
-    return _blob_service
+@tool
+async def my_tool(query: str, media_id: Annotated[str | None, InjectedState("media_id")] = None) -> dict:
+    """Tool description for LLM."""
+    try:
+        results = await do_search(media_id, query)
+        return {"results": results, "count": len(results)}
+    except Exception as e:
+        return {"error": str(e), "results": [], "count": 0}  # Return error dict, never raise
 ```
 
-### Service Layer
-Each capability is isolated in `backend/services/`:
-- Services maintain Azure client state
-- Services are singletons initialized on first use
-- Clear interfaces for specific tasks (video processing, embeddings, graph search)
-
-### Agent State Management
-LangGraph agents use TypedDict states with message accumulation:
+### Lazy Initialization Singletons
+Azure clients and services use global singleton pattern with lazy init in `api/main.py`:
 ```python
-class AgentState(TypedDict):
-    messages: Annotated[list, add_messages]  # Reducer pattern
-    video_context: VideoContext | None
-    tool_calls_count: int
-    # ...
+_service: MyService | None = None
+def get_my_service() -> MyService:
+    global _service
+    if _service is None:
+        _service = MyService()
+    return _service
 ```
 
-### Context Window Management
-Agent implements token-aware truncation:
-- `MAX_CONTEXT_TOKENS = 100000` (leaves headroom below 128k)
-- `MAX_TOOL_RESULT_CHARS = 8000` per tool result
-- Intelligent truncation preserves structure (keeps first/last messages)
+### Model Caching
+`@lru_cache(maxsize=4)` on LLM model creation functions to avoid re-creating per invocation.
+
+## File Naming Conventions
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| API Route | `{name}_routes.py` | `media_routes.py` |
+| Service | `{name}_service.py` or `{name}_processor.py` | `embedding_service.py` |
+| Agent Tool | grouped in `tools/general.py` or `tools/editor.py` | |
+| Pydantic Model | `{name}.py` in `models/` | `ffmpeg_config.py` |
+| React Component | `{Name}.tsx` | `VideoPlayer.tsx` |
+| Python Test | `test_{name}.py` | `test_langgraph_agent.py` |
+| React Test | `{Name}.test.tsx` | `VideoPlayer.test.tsx` |
+
+## Adding New Features
+
+### New Agent Tool
+1. Add tool function in `agent/tools/general.py` or `editor.py` with `@tool` decorator
+2. Use `InjectedState` for context (media_id, video_context)
+3. Export in `agent/tools/__init__.py` under `SEARCH_TOOLS` or `EDITOR_TOOLS`
+
+### New Processing Service
+1. Create service in `backend/services/`
+2. Add lazy init getter in `api/main.py`
+3. Create route in `api/routes/{name}_routes.py`
+4. Register router in `api/main.py`
+
+### New API Route
+```python
+router = APIRouter(prefix="/myroute", tags=["MyRoute"])
+
+@router.get("/")
+async def list_items(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    db=Depends(get_database_service),
+) -> list[ItemResponse]:
+    return await db.list_items(current_user["user_id"])
+```
 
 ## Video Processing Pipeline
 
-Two processing approaches:
-
-1. **FFmpeg-based** (recommended): `services/ffmpeg_processor.py`
-   - Presets: fast (1 FPS, 720p), balanced (2 FPS, 1080p), quality (5 FPS, original)
-   - Hardware acceleration support
-   - Configuration via `FFmpegProcessingConfig`
-
-2. **OpenCV-based**: `services/video_processor.py`
-   - Direct frame extraction with cv2
-   - More control over frame selection
-
-### Processing Flow
 1. Upload → Azure Blob Storage
 2. Metadata → PostgreSQL
-3. Frame extraction → FFmpeg/OpenCV
-4. Vision analysis → GPT-4o (standard or batch API)
+3. Frame extraction → FFmpeg (recommended: presets fast/balanced/quality) or OpenCV
+4. Vision analysis → GPT-4o (standard or batch API for 50% cost savings)
 5. Audio transcription → Whisper
 6. Embeddings → text-embedding-3-large
 7. Indexing → Neo4j Knowledge Graph
 
-## API Structure
+## Environment Configuration
 
-Routes are modular in `backend/api/routes/`:
-- `/media/*`: Upload, list, delete, search
-- `/processing/*`: FFmpeg pipeline, presets, batch jobs
-- `/graph/*`: Knowledge Graph search, hierarchy, expansion
-- `/chat/*`: Conversational AI with RAG
-- `/batch/*`: Azure OpenAI Batch API management
-- `/auth/*`: JWT authentication
+Backend: `backend/.env` — requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_STORAGE_CONNECTION_STRING, DATABASE_URL, NEO4J_URI, REDIS_URL, JWT_SECRET_KEY
 
-Interactive docs at `http://localhost:8000/docs`
+Frontend: `frontend/.env.local` — requires NEXT_PUBLIC_API_URL=http://localhost:8000
 
-## Adding New Features
+## Access Points (Local Dev)
 
-### New Processing Service
-1. Create service in `backend/services/`
-2. Add lazy initialization in `api/main.py`
-3. Create route file in `api/routes/`
-4. Register router in `api/main.py`
-
-### New Agent Tool
-1. Create tool function in `backend/agent/tools/general.py` or `editor.py`
-2. Use `@tool` decorator from `langchain_core.tools`
-3. Use `InjectedState` for context (media_id, video_context, etc.)
-4. Export in `agent/tools/__init__.py` under `SEARCH_TOOLS` or `EDITOR_TOOLS`
-
-## System Requirements
-
-- Python 3.11+
-- Node.js 20+
-- FFmpeg (system install required)
-- Docker (for infrastructure)
-
-## Access Points
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| Frontend | http://localhost:3000 | - |
-| API Docs | http://localhost:8000/docs | - |
-| Neo4j Browser | http://localhost:7474 | neo4j/qprisma123 |
-| Flower (Celery) | http://localhost:5555 | admin/qprisma123 |
-| pgAdmin | http://localhost:5050 | admin@qprisma.local/qprisma123 |
-| Redis Commander | http://localhost:8081 | - |
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| API Docs (Swagger) | http://localhost:8000/docs |
+| Neo4j Browser | http://localhost:7474 |
+| Flower (Celery) | http://localhost:5555 |
+| pgAdmin | http://localhost:5050 |
+| Redis Commander | http://localhost:8081 |
