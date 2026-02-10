@@ -88,4 +88,4 @@ jobs:
           echo "| Resource Group | ${{ vars.AZURE_RESOURCE_GROUP }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Key Vault | ${{ vars.KEY_VAULT_NAME }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Neo4j | Provisioned as Container App (internal) |" >> $GITHUB_STEP_SUMMARY
-          echo "| OpenAI | Provisioned via Bicep (4 model deployments) |" >> $GITHUB_STEP_SUMMARY
+          echo "| OpenAI | Provisioned via AI Foundry (5 model deployments) |" >> $GITHUB_STEP_SUMMARY

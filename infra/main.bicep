@@ -51,7 +51,7 @@ var postgresName = 'psql-qprisma-${environment}'
 var redisName = 'redis-qprisma-${environment}'
 var keyVaultName = 'kv-qprisma-${environment}'
 var containerRegistryName = 'acrqprisma${environment}'
-var openAiName = 'oai-qprisma-${environment}'
+var aiFoundryName = 'aif-qprisma-${environment}'
 var containerAppsEnvName = 'cae-qprisma-${environment}'
 var logAnalyticsName = 'log-qprisma-${environment}'
 var apiContainerAppName = 'ca-qprisma-api-${environment}'
@@ -101,10 +101,10 @@ module containerRegistry 'modules/container-registry.bicep' = {
   }
 }
 
-module openAi 'modules/ai-foundry.bicep' = {
-  name: 'openai-deployment'
+module aiFoundry 'modules/ai-foundry.bicep' = {
+  name: 'ai-foundry-deployment'
   params: {
-    name: openAiName
+    name: aiFoundryName
     location: aiLocation
     deployBatchModel: deployBatchModel
     tags: tags
@@ -149,7 +149,7 @@ module neo4j 'modules/neo4j.bicep' = {
 // Secrets stored in Container Apps (actual values)
 var appSecrets = [
   { name: 'neo4j-password', value: neo4jPassword }
-  { name: 'openai-api-key', value: openAi.outputs.apiKey }
+  { name: 'openai-api-key', value: aiFoundry.outputs.apiKey }
   { name: 'storage-connection-string', value: storage.outputs.connectionString }
   { name: 'jwt-secret-key', value: jwtSecretKey }
   { name: 'database-url', value: postgres.outputs.connectionString }
@@ -160,8 +160,9 @@ var appSecrets = [
 var appEnvVars = [
   { name: 'NEO4J_URI', value: neo4j.outputs.boltUri }
   { name: 'NEO4J_USER', value: 'neo4j' }
-  { name: 'AZURE_OPENAI_ENDPOINT', value: openAi.outputs.endpoint }
+  { name: 'AZURE_OPENAI_ENDPOINT', value: aiFoundry.outputs.endpoint }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }
+  { name: 'AZURE_OPENAI_DEPLOYMENT_GPT52_CHAT', value: 'gpt-5.2-chat' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_WHISPER', value: 'whisper' }
   { name: 'ENVIRONMENT', value: environment }
@@ -257,7 +258,7 @@ module keyVault 'modules/key-vault.bicep' = {
 output apiFqdn string = apiContainerApp.outputs.fqdn
 output frontendFqdn string = frontendContainerApp.outputs.fqdn
 output acrLoginServer string = containerRegistry.outputs.loginServer
-output openAiEndpoint string = openAi.outputs.endpoint
+output openAiEndpoint string = aiFoundry.outputs.endpoint
 output keyVaultUri string = keyVault.outputs.uri
 output storageAccountName string = storage.outputs.name
 output postgresServerName string = postgres.outputs.name

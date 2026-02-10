@@ -1,4 +1,4 @@
-@description('Azure OpenAI account name')
+@description('Azure AI Foundry resource name')
 param name string
 
 @description('Location for resources')
@@ -10,46 +10,86 @@ param deployBatchModel bool = true
 @description('Resource tags')
 param tags object = {}
 
-resource openAiAccount 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
+// AI Foundry resource (AIServices with project management)
+resource aiFoundry 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: name
   location: location
   tags: tags
-  kind: 'OpenAI'
+  identity: {
+    type: 'SystemAssigned'
+  }
+  kind: 'AIServices'
   sku: {
     name: 'S0'
   }
   properties: {
+    allowProjectManagement: true
     customSubDomainName: name
     publicNetworkAccess: 'Enabled'
+    disableLocalAuth: false
     networkAcls: {
       defaultAction: 'Allow'
     }
   }
 }
 
-resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
-  parent: openAiAccount
+// Default project
+resource aiProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
+  name: '${name}-project'
+  parent: aiFoundry
+  location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
+  properties: {}
+}
+
+// GPT-4o — GlobalStandard, default max 450K TPM
+resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+  parent: aiFoundry
   name: 'gpt-4o'
   sku: {
-    name: 'Standard'
-    capacity: 30
+    name: 'GlobalStandard'
+    capacity: 450
   }
   properties: {
     model: {
       format: 'OpenAI'
       name: 'gpt-4o'
-      version: '2024-08-06'
+      version: '2024-11-20'
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
 }
 
-resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
-  parent: openAiAccount
+// GPT-5.2-chat — GlobalStandard, default max 1M TPM
+resource gpt52chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+  parent: aiFoundry
+  name: 'gpt-5.2-chat'
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 1000
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-5.2-chat'
+      version: '2025-12-11'
+    }
+    versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
+  }
+  dependsOn: [
+    gpt4oDeployment
+  ]
+}
+
+// text-embedding-3-large — GlobalStandard, default max 350K TPM
+resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+  parent: aiFoundry
   name: 'text-embedding-3-large'
   sku: {
-    name: 'Standard'
-    capacity: 120
+    name: 'GlobalStandard'
+    capacity: 350
   }
   properties: {
     model: {
@@ -60,12 +100,13 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
   dependsOn: [
-    gpt4oDeployment
+    gpt52chatDeployment
   ]
 }
 
-resource whisperDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
-  parent: openAiAccount
+// Whisper — Standard, max 3 RPM
+resource whisperDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+  parent: aiFoundry
   name: 'whisper'
   sku: {
     name: 'Standard'
@@ -84,18 +125,19 @@ resource whisperDeployment 'Microsoft.CognitiveServices/accounts/deployments@202
   ]
 }
 
-resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = if (deployBatchModel) {
-  parent: openAiAccount
+// GPT-4o Batch — GlobalBatch, 200M enqueued tokens
+resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = if (deployBatchModel) {
+  parent: aiFoundry
   name: 'gpt-4o-batch'
   sku: {
     name: 'GlobalBatch'
-    capacity: 50
+    capacity: 200
   }
   properties: {
     model: {
       format: 'OpenAI'
       name: 'gpt-4o'
-      version: '2024-08-06'
+      version: '2024-11-20'
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
@@ -104,7 +146,7 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   ]
 }
 
-output endpoint string = openAiAccount.properties.endpoint
-output id string = openAiAccount.id
-output name string = openAiAccount.name
-output apiKey string = openAiAccount.listKeys().key1
+output endpoint string = aiFoundry.properties.endpoint
+output id string = aiFoundry.id
+output name string = aiFoundry.name
+output apiKey string = aiFoundry.listKeys().key1
