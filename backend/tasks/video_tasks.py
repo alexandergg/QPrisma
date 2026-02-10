@@ -84,19 +84,20 @@ def _initialize_services():
     from azure.storage.blob import BlobServiceClient
     from openai import AsyncAzureOpenAI
 
+    from core.config import settings
+
     # Azure Blob Storage
-    conn_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-    if conn_string:
-        _blob_service = BlobServiceClient.from_connection_string(conn_string)
+    if settings.azure.storage_connection_string:
+        _blob_service = BlobServiceClient.from_connection_string(
+            settings.azure.storage_connection_string
+        )
 
     # Azure OpenAI (async for non-blocking pipeline)
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-    api_key = os.getenv("AZURE_OPENAI_API_KEY")
-    if endpoint and api_key:
+    if settings.azure.is_openai_configured:
         _openai_client = AsyncAzureOpenAI(
-            azure_endpoint=endpoint,
-            api_key=api_key,
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
+            azure_endpoint=settings.azure.openai_endpoint,
+            api_key=settings.azure.openai_api_key,
+            api_version=settings.azure.openai_api_version,
         )
 
     # Video Processor
@@ -106,7 +107,7 @@ def _initialize_services():
         _video_processor = VideoProcessor(
             openai_client=_openai_client,
             blob_service=_blob_service,
-            container_name=os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media"),
+            container_name=settings.azure.storage_container_name,
         )
 
     # PostgreSQL Database Service (replaces Cosmos DB)
@@ -157,9 +158,10 @@ def update_job_status(
 
     import redis
 
+    from core.config import settings
+
     try:
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        redis_client = redis.from_url(redis_url)
+        redis_client = redis.from_url(settings.redis.url)
 
         # 1. Guardar estado del job en Redis (cache)
         status_data = {
@@ -231,8 +233,10 @@ def download_video_task(self, blob_name: str, job_id: str) -> dict:
             tmp_path = tmp_file.name
 
         # Descargar
+        from core.config import settings
+
         blob_client = _blob_service.get_blob_client(
-            container=os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media"), blob=blob_name
+            container=settings.azure.storage_container_name, blob=blob_name
         )
 
         with open(tmp_path, "wb") as f:
@@ -1118,12 +1122,12 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
         update_job_status(job_id, "failed", 0, "error", f"Error: {str(e)}", str(e))
 
-        # Intentar limpiar
+        # Attempt cleanup
         try:
             if "temp_path" in locals():
                 cleanup_task(temp_path)
-        except:
-            pass
+        except Exception as cleanup_err:
+            logger.warning(f"Cleanup failed for job {job_id}: {cleanup_err}")
 
         raise
 
