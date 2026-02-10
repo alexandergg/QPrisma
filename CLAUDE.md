@@ -102,7 +102,7 @@ async def my_tool(query: str, media_id: Annotated[str | None, InjectedState("med
 ```
 
 ### Lazy Initialization Singletons
-Azure clients and services use global singleton pattern with lazy init in `api/main.py`:
+Azure clients and services use global singleton pattern with lazy init in `api/dependencies.py` (single source of truth):
 ```python
 _service: MyService | None = None
 def get_my_service() -> MyService:
@@ -110,6 +110,41 @@ def get_my_service() -> MyService:
     if _service is None:
         _service = MyService()
     return _service
+```
+
+### Service Layer Extraction
+Business logic lives in `services/`, NOT in route handlers. Route handlers should delegate to services:
+- `services/chat_service.py` — ChatService (RAG chat with video context)
+- `services/structure_service.py` — StructureService (video scene/chapter generation)
+- `services/graph_search_service.py` — GraphSearchService (hybrid search)
+
+### Centralized Configuration
+All configuration uses `core.config.settings` (Pydantic Settings). Do NOT use `os.getenv()` directly — use the typed settings object:
+```python
+from core.config import settings
+settings.azure.openai_endpoint       # Azure OpenAI
+settings.azure.storage_connection     # Blob Storage
+settings.neo4j.uri                    # Neo4j
+settings.redis.url                    # Redis
+settings.app.environment              # App environment
+```
+
+### Timezone-Aware Datetimes
+Always use `datetime.now(UTC)` (never `datetime.utcnow()` which is deprecated in Python 3.12+):
+```python
+from datetime import UTC, datetime
+now = datetime.now(UTC)
+```
+
+### Authentication on All Endpoints
+Every endpoint must require authentication via `Depends(get_current_user)`:
+```python
+from api.dependencies import get_current_user
+from models.user import User
+
+@router.get("/items")
+async def list_items(current_user: User = Depends(get_current_user)):
+    ...
 ```
 
 ### Model Caching
@@ -122,7 +157,7 @@ def get_my_service() -> MyService:
 | API Route | `{name}_routes.py` | `media_routes.py` |
 | Service | `{name}_service.py` or `{name}_processor.py` | `embedding_service.py` |
 | Agent Tool | grouped in `tools/general.py` or `tools/editor.py` | |
-| Pydantic Model | `{name}.py` in `models/` | `ffmpeg_config.py` |
+| Pydantic Model | `{name}.py` in `models/` | `ffmpeg_config.py`, `graph_route_schemas.py` |
 | React Component | `{Name}.tsx` | `VideoPlayer.tsx` |
 | Python Test | `test_{name}.py` | `test_langgraph_agent.py` |
 | React Test | `{Name}.test.tsx` | `VideoPlayer.test.tsx` |
@@ -136,7 +171,7 @@ def get_my_service() -> MyService:
 
 ### New Processing Service
 1. Create service in `backend/services/`
-2. Add lazy init getter in `api/main.py`
+2. Add lazy init getter in `api/dependencies.py`
 3. Create route in `api/routes/{name}_routes.py`
 4. Register router in `api/main.py`
 
