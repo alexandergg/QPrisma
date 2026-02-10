@@ -43,7 +43,7 @@ async def search_video(
         return {"error": "No video context available. Please select a video first.", "results": []}
 
     try:
-        from api.dependencies import get_graph_search_service
+        from services.graph_search_service import get_graph_search_service
         from models.graph_models import NodeType
 
         search_service = get_graph_search_service()
@@ -139,7 +139,7 @@ async def find_entity(
         return {"error": "No video context available.", "occurrences": []}
 
     try:
-        from api.dependencies import get_graph_search_service
+        from services.graph_search_service import get_graph_search_service
         from models.graph_models import NodeType
 
         search_service = get_graph_search_service()
@@ -660,7 +660,7 @@ async def get_related_content(
         return {"error": "No video context available.", "related": []}
 
     try:
-        from api.dependencies import get_graph_search_service
+        from services.graph_search_service import get_graph_search_service
         from models.graph_models import NodeType
 
         search_service = get_graph_search_service()

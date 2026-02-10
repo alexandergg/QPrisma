@@ -15,7 +15,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -144,10 +144,10 @@ class TaskStore:
             }
             if task.status.state in terminal_states:
                 return None  # Not cancellable
-            
+
             task.status = TaskStatus(
                 state=TaskState.CANCELED,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
             )
             self._tasks[task_id] = task
             return task
@@ -348,7 +348,7 @@ class A2AAgentExecutor:
         # Update status to working
         task.status = TaskStatus(
             state=TaskState.WORKING,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
         )
         await self.task_store.update_task(task)
         
@@ -412,7 +412,7 @@ class A2AAgentExecutor:
             # Update task status to completed
             task.status = TaskStatus(
                 state=TaskState.COMPLETED,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
             )
             
             # Add agent response to history
@@ -426,14 +426,14 @@ class A2AAgentExecutor:
             
         except Exception as e:
             logger.error(f"A2A task {task.id} failed: {e}")
-            
+
             task.status = TaskStatus(
                 state=TaskState.FAILED,
                 message=Message(
                     role=Role.AGENT,
                     parts=[Part(text=f"Task failed: {str(e)}")],
                 ),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
             )
             await self.task_store.update_task(task)
             return task
@@ -473,7 +473,7 @@ class A2AAgentExecutor:
         # Update to working
         task.status = TaskStatus(
             state=TaskState.WORKING,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(UTC),
         )
         await self.task_store.update_task(task)
         
@@ -591,7 +591,7 @@ class A2AAgentExecutor:
             # Complete
             task.status = TaskStatus(
                 state=TaskState.COMPLETED,
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
             )
             await self.task_store.update_task(task)
             
@@ -605,14 +605,14 @@ class A2AAgentExecutor:
             
         except Exception as e:
             logger.error(f"A2A streaming task {task.id} failed: {e}")
-            
+
             task.status = TaskStatus(
                 state=TaskState.FAILED,
                 message=Message(
                     role=Role.AGENT,
                     parts=[Part(text=f"Task failed: {str(e)}")],
                 ),
-                timestamp=datetime.utcnow(),
+                timestamp=datetime.now(UTC),
             )
             await self.task_store.update_task(task)
             
