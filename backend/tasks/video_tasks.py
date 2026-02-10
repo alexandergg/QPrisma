@@ -457,8 +457,8 @@ def transcribe_audio_task(self, temp_path: str, job_id: str) -> dict:
         update_job_status.delay(job_id, "processing", 60, "transcribing", "Transcribiendo audio...")
 
         if _video_processor and _video_processor.audio_processor:
-            # process_video_audio extracts audio and transcribes it
-            result = _video_processor.audio_processor.process_video_audio(temp_path)
+            # process_video_audio is async — must run in event loop
+            result = asyncio.run(_video_processor.audio_processor.process_video_audio(temp_path))
             transcription = result.get("transcription", {})
             return {"transcription": transcription, "success": True}
         else:
@@ -656,18 +656,18 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 job_id, "processing", 30, "batch_submit", f"Enviando {len(frames)} frames a Batch API..."
             )
             vision_requests = batch_proc.create_vision_batch_requests(frames_for_batch, custom_prompt)
-            vision_batch_id = batch_proc.submit_batch_job(
+            vision_batch_id = asyncio.run(batch_proc.submit_batch_job(
                 vision_requests, description=f"Celery: {blob_name} ({len(frames)} frames)"
-            )
+            ))
             logger.info(f"Batch job created: {vision_batch_id}")
 
             # Esperar completación
             update_job_status(
                 job_id, "processing", 35, "batch_wait", "Esperando Batch API (típicamente 3-5 min)..."
             )
-            success = batch_proc.wait_for_batch_completion(
+            success = asyncio.run(batch_proc.wait_for_batch_completion(
                 vision_batch_id, check_interval=30, max_wait_time=1800
-            )
+            ))
 
             if not success:
                 raise Exception(f"Batch job timeout or failed: {vision_batch_id}")
@@ -676,7 +676,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             update_job_status(
                 job_id, "processing", 55, "batch_results", "Procesando resultados de Batch API..."
             )
-            vision_results = batch_proc.get_batch_results(vision_batch_id)
+            vision_results = asyncio.run(batch_proc.get_batch_results(vision_batch_id))
             parsed_analyses = batch_proc.parse_vision_results(vision_results)
 
             # Convertir a formato esperado
@@ -728,7 +728,6 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 update_job_status(
                     job_id, "processing", 68, "summarizing", "Generando resúmenes jerárquicos..."
                 )
-                import asyncio
 
                 from services.hierarchical_summarizer import HierarchicalSummarizer, SummaryConfig
                 from services.scene_analyzer import Scene, VideoStructure
