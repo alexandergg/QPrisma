@@ -178,6 +178,8 @@ For each person visible:
 - Role if apparent (presenter, interviewer, audience, etc.)
 - Name if displayed (from name tags, lower-thirds, or introduced)
 
+**People count: [exact number of people visible]**
+
 ## ON-SCREEN TEXT (OCR) - CRITICAL
 Transcribe ALL visible text exactly as shown:
 - Slide titles, bullet points, and body text
@@ -186,15 +188,26 @@ Transcribe ALL visible text exactly as shown:
 - Signs, labels, logos with text
 Use quotation marks for exact text.
 
-## VISUAL ELEMENTS
-- Key objects and their spatial arrangement
-- Products, devices, or technical equipment shown
-- Brand logos, company names, product names
-- Charts, graphs, diagrams - describe what they show
+## OBJECT INVENTORY (CRITICAL FOR COUNTING & REASONING)
+List ALL distinct objects visible with counts and positions:
+- Format: "[count]x [object] - [position in frame: left/center/right, top/middle/bottom]"
+- Example: "2x wooden chairs - center-left", "1x laptop - right, on desk"
+- Include colors, materials, sizes, and states (open/closed, on/off)
+- Note spatial relationships: "laptop is ON the desk", "cat is BETWEEN the chairs", "person is LEFT OF the screen"
+
+**Total distinct objects: [number]**
+
+## SPATIAL LAYOUT
+Describe the spatial arrangement of key elements:
+- Foreground vs background elements
+- Left-to-right arrangement of people/objects
+- Relative positions: above, below, left of, right of, in front of, behind
+- Camera angle: close-up, medium shot, wide shot, overhead, etc.
 
 ## ACTIONS & NARRATIVE
 - What is happening in this exact moment
 - Specific action verbs (presenting, demonstrating, explaining, comparing)
+- Interactions between people/objects
 - Is this a transition, introduction, key point, or conclusion?
 
 ## TOPICS & KEYWORDS
@@ -226,16 +239,9 @@ Be thorough but factual. Prioritize information that would help users find this 
                 ],
             }
 
-            # Detectar si es o4-mini o gpt-5 (tienen restricciones similares)
-            model_name = self.gpt_deployment.lower()
-            is_o4_or_gpt5 = any(x in model_name for x in ["o4", "gpt-5"])
+            completion_params["max_completion_tokens"] = max_tokens
 
-            if is_o4_or_gpt5:
-                # o4-mini y GPT-5 solo soportan temperature=1 (default)
-                completion_params["max_completion_tokens"] = max_tokens
-            else:
-                completion_params["temperature"] = 0.7
-                completion_params["max_tokens"] = max_tokens
+            completion_params["temperature"] = 1
 
             response = await self.openai_client.chat.completions.create(**completion_params)
 

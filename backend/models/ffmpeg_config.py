@@ -302,11 +302,14 @@ def get_adaptive_config(duration_seconds: float) -> FrameExtractionConfig:
     duration_minutes = duration_seconds / 60
 
     if duration_minutes < 5:
-        # Videos muy cortos: alta densidad
+        # Videos muy cortos: máxima densidad con detección de escenas
         return FrameExtractionConfig(
-            method=FrameExtractionMethod.INTERVAL,
-            interval_seconds=2.0,
-            max_frames=150,
+            method=FrameExtractionMethod.HYBRID,
+            interval_seconds=1.0,
+            scene_threshold=0.35,
+            hybrid_scene_ratio=0.6,
+            hybrid_min_gap_seconds=3.0,
+            max_frames=300,
         )
     elif duration_minutes < 30:
         # Videos cortos-medianos
