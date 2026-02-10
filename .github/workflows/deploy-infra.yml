@@ -1,10 +1,12 @@
 name: Deploy Infrastructure
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'infra/**'
+  # Uncomment push trigger after configuring Azure OIDC secrets:
+  # AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'infra/**'
   workflow_dispatch:
 
 permissions:
