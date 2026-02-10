@@ -69,8 +69,8 @@ class GraphSearchService:
 
     # Pesos por defecto para scoring híbrido
     DEFAULT_WEIGHTS = {
-        "vector": 0.4,
-        "fulltext": 0.2,
+        "vector": 0.35,
+        "fulltext": 0.25,
         "graph": 0.25,
         "temporal": 0.15,
     }

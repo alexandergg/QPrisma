@@ -195,7 +195,7 @@ class VideoSource(BaseModel):
 
     timestamp: float
     timestamp_formatted: str
-    type: Literal["visual", "audio", "entity", "scene"] = "visual"
+    type: Literal["visual", "audio", "entity", "scene", "visible", "comparison", "cross_video", "highlight", "unknown"] = "visual"
     description: str
     score: float = 0.0
     thumbnail_url: str | None = None
@@ -218,7 +218,7 @@ class SuggestedQuestion(BaseModel):
     """A suggested follow-up question."""
 
     question: str
-    category: Literal["related", "deeper", "compare"]
+    category: Literal["related", "deeper", "compare", "explore", "entity", "timeline"] = "related"
 
 
 class AgentChatResponse(BaseModel):

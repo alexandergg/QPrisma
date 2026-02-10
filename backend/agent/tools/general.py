@@ -63,8 +63,8 @@ async def search_video(
             query_text=query,
             node_types=node_types,
             video_id=media_id,
-            limit=limit * 2,
-            expansion_hops=1,
+            limit=limit * 3,
+            expansion_hops=2,
             use_reranking=True,
         )
 
@@ -82,7 +82,7 @@ async def search_video(
                     "timestamp": ts,
                     "timestamp_formatted": format_timestamp(ts),
                     "type": "visual",
-                    "content": r.content.get("description", "")[:600],
+                    "content": r.content.get("description", "")[:900],
                     "score": round(r.combined_score, 3),
                 })
             elif r.node_type == NodeType.AUDIO_SEGMENT:
@@ -94,11 +94,18 @@ async def search_video(
                     "score": round(r.combined_score, 3),
                 })
             elif r.node_type == NodeType.ENTITY:
+                # Include entity attributes for richer context
+                entity_desc = f"{r.content.get('type', 'entity')}: {r.content.get('name', '')}"
+                if r.content.get('description'):
+                    entity_desc += f" - {r.content['description'][:200]}"
+                if r.content.get('attributes'):
+                    attrs = r.content['attributes']
+                    entity_desc += f" [{', '.join(f'{k}={v}' for k,v in attrs.items())}]"
                 results.append({
                     "timestamp": ts,
                     "timestamp_formatted": format_timestamp(ts),
                     "type": "entity",
-                    "content": f"{r.content.get('type', 'entity')}: {r.content.get('name', '')}",
+                    "content": entity_desc,
                     "score": round(r.combined_score, 3),
                 })
 
