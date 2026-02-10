@@ -14,6 +14,8 @@ interface ProcessingCardProps {
   onViewVideo?: (mediaId: string) => void;
   onCancel?: () => void;
   mediaId?: string;
+  uploadProgress?: number;   // 0-100, shown during upload phase
+  uploadSpeed?: string;      // e.g. "12.5 MB/s"
 }
 
 const DEFAULT_STEPS: ProcessingStepData[] = [
@@ -76,6 +78,8 @@ export default function ProcessingCard({
   onViewVideo,
   onCancel,
   mediaId,
+  uploadProgress,
+  uploadSpeed,
 }: ProcessingCardProps) {
   const [steps, setSteps] = useState<ProcessingStepData[]>(initialSteps || DEFAULT_STEPS);
   const [overallProgress, setOverallProgress] = useState(0);
@@ -87,6 +91,20 @@ export default function ProcessingCard({
 
   const stepsWithUploadStatus = useMemo(() => {
     if (!jobId) {
+      // Show upload progress if available
+      if (uploadProgress !== undefined) {
+        return steps.map((step) =>
+          step.id === 'upload'
+            ? {
+                ...step,
+                status: 'in_progress' as ProcessingStepStatus,
+                progress: uploadProgress,
+                details: uploadSpeed ? `${uploadSpeed}` : undefined,
+                startTime: step.startTime || new Date(),
+              }
+            : step
+        );
+      }
       return steps;
     }
     return steps.map((step) =>
@@ -94,9 +112,13 @@ export default function ProcessingCard({
         ? { ...step, status: 'completed' as ProcessingStepStatus, progress: 100, endTime: new Date() }
         : step
     );
-  }, [jobId, steps]);
+  }, [jobId, steps, uploadProgress, uploadSpeed]);
 
-  const displayProgress = jobId ? Math.max(overallProgress, 10) : overallProgress;
+  const displayProgress = jobId
+    ? Math.max(overallProgress, 10)
+    : uploadProgress !== undefined
+      ? Math.round(uploadProgress * (1 / DEFAULT_STEPS.length)) // Upload is 1 of 7 steps
+      : overallProgress;
 
   // Fallback polling for job status (if WebSocket doesn't work)
   useEffect(() => {

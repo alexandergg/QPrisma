@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import { Sidebar } from '@/components/layout';
 import { UploadZone, ProcessingCard } from '@/components/upload';
 import { apiClient } from '@/lib/api';
+import { ChunkedUploader, shouldUseChunkedUpload, UploadProgress } from '@/lib/chunked-upload';
 
 interface UploadingVideo {
   id: string;
@@ -14,63 +15,132 @@ interface UploadingVideo {
   jobId?: string;
   status: 'uploading' | 'processing' | 'completed' | 'error';
   error?: string;
+  progress?: number;       // 0-100 upload progress
+  uploadSpeed?: string;    // e.g. "12.5 MB/s"
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
 export default function UploadPage() {
   const router = useRouter();
   const [uploadingVideos, setUploadingVideos] = useState<UploadingVideo[]>([]);
   const [currentMode, setCurrentMode] = useState<'single' | 'library'>('single');
+  const uploadersRef = useRef<Map<string, ChunkedUploader>>(new Map());
 
-  const handleFilesSelected = useCallback(async (files: File[]) => {
-    for (const file of files) {
-      const tempId = Math.random().toString(36).substring(7);
+  // Cancel ongoing chunked uploads on unmount
+  useEffect(() => {
+    return () => {
+      uploadersRef.current.forEach((uploader) => {
+        uploader.cancel().catch(() => {});
+      });
+      uploadersRef.current.clear();
+    };
+  }, []);
 
-      // Add to uploading list
-      setUploadingVideos((prev) => [
-        {
-          id: tempId,
-          file,
-          status: 'uploading',
-        },
-        ...prev,
-      ]);
+  const uploadSingleFile = useCallback(async (tempId: string, file: File) => {
+    try {
+      let response: { media_id: string; job_id?: string };
 
-      try {
-        // Upload with optimized pipeline
-        const response = await apiClient.uploadVideoOptimized(file, {
+      if (shouldUseChunkedUpload(file)) {
+        // Large file: use chunked upload with progress tracking
+        const uploader = new ChunkedUploader(file, {
+          useSceneDetection: true,
+          useHierarchicalSummary: true,
+          blockSizeMb: 8,
+          concurrency: 4,
+          onProgress: (progress: UploadProgress) => {
+            setUploadingVideos((prev) =>
+              prev.map((v) =>
+                v.id === tempId
+                  ? {
+                      ...v,
+                      progress: progress.percent,
+                      uploadSpeed: progress.speedBytesPerSecond
+                        ? `${formatBytes(progress.speedBytesPerSecond)}/s`
+                        : undefined,
+                    }
+                  : v
+              )
+            );
+          },
+        });
+
+        uploadersRef.current.set(tempId, uploader);
+        const result = await uploader.upload();
+        uploadersRef.current.delete(tempId);
+
+        if (!result.success || !result.mediaId) {
+          throw new Error(result.error || 'Chunked upload failed');
+        }
+
+        response = {
+          media_id: result.mediaId,
+          job_id: result.jobId,
+        };
+      } else {
+        // Small file: use standard optimized upload
+        response = await apiClient.uploadVideoOptimized(file, {
           useSceneDetection: true,
           useHierarchicalSummary: true,
         });
-
-        // Update with real IDs - upload is complete at this point
-        setUploadingVideos((prev) =>
-          prev.map((v) =>
-            v.id === tempId
-              ? {
-                  ...v,
-                  mediaId: response.media_id,
-                  jobId: response.job_id,
-                  status: 'processing',
-                }
-              : v
-          )
-        );
-      } catch (error) {
-        console.error('Upload failed:', error);
-        setUploadingVideos((prev) =>
-          prev.map((v) =>
-            v.id === tempId
-              ? {
-                  ...v,
-                  status: 'error',
-                  error: 'Upload failed. Please try again.',
-                }
-              : v
-          )
-        );
       }
+
+      // Update with real IDs - upload is complete at this point
+      setUploadingVideos((prev) =>
+        prev.map((v) =>
+          v.id === tempId
+            ? {
+                ...v,
+                mediaId: response.media_id,
+                jobId: response.job_id,
+                status: 'processing',
+                progress: undefined,
+                uploadSpeed: undefined,
+              }
+            : v
+        )
+      );
+    } catch (error) {
+      console.error('Upload failed:', error);
+      setUploadingVideos((prev) =>
+        prev.map((v) =>
+          v.id === tempId
+            ? {
+                ...v,
+                status: 'error',
+                error: error instanceof Error ? error.message : 'Upload failed. Please try again.',
+                progress: undefined,
+                uploadSpeed: undefined,
+              }
+            : v
+        )
+      );
     }
   }, []);
+
+  const handleFilesSelected = useCallback((files: File[]) => {
+    // Create entries for all files immediately
+    const newEntries = files.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      status: 'uploading' as const,
+    }));
+
+    setUploadingVideos((prev) => [...newEntries, ...prev]);
+
+    // Upload all files concurrently
+    for (const entry of newEntries) {
+      uploadSingleFile(entry.id, entry.file).catch(() => {
+        // Error already handled inside uploadSingleFile
+      });
+    }
+  }, [uploadSingleFile]);
 
   const handleVideoComplete = (tempId: string, mediaId: string) => {
     setUploadingVideos((prev) =>
@@ -134,7 +204,7 @@ export default function UploadPage() {
           <div className="mb-8">
             <UploadZone
               onFilesSelected={handleFilesSelected}
-              isUploading={uploadingVideos.some((v) => v.status === 'uploading')}
+              isUploading={false}
             />
           </div>
 
@@ -149,6 +219,8 @@ export default function UploadPage() {
                   fileSize={video.file.size}
                   jobId={video.jobId}
                   mediaId={video.mediaId}
+                  uploadProgress={video.progress}
+                  uploadSpeed={video.uploadSpeed}
                   onComplete={(mediaId) => handleVideoComplete(video.id, mediaId)}
                   onViewVideo={handleViewVideo}
                 />

@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import RequireAuth from '@/components/RequireAuth';
 import { X, Film, Settings2, ChevronDown, Library, Columns2 } from 'lucide-react';
+import { ChunkedUploader, shouldUseChunkedUpload, UploadProgress } from '@/lib/chunked-upload';
 
 interface Scene {
   scene_id: number;
@@ -52,11 +53,22 @@ interface LibraryVideo {
 }
 
 interface UploadingVideo {
+  id: string;
   fileName: string;
   fileSize: number;
   mediaId?: string;
   jobId?: string;
   status: 'uploading' | 'processing' | 'completed' | 'error';
+  progress?: number;
+  uploadSpeed?: string;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
 function NewChatContent() {
@@ -71,10 +83,10 @@ function NewChatContent() {
   const [showVideoSelector, setShowVideoSelector] = useState(false);
   const [showMultiVideoSelector, setShowMultiVideoSelector] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
-  const [uploadingVideo, setUploadingVideo] = useState<UploadingVideo | null>(null);
+  const [uploadingVideos, setUploadingVideos] = useState<UploadingVideo[]>([]);
   const [uploadPreset, setUploadPreset] = useState<string>('balanced');
   const [uploadMaxFrames, setUploadMaxFrames] = useState(200);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [activeVideoTab, setActiveVideoTab] = useState(0);
   const [comparisonMode, setComparisonMode] = useState<'tabs' | 'side-by-side'>('tabs');
   const [showLibraryHelp, setShowLibraryHelp] = useState(true);
@@ -485,65 +497,88 @@ function NewChatContent() {
       {/* Upload Modal */}
       {showUploader && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl p-6">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Upload Video</h2>
+              <h2 className="text-xl font-semibold text-gray-900">
+                {pendingFiles.length > 1
+                  ? `Upload ${pendingFiles.length} Videos`
+                  : 'Upload Video'}
+              </h2>
               <button
                 onClick={() => {
                   setShowUploader(false);
-                  setUploadingVideo(null);
-                  setPendingFile(null);
+                  setUploadingVideos([]);
+                  setPendingFiles([]);
                 }}
                 className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
-            {/* Show ProcessingCard when uploading/processing */}
-            {uploadingVideo ? (
-              <ProcessingCard
-                fileName={uploadingVideo.fileName}
-                fileSize={uploadingVideo.fileSize}
-                jobId={uploadingVideo.jobId}
-                mediaId={uploadingVideo.mediaId}
-                onComplete={async (mediaId) => {
-                  setUploadingVideo(null);
-                  setShowUploader(false);
-                  setPendingFile(null);
-                  await handleUploadComplete(mediaId);
-                }}
-                onError={(error) => {
-                  console.error('Processing failed:', error);
-                  setUploadingVideo({ ...uploadingVideo, status: 'error' });
-                }}
-                onViewVideo={async (mediaId) => {
-                  setUploadingVideo(null);
-                  setShowUploader(false);
-                  setPendingFile(null);
-                  await handleUploadComplete(mediaId);
-                }}
-              />
-            ) : pendingFile ? (
-              /* Configuration step - file selected, configure before upload */
+
+            {/* Show ProcessingCards when uploading/processing */}
+            {uploadingVideos.length > 0 ? (
+              <div className="space-y-4">
+                {uploadingVideos.map((video) => (
+                  <ProcessingCard
+                    key={video.id}
+                    fileName={video.fileName}
+                    fileSize={video.fileSize}
+                    jobId={video.jobId}
+                    mediaId={video.mediaId}
+                    uploadProgress={video.progress}
+                    uploadSpeed={video.uploadSpeed}
+                    onComplete={async (mediaId) => {
+                      setUploadingVideos((prev) =>
+                        prev.map((v) =>
+                          v.id === video.id || v.mediaId === mediaId
+                            ? { ...v, status: 'completed' }
+                            : v
+                        )
+                      );
+                      await handleUploadComplete(mediaId);
+                    }}
+                    onError={(error) => {
+                      console.error('Processing failed:', error);
+                      setUploadingVideos((prev) =>
+                        prev.map((v) =>
+                          v.id === video.id ? { ...v, status: 'error' } : v
+                        )
+                      );
+                    }}
+                    onViewVideo={async (mediaId) => {
+                      setShowUploader(false);
+                      setUploadingVideos([]);
+                      setPendingFiles([]);
+                      await handleUploadComplete(mediaId);
+                    }}
+                  />
+                ))}
+              </div>
+            ) : pendingFiles.length > 0 ? (
+              /* Configuration step - files selected, configure before upload */
               <div className="space-y-6">
-                {/* Selected file info */}
-                <div className="bg-indigo-50 rounded-xl p-4 flex items-center gap-4">
-                  <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
-                    <Film className="w-6 h-6 text-indigo-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{pendingFile.name}</p>
-                    <p className="text-sm text-gray-500">
-                      {(pendingFile.size / (1024 * 1024)).toFixed(1)} MB
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setPendingFile(null)}
-                    className="p-2 hover:bg-indigo-100 rounded-lg text-indigo-600"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                {/* Selected files list */}
+                <div className="space-y-2">
+                  {pendingFiles.map((file, idx) => (
+                    <div key={idx} className="bg-indigo-50 rounded-xl p-3 flex items-center gap-3">
+                      <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Film className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 truncate text-sm">{file.name}</p>
+                        <p className="text-xs text-gray-500">
+                          {(file.size / (1024 * 1024)).toFixed(1)} MB
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}
+                        className="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-600 flex-shrink-0"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Processing Options */}
@@ -551,6 +586,9 @@ function NewChatContent() {
                   <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                     <Settings2 className="w-4 h-4 text-indigo-500" />
                     Processing Options
+                    {pendingFiles.length > 1 && (
+                      <span className="text-xs text-gray-400 font-normal">(applied to all files)</span>
+                    )}
                   </div>
 
                   {/* Preset Selection */}
@@ -605,47 +643,105 @@ function NewChatContent() {
 
                 {/* Start Processing Button */}
                 <button
-                  onClick={async () => {
-                    const file = pendingFile;
-                    setUploadingVideo({
+                  onClick={() => {
+                    // Create entries for all files
+                    const entries: UploadingVideo[] = pendingFiles.map((file) => ({
+                      id: crypto.randomUUID(),
                       fileName: file.name,
                       fileSize: file.size,
-                      status: 'uploading',
+                      status: 'uploading' as const,
+                    }));
+                    setUploadingVideos(entries);
+
+                    // Upload all files concurrently
+                    pendingFiles.forEach((file, idx) => {
+                      const entry = entries[idx];
+                      (async () => {
+                        try {
+                          let response: { media_id: string; job_id?: string };
+
+                          if (shouldUseChunkedUpload(file)) {
+                            const uploader = new ChunkedUploader(file, {
+                              preset: uploadPreset,
+                              maxFrames: uploadMaxFrames,
+                              useSceneDetection: true,
+                              useHierarchicalSummary: true,
+                              blockSizeMb: 8,
+                              concurrency: 4,
+                              onProgress: (progress: UploadProgress) => {
+                                setUploadingVideos((prev) =>
+                                  prev.map((v) =>
+                                    v.id === entry.id
+                                      ? {
+                                          ...v,
+                                          progress: progress.percent,
+                                          uploadSpeed: progress.speedBytesPerSecond
+                                            ? `${formatBytes(progress.speedBytesPerSecond)}/s`
+                                            : undefined,
+                                        }
+                                      : v
+                                  )
+                                );
+                              },
+                            });
+                            const result = await uploader.upload();
+                            if (!result.success || !result.mediaId) {
+                              throw new Error(result.error || 'Chunked upload failed');
+                            }
+                            response = { media_id: result.mediaId, job_id: result.jobId };
+                          } else {
+                            response = await apiClient.uploadVideoOptimized(file, {
+                              preset: uploadPreset,
+                              maxFrames: uploadMaxFrames,
+                              useSceneDetection: true,
+                              useHierarchicalSummary: true,
+                            });
+                          }
+
+                          setUploadingVideos((prev) =>
+                            prev.map((v) =>
+                              v.id === entry.id
+                                ? {
+                                    ...v,
+                                    mediaId: response.media_id,
+                                    jobId: response.job_id,
+                                    status: 'processing',
+                                    progress: undefined,
+                                    uploadSpeed: undefined,
+                                  }
+                                : v
+                            )
+                          );
+                        } catch (error) {
+                          console.error('Upload failed:', error);
+                          setUploadingVideos((prev) =>
+                            prev.map((v) =>
+                              v.id === entry.id
+                                ? {
+                                    ...v,
+                                    status: 'error',
+                                    progress: undefined,
+                                    uploadSpeed: undefined,
+                                  }
+                                : v
+                            )
+                          );
+                        }
+                      })().catch(() => {});
                     });
-                    
-                    try {
-                      const response = await apiClient.uploadVideoOptimized(file, {
-                        preset: uploadPreset,
-                        maxFrames: uploadMaxFrames,
-                        useSceneDetection: true,
-                        useHierarchicalSummary: true,
-                      });
-                      setUploadingVideo({
-                        fileName: file.name,
-                        fileSize: file.size,
-                        mediaId: response.media_id,
-                        jobId: response.job_id,
-                        status: 'processing',
-                      });
-                    } catch (error) {
-                      console.error('Upload failed:', error);
-                      setUploadingVideo({
-                        fileName: file.name,
-                        fileSize: file.size,
-                        status: 'error',
-                      });
-                    }
                   }}
                   className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl font-semibold transition-all shadow-lg shadow-indigo-500/30"
                 >
-                  Start Processing
+                  {pendingFiles.length > 1
+                    ? `Start Processing ${pendingFiles.length} Videos`
+                    : 'Start Processing'}
                 </button>
               </div>
             ) : (
               <UploadZone
                 onFilesSelected={(files) => {
                   if (files.length > 0) {
-                    setPendingFile(files[0]);
+                    setPendingFiles(files);
                   }
                 }}
               />
