@@ -1,8 +1,8 @@
 """
-Jobs API Routes para QPrisma
-Endpoints para gestión de jobs de procesamiento asíncrono con Celery.
+Jobs API Routes for QPrisma
+Endpoints for managing asynchronous processing jobs with Celery.
 
-Uso:
+Usage:
     from api.routes import jobs_router
     app.include_router(jobs_router, prefix="/jobs", tags=["Jobs"])
 """
@@ -12,8 +12,11 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from api.dependencies import get_current_user
+from models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,7 @@ router = APIRouter()
 
 
 class JobStatus(str, Enum):
-    """Estados posibles de un job"""
+    """Possible job states"""
 
     PENDING = "pending"
     STARTED = "started"
@@ -38,16 +41,16 @@ class JobStatus(str, Enum):
 
 
 class ProcessingConfig(BaseModel):
-    """Configuración para procesamiento de video"""
+    """Configuration for video processing"""
 
-    max_frames: int = Field(default=100, ge=1, le=500, description="Máximo de frames a extraer")
+    max_frames: int = Field(default=100, ge=1, le=500, description="Maximum frames to extract")
     custom_prompt: str | None = Field(
-        default=None, description="Prompt personalizado para análisis"
+        default=None, description="Custom prompt for analysis"
     )
-    use_cache: bool = Field(default=True, description="Usar cache para frames similares")
-    transcribe_audio: bool = Field(default=True, description="Transcribir audio con Whisper")
-    index_content: bool = Field(default=True, description="Indexar para búsqueda (Knowledge Graph)")
-    priority: int = Field(default=5, ge=1, le=10, description="Prioridad del job (1-10)")
+    use_cache: bool = Field(default=True, description="Use cache for similar frames")
+    transcribe_audio: bool = Field(default=True, description="Transcribe audio with Whisper")
+    index_content: bool = Field(default=True, description="Index for search (Knowledge Graph)")
+    priority: int = Field(default=5, ge=1, le=10, description="Job priority (1-10)")
 
     model_config = {
         "json_schema_extra": {
@@ -64,27 +67,27 @@ class ProcessingConfig(BaseModel):
 
 
 class JobSubmitRequest(BaseModel):
-    """Request para enviar un job de procesamiento"""
+    """Request to submit a processing job"""
 
-    video_id: str = Field(description="ID único del video")
-    blob_name: str = Field(description="Nombre del blob en Azure Storage")
+    video_id: str = Field(description="Unique video ID")
+    blob_name: str = Field(description="Blob name in Azure Storage")
     config: ProcessingConfig | None = Field(
-        default=None, description="Configuración de procesamiento"
+        default=None, description="Processing configuration"
     )
 
 
 class JobSubmitResponse(BaseModel):
-    """Respuesta al enviar un job"""
+    """Response when submitting a job"""
 
-    job_id: str = Field(description="ID del job para tracking")
+    job_id: str = Field(description="Job ID for tracking")
     video_id: str
     status: JobStatus
     message: str
-    estimated_time_seconds: int | None = Field(default=None, description="Tiempo estimado")
+    estimated_time_seconds: int | None = Field(default=None, description="Estimated time")
 
 
 class JobStatusResponse(BaseModel):
-    """Estado detallado de un job"""
+    """Detailed job status"""
 
     job_id: str
     video_id: str | None = None
@@ -100,7 +103,7 @@ class JobStatusResponse(BaseModel):
 
 
 class JobListResponse(BaseModel):
-    """Lista de jobs"""
+    """List of jobs"""
 
     total: int
     jobs: list[JobStatusResponse]
@@ -112,7 +115,7 @@ class JobListResponse(BaseModel):
 
 
 def get_celery_app():
-    """Obtiene la instancia de Celery (lazy import)"""
+    """Gets the Celery instance (lazy import)"""
     try:
         from tasks.celery_app import celery_app
 
@@ -123,7 +126,7 @@ def get_celery_app():
 
 
 def celery_state_to_job_status(state: str) -> JobStatus:
-    """Convierte estado de Celery a JobStatus"""
+    """Converts Celery state to JobStatus"""
     mapping = {
         "PENDING": JobStatus.PENDING,
         "STARTED": JobStatus.STARTED,
@@ -144,43 +147,43 @@ def celery_state_to_job_status(state: str) -> JobStatus:
 @router.post(
     "/submit",
     response_model=JobSubmitResponse,
-    summary="Enviar video para procesamiento async",
+    summary="Submit video for async processing",
     description="""
-    Envía un video a la cola de procesamiento de Celery.
-    Retorna inmediatamente con un job_id para tracking.
+    Submits a video to the Celery processing queue.
+    Returns immediately with a job_id for tracking.
 
-    El procesamiento incluye:
-    1. Descarga del video
-    2. Extracción de frames
-    3. Análisis con GPT-4V
-    4. Generación de embeddings
-    5. Transcripción de audio (opcional)
-    6. Indexación para búsqueda (Knowledge Graph)
+    Processing includes:
+    1. Video download
+    2. Frame extraction
+    3. Analysis with GPT-4V
+    4. Embedding generation
+    5. Audio transcription (optional)
+    6. Indexing for search (Knowledge Graph)
     """,
 )
-async def submit_job(request: JobSubmitRequest):
-    """Envía un job de procesamiento a Celery"""
+async def submit_job(request: JobSubmitRequest, current_user: User = Depends(get_current_user)):
+    """Submits a processing job to Celery"""
     celery_app = get_celery_app()
     if not celery_app:
         raise HTTPException(
             status_code=503,
-            detail="Celery no disponible. Asegúrate de que el worker está corriendo.",
+            detail="Celery not available. Make sure the worker is running.",
         )
 
     try:
         from tasks.video_tasks import process_video_pipeline
 
-        # Preparar configuración
+        # Prepare configuration
         config = request.config.model_dump() if request.config else {}
 
-        # Enviar tarea a Celery
+        # Submit task to Celery
         result = process_video_pipeline.apply_async(
             args=[request.video_id, request.blob_name, config], priority=config.get("priority", 5)
         )
 
-        # Estimar tiempo (muy aproximado)
+        # Estimate time (rough approximation)
         max_frames = config.get("max_frames", 20)
-        estimated_time = max_frames * 3 + 30  # ~3 seg/frame + overhead
+        estimated_time = max_frames * 3 + 30  # ~3 sec/frame + overhead
 
         logger.info(f"Job submitted: {result.id} for video {request.video_id}")
 
@@ -188,7 +191,7 @@ async def submit_job(request: JobSubmitRequest):
             job_id=result.id,
             video_id=request.video_id,
             status=JobStatus.PENDING,
-            message="Job enviado a la cola de procesamiento",
+            message="Job submitted to processing queue",
             estimated_time_seconds=estimated_time,
         )
 
@@ -200,21 +203,21 @@ async def submit_job(request: JobSubmitRequest):
 @router.get(
     "/{job_id}",
     response_model=JobStatusResponse,
-    summary="Obtener estado de un job",
-    description="Obtiene el estado actual de un job de procesamiento.",
+    summary="Get job status",
+    description="Gets the current status of a processing job.",
 )
-async def get_job_status(job_id: str):
-    """Obtiene el estado de un job"""
+async def get_job_status(job_id: str, current_user: User = Depends(get_current_user)):
+    """Gets job status"""
     celery_app = get_celery_app()
     if not celery_app:
-        raise HTTPException(status_code=503, detail="Celery no disponible")
+        raise HTTPException(status_code=503, detail="Celery not available")
 
     try:
         from celery.result import AsyncResult
 
         result = AsyncResult(job_id, app=celery_app)
 
-        # Obtener info adicional del cache si está disponible
+        # Get additional info from cache if available
         cache_info = None
         try:
             from services.cache_service import get_cache_service
@@ -225,7 +228,7 @@ async def get_job_status(job_id: str):
             logger.warning(f"Could not get cache info for job {job_id}: {e}")
             cache_info = None
 
-        # Construir respuesta
+        # Build response
         status = celery_state_to_job_status(result.state)
         progress = 0
         stage = "unknown"
@@ -267,14 +270,14 @@ async def get_job_status(job_id: str):
 
 @router.post(
     "/{job_id}/cancel",
-    summary="Cancelar un job",
-    description="Intenta cancelar un job en progreso.",
+    summary="Cancel a job",
+    description="Attempts to cancel a job in progress.",
 )
-async def cancel_job(job_id: str):
-    """Cancela un job en ejecución"""
+async def cancel_job(job_id: str, current_user: User = Depends(get_current_user)):
+    """Cancels a running job"""
     celery_app = get_celery_app()
     if not celery_app:
-        raise HTTPException(status_code=503, detail="Celery no disponible")
+        raise HTTPException(status_code=503, detail="Celery not available")
 
     try:
         from celery.result import AsyncResult
@@ -284,33 +287,29 @@ async def cancel_job(job_id: str):
         if result.state in ["PENDING", "STARTED", "RETRY"]:
             result.revoke(terminate=True)
 
-            # Actualizar cache
+            # Update cache
             try:
-                import asyncio
-
                 from services.cache_service import get_cache_service
 
-                cache = asyncio.get_event_loop().run_until_complete(get_cache_service())
-                asyncio.get_event_loop().run_until_complete(
-                    cache.set_job_status(
-                        job_id,
-                        {
-                            "status": "cancelled",
-                            "progress": 0,
-                            "stage": "cancelled",
-                            "message": "Job cancelado por usuario",
-                        },
-                    )
+                cache = await get_cache_service()
+                await cache.set_job_status(
+                    job_id,
+                    {
+                        "status": "cancelled",
+                        "progress": 0,
+                        "stage": "cancelled",
+                        "message": "Job cancelled by user",
+                    },
                 )
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to update cache for cancelled job {job_id}: {e}")
 
-            return {"job_id": job_id, "status": "cancelled", "message": "Job cancelado"}
+            return {"job_id": job_id, "status": "cancelled", "message": "Job cancelled"}
         else:
             return {
                 "job_id": job_id,
                 "status": result.state.lower(),
-                "message": f"No se puede cancelar job en estado {result.state}",
+                "message": f"Cannot cancel job in state {result.state}",
             }
 
     except Exception as e:
@@ -320,14 +319,14 @@ async def cancel_job(job_id: str):
 
 @router.get(
     "/{job_id}/result",
-    summary="Obtener resultado de un job completado",
-    description="Obtiene el resultado completo de un job que ha finalizado.",
+    summary="Get completed job result",
+    description="Gets the complete result of a completed job.",
 )
-async def get_job_result(job_id: str):
-    """Obtiene el resultado de un job completado"""
+async def get_job_result(job_id: str, current_user: User = Depends(get_current_user)):
+    """Gets the result of a completed job"""
     celery_app = get_celery_app()
     if not celery_app:
-        raise HTTPException(status_code=503, detail="Celery no disponible")
+        raise HTTPException(status_code=503, detail="Celery not available")
 
     try:
         from celery.result import AsyncResult
@@ -340,7 +339,7 @@ async def get_job_result(job_id: str):
             return {"job_id": job_id, "status": "failure", "error": str(result.result)}
         else:
             raise HTTPException(
-                status_code=400, detail=f"Job aún en progreso (estado: {result.state})"
+                status_code=400, detail=f"Job still in progress (state: {result.state})"
             )
 
     except HTTPException:
@@ -353,37 +352,31 @@ async def get_job_result(job_id: str):
 @router.get(
     "/",
     response_model=JobListResponse,
-    summary="Listar jobs recientes",
-    description="Lista los jobs recientes con su estado.",
+    summary="List recent jobs",
+    description="Lists recent jobs with their status.",
 )
-async def list_jobs(status: JobStatus | None = None, limit: int = 20):
-    """Lista jobs recientes"""
-    # Obtener jobs del cache
+async def list_jobs(status: JobStatus | None = None, limit: int = 20, current_user: User = Depends(get_current_user)):
+    """Lists recent jobs"""
+    # Get jobs from cache
     try:
-        import asyncio
-
         from services.cache_service import get_cache_service
 
-        cache = asyncio.get_event_loop().run_until_complete(get_cache_service())
+        cache = await get_cache_service()
 
-        # Buscar jobs en cache
+        # Search jobs in cache
         pattern = f"{cache.config.key_prefix}:job_status:*"
         jobs = []
 
         if cache._use_memory_fallback:
-            keys = asyncio.get_event_loop().run_until_complete(cache._memory_cache.keys(pattern))
+            keys = await cache._memory_cache.keys(pattern)
         else:
             keys = []
-
-            async def get_keys():
-                async for key in cache._redis.scan_iter(match=pattern):
-                    keys.append(key.decode() if isinstance(key, bytes) else key)
-
-            asyncio.get_event_loop().run_until_complete(get_keys())
+            async for key in cache._redis.scan_iter(match=pattern):
+                keys.append(key.decode() if isinstance(key, bytes) else key)
 
         for key in keys[:limit]:
             job_id = key.split(":")[-1]
-            job_data = asyncio.get_event_loop().run_until_complete(cache.get_job_status(job_id))
+            job_data = await cache.get_job_status(job_id)
             if job_data:
                 job_status = JobStatus(job_data.get("status", "pending"))
                 if status is None or job_status == status:
@@ -408,18 +401,18 @@ async def list_jobs(status: JobStatus | None = None, limit: int = 20):
 
 @router.get(
     "/stats/summary",
-    summary="Estadísticas de jobs",
-    description="Obtiene estadísticas resumidas de los jobs.",
+    summary="Job statistics",
+    description="Gets summary statistics of jobs.",
 )
-async def get_jobs_stats():
-    """Obtiene estadísticas de jobs"""
+async def get_jobs_stats(current_user: User = Depends(get_current_user)):
+    """Gets job statistics"""
     celery_app = get_celery_app()
 
     stats = {"celery_available": celery_app is not None, "workers": [], "queues": {}}
 
     if celery_app:
         try:
-            # Obtener info de workers
+            # Get worker info
             inspect = celery_app.control.inspect()
             active = inspect.active() or {}
             reserved = inspect.reserved() or {}
@@ -432,7 +425,7 @@ async def get_jobs_stats():
                 }
                 stats["workers"].append(worker_stats)
 
-            # Info de colas
+            # Queue info
             try:
                 from tasks.celery_app import celery_app as app
 
@@ -443,10 +436,10 @@ async def get_jobs_stats():
                                 queue=queue, passive=True
                             )
                             stats["queues"][queue] = queue_info.message_count
-                        except:
+                        except Exception:
                             stats["queues"][queue] = 0
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to get queue stats: {e}")
 
         except Exception as e:
             logger.warning(f"Failed to get Celery stats: {e}")

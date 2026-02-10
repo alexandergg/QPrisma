@@ -321,12 +321,16 @@ async def upload_media_optimized(
 
 
 @router.get("/media")
-async def list_all_media(current_user: User = Depends(get_current_user)):
-    """List all videos/media for the authenticated user."""
+async def list_all_media(
+    current_user: User = Depends(get_current_user),
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List all videos/media for the authenticated user with pagination."""
     db = get_database_service()
 
     try:
-        media_list = db.get_media_by_user(current_user.id)
+        media_list = db.get_media_by_user(current_user.id, limit=limit, offset=offset)
 
         items = []
         for media in media_list:
@@ -340,11 +344,11 @@ async def list_all_media(current_user: User = Depends(get_current_user)):
                 item["frames_analyzed"] = item["processing_result"]["frames_analyzed"]
             items.append(item)
 
-        return {"total": len(items), "media": items}
+        return {"total": len(items), "media": items, "limit": limit, "offset": offset}
 
     except Exception as e:
         logger.error(f"Error listing media: {e}")
-        return {"total": 0, "media": []}
+        return {"total": 0, "media": [], "limit": limit, "offset": offset}
 
 
 @router.delete("/media/{media_id}")
@@ -445,7 +449,7 @@ async def get_media_metadata(media_id: str, current_user: User = Depends(get_cur
 
 
 @router.get("/media/{media_id}/status")
-async def get_media_processing_status(media_id: str):
+async def get_media_processing_status(media_id: str, current_user: User = Depends(get_current_user)):
     """Get the processing status of a video."""
     db = get_database_service()
 

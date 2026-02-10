@@ -6,6 +6,7 @@ Uses Global Batch deployments for 50% cost savings.
 """
 
 import logging
+from datetime import datetime, UTC
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -114,7 +115,7 @@ async def cancel_batch_job(
 
         db.update_batch_job_by_azure_id(azure_batch_id, {
             "status": "cancelled",
-            "completed_at": datetime.utcnow(),
+            "completed_at": datetime.now(UTC),
         })
 
         return {"azure_batch_id": azure_batch_id, "status": "cancelled"}

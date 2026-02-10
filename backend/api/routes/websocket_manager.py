@@ -34,7 +34,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, UTC
 from enum import Enum
 from typing import Any
 
@@ -67,7 +67,7 @@ class WebSocketMessage:
 
     type: MessageType
     payload: dict[str, Any]
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     job_id: str | None = None
 
     def to_json(self) -> str:
@@ -86,7 +86,7 @@ class WebSocketMessage:
         return cls(
             type=MessageType(parsed.get("type", "error")),
             payload=parsed.get("payload", {}),
-            timestamp=parsed.get("timestamp", datetime.utcnow().isoformat()),
+            timestamp=parsed.get("timestamp", datetime.now(UTC).isoformat()),
             job_id=parsed.get("job_id"),
         )
 
@@ -141,7 +141,7 @@ class ConnectionManager:
                 self._connection_metadata[websocket] = {
                     "job_id": job_id,
                     "user_id": user_id,
-                    "connected_at": datetime.utcnow().isoformat(),
+                    "connected_at": datetime.now(UTC).isoformat(),
                 }
 
                 # Registrar en job_connections
@@ -343,7 +343,7 @@ class ConnectionManager:
         await self._send_message(
             websocket,
             WebSocketMessage(
-                type=MessageType.HEARTBEAT, payload={"timestamp": datetime.utcnow().isoformat()}
+                type=MessageType.HEARTBEAT, payload={"timestamp": datetime.now(UTC).isoformat()}
             ),
         )
 

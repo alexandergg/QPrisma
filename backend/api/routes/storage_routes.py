@@ -9,7 +9,7 @@ Endpoints for managing Azure Blob Storage tiers:
 - Generate lifecycle policy
 """
 
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -382,11 +382,11 @@ async def record_media_access(
     get_media_or_404(media_id, current_user)
 
     db.update_media(media_id, {
-        "last_accessed_at": datetime.utcnow(),
+        "last_accessed_at": datetime.now(UTC),
     })
 
     return {
         "media_id": media_id,
-        "last_accessed_at": datetime.utcnow().isoformat(),
+        "last_accessed_at": datetime.now(UTC).isoformat(),
         "message": "Access recorded",
     }

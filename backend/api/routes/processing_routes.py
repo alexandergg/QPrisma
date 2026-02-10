@@ -215,6 +215,7 @@ async def process_video_with_ffmpeg(
     preset: ProcessingPreset | None = None,
     config: FFmpegProcessingConfig | None = None,
     max_frames: int | None = None,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Process a video using FFmpeg with customizable configuration.
@@ -284,6 +285,7 @@ async def process_video_with_ffmpeg_batch(
     max_frames: int | None = None,
     wait_for_completion: bool = False,
     max_wait_time: int = 3600,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Process a video using FFmpeg with Azure OpenAI Batch API.
@@ -354,7 +356,7 @@ async def process_video_with_ffmpeg_batch(
 
 
 @router.get("/batch/status")
-async def get_batch_status(batch_id: str):
+async def get_batch_status(batch_id: str, current_user: User = Depends(get_current_user)):
     """
     Get the status of an Azure OpenAI batch job.
 
@@ -379,7 +381,7 @@ async def get_batch_status(batch_id: str):
 
 
 @router.post("/batch/cancel")
-async def cancel_batch(batch_id: str):
+async def cancel_batch(batch_id: str, current_user: User = Depends(get_current_user)):
     """Cancel an in-progress batch job."""
     processor = get_video_processor()
 
@@ -406,6 +408,7 @@ async def get_pipeline_preview(
     max_frames: int | None = None,
     scale_width: int | None = None,
     scale_height: int | None = None,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Get a preview of the processing pipeline without executing it.
@@ -451,7 +454,7 @@ async def get_pipeline_preview(
 
 
 @router.get("/presets")
-async def get_available_presets():
+async def get_available_presets(current_user: User = Depends(get_current_user)):
     """List all available presets with their descriptions."""
     presets = []
 

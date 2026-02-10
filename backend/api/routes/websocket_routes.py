@@ -136,10 +136,8 @@ async def websocket_all_endpoint(websocket: WebSocket, token: str | None = Query
     Ejemplo:
         ws://localhost:8000/ws/all?token=admin-token
     """
-    # TODO: Validar token de admin
-    # if not validate_admin_token(token):
-    #     await websocket.close(code=4001, reason="Unauthorized")
-    #     return
+    # Admin token validation is deferred (see P0 auth task for endpoint auth)
+    # Future: validate_admin_token(token) and close with 4001 if unauthorized
 
     manager = get_websocket_manager()
 
