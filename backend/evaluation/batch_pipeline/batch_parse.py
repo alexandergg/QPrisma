@@ -2,14 +2,12 @@
 Step 3: Parse and validate batch result files.
 
 Validates each response against expected Pydantic schemas.
-Re-requests malformed responses synchronously (following VideoRAG pattern).
+Malformed responses are logged and skipped.
 """
 
 import json
 import logging
 from pathlib import Path
-
-from openai import AsyncOpenAI
 
 from evaluation.models.eval_schemas import (
     JudgeResponse,
@@ -22,33 +20,32 @@ logger = logging.getLogger(__name__)
 
 async def parse_batch_results(
     result_paths: list[Path],
-    client: AsyncOpenAI | None = None,
-    retry_malformed: bool = True,
     model: str = "gpt-4o",
 ) -> list[JudgeResponse]:
     """Parse all batch result files into JudgeResponse objects.
 
     Args:
         result_paths: Paths to JSONL result files.
-        client: OpenAI client for retrying malformed responses.
-        retry_malformed: Whether to retry parsing failures via sync API call.
-        model: Model to use for retries.
+        model: Model name (reserved for future retry support).
 
     Returns:
         List of parsed JudgeResponse objects.
+
+    Note:
+        Malformed responses are logged and skipped. Automatic retry of
+        malformed responses requires storing the original input JSONL
+        alongside result files, which is not yet implemented.
     """
     all_responses: list[JudgeResponse] = []
     malformed_count = 0
 
     for path in result_paths:
-        responses, malformed = await _parse_single_file(
-            path, client, retry_malformed, model
-        )
+        responses, malformed = await _parse_single_file(path)
         all_responses.extend(responses)
         malformed_count += malformed
 
     logger.info(
-        "Parsed %d responses total (%d malformed retried)",
+        "Parsed %d responses total (%d malformed skipped)",
         len(all_responses),
         malformed_count,
     )
@@ -57,9 +54,6 @@ async def parse_batch_results(
 
 async def _parse_single_file(
     path: Path,
-    client: AsyncOpenAI | None,
-    retry_malformed: bool,
-    model: str,
 ) -> tuple[list[JudgeResponse], int]:
     """Parse a single JSONL result file."""
     responses = []
@@ -78,10 +72,12 @@ async def _parse_single_file(
                     responses.append(parsed)
                 else:
                     malformed += 1
-                    if retry_malformed and client:
-                        retried = await _retry_single(result, client, model)
-                        if retried:
-                            responses.append(retried)
+                    logger.debug(
+                        "Malformed response on line %d in %s (custom_id=%s)",
+                        line_num,
+                        path,
+                        result.get("custom_id", "?"),
+                    )
 
             except (json.JSONDecodeError, KeyError, ValueError) as e:
                 logger.warning("Failed to parse line %d in %s: %s", line_num, path, e)
@@ -122,7 +118,7 @@ def _parse_winrate_result(parts: list[str], data: dict) -> JudgeResponse | None:
     """Parse a win-rate result."""
     try:
         winrate_response = WinRateJudgeResponse.model_validate(data)
-    except Exception as e:
+    except (ValueError, KeyError) as e:
         logger.debug("Win-rate validation failed: %s", e)
         return None
 
@@ -149,7 +145,7 @@ def _parse_quantitative_result(parts: list[str], data: dict) -> JudgeResponse | 
     """Parse a quantitative result."""
     try:
         quant_response = QuantitativeJudgeResponse.model_validate(data)
-    except Exception as e:
+    except (ValueError, KeyError) as e:
         logger.debug("Quantitative validation failed: %s", e)
         return None
 
@@ -169,22 +165,3 @@ def _parse_quantitative_result(parts: list[str], data: dict) -> JudgeResponse | 
         quantitative_response=quant_response,
         raw_response=json.dumps(data),
     )
-
-
-async def _retry_single(
-    original_result: dict,
-    client: AsyncOpenAI,
-    model: str,
-) -> JudgeResponse | None:
-    """Retry a malformed response via synchronous API call."""
-    custom_id = original_result.get("custom_id", "")
-    original_body = original_result.get("response", {}).get("body", {})
-
-    # Re-extract the original request messages if available
-    # This is a best-effort retry — in production, store original requests
-    logger.info("Retrying malformed response for %s", custom_id)
-
-    # For now, return None and log the failure
-    # Full retry would require storing original prompts
-    logger.warning("Retry not implemented for %s — skipping", custom_id)
-    return None

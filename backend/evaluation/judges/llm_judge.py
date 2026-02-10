@@ -9,8 +9,8 @@ import json
 import logging
 from pathlib import Path
 
-from openai import AsyncOpenAI
-from pydantic import BaseModel
+from openai import AsyncOpenAI, APIError, APITimeoutError
+from pydantic import BaseModel, ValidationError
 
 from evaluation.models.eval_schemas import (
     JudgeResponse,
@@ -21,6 +21,26 @@ from evaluation.models.eval_schemas import (
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def _load_prompt(filename: str) -> str:
+    """Load a prompt template from the prompts directory.
+
+    Raises:
+        FileNotFoundError: If the prompt file does not exist.
+    """
+    path = PROMPTS_DIR / filename
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Judge prompt not found: {path}. "
+            f"Expected at {PROMPTS_DIR.absolute()}"
+        )
+    return path.read_text(encoding="utf-8")
+
+
+# Load prompts once at module level to avoid repeated file I/O.
+_WINRATE_PROMPT_TEMPLATE = _load_prompt("winrate.txt")
+_QUANTITATIVE_PROMPT_TEMPLATE = _load_prompt("quantitative.txt")
 
 
 class LLMJudge:
@@ -35,8 +55,8 @@ class LLMJudge:
         self.client = client
         self.model = model
         self.max_retries = max_retries
-        self._winrate_prompt = (PROMPTS_DIR / "winrate.txt").read_text()
-        self._quantitative_prompt = (PROMPTS_DIR / "quantitative.txt").read_text()
+        self._winrate_prompt = _WINRATE_PROMPT_TEMPLATE
+        self._quantitative_prompt = _QUANTITATIVE_PROMPT_TEMPLATE
 
     async def judge_winrate(
         self,
@@ -131,7 +151,7 @@ class LLMJudge:
     ) -> BaseModel:
         """Call OpenAI with structured output enforcement.
 
-        Retries up to max_retries on parse failures.
+        Retries up to max_retries on parse failures or transient API errors.
         """
         for attempt in range(self.max_retries):
             try:
@@ -146,12 +166,25 @@ class LLMJudge:
 
                 # Fallback: try manual parse from content
                 content = response.choices[0].message.content
-                if content:
-                    return response_model.model_validate_json(content)
+                if not content:
+                    raise ValueError(
+                        f"OpenAI returned empty response on attempt "
+                        f"{attempt + 1}/{self.max_retries}"
+                    )
+                return response_model.model_validate_json(content)
 
-            except Exception as e:
+            except (APIError, APITimeoutError) as e:
                 logger.warning(
-                    "Judge call attempt %d/%d failed: %s",
+                    "Judge API error attempt %d/%d: %s",
+                    attempt + 1,
+                    self.max_retries,
+                    e,
+                )
+                if attempt == self.max_retries - 1:
+                    raise
+            except (ValidationError, json.JSONDecodeError, ValueError) as e:
+                logger.warning(
+                    "Judge parse error attempt %d/%d: %s",
                     attempt + 1,
                     self.max_retries,
                     e,
@@ -191,7 +224,7 @@ def build_winrate_batch_request(
     Returns:
         Dict formatted for OpenAI Batch API JSONL.
     """
-    prompt_template = (PROMPTS_DIR / "winrate.txt").read_text()
+    prompt_template = _WINRATE_PROMPT_TEMPLATE
     prompt = prompt_template.format(
         question=question,
         answer_1=answer_1,
@@ -232,7 +265,7 @@ def build_quantitative_batch_request(
 
     Returns a dict in OpenAI Batch API format for batch_upload.
     """
-    prompt_template = (PROMPTS_DIR / "quantitative.txt").read_text()
+    prompt_template = _QUANTITATIVE_PROMPT_TEMPLATE
     prompt = prompt_template.format(
         question=question,
         evaluated_answer=evaluated_answer,

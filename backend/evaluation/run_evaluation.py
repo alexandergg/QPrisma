@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from evaluation.adapters.base import BaseMethodAdapter
@@ -97,7 +98,7 @@ def _load_benchmark(config: BenchmarkConfig) -> list[BenchmarkEntry]:
             # Try generic JSON loading
             path = Path(config.data_path)
             if path.suffix == ".json":
-                data = json.loads(path.read_text())
+                data = json.loads(path.read_text(encoding="utf-8"))
                 return [BenchmarkEntry.model_validate(e) for e in data]
             raise ValueError(f"Unknown benchmark: {config.name}")
 
@@ -217,22 +218,11 @@ async def run_judge_pipeline(
     entries: list[BenchmarkEntry],
     config: EvalConfig,
     output_dir: Path,
-) -> dict:
+) -> dict[str, dict]:
     """Run the LLM judge pipeline (win-rate + quantitative).
 
     Uses the batch API for cost efficiency (50% savings).
     """
-    from evaluation.batch_pipeline.batch_calculate import (
-        calculate_quantitative_scores,
-        calculate_winrates,
-    )
-    from evaluation.batch_pipeline.batch_download import download_batch_results
-    from evaluation.batch_pipeline.batch_parse import parse_batch_results
-    from evaluation.batch_pipeline.batch_upload import (
-        upload_quantitative_batch,
-        upload_winrate_batch,
-    )
-
     baseline_method = config.baseline_method
     baseline_results = results_by_method.get(baseline_method, [])
 
@@ -341,10 +331,10 @@ async def _run_batch_judge(
     # Save raw judge outputs
     judge_dir = output_dir / "judges" / method_name
     judge_dir.mkdir(parents=True, exist_ok=True)
-    (judge_dir / "winrate_raw.json").write_text(json.dumps(winrate_raw, indent=2, default=str))
-    (judge_dir / "quant_raw.json").write_text(json.dumps(quant_raw, indent=2, default=str))
-    (judge_dir / "winrate_results.json").write_text(json.dumps(winrates, indent=2))
-    (judge_dir / "quant_results.json").write_text(json.dumps(quant_scores, indent=2))
+    (judge_dir / "winrate_raw.json").write_text(json.dumps(winrate_raw, indent=2, default=str), encoding="utf-8")
+    (judge_dir / "quant_raw.json").write_text(json.dumps(quant_raw, indent=2, default=str), encoding="utf-8")
+    (judge_dir / "winrate_results.json").write_text(json.dumps(winrates, indent=2), encoding="utf-8")
+    (judge_dir / "quant_results.json").write_text(json.dumps(quant_scores, indent=2), encoding="utf-8")
 
     return {"winrates": winrates, "quantitative": quant_scores}
 
@@ -371,7 +361,7 @@ async def _run_online_judge(
                 answer_b=baseline_result.answer,
             )
             winrate_results.append(wr)
-        except Exception as e:
+        except (RuntimeError, ValueError) as e:
             logger.warning("Winrate judge failed for %s: %s", entry.question_id, e)
 
         try:
@@ -381,7 +371,7 @@ async def _run_online_judge(
                 baseline_answer=baseline_result.answer,
             )
             quant_results.append(qt)
-        except Exception as e:
+        except (RuntimeError, ValueError) as e:
             logger.warning("Quantitative judge failed for %s: %s", entry.question_id, e)
 
     return {
@@ -483,7 +473,7 @@ def generate_report(
     # Save report
     report_path = output_dir / benchmark_name / "REPORT.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(report)
+    report_path.write_text(report, encoding="utf-8")
     logger.info("Report saved to %s", report_path)
 
     return report
@@ -494,7 +484,7 @@ def generate_report(
 # =============================================================================
 
 
-async def run_evaluation(config: EvalConfig) -> dict:
+async def run_evaluation(config: EvalConfig, fresh: bool = False) -> dict:
     """Main evaluation orchestration function.
 
     Runs the full pipeline:
@@ -504,12 +494,22 @@ async def run_evaluation(config: EvalConfig) -> dict:
     4. Compute metrics
     5. Run LLM judges
     6. Aggregate and report
+
+    Args:
+        config: Evaluation configuration.
+        fresh: If True, create a timestamped subdirectory for this run.
     """
-    output_dir = Path(config.output_dir)
+    base_dir = Path(config.output_dir)
+    if fresh:
+        run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        output_dir = base_dir / f"run_{run_id}"
+        logger.info("Fresh run: %s", output_dir)
+    else:
+        output_dir = base_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Save config for reproducibility
-    (output_dir / "eval_config.json").write_text(config.model_dump_json(indent=2))
+    (output_dir / "eval_config.json").write_text(config.model_dump_json(indent=2), encoding="utf-8")
 
     all_aggregated = {}
     all_judge_results = {}
@@ -529,7 +529,7 @@ async def run_evaluation(config: EvalConfig) -> dict:
         runner = EvaluationRunner(
             output_dir=str(output_dir / "answers"),
             max_concurrent=3,
-            resume=True,
+            resume=not fresh,
         )
         results_by_method = await runner.run_all_methods(
             adapters=adapters,
@@ -553,7 +553,7 @@ async def run_evaluation(config: EvalConfig) -> dict:
             # Save per-method aggregated results
             agg_path = output_dir / bench_config.name / f"{method_name}_metrics.json"
             agg_path.parent.mkdir(parents=True, exist_ok=True)
-            agg_path.write_text(agg.model_dump_json(indent=2))
+            agg_path.write_text(agg.model_dump_json(indent=2), encoding="utf-8")
 
         # 5. Run LLM judge pipeline
         judge_results = await run_judge_pipeline(
@@ -577,7 +577,7 @@ async def run_evaluation(config: EvalConfig) -> dict:
         "aggregated": {k: v.model_dump() for k, v in all_aggregated.items()},
         "judge_results": all_judge_results,
     }
-    (output_dir / "final_results.json").write_text(json.dumps(final, indent=2, default=str))
+    (output_dir / "final_results.json").write_text(json.dumps(final, indent=2, default=str), encoding="utf-8")
 
     return final
 
@@ -630,6 +630,11 @@ Examples:
     parser.add_argument(
         "--skip-judge", action="store_true", help="Skip LLM judge evaluation"
     )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Force a fresh run with timestamped output (ignore cached results)",
+    )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
 
     return parser.parse_args()
@@ -641,7 +646,7 @@ def build_config_from_args(args: argparse.Namespace) -> EvalConfig:
 
     if args.config:
         config_path = Path(args.config)
-        return EvalConfig.model_validate_json(config_path.read_text())
+        return EvalConfig.model_validate_json(config_path.read_text(encoding="utf-8"))
 
     if not args.benchmark or not args.data_path or not args.methods:
         print(
@@ -702,7 +707,7 @@ def main():
     logger.info("Methods: %s", [m.name for m in config.methods])
     logger.info("Output: %s", config.output_dir)
 
-    results = asyncio.run(run_evaluation(config))
+    results = asyncio.run(run_evaluation(config, fresh=args.fresh))
 
     # Print summary
     print("\n" + "=" * 60)

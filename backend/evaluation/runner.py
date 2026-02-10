@@ -18,6 +18,10 @@ from evaluation.models.eval_schemas import BenchmarkEntry, EvalResult
 
 logger = logging.getLogger(__name__)
 
+SUMMARY_FILENAME = "_summary.json"
+RUN_SUMMARY_FILENAME = "_run_summary.json"
+SUPPORTED_VIDEO_EXTENSIONS = [".mp4", ".mkv", ".webm", ".avi"]
+
 
 class EvaluationRunner:
     """Runs method adapters on benchmark entries and collects results.
@@ -32,7 +36,7 @@ class EvaluationRunner:
     def __init__(
         self,
         output_dir: str = "evaluation/results",
-        max_concurrent: int = 3,
+        max_concurrent: int = 3,  # Conservative default to avoid API rate limits
         resume: bool = True,
     ):
         """
@@ -68,10 +72,11 @@ class EvaluationRunner:
         method_dir.mkdir(parents=True, exist_ok=True)
 
         logger.info(
-            "Running %s on %d questions (benchmark: %s)",
+            "Running %s on %d questions (benchmark: %s, resume=%s)",
             adapter.display_name,
             len(entries),
             benchmark_name,
+            self.resume,
         )
 
         # Setup adapter
@@ -90,8 +95,12 @@ class EvaluationRunner:
                         saved = EvalResult.model_validate_json(result_path.read_text(encoding="utf-8"))
                         completed_results.append(saved)
                         continue
-                    except Exception:
-                        pass  # Re-run if saved result is corrupted
+                    except (json.JSONDecodeError, ValueError) as e:
+                        logger.warning(
+                            "Corrupted result file %s, will re-run: %s",
+                            result_path,
+                            e,
+                        )
                 pending_entries.append(entry)
 
             if completed_results:
@@ -128,6 +137,7 @@ class EvaluationRunner:
                     question_id=entry.question_id,
                     method=adapter.name,
                     answer=f"Error: {result}",
+                    error=str(result),
                 )
                 all_results.append(error_result)
             else:
@@ -140,7 +150,7 @@ class EvaluationRunner:
             "Completed %s: %d results (%d errors)",
             adapter.name,
             len(all_results),
-            sum(1 for r in all_results if r.answer.startswith("Error:")),
+            sum(1 for r in all_results if r.error is not None),
         )
 
         return all_results
@@ -219,22 +229,26 @@ class EvaluationRunner:
             return results
 
         for json_file in sorted(method_dir.glob("*.json")):
-            if json_file.name == "_summary.json":
+            if json_file.name == SUMMARY_FILENAME:
                 continue
             try:
                 result = EvalResult.model_validate_json(json_file.read_text(encoding="utf-8"))
                 results.append(result)
-            except Exception as e:
+            except (json.JSONDecodeError, ValueError) as e:
                 logger.warning("Failed to load %s: %s", json_file, e)
 
         return results
 
     def _resolve_video_path(self, video_dir: str, video_id: str) -> str | None:
-        """Resolve video file path from video_id."""
+        """Resolve video file path from video_id.
+
+        Returns:
+            Full path to video file, or None if not found (warning logged).
+        """
         base = Path(video_dir)
 
         # Try common patterns
-        for ext in [".mp4", ".mkv", ".webm", ".avi"]:
+        for ext in SUPPORTED_VIDEO_EXTENSIONS:
             candidate = base / f"{video_id}{ext}"
             if candidate.exists():
                 return str(candidate)
@@ -242,7 +256,7 @@ class EvaluationRunner:
         # Try subdirectories (e.g., video_dir/short/video_id.mp4)
         for subdir in base.iterdir():
             if subdir.is_dir():
-                for ext in [".mp4", ".mkv", ".webm", ".avi"]:
+                for ext in SUPPORTED_VIDEO_EXTENSIONS:
                     candidate = subdir / f"{video_id}{ext}"
                     if candidate.exists():
                         return str(candidate)
@@ -261,7 +275,7 @@ class EvaluationRunner:
 
         summary = {}
         for method_name, method_results in results.items():
-            errors = [r for r in method_results if r.answer.startswith("Error:")]
+            errors = [r for r in method_results if r.error is not None]
             summary[method_name] = {
                 "total": len(method_results),
                 "errors": len(errors),
@@ -273,6 +287,6 @@ class EvaluationRunner:
             if efficiency:
                 summary[method_name]["efficiency"] = efficiency
 
-        summary_path = summary_dir / "_run_summary.json"
+        summary_path = summary_dir / RUN_SUMMARY_FILENAME
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         logger.info("Run summary saved to %s", summary_path)
