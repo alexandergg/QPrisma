@@ -62,7 +62,7 @@ def index_videos_via_api(
     import httpx
 
     # Load benchmark data to get video IDs
-    entries = json.loads(benchmark_data_path.read_text())
+    entries = json.loads(benchmark_data_path.read_text(encoding="utf-8"))
     video_ids = sorted({e["video_id"] for e in entries if e.get("video_id")})
     logger.info("Found %d unique videos to index", len(video_ids))
 
@@ -90,8 +90,8 @@ def index_videos_via_api(
                         logger.info("[%d/%d] Already indexed: %s", i + 1, len(video_ids), video_id)
                         results[video_id] = {"status": "already_indexed"}
                         continue
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Could not check existing media %s: %s", video_id, e)
 
             # Upload via API
             logger.info(
@@ -165,7 +165,7 @@ def index_videos_direct(
         logger.info("Use --mode api to index via API instead.")
         sys.exit(1)
 
-    entries = json.loads(benchmark_data_path.read_text())
+    entries = json.loads(benchmark_data_path.read_text(encoding="utf-8"))
     video_ids = sorted({e["video_id"] for e in entries if e.get("video_id")})
     logger.info("Found %d unique videos to index (direct mode)", len(video_ids))
 
@@ -189,8 +189,8 @@ def index_videos_direct(
                 logger.info("[%d/%d] Already indexed: %s", i + 1, len(video_ids), video_id)
                 results[video_id] = {"status": "already_indexed"}
                 continue
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not check DB for %s: %s", video_id, e)
 
         logger.info(
             "[%d/%d] Indexing %s (%s)...",
@@ -295,8 +295,8 @@ def monitor_indexing(results: dict, api_url: str = "http://localhost:8000", time
                             del queued[vid]
                         else:
                             logger.debug("  ... %s: %s (%d%%)", vid, status, progress)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Could not check job status for %s: %s", vid, e)
 
             if queued:
                 time.sleep(15)
@@ -448,7 +448,7 @@ def main():
     # Save results
     output_path = Path(f"data/benchmarks/{args.benchmark}/indexing_results.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(results, indent=2))
+    output_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
 
     # Summary
     statuses = {}

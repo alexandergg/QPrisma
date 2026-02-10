@@ -80,7 +80,7 @@ def download_video_mme(output_dir: Path, subset: str = "test") -> Path:
         entries.append(entry)
 
     # Save
-    data_file.write_text(json.dumps(entries, indent=2))
+    data_file.write_text(json.dumps(entries, indent=2), encoding="utf-8")
     logger.info("Saved %d Video-MME entries to %s", len(entries), data_file)
 
     # Save metadata
@@ -167,7 +167,7 @@ def download_mlvu(output_dir: Path) -> Path:
         raise RuntimeError("MLVU download failed")
 
     # Save
-    data_file.write_text(json.dumps(all_entries, indent=2))
+    data_file.write_text(json.dumps(all_entries, indent=2), encoding="utf-8")
     logger.info("Saved %d MLVU entries to %s", len(all_entries), data_file)
 
     meta = {
@@ -176,7 +176,7 @@ def download_mlvu(output_dir: Path) -> Path:
         "total_entries": len(all_entries),
         "tasks": mc_tasks + gen_tasks,
     }
-    (bench_dir / "metadata.json").write_text(json.dumps(meta, indent=2))
+    (bench_dir / "metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     return bench_dir
 
@@ -199,7 +199,7 @@ def download_videos_manifest(bench_dir: Path, benchmark: str) -> Path:
         logger.error("Benchmark data not found at %s", data_file)
         raise FileNotFoundError(f"Benchmark data not found: {data_file}")
 
-    entries = json.loads(data_file.read_text())
+    entries = json.loads(data_file.read_text(encoding="utf-8"))
 
     # Extract unique video IDs
     video_ids = sorted({e["video_id"] for e in entries if e.get("video_id")})
@@ -219,7 +219,7 @@ def download_videos_manifest(bench_dir: Path, benchmark: str) -> Path:
     }
 
     manifest_path = bench_dir / "video_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2))
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     logger.info(
         "Video manifest: %d videos (%d downloaded)",
         len(video_ids),

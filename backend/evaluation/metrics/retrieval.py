@@ -6,7 +6,10 @@ Implements standard IR metrics adapted for video segment retrieval:
 - Context Precision and Context Recall (RAGAS-style, LLM-judged)
 """
 
+import logging
 import math
+
+logger = logging.getLogger(__name__)
 
 
 def recall_at_k(
@@ -25,6 +28,9 @@ def recall_at_k(
         Recall@K in [0, 1].
     """
     if not relevant:
+        logger.warning(
+            "Empty relevant set in recall_at_k — check ground truth annotations"
+        )
         return 0.0
     top_k = set(retrieved[:k])
     return len(top_k & relevant) / len(relevant)

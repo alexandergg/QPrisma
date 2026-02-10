@@ -62,9 +62,11 @@ def recall_at_iou_threshold(
     if not predictions or not ground_truths:
         return 0.0
 
-    assert len(predictions) == len(ground_truths), (
-        "predictions and ground_truths must have the same length"
-    )
+    if len(predictions) != len(ground_truths):
+        raise ValueError(
+            f"predictions and ground_truths must have the same length, "
+            f"got {len(predictions)} and {len(ground_truths)}"
+        )
 
     hits = sum(
         1
@@ -92,9 +94,11 @@ def mean_iou(
     if not predictions:
         return 0.0
 
-    assert len(predictions) == len(ground_truths), (
-        "predictions and ground_truths must have the same length"
-    )
+    if len(predictions) != len(ground_truths):
+        raise ValueError(
+            f"predictions and ground_truths must have the same length, "
+            f"got {len(predictions)} and {len(ground_truths)}"
+        )
 
     total_iou = sum(
         temporal_iou(pred, gt)
@@ -116,14 +120,17 @@ def timestamp_mae(
         ground_truth_timestamps: List of ground-truth timestamps (seconds).
 
     Returns:
-        MAE in seconds.
+        MAE in seconds. Returns 0.0 if no predictions are provided
+        (indicating no data to evaluate, not perfect accuracy).
     """
     if not predicted_timestamps:
-        return float("inf")
+        return 0.0
 
-    assert len(predicted_timestamps) == len(ground_truth_timestamps), (
-        "predicted and ground_truth timestamps must have the same length"
-    )
+    if len(predicted_timestamps) != len(ground_truth_timestamps):
+        raise ValueError(
+            f"predicted and ground_truth timestamps must have the same length, "
+            f"got {len(predicted_timestamps)} and {len(ground_truth_timestamps)}"
+        )
 
     total_error = sum(
         abs(pred - gt)

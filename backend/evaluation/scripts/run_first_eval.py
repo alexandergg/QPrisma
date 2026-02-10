@@ -15,9 +15,11 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Add backend to path
@@ -258,27 +260,43 @@ def get_token(api_url: str, email: str, password: str) -> str:
     return resp.json()["access_token"]
 
 
-async def run_first_eval(expanded: bool = False):
+async def run_first_eval(expanded: bool = False, fresh: bool = False):
     """Run the first evaluation end-to-end.
 
     Args:
         expanded: If True, run all 30 questions. If False, run only the
                   original 10 easy questions.
+        fresh: If True, create a new timestamped run directory instead of
+               resuming from existing results.
     """
     api_url = "http://localhost:8000"
-    output_dir = Path("evaluation/results/first_eval")
+
+    # Create timestamped output directory for fresh runs
+    base_output = Path("evaluation/results/first_eval")
+    if fresh:
+        run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        output_dir = base_output / f"run_{run_id}"
+        print(f"Fresh run: {output_dir}")
+    else:
+        output_dir = base_output
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Auth
     print("Authenticating...")
-    token = get_token(api_url, "user@example.com", "stringst")
+    email = os.environ.get("QPRISMA_EVAL_EMAIL", "")
+    password = os.environ.get("QPRISMA_EVAL_PASSWORD", "")
+    if not email or not password:
+        raise RuntimeError(
+            "Set QPRISMA_EVAL_EMAIL and QPRISMA_EVAL_PASSWORD environment variables"
+        )
+    token = get_token(api_url, email, password)
     print("  Token obtained.")
 
     # 2. Load benchmark
     bench_path = Path("data/benchmarks/qprisma_first_eval/benchmark.json")
     all_entries = [
         BenchmarkEntry.model_validate(e)
-        for e in json.loads(bench_path.read_text())
+        for e in json.loads(bench_path.read_text(encoding="utf-8"))
     ]
 
     if expanded:
@@ -296,7 +314,7 @@ async def run_first_eval(expanded: bool = False):
     runner = EvaluationRunner(
         output_dir=str(output_dir / "answers"),
         max_concurrent=1,  # Sequential to avoid API overload
-        resume=True,
+        resume=not fresh,
     )
 
     print("\n" + "=" * 60)
@@ -420,6 +438,11 @@ def main():
         action="store_true",
         help="Run expanded 30-question benchmark instead of 10-question quick run",
     )
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Force a fresh run with timestamped output (ignore cached results)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -439,7 +462,7 @@ def main():
     print("Methods: QPrisma (Full Agent) vs Direct Search (No Agent)")
     print()
 
-    asyncio.run(run_first_eval(expanded=args.expanded))
+    asyncio.run(run_first_eval(expanded=args.expanded, fresh=args.fresh))
 
 
 if __name__ == "__main__":
