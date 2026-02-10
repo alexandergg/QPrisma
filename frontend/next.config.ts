@@ -17,6 +17,14 @@ const nextConfig: NextConfig = {
         hostname: 'localhost',
         port: '8000',
       },
+      {
+        protocol: 'https',
+        hostname: '*.azurecontainerapps.io',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.blob.core.windows.net',
+      },
     ],
   },
 };

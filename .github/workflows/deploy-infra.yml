@@ -1,0 +1,111 @@
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate Bicep template
+        run: |
+          az deployment group validate \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --template-file infra/main.bicep \
+            --parameters infra/parameters/dev.bicepparam \
+            --parameters \
+              dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
+              neo4jUri='${{ secrets.NEO4J_URI }}' \
+              neo4jUser='neo4j' \
+              neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
+              jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
+
+      - name: Preview changes (What-If)
+        run: |
+          az deployment group what-if \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --template-file infra/main.bicep \
+            --parameters infra/parameters/dev.bicepparam \
+            --parameters \
+              dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
+              neo4jUri='${{ secrets.NEO4J_URI }}' \
+              neo4jUser='neo4j' \
+              neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
+              jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
+
+  deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy Bicep template
+        run: |
+          az deployment group create \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --template-file infra/main.bicep \
+            --parameters infra/parameters/dev.bicepparam \
+            --parameters \
+              dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
+              neo4jUri='${{ secrets.NEO4J_URI }}' \
+              neo4jUser='neo4j' \
+              neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
+              jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
+
+      - name: Sync additional secrets to Key Vault
+        run: |
+          az keyvault secret set \
+            --vault-name ${{ vars.KEY_VAULT_NAME }} \
+            --name "azure-openai-api-key" \
+            --value "${{ secrets.AZURE_OPENAI_API_KEY }}"
+
+          az keyvault secret set \
+            --vault-name ${{ vars.KEY_VAULT_NAME }} \
+            --name "jwt-secret-key" \
+            --value "${{ secrets.JWT_SECRET_KEY }}"
+
+          az keyvault secret set \
+            --vault-name ${{ vars.KEY_VAULT_NAME }} \
+            --name "neo4j-uri" \
+            --value "${{ secrets.NEO4J_URI }}"
+
+          az keyvault secret set \
+            --vault-name ${{ vars.KEY_VAULT_NAME }} \
+            --name "neo4j-password" \
+            --value "${{ secrets.NEO4J_PASSWORD }}"
+
+      - name: Deployment summary
+        run: |
+          echo "## Infrastructure Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Name |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource Group | ${{ vars.AZURE_RESOURCE_GROUP }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Key Vault | ${{ vars.KEY_VAULT_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Secrets synced | 4 |" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,287 @@
+name: Deploy Application
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Images"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy'
+        required: false
+        default: 'latest'
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-api:
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: dev
+    outputs:
+      previous_revision: ${{ steps.get-revision.outputs.revision }}
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set image tag
+        id: set-tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          elif [ "${{ github.event.workflow_run.head_sha }}" != "" ]; then
+            IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
+          else
+            IMAGE_TAG="latest"
+          fi
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+          echo "Deploying image tag: $IMAGE_TAG"
+
+      - name: Get current revision for rollback
+        id: get-revision
+        run: |
+          REVISION=$(az containerapp revision list \
+            --name ca-qprisma-api-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "[?properties.active].name" \
+            -o tsv | head -n 1)
+          echo "revision=$REVISION" >> $GITHUB_OUTPUT
+          echo "Current active revision: $REVISION"
+
+      - name: Update API container
+        run: |
+          az containerapp update \
+            --name ca-qprisma-api-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-api:${{ env.IMAGE_TAG }}
+
+      - name: Wait for revision to be ready
+        run: |
+          echo "Waiting for new revision to be ready..."
+          for i in {1..20}; do
+            STATUS=$(az containerapp revision list \
+              --name ca-qprisma-api-dev \
+              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+              --query "[?properties.active && properties.trafficWeight > 0].properties.provisioningState" \
+              -o tsv | head -n 1)
+
+            if [ "$STATUS" == "Provisioned" ]; then
+              echo "Revision is ready"
+              break
+            fi
+
+            echo "Attempt $i/20: Status is $STATUS, waiting 15s..."
+            sleep 15
+          done
+
+      - name: Health check
+        id: health-check
+        run: |
+          echo "Performing health check..."
+          for i in {1..10}; do
+            if curl -sf https://${{ vars.API_FQDN }}/health; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i/10 failed, waiting 10s..."
+            sleep 10
+          done
+          echo "Health check failed after 10 attempts"
+          exit 1
+
+      - name: Rollback on failure
+        if: failure() && steps.health-check.outcome == 'failure'
+        run: |
+          echo "Rolling back to previous revision: ${{ steps.get-revision.outputs.revision }}"
+          az containerapp revision activate \
+            --name ca-qprisma-api-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --revision ${{ steps.get-revision.outputs.revision }}
+
+  deploy-worker:
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set image tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          elif [ "${{ github.event.workflow_run.head_sha }}" != "" ]; then
+            IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
+          else
+            IMAGE_TAG="latest"
+          fi
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Update Worker container
+        run: |
+          az containerapp update \
+            --name ca-qprisma-worker-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-worker:${{ env.IMAGE_TAG }}
+
+      - name: Wait for revision to be ready
+        run: |
+          echo "Waiting for worker revision to be ready..."
+          for i in {1..20}; do
+            STATUS=$(az containerapp revision list \
+              --name ca-qprisma-worker-dev \
+              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+              --query "[?properties.active].properties.provisioningState" \
+              -o tsv | head -n 1)
+
+            if [ "$STATUS" == "Provisioned" ]; then
+              echo "Worker revision is ready"
+              break
+            fi
+
+            echo "Attempt $i/20: Status is $STATUS, waiting 15s..."
+            sleep 15
+          done
+
+  deploy-frontend:
+    needs: deploy-api
+    runs-on: ubuntu-latest
+    environment: dev
+    outputs:
+      previous_revision: ${{ steps.get-revision.outputs.revision }}
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set image tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
+          elif [ "${{ github.event.workflow_run.head_sha }}" != "" ]; then
+            IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
+          else
+            IMAGE_TAG="latest"
+          fi
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Get current revision for rollback
+        id: get-revision
+        run: |
+          REVISION=$(az containerapp revision list \
+            --name ca-qprisma-web-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "[?properties.active].name" \
+            -o tsv | head -n 1)
+          echo "revision=$REVISION" >> $GITHUB_OUTPUT
+          echo "Current active revision: $REVISION"
+
+      - name: Update Frontend container
+        run: |
+          az containerapp update \
+            --name ca-qprisma-web-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-frontend:${{ env.IMAGE_TAG }}
+
+      - name: Wait for revision to be ready
+        run: |
+          echo "Waiting for frontend revision to be ready..."
+          for i in {1..20}; do
+            STATUS=$(az containerapp revision list \
+              --name ca-qprisma-web-dev \
+              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+              --query "[?properties.active && properties.trafficWeight > 0].properties.provisioningState" \
+              -o tsv | head -n 1)
+
+            if [ "$STATUS" == "Provisioned" ]; then
+              echo "Frontend revision is ready"
+              break
+            fi
+
+            echo "Attempt $i/20: Status is $STATUS, waiting 15s..."
+            sleep 15
+          done
+
+      - name: Health check
+        id: health-check
+        run: |
+          echo "Performing frontend health check..."
+          for i in {1..10}; do
+            if curl -sf https://${{ vars.FRONTEND_FQDN }}/; then
+              echo "Frontend health check passed"
+              exit 0
+            fi
+            echo "Attempt $i/10 failed, waiting 10s..."
+            sleep 10
+          done
+          echo "Frontend health check failed after 10 attempts"
+          exit 1
+
+      - name: Rollback on failure
+        if: failure() && steps.health-check.outcome == 'failure'
+        run: |
+          echo "Rolling back to previous revision: ${{ steps.get-revision.outputs.revision }}"
+          az containerapp revision activate \
+            --name ca-qprisma-web-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --revision ${{ steps.get-revision.outputs.revision }}
+
+  smoke-test:
+    needs: [deploy-api, deploy-worker, deploy-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify API health
+        run: |
+          echo "Verifying API health endpoint..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://${{ vars.API_FQDN }}/health)
+          if [ "$RESPONSE" == "200" ]; then
+            echo "API health check passed (HTTP $RESPONSE)"
+          else
+            echo "API health check failed (HTTP $RESPONSE)"
+            exit 1
+          fi
+
+      - name: Verify Frontend loads
+        run: |
+          echo "Verifying frontend loads..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://${{ vars.FRONTEND_FQDN }}/)
+          if [ "$RESPONSE" == "200" ]; then
+            echo "Frontend health check passed (HTTP $RESPONSE)"
+          else
+            echo "Frontend health check failed (HTTP $RESPONSE)"
+            exit 1
+          fi
+
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed Services" >> $GITHUB_STEP_SUMMARY
+          echo "- API: https://${{ vars.API_FQDN }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend: https://${{ vars.FRONTEND_FQDN }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Worker: Deployed (no public endpoint)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Image Tag" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "${{ github.event.inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ github.event.workflow_run.head_sha }}" != "" ]; then
+            echo "${{ github.event.workflow_run.head_sha }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "latest" >> $GITHUB_STEP_SUMMARY
+          fi

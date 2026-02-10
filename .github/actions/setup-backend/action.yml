@@ -1,0 +1,39 @@
+name: Setup Python Backend
+description: Setup Python 3.11, uv, and install backend dependencies
+
+inputs:
+  working-directory:
+    description: Working directory for backend
+    required: false
+    default: backend
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: pip
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        enable-cache: true
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        uv pip install --system -e .
+        uv pip install --system pytest pytest-asyncio black ruff
+
+    - name: Verify installation
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        python --version
+        uv --version
+        pytest --version
+        ruff --version
+        black --version

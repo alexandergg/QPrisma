@@ -32,8 +32,11 @@ ENV NODE_ENV=production
 # IMPORTANT: NEXT_PUBLIC_* variables are baked into the build
 # These URLs are what the BROWSER uses, not the container
 # For local Docker development, browser accesses localhost
-ENV NEXT_PUBLIC_API_URL=http://localhost:8000
-ENV NEXT_PUBLIC_WS_URL=ws://localhost:8000
+# For cloud deployment, pass via --build-arg
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG NEXT_PUBLIC_WS_URL=ws://localhost:8000
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 
 # Build de producción
 RUN npm run build
