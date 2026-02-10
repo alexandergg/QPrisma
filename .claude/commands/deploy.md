@@ -35,7 +35,7 @@ az login
 az account set --subscription <subscription-id>
 
 # Create resource group
-az group create --name qprisma-rg --location eastus
+az group create --name qprisma-rg --location westeurope
 ```
 
 #### 2. Create Container Registry
@@ -74,7 +74,7 @@ docker push qprismaregistry.azurecr.io/qprisma-frontend:latest
 az containerapp env create \
   --name qprisma-env \
   --resource-group qprisma-rg \
-  --location eastus
+  --location westeurope
 
 # Create API app
 az containerapp create \

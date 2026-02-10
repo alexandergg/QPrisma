@@ -7,6 +7,9 @@ param location string = 'westeurope'
 @description('Location for Azure AI Foundry (OpenAI) resources')
 param aiLocation string = 'swedencentral'
 
+@description('Location for PostgreSQL Flexible Server')
+param dbLocation string = 'northeurope'
+
 @description('Database administrator login')
 param dbAdminLogin string = 'qprismaadmin'
 
@@ -73,7 +76,7 @@ module postgres 'modules/postgresql.bicep' = {
   name: 'postgres-deployment'
   params: {
     name: postgresName
-    location: location
+    location: dbLocation
     adminLogin: dbAdminLogin
     adminPassword: dbAdminPassword
     tags: tags
