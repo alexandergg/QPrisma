@@ -68,7 +68,7 @@ resource gpt52chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   name: 'gpt-5.2-chat'
   sku: {
     name: 'GlobalStandard'
-    capacity: 1000
+    capacity: 500
   }
   properties: {
     model: {
