@@ -6,7 +6,6 @@ Usa FFmpeg ultra-rápido y Azure OpenAI Batch API (50% más barato).
 
 import base64
 import logging
-import os
 import subprocess
 import tempfile
 import time
@@ -17,6 +16,7 @@ import numpy as np
 from azure.storage.blob import BlobServiceClient
 from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 
+from core.config import settings
 from models.ffmpeg_config import (
     FFmpegProcessingConfig,
     ProcessingPipeline,
@@ -60,13 +60,12 @@ class VideoProcessor:
         self.openai_client = openai_client
         self.blob_service = blob_service
         self.container_name = container_name
-        self.gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
-        self.embedding_deployment = os.getenv(
-            "AZURE_OPENAI_DEPLOYMENT_EMBEDDING", "text-embedding-3-large"
-        )
+        self.gpt_deployment = settings.azure.openai_deployment_gpt
+        self.embedding_deployment = settings.azure.openai_deployment_embedding
         # Rate limit for Whisper API (requests per minute)
-        whisper_rpm = int(os.getenv("AZURE_OPENAI_WHISPER_RPM", "3"))
-        self.audio_processor = AudioProcessor(openai_client, rate_limit_rpm=whisper_rpm)
+        self.audio_processor = AudioProcessor(
+            openai_client, rate_limit_rpm=settings.azure.openai_whisper_rpm
+        )
 
     async def _download_blob_streaming(self, blob_name: str, file_path: str) -> None:
         """

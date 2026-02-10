@@ -14,7 +14,7 @@ Inspirado en VideoRAG para retrieval inteligente de contenido multimedia.
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, UTC
 
 from models.graph_models import (
     GraphSearchResponse,
@@ -561,7 +561,7 @@ class GraphSearchService:
         Returns:
             GraphSearchResponse con resultados ordenados
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
 
         # Resolve video_id vs video_ids
         effective_video_id = video_id
@@ -575,12 +575,12 @@ class GraphSearchService:
 
         # 1. Generar embedding de la query
         query_embedding = await self.embedding_service.generate_embedding(query_text)
-        (datetime.utcnow() - start_time).total_seconds() * 1000
+        (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         # 2. Buscar en cada tipo de nodo
         all_candidates: list[ScoredNode] = []
 
-        vector_start = datetime.utcnow()
+        vector_start = datetime.now(UTC)
         for node_type in node_types:
             # Vector search
             vector_results = self.vector_search(
@@ -610,16 +610,16 @@ class GraphSearchService:
                 all_candidates, fulltext_results, node_type, vid
             )
 
-        vector_search_time = (datetime.utcnow() - vector_start).total_seconds() * 1000
+        vector_search_time = (datetime.now(UTC) - vector_start).total_seconds() * 1000
 
         # 3. Aplicar filtro temporal si se especificó
         if time_range:
             all_candidates = self._filter_by_time_range(all_candidates, time_range)
 
         # 4. Calcular graph scores
-        graph_start = datetime.utcnow()
+        graph_start = datetime.now(UTC)
         self._calculate_graph_scores(all_candidates, expansion_hops)
-        graph_time = (datetime.utcnow() - graph_start).total_seconds() * 1000
+        graph_time = (datetime.now(UTC) - graph_start).total_seconds() * 1000
 
         # 5. Calcular temporal scores
         self._calculate_temporal_scores(all_candidates, time_range)
@@ -642,7 +642,7 @@ class GraphSearchService:
         final_results = all_candidates[:limit]
 
         # 9. Construir respuesta
-        total_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+        total_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         search_results = [
             GraphSearchResult(

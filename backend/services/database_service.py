@@ -9,7 +9,7 @@ import logging
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 
 from sqlalchemy import create_engine, text
@@ -191,7 +191,7 @@ class DatabaseService:
                 if hasattr(media, key):
                     setattr(media, key, value)
 
-            media.last_updated = datetime.utcnow()
+            media.last_updated = datetime.now(UTC)
             session.flush()
             session.refresh(media)
             session.expunge(media)
@@ -485,7 +485,7 @@ class DatabaseService:
                 if hasattr(project, key):
                     setattr(project, key, value)
 
-            project.updated_at = datetime.utcnow()
+            project.updated_at = datetime.now(UTC)
             session.flush()
             session.refresh(project)
             session.expunge(project)
@@ -560,7 +560,7 @@ class DatabaseService:
                 if hasattr(clip, key):
                     setattr(clip, key, value)
 
-            clip.updated_at = datetime.utcnow()
+            clip.updated_at = datetime.now(UTC)
             session.flush()
             session.refresh(clip)
             session.expunge(clip)

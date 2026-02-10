@@ -16,7 +16,7 @@ Key Features:
 import logging
 import subprocess
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 
 import numpy as np
@@ -104,7 +104,7 @@ class VideoStructure:
             "key_topics": self.key_topics,
             "processing_method": self.processing_method,
             "scene_detection_threshold": self.scene_detection_threshold,
-            "created_at": self.created_at or datetime.utcnow().isoformat(),
+            "created_at": self.created_at or datetime.now(UTC).isoformat(),
         }
 
 
@@ -615,7 +615,7 @@ class SceneAnalyzer:
             scenes=scenes,
             chapters=chapters,
             scene_detection_threshold=self.scene_threshold,
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
         )
 
         logger.info(f"Video structure complete: {len(scenes)} scenes, {len(chapters)} chapters")

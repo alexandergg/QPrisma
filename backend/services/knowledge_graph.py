@@ -8,12 +8,12 @@ Requiere Neo4j 5.x con plugin APOC.
 """
 
 import logging
-import os
 from contextlib import asynccontextmanager, contextmanager
 
 from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncSession, Driver, GraphDatabase, Session
 from neo4j.exceptions import AuthError, ServiceUnavailable
 
+from core.config import settings
 from models.graph_models import (
     AudioSegmentNode,
     EntityNode,
@@ -51,15 +51,15 @@ class KnowledgeGraphService:
         Inicializa la conexión a Neo4j.
 
         Args:
-            uri: URI de conexión (default: bolt://localhost:7687)
-            user: Usuario (default: neo4j)
-            password: Contraseña (default: qprisma123)
-            database: Base de datos a usar
+            uri: URI de conexión (default from settings)
+            user: Usuario (default from settings)
+            password: Contraseña (default from settings)
+            database: Base de datos a usar (default from settings)
         """
-        self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        self.user = user or os.getenv("NEO4J_USER", "neo4j")
-        self.password = password or os.getenv("NEO4J_PASSWORD", "qprisma123")
-        self.database = database or os.getenv("NEO4J_DATABASE", "neo4j")
+        self.uri = uri or settings.neo4j.uri
+        self.user = user or settings.neo4j.user
+        self.password = password or settings.neo4j.password
+        self.database = database or settings.neo4j.database
 
         self._driver: Driver | None = None
         self._async_driver: AsyncDriver | None = None
@@ -108,8 +108,8 @@ class KnowledgeGraphService:
             self._connected = False
             return False
 
-    def disconnect(self):
-        """Cierra la conexión con Neo4j."""
+    def disconnect(self) -> None:
+        """Close the connection to Neo4j."""
         if self._driver:
             self._driver.close()
             self._driver = None
@@ -266,8 +266,8 @@ class KnowledgeGraphService:
     # Schema & Indexes
     # =========================================================================
 
-    def initialize_schema(self):
-        """Crea índices y constraints necesarios en Neo4j."""
+    def initialize_schema(self) -> None:
+        """Create required indexes and constraints in Neo4j."""
         with self.get_session() as session:
             # Constraints de unicidad
             constraints = [
@@ -1446,8 +1446,8 @@ class KnowledgeGraphService:
         logger.info(f"Deleted graph for video {video_id}: {count} nodes")
         return count
 
-    def clear_all(self):
-        """Elimina todos los datos del grafo. USAR CON PRECAUCIÓN."""
+    def clear_all(self) -> None:
+        """Delete all data from the graph. USE WITH CAUTION."""
         self._execute_query("MATCH (n) DETACH DELETE n")
         logger.warning("All graph data has been deleted")
 

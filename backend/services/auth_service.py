@@ -5,12 +5,13 @@ Uses PostgreSQL for user storage (replaces Cosmos DB).
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from fastapi import HTTPException, status
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
+from core.config import settings
 from models.user import TokenData, UserCreate, UserInDB
 
 logger = logging.getLogger(__name__)
@@ -23,22 +24,11 @@ class AuthService:
     _DEFAULT_DEV_SECRET = "your-secret-key-change-in-production"
 
     def __init__(self):
-        """Initialize authentication service with configuration from environment."""
-        self.secret_key = os.getenv("JWT_SECRET_KEY", self._DEFAULT_DEV_SECRET)
-        if self.secret_key == self._DEFAULT_DEV_SECRET:
-            import warnings
-
-            warnings.warn(
-                "Using default JWT secret key. Set JWT_SECRET_KEY in production!",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        self.algorithm = os.getenv("JWT_ALGORITHM", "HS256")
-        self.access_token_expire_minutes = int(
-            os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "1440")  # 24 hours default
-        )
-        self.refresh_token_expire_days = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "30"))
+        """Initialize authentication service with configuration from centralized settings."""
+        self.secret_key = settings.auth.jwt_secret_key
+        self.algorithm = settings.auth.jwt_algorithm
+        self.access_token_expire_minutes = settings.auth.jwt_access_token_expire_minutes
+        self.refresh_token_expire_days = settings.auth.jwt_refresh_token_expire_days
 
         # Password hashing context
         self.pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -82,11 +72,11 @@ class AuthService:
         to_encode = data.copy()
 
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = datetime.now(UTC) + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=self.access_token_expire_minutes)
+            expire = datetime.now(UTC) + timedelta(minutes=self.access_token_expire_minutes)
 
-        to_encode.update({"exp": expire, "iat": datetime.utcnow(), "type": "access"})
+        to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "access"})
 
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt
@@ -102,9 +92,9 @@ class AuthService:
             Encoded JWT refresh token string
         """
         to_encode = data.copy()
-        expire = datetime.utcnow() + timedelta(days=self.refresh_token_expire_days)
+        expire = datetime.now(UTC) + timedelta(days=self.refresh_token_expire_days)
 
-        to_encode.update({"exp": expire, "iat": datetime.utcnow(), "type": "refresh"})
+        to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "refresh"})
 
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt
@@ -168,8 +158,8 @@ class AuthService:
             hashed_password=hashed_password,
             is_active=True,
             is_superuser=False,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
 
         return user
@@ -242,9 +232,15 @@ class AuthService:
             token = self.create_access_token({"sub": user.id, "email": user.email})
             return {"access_token": token}
 
-        # Development mode: create token for any valid email format
+        # Development mode only: create token for any valid email format
+        app_env = settings.app.environment.lower()
+        if app_env not in ("development", "dev", "local"):
+            return {"error": "Invalid email or password"}
+
         if "@" not in email or len(password) < 6:
             return {"error": "Invalid email or password"}
+
+        logger.warning(f"Dev-mode auto-login for {email} (APP_ENV={app_env})")
 
         # Auto-create demo user in database to satisfy FK constraints
         from services.database_service import get_database_service

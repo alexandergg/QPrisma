@@ -9,7 +9,7 @@ import base64
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 from uuid import uuid4
 
 import httpx
@@ -174,7 +174,7 @@ class EntityExtractor:
         Returns:
             FrameAnalysisResult con entidades y relaciones extraídas
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
 
         # Preparar la imagen
         if is_url:
@@ -225,7 +225,7 @@ class EntityExtractor:
 
         # Parsear respuesta
         response_text = response.choices[0].message.content
-        analysis_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+        analysis_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         try:
             data = json.loads(response_text)
@@ -292,7 +292,7 @@ class EntityExtractor:
         Returns:
             FrameAnalysisResult con entidades extraídas
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
 
         prompt = f"""Given this description of a video frame, extract structured entities and relationships.
 
@@ -341,7 +341,7 @@ Respond with JSON following this schema:
         )
 
         response_text = response.choices[0].message.content
-        analysis_time = (datetime.utcnow() - start_time).total_seconds() * 1000
+        analysis_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         try:
             data = json.loads(response_text)

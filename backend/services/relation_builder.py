@@ -481,10 +481,9 @@ Only include pairs where has_relation is true."""
                 context=video_context,
             )
 
-        # 4. Cross-video (opcional)
+        # 4. Cross-video (optional, requires video_id from context)
         if include_cross_video and self.graph_service:
-            # Necesitamos el video_id del contexto
-            results["cross_video"] = []  # TODO: Implementar cuando tengamos video_id
+            results["cross_video"] = []  # Deferred: needs video_id from context
 
         return results
 

@@ -31,7 +31,7 @@ import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, UTC
 from enum import Enum
 from functools import wraps
 from typing import Any, TypeVar
@@ -458,7 +458,7 @@ class CacheService:
             h1 = imagehash.hex_to_hash(hash1)
             h2 = imagehash.hex_to_hash(hash2)
             return h1 - h2
-        except:
+        except (ValueError, TypeError):
             return 64
 
     async def find_similar_frame(self, phash: str) -> str | None:
@@ -612,7 +612,7 @@ class CacheService:
                 "progress": progress,
                 "stage": stage,
                 "message": message,
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             }
         )
         return await self.set_job_status(job_id, status)
@@ -764,23 +764,23 @@ def cached(cache_type: CacheType, ttl: int | None = None, key_fn: Callable[..., 
 
             full_key = cache._make_key(cache_type, cache_key)
 
-            # Intentar cache
+            # Try cache
             data = await cache._get_raw(full_key)
             if data:
                 try:
                     return json.loads(data)
-                except:
+                except (json.JSONDecodeError, TypeError):
                     pass
 
-            # Ejecutar función
+            # Execute function
             result = await func(*args, **kwargs)
 
-            # Cachear resultado
+            # Cache result
             try:
                 data = json.dumps(result).encode()
                 await cache._set_raw(full_key, data, ttl or cache._get_ttl(cache_type))
-            except:
-                pass
+            except (TypeError, ConnectionError) as e:
+                logger.debug(f"Cache write failed for {full_key}: {e}")
 
             return result
 

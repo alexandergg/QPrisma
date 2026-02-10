@@ -22,7 +22,7 @@ Key Features:
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, UTC
 from enum import Enum
 
 import numpy as np
@@ -398,7 +398,7 @@ class HierarchicalContextService:
         Returns:
             Dict with processing results and statistics
         """
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
         video_id = video_metadata.get("media_id", video_metadata.get("video_id", "unknown"))
 
         logger.info(f"Starting hierarchical processing for video: {video_id}")
@@ -514,7 +514,7 @@ class HierarchicalContextService:
 
             # Done
             result["status"] = "completed"
-            result["processing_time_seconds"] = (datetime.utcnow() - start_time).total_seconds()
+            result["processing_time_seconds"] = (datetime.now(UTC) - start_time).total_seconds()
 
             logger.info(f"Hierarchical processing completed for {video_id}")
 

@@ -18,7 +18,7 @@ Cost Savings:
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 from enum import Enum
 from typing import Any
 
@@ -270,7 +270,7 @@ class StorageTieringService:
                 "potential_savings": None,
             }
 
-        days_since_access = (datetime.utcnow() - last_accessed).days
+        days_since_access = (datetime.now(UTC) - last_accessed).days
 
         # Determine recommended tier
         if days_since_access >= self.DEFAULT_ARCHIVE_THRESHOLD:
