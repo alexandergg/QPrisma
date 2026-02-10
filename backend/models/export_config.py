@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 class ExportFormat(str, Enum):
     """Legacy export formats used by tests."""
+
     MP4 = "mp4"
     WEBM = "webm"
     GIF = "gif"
@@ -22,6 +23,7 @@ class ExportFormat(str, Enum):
 
 class ExportConfig(BaseModel):
     """Legacy export configuration used by tests."""
+
     start_time: float
     end_time: float
     format: ExportFormat
@@ -36,6 +38,7 @@ class ExportConfig(BaseModel):
 
 class ExportPlatform(str, Enum):
     """Supported export platforms."""
+
     TIKTOK = "tiktok"
     REELS = "reels"
     SHORTS = "shorts"
@@ -46,30 +49,34 @@ class ExportPlatform(str, Enum):
 
 class ExportQuality(str, Enum):
     """Export quality presets."""
-    DRAFT = "draft"      # Fast encoding, lower quality (for preview)
+
+    DRAFT = "draft"  # Fast encoding, lower quality (for preview)
     STANDARD = "standard"  # Balanced speed/quality
-    HIGH = "high"        # Higher quality, slower encoding
-    MAX = "max"          # Maximum quality, slowest
+    HIGH = "high"  # Higher quality, slower encoding
+    MAX = "max"  # Maximum quality, slowest
 
 
 class AspectRatio(str, Enum):
     """Supported aspect ratios."""
-    VERTICAL = "9:16"    # TikTok, Reels, Shorts
+
+    VERTICAL = "9:16"  # TikTok, Reels, Shorts
     HORIZONTAL = "16:9"  # YouTube, Twitter
-    SQUARE = "1:1"       # Instagram posts
+    SQUARE = "1:1"  # Instagram posts
 
 
 class CropMode(str, Enum):
     """How to handle aspect ratio conversion."""
-    NONE = "none"           # No cropping, use original
-    CENTER = "center"       # Center crop
+
+    NONE = "none"  # No cropping, use original
+    CENTER = "center"  # Center crop
     FACE_TRACK = "face_track"  # Follow faces (smart crop)
-    LETTERBOX = "letterbox"    # Add black bars
-    BLUR_FILL = "blur_fill"    # Blurred background fill
+    LETTERBOX = "letterbox"  # Add black bars
+    BLUR_FILL = "blur_fill"  # Blurred background fill
 
 
 class PlatformPreset(BaseModel):
     """Platform-specific export configuration."""
+
     name: str
     display_name: str
     aspect_ratio: AspectRatio
@@ -99,6 +106,7 @@ class PlatformPreset(BaseModel):
 
 class QualityPreset(BaseModel):
     """Quality-specific encoding settings."""
+
     name: str
     crf: int  # Constant Rate Factor (lower = better quality)
     preset: str  # FFmpeg encoding preset
@@ -217,6 +225,7 @@ QUALITY_PRESETS: dict[str, QualityPreset] = {
 
 class ExportRequest(BaseModel):
     """Request to export a clip."""
+
     clip_id: str
     platform: ExportPlatform = ExportPlatform.TIKTOK
     quality: ExportQuality = ExportQuality.STANDARD
@@ -233,7 +242,10 @@ class ExportRequest(BaseModel):
 
 class BatchExportRequest(BaseModel):
     """Request to export multiple clips."""
-    clip_ids: list[str] = Field(default_factory=list, description="Specific clips to export, empty = all clips")
+
+    clip_ids: list[str] = Field(
+        default_factory=list, description="Specific clips to export, empty = all clips"
+    )
     platform: ExportPlatform = ExportPlatform.TIKTOK
     quality: ExportQuality = ExportQuality.STANDARD
     crop_mode: CropMode | None = None
@@ -242,6 +254,7 @@ class BatchExportRequest(BaseModel):
 
 class ExportProgress(BaseModel):
     """Progress information for an export job."""
+
     clip_id: str
     status: Literal["queued", "processing", "encoding", "uploading", "done", "failed"]
     progress_percent: float = 0.0
@@ -254,6 +267,7 @@ class ExportProgress(BaseModel):
 
 class ExportJobResponse(BaseModel):
     """Response for an export job."""
+
     job_id: str
     project_id: str
     clips: list[ExportProgress]
@@ -272,7 +286,9 @@ def get_platform_preset(platform: str | ExportPlatform) -> PlatformPreset:
         platform = platform.value
 
     if platform not in PLATFORM_PRESETS:
-        raise ValueError(f"Unknown platform: {platform}. Available: {list(PLATFORM_PRESETS.keys())}")
+        raise ValueError(
+            f"Unknown platform: {platform}. Available: {list(PLATFORM_PRESETS.keys())}"
+        )
 
     return PLATFORM_PRESETS[platform]
 

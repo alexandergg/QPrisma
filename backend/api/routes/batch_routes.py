@@ -6,7 +6,7 @@ Uses Global Batch deployments for 50% cost savings.
 """
 
 import logging
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -57,8 +57,12 @@ async def get_batch_status(
             failed_requests=status["request_counts"]["failed"],
             progress_percent=round((completed / max(total, 1)) * 100, 1),
             estimated_cost=batch_job.estimated_cost if batch_job else None,
-            created_at=batch_job.created_at.isoformat() if batch_job and batch_job.created_at else None,
-            completed_at=batch_job.completed_at.isoformat() if batch_job and batch_job.completed_at else None,
+            created_at=(
+                batch_job.created_at.isoformat() if batch_job and batch_job.created_at else None
+            ),
+            completed_at=(
+                batch_job.completed_at.isoformat() if batch_job and batch_job.completed_at else None
+            ),
         )
 
     except Exception as e:
@@ -107,16 +111,18 @@ async def cancel_batch_job(
         batch_job = db.get_batch_job_by_azure_id(azure_batch_id)
         if batch_job and batch_job.status in ["completed", "failed", "cancelled"]:
             raise HTTPException(
-                status_code=400,
-                detail=f"Cannot cancel job with status: {batch_job.status}"
+                status_code=400, detail=f"Cannot cancel job with status: {batch_job.status}"
             )
 
         batch_proc.cancel_batch(azure_batch_id)
 
-        db.update_batch_job_by_azure_id(azure_batch_id, {
-            "status": "cancelled",
-            "completed_at": datetime.now(UTC),
-        })
+        db.update_batch_job_by_azure_id(
+            azure_batch_id,
+            {
+                "status": "cancelled",
+                "completed_at": datetime.now(UTC),
+            },
+        )
 
         return {"azure_batch_id": azure_batch_id, "status": "cancelled"}
 

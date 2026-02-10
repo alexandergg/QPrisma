@@ -8,8 +8,6 @@ Includes HTTPException subclasses with structured error codes.
 from typing import Any
 
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
-
 
 # =============================================================================
 # Structured API Error
@@ -19,9 +17,9 @@ from fastapi.responses import JSONResponse
 class APIError(HTTPException):
     """
     Structured API error with consistent error codes.
-    
+
     Use this instead of bare HTTPException for machine-readable error responses.
-    
+
     Example:
         raise APIError(
             code="MEDIA_NOT_FOUND",
@@ -29,7 +27,7 @@ class APIError(HTTPException):
             detail="Media item not found",
             context={"media_id": "abc123"}
         )
-    
+
     Response format:
         {
             "error": {

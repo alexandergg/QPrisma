@@ -11,7 +11,7 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 
-from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
+from openai import APIConnectionError, APIError, AzureOpenAI, RateLimitError
 
 from models.graph_models import (
     EntityType,

@@ -18,29 +18,25 @@ Endpoints:
 Reference: https://a2a-protocol.org/latest/specification/
 """
 
-import json
 import logging
 import os
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from api.dependencies import get_current_user_optional
 from agent.a2a import (
     A2AAgentExecutor,
     get_editor_a2a_executor,
     get_video_a2a_executor,
 )
+from api.dependencies import get_current_user_optional
 from models.a2a_models import (
-    AgentCard,
     AgentCapabilities,
+    AgentCard,
     AgentInterface,
     AgentProvider,
     AgentSkill,
-    CancelTaskRequest,
-    GetTaskRequest,
-    ListTasksRequest,
     ListTasksResponse,
     Message,
     Part,
@@ -51,6 +47,8 @@ from models.a2a_models import (
     Task,
     TaskNotFoundError,
     TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
     UnsupportedOperationError,
 )
 from models.user import User
@@ -72,7 +70,7 @@ def get_base_url() -> str:
 def get_video_agent_card() -> AgentCard:
     """Build the AgentCard for the Video Agent."""
     base_url = get_base_url()
-    
+
     return AgentCard(
         name="QPrisma Video Agent",
         description=(
@@ -170,7 +168,7 @@ def get_video_agent_card() -> AgentCard:
 def get_editor_agent_card() -> AgentCard:
     """Build the AgentCard for the Editor Agent."""
     base_url = get_base_url()
-    
+
     return AgentCard(
         name="QPrisma Editor Agent",
         description=(
@@ -270,7 +268,7 @@ def get_editor_agent_card() -> AgentCard:
 async def get_agent_card():
     """
     Agent Card discovery endpoint.
-    
+
     Returns the public AgentCard for the Video Agent.
     This is the standard well-known URI for A2A agent discovery.
     """
@@ -295,7 +293,7 @@ async def get_extended_agent_card(
 ):
     """
     Get the extended agent card (authenticated).
-    
+
     Returns additional capabilities and skills available to authenticated users.
     """
     if not current_user:
@@ -303,9 +301,9 @@ async def get_extended_agent_card(
             status_code=401,
             detail="Authentication required for extended agent card",
         )
-    
+
     card = get_video_agent_card()
-    
+
     # Add additional authenticated-only skills
     card.skills.append(
         AgentSkill(
@@ -319,7 +317,7 @@ async def get_extended_agent_card(
             ],
         )
     )
-    
+
     return card
 
 
@@ -342,20 +340,20 @@ async def send_message(
 ):
     """
     Send a message to the Video Agent.
-    
+
     Creates a new task or continues an existing one based on taskId/contextId.
     Returns either a Task object or a direct Message response.
     """
     executor = get_executor("video")
-    
+
     # Add user context to metadata
     if current_user and request.message.metadata:
         request.message.metadata["user_id"] = current_user.id
     elif current_user:
         request.message.metadata = {"user_id": current_user.id}
-    
+
     result = await executor.send_message(request)
-    
+
     if isinstance(result, Task):
         return SendMessageResponse(task=result)
     else:
@@ -369,18 +367,18 @@ async def send_editor_message(
 ):
     """
     Send a message to the Editor Agent.
-    
+
     Creates a new task or continues an existing one based on taskId/contextId.
     """
     executor = get_executor("editor")
-    
+
     if current_user and request.message.metadata:
         request.message.metadata["user_id"] = current_user.id
     elif current_user:
         request.message.metadata = {"user_id": current_user.id}
-    
+
     result = await executor.send_message(request)
-    
+
     if isinstance(result, Task):
         return SendMessageResponse(task=result)
     else:
@@ -394,7 +392,7 @@ async def send_streaming_message(
 ):
     """
     Send a message with streaming response (SSE).
-    
+
     Returns a Server-Sent Events stream with:
     - Initial Task object
     - TaskStatusUpdateEvent for status changes
@@ -402,7 +400,7 @@ async def send_streaming_message(
     - Final status update when complete
     """
     executor = get_executor("video")
-    
+
     if current_user and request.message.metadata:
         request.message.metadata["user_id"] = current_user.id
     elif current_user:
@@ -450,7 +448,7 @@ async def send_editor_streaming_message(
 ):
     """Send a message to the Editor Agent with streaming response (SSE)."""
     executor = get_executor("editor")
-    
+
     if current_user and request.message.metadata:
         request.message.metadata["user_id"] = current_user.id
     elif current_user:
@@ -463,7 +461,7 @@ async def send_editor_streaming_message(
                 yield f"data: {data}\n\n"
         except Exception as e:
             logger.error(f"Editor SSE streaming error: {e}")
-            yield f"data: {{\"error\": \"{str(e)}\"}}\n\n"
+            yield f'data: {{"error": "{str(e)}"}}\n\n'
 
     return StreamingResponse(
         generate_sse(),
@@ -489,12 +487,12 @@ async def get_task(
 ):
     """
     Get the current state of a task.
-    
+
     Returns the task with status, artifacts, and optionally history.
     """
     executor = get_executor("video")
     task = await executor.get_task(task_id, history_length=historyLength)
-    
+
     if not task:
         raise HTTPException(
             status_code=404,
@@ -503,7 +501,7 @@ async def get_task(
                 taskId=task_id,
             ).model_dump(),
         )
-    
+
     return task
 
 
@@ -519,18 +517,18 @@ async def list_tasks(
 ):
     """
     List tasks with optional filtering and pagination.
-    
+
     Returns tasks sorted by last update time (most recent first).
     """
     executor = get_executor("video")
-    
+
     tasks, total = await executor.list_tasks(
         context_id=contextId,
         status=status,
         page_size=pageSize,
         include_artifacts=includeArtifacts,
     )
-    
+
     return ListTasksResponse(
         tasks=tasks,
         nextPageToken="",  # Simplified pagination for now
@@ -546,12 +544,12 @@ async def cancel_task(
 ):
     """
     Cancel an ongoing task.
-    
+
     Returns the updated task with canceled status, or error if not cancellable.
     """
     executor = get_executor("video")
     task = await executor.cancel_task(task_id)
-    
+
     if not task:
         # Check if task exists
         existing = await executor.get_task(task_id)
@@ -574,7 +572,7 @@ async def cancel_task(
                     "taskId": task_id,
                 },
             )
-    
+
     return task
 
 
@@ -585,13 +583,13 @@ async def subscribe_to_task(
 ):
     """
     Subscribe to task updates via SSE.
-    
+
     Returns a stream of TaskStatusUpdateEvent and TaskArtifactUpdateEvent.
     Only works for tasks not in terminal state.
     """
     executor = get_executor("video")
     task = await executor.get_task(task_id)
-    
+
     if not task:
         raise HTTPException(
             status_code=404,
@@ -600,7 +598,7 @@ async def subscribe_to_task(
                 taskId=task_id,
             ).model_dump(),
         )
-    
+
     # Check if task is in terminal state
     terminal_states = {
         TaskState.COMPLETED,
@@ -608,7 +606,7 @@ async def subscribe_to_task(
         TaskState.CANCELED,
         TaskState.REJECTED,
     }
-    
+
     if task.status.state in terminal_states:
         raise HTTPException(
             status_code=400,
@@ -623,7 +621,7 @@ async def subscribe_to_task(
         # First, yield current task state
         response = StreamResponse(task=task)
         yield f"data: {response.model_dump_json(exclude_none=True)}\n\n"
-        
+
         # For now, we don't have a real subscription mechanism
         # In production, this would use Redis pub/sub or similar
         # This is a placeholder that returns the final state
@@ -662,7 +660,3 @@ async def a2a_health():
         "version": "1.0",
         "agents": ["video", "editor"],
     }
-
-
-# Need to import TaskStatus for the SSE error handler
-from models.a2a_models import TaskStatus

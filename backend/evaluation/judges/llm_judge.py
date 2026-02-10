@@ -9,7 +9,7 @@ import json
 import logging
 from pathlib import Path
 
-from openai import AsyncOpenAI, APIError, APITimeoutError
+from openai import APIError, APITimeoutError, AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
 from evaluation.models.eval_schemas import (
@@ -32,8 +32,7 @@ def _load_prompt(filename: str) -> str:
     path = PROMPTS_DIR / filename
     if not path.exists():
         raise FileNotFoundError(
-            f"Judge prompt not found: {path}. "
-            f"Expected at {PROMPTS_DIR.absolute()}"
+            f"Judge prompt not found: {path}. " f"Expected at {PROMPTS_DIR.absolute()}"
         )
     return path.read_text(encoding="utf-8")
 

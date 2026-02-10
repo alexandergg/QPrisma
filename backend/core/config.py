@@ -42,7 +42,7 @@ class AzureSettings(BaseSettings):
     # Global Batch deployment for 50% cost savings on bulk processing
     openai_deployment_gpt_batch: str | None = Field(
         default=None,
-        description="Azure OpenAI Global Batch deployment name (e.g., 'gpt-4o-global-batch')"
+        description="Azure OpenAI Global Batch deployment name (e.g., 'gpt-4o-global-batch')",
     )
 
     @property
@@ -163,11 +163,10 @@ class AuthSettings(BaseSettings):
                     "Set JWT_SECRET_KEY environment variable with a secure random string."
                 )
             if len(v) < 32:
-                raise ValueError(
-                    "JWT_SECRET_KEY must be at least 32 characters in production."
-                )
+                raise ValueError("JWT_SECRET_KEY must be at least 32 characters in production.")
         elif v == "your-secret-key-change-in-production":
             import warnings
+
             warnings.warn(
                 "Using default JWT secret key. Set JWT_SECRET_KEY in production!",
                 UserWarning,
@@ -263,25 +262,25 @@ def get_settings() -> Settings:
 def create_azure_openai_client() -> "AzureOpenAI":
     """
     Create and return an Azure OpenAI client using environment configuration.
-    
+
     This is the canonical factory function for creating Azure OpenAI clients.
     Use this instead of creating clients directly to ensure consistent configuration.
-    
+
     Returns:
         Configured AzureOpenAI client instance.
-        
+
     Raises:
         ValueError: If required Azure OpenAI configuration is missing.
     """
     from openai import AzureOpenAI
-    
+
     azure_settings = get_settings().azure
-    
+
     if not azure_settings.is_openai_configured:
         raise ValueError(
             "Azure OpenAI not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY."
         )
-    
+
     return AzureOpenAI(
         api_key=azure_settings.openai_api_key,
         api_version=azure_settings.openai_api_version,
@@ -292,25 +291,25 @@ def create_azure_openai_client() -> "AzureOpenAI":
 def create_async_azure_openai_client() -> "AsyncAzureOpenAI":
     """
     Create and return an async Azure OpenAI client using environment configuration.
-    
+
     Use this for async contexts (FastAPI routes, async services).
     The async client shares the same configuration as the sync client.
-    
+
     Returns:
         Configured AsyncAzureOpenAI client instance.
-        
+
     Raises:
         ValueError: If required Azure OpenAI configuration is missing.
     """
     from openai import AsyncAzureOpenAI
-    
+
     azure_settings = get_settings().azure
-    
+
     if not azure_settings.is_openai_configured:
         raise ValueError(
             "Azure OpenAI not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY."
         )
-    
+
     return AsyncAzureOpenAI(
         api_key=azure_settings.openai_api_key,
         api_version=azure_settings.openai_api_version,

@@ -218,14 +218,16 @@ class SubtitleService:
             # Word overlaps with clip range
             if word_end > start_time and word_start < end_time:
                 # Adjust timing relative to clip start
-                clip_words.append({
-                    "word": word.get("word", "").strip(),
-                    "start": max(0, word_start - start_time),
-                    "end": min(end_time - start_time, word_end - start_time),
-                    "original_start": word_start,
-                    "original_end": word_end,
-                    "confidence": word.get("probability", word.get("confidence", 1.0)),
-                })
+                clip_words.append(
+                    {
+                        "word": word.get("word", "").strip(),
+                        "start": max(0, word_start - start_time),
+                        "end": min(end_time - start_time, word_end - start_time),
+                        "original_start": word_start,
+                        "original_end": word_end,
+                        "confidence": word.get("probability", word.get("confidence", 1.0)),
+                    }
+                )
 
         result["words"] = clip_words
         result["text"] = " ".join(w["word"] for w in clip_words)
@@ -246,18 +248,22 @@ class SubtitleService:
                     w_start = word.get("start", 0)
                     w_end = word.get("end", w_start)
                     if w_end > start_time and w_start < end_time:
-                        seg_words.append({
-                            "word": word.get("word", "").strip(),
-                            "start": max(0, w_start - start_time),
-                            "end": min(end_time - start_time, w_end - start_time),
-                        })
+                        seg_words.append(
+                            {
+                                "word": word.get("word", "").strip(),
+                                "start": max(0, w_start - start_time),
+                                "end": min(end_time - start_time, w_end - start_time),
+                            }
+                        )
 
-                clip_segments.append({
-                    "text": segment.get("text", "").strip(),
-                    "start": max(0, seg_start - start_time),
-                    "end": min(end_time - start_time, seg_end - start_time),
-                    "words": seg_words,
-                })
+                clip_segments.append(
+                    {
+                        "text": segment.get("text", "").strip(),
+                        "start": max(0, seg_start - start_time),
+                        "end": min(end_time - start_time, seg_end - start_time),
+                        "words": seg_words,
+                    }
+                )
 
         result["segments"] = clip_segments
 
@@ -273,12 +279,14 @@ class SubtitleService:
                 word_duration = seg_duration / len(words) if words else 0
 
                 for i, word in enumerate(words):
-                    clip_words.append({
-                        "word": word,
-                        "start": segment["start"] + (i * word_duration),
-                        "end": segment["start"] + ((i + 1) * word_duration),
-                        "estimated": True,
-                    })
+                    clip_words.append(
+                        {
+                            "word": word,
+                            "start": segment["start"] + (i * word_duration),
+                            "end": segment["start"] + ((i + 1) * word_duration),
+                            "estimated": True,
+                        }
+                    )
 
             result["words"] = clip_words
             result["text"] = " ".join(w["word"] for w in clip_words)
@@ -331,31 +339,35 @@ class SubtitleService:
 
             # Check if we should end this cue
             should_end_cue = (
-                len(current_cue_words) >= max_words_per_cue or
-                current_duration >= max_duration_per_cue or
-                word.get("word", "").endswith((".", "!", "?", ","))
+                len(current_cue_words) >= max_words_per_cue
+                or current_duration >= max_duration_per_cue
+                or word.get("word", "").endswith((".", "!", "?", ","))
             )
 
             if should_end_cue and current_cue_words:
-                cues.append({
-                    "id": len(cues),
-                    "start": current_start,
-                    "end": current_end,
-                    "text": " ".join(w["word"] for w in current_cue_words),
-                    "words": current_cue_words.copy(),
-                })
+                cues.append(
+                    {
+                        "id": len(cues),
+                        "start": current_start,
+                        "end": current_end,
+                        "text": " ".join(w["word"] for w in current_cue_words),
+                        "words": current_cue_words.copy(),
+                    }
+                )
                 current_cue_words = []
                 current_start = None
 
         # Add remaining words
         if current_cue_words:
-            cues.append({
-                "id": len(cues),
-                "start": current_start,
-                "end": current_cue_words[-1]["end"],
-                "text": " ".join(w["word"] for w in current_cue_words),
-                "words": current_cue_words,
-            })
+            cues.append(
+                {
+                    "id": len(cues),
+                    "start": current_start,
+                    "end": current_cue_words[-1]["end"],
+                    "text": " ".join(w["word"] for w in current_cue_words),
+                    "words": current_cue_words,
+                }
+            )
 
         return cues
 
@@ -433,19 +445,26 @@ class SubtitleService:
             }
 
             # Update clip with subtitle data
-            self.db.update_clip(clip_id, {
-                "subtitles_enabled": True,
-                "subtitle_style": style,
-                "subtitles_data": subtitle_data,
-                "subtitle_settings": style_config.get("css", {}),
-            })
+            self.db.update_clip(
+                clip_id,
+                {
+                    "subtitles_enabled": True,
+                    "subtitle_style": style,
+                    "subtitles_data": subtitle_data,
+                    "subtitle_settings": style_config.get("css", {}),
+                },
+            )
 
             return {
                 "success": True,
                 "message": f"Generated {len(cues)} subtitle cues with '{style_config['name']}' style",
                 "clip_id": clip_id,
                 "subtitle_data": subtitle_data,
-                "preview_text": clip_transcription["text"][:100] + "..." if len(clip_transcription["text"]) > 100 else clip_transcription["text"],
+                "preview_text": (
+                    clip_transcription["text"][:100] + "..."
+                    if len(clip_transcription["text"]) > 100
+                    else clip_transcription["text"]
+                ),
             }
 
         except Exception as e:
@@ -533,6 +552,7 @@ class SubtitleService:
         Returns:
             SRT formatted string
         """
+
         def format_time(seconds: float) -> str:
             hours = int(seconds // 3600)
             minutes = int((seconds % 3600) // 60)

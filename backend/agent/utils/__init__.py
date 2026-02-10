@@ -7,23 +7,23 @@ Helper functions for the agent system.
 
 from agent.utils.formatting import format_timestamp, parse_timestamp
 from agent.utils.observability import (
-    # Context management
-    RequestContext,
-    request_context,
-    get_request_context,
-    set_request_context,
-    # Logging
-    StructuredLogger,
-    get_logger,
     # Metrics
     Metrics,
+    # Context management
+    RequestContext,
+    # Logging
+    StructuredLogger,
+    extract_request_id_from_config,
+    get_logger,
+    get_request_context,
+    # Config helpers
+    inject_request_context_to_config,
+    instrument_graph,
     # Instrumentation
     instrument_node,
     instrument_tool,
-    instrument_graph,
-    # Config helpers
-    inject_request_context_to_config,
-    extract_request_id_from_config,
+    request_context,
+    set_request_context,
 )
 
 __all__ = [

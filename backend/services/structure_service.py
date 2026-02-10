@@ -57,14 +57,14 @@ class StructureService:
         if not scene_frames:
             return None
 
-        descriptions = [
-            f.get("description", "") for f in scene_frames[:3] if f.get("description")
-        ]
+        descriptions = [f.get("description", "") for f in scene_frames[:3] if f.get("description")]
         if descriptions:
             return " ".join(descriptions)[:500]
         return None
 
-    def _build_chapters(self, scene_list: list[dict], max_scenes_per_chapter: int = 5) -> list[dict]:
+    def _build_chapters(
+        self, scene_list: list[dict], max_scenes_per_chapter: int = 5
+    ) -> list[dict]:
         """Group scenes into chapters."""
         chapters = []
         for i in range(0, len(scene_list), max_scenes_per_chapter):
@@ -74,21 +74,25 @@ class StructureService:
             chapter_id = len(chapters)
 
             first_scene_title = chunk[0].get("title", "")
-            chapter_title = first_scene_title[:60] if first_scene_title else f"Part {chapter_id + 1}"
+            chapter_title = (
+                first_scene_title[:60] if first_scene_title else f"Part {chapter_id + 1}"
+            )
 
             scene_summaries = [s.get("summary", "") for s in chunk if s.get("summary")]
             chapter_summary = " ".join(scene_summaries)[:300] if scene_summaries else None
 
-            chapters.append({
-                "chapter_id": chapter_id,
-                "title": chapter_title,
-                "summary": chapter_summary,
-                "start_time": chunk[0]["start_time"],
-                "end_time": chunk[-1]["end_time"],
-                "duration": max(0.0, chunk[-1]["end_time"] - chunk[0]["start_time"]),
-                "scene_ids": [s["scene_id"] for s in chunk],
-                "scene_count": len(chunk),
-            })
+            chapters.append(
+                {
+                    "chapter_id": chapter_id,
+                    "title": chapter_title,
+                    "summary": chapter_summary,
+                    "start_time": chunk[0]["start_time"],
+                    "end_time": chunk[-1]["end_time"],
+                    "duration": max(0.0, chunk[-1]["end_time"] - chunk[0]["start_time"]),
+                    "scene_ids": [s["scene_id"] for s in chunk],
+                    "scene_count": len(chunk),
+                }
+            )
         return chapters
 
     @staticmethod
@@ -98,8 +102,13 @@ class StructureService:
             return False
         desc_lower = desc.lower()
         skip_phrases = [
-            "imagen negra", "completamente negra", "no contiene elementos",
-            "black screen", "completely black", "no visible", "no hay información",
+            "imagen negra",
+            "completamente negra",
+            "no contiene elementos",
+            "black screen",
+            "completely black",
+            "no visible",
+            "no hay información",
         ]
         return not any(phrase in desc_lower for phrase in skip_phrases)
 
@@ -124,7 +133,7 @@ class StructureService:
             clean = clean.replace("**", "").replace("\n", " ")
             for prefix in ["Descripción general de la escena:", "La imagen muestra"]:
                 if clean.startswith(prefix):
-                    clean = clean[len(prefix):].strip()
+                    clean = clean[len(prefix) :].strip()
             if clean:
                 summaries.append(clean[:150])
 
@@ -139,13 +148,21 @@ class StructureService:
         if not all_frames:
             return []
 
-        all_text = " ".join(
-            [f.get("description", "") for f in all_frames if f.get("description")]
-        )
+        all_text = " ".join([f.get("description", "") for f in all_frames if f.get("description")])
         words = all_text.split()
         stop_words = {
-            "the", "this", "that", "there", "here", "where",
-            "what", "which", "when", "image", "video", "frame",
+            "the",
+            "this",
+            "that",
+            "there",
+            "here",
+            "where",
+            "what",
+            "which",
+            "when",
+            "image",
+            "video",
+            "frame",
         }
         topic_candidates = [
             w.strip(".,!?:;()[]")
@@ -185,24 +202,27 @@ class StructureService:
             end = float(s.get("end_time", 0) or 0)
 
             scene_frames = [
-                f for f in all_frames
+                f
+                for f in all_frames
                 if f.get("timestamp") is not None and start <= f["timestamp"] < end
             ]
 
             scene_title = self._generate_scene_title(s, scene_frames)
             scene_summary = self._generate_scene_summary(s, scene_frames)
 
-            scene_list.append({
-                "scene_id": int(s.get("scene_index", 0) or 0),
-                "start_time": start,
-                "end_time": end,
-                "duration": max(0.0, end - start),
-                "title": scene_title or f"Scene {int(s.get('scene_index', 0) or 0) + 1}",
-                "summary": scene_summary,
-                "detected_objects": s.get("detected_objects") or [],
-                "transcript_segment": s.get("transcript_segment"),
-                "frame_count": len(scene_frames),
-            })
+            scene_list.append(
+                {
+                    "scene_id": int(s.get("scene_index", 0) or 0),
+                    "start_time": start,
+                    "end_time": end,
+                    "duration": max(0.0, end - start),
+                    "title": scene_title or f"Scene {int(s.get('scene_index', 0) or 0) + 1}",
+                    "summary": scene_summary,
+                    "detected_objects": s.get("detected_objects") or [],
+                    "transcript_segment": s.get("transcript_segment"),
+                    "frame_count": len(scene_frames),
+                }
+            )
 
         chapters = self._build_chapters(scene_list)
         video_summary = self._generate_video_summary(video_node, all_frames)
@@ -228,10 +248,9 @@ class StructureService:
 
         Returns None if no structure data is available.
         """
-        legacy_structure = (
-            media_dict.get("structure")
-            or (media_dict.get("processing_result") or {}).get("structure")
-        )
+        legacy_structure = media_dict.get("structure") or (
+            media_dict.get("processing_result") or {}
+        ).get("structure")
         if legacy_structure:
             return {
                 "structure": legacy_structure,

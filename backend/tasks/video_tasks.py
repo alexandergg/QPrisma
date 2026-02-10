@@ -194,11 +194,7 @@ def update_job_status(
             event_type = "progress"
             event_data = {"progress": progress, "stage": stage, "message": message}
 
-        pubsub_message = json.dumps({
-            "type": event_type,
-            "job_id": job_id,
-            "data": event_data
-        })
+        pubsub_message = json.dumps({"type": event_type, "job_id": job_id, "data": event_data})
 
         redis_client.publish("qprisma:websocket:events", pubsub_message)
         logger.debug(f"Published WebSocket event for job {job_id}: {event_type}")
@@ -380,11 +376,13 @@ def analyze_frame_task(
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
         # Analizar con GPT-4V
-        analysis = asyncio.run(_video_processor.analyze_frame_with_gpt4v(
-            frame,
-            custom_prompt=custom_prompt,
-            timestamp=frame_data.get("timestamp"),
-        ))
+        analysis = asyncio.run(
+            _video_processor.analyze_frame_with_gpt4v(
+                frame,
+                custom_prompt=custom_prompt,
+                timestamp=frame_data.get("timestamp"),
+            )
+        )
 
         return {
             "index": frame_data["index"],
@@ -511,7 +509,7 @@ def index_transcription_to_graph(
         from services.knowledge_graph import get_knowledge_graph_service
 
         graph = get_knowledge_graph_service()
-        
+
         # Asegurar conexión a Neo4j
         if not graph.is_connected:
             graph.connect()
@@ -521,7 +519,7 @@ def index_transcription_to_graph(
         if not segments:
             logger.info(f"No transcript segments to index for video {video_id}")
             return {"indexed": 0, "success": True, "message": "No segments to index"}
-        
+
         logger.info(f"Starting transcript indexing: {len(segments)} segments for video {video_id}")
 
         # Eliminar transcripciones existentes para este video
@@ -550,9 +548,9 @@ def index_transcription_to_graph(
 
         # Indexar en batch (con manejo de batches internos)
         created = graph.create_audio_segments_batch(audio_segments)
-        
+
         success = created > 0 or len(segments) == 0
-        
+
         if created < len(segments) * 0.5:  # Menos del 50% indexado
             logger.error(
                 f"Transcript indexing partial failure: only {created}/{len(segments)} segments indexed"
@@ -565,20 +563,20 @@ def index_transcription_to_graph(
             "total_segments": len(segments),
             "language": language,
             "success": success,
-            "error": None if success else f"Only indexed {created}/{len(segments)} segments"
+            "error": None if success else f"Only indexed {created}/{len(segments)} segments",
         }
 
     except Exception as e:
         error_msg = f"Failed to index transcription for video {video_id}: {e}"
         logger.error(error_msg, exc_info=True)
-        
+
         # Reintentar si es un error de conexión
         if "connection" in str(e).lower() or "timeout" in str(e).lower():
             try:
                 self.retry(countdown=5, exc=e)
             except Exception:
                 pass  # Max retries alcanzados
-        
+
         return {"indexed": 0, "success": False, "error": str(e)}
 
 
@@ -628,7 +626,11 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
         # 4. Analizar frames con Batch API (50% más barato)
         update_job_status(
-            job_id, "processing", 25, "analyzing", f"Analizando {len(frames)} frames con Batch API..."
+            job_id,
+            "processing",
+            25,
+            "analyzing",
+            f"Analizando {len(frames)} frames con Batch API...",
         )
 
         frame_analyses = []
@@ -649,29 +651,45 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 else:
                     image_base64 = image_bytes
 
-                frames_for_batch.append({
-                    "frame_number": frame_data.get("frame_number", frame_data.get("index", 0)),
-                    "timestamp": frame_data.get("timestamp", 0),
-                    "image_base64": image_base64,
-                })
+                frames_for_batch.append(
+                    {
+                        "frame_number": frame_data.get("frame_number", frame_data.get("index", 0)),
+                        "timestamp": frame_data.get("timestamp", 0),
+                        "image_base64": image_base64,
+                    }
+                )
 
             # Enviar batch job
             update_job_status(
-                job_id, "processing", 30, "batch_submit", f"Enviando {len(frames)} frames a Batch API..."
+                job_id,
+                "processing",
+                30,
+                "batch_submit",
+                f"Enviando {len(frames)} frames a Batch API...",
             )
-            vision_requests = batch_proc.create_vision_batch_requests(frames_for_batch, custom_prompt)
-            vision_batch_id = asyncio.run(batch_proc.submit_batch_job(
-                vision_requests, description=f"Celery: {blob_name} ({len(frames)} frames)"
-            ))
+            vision_requests = batch_proc.create_vision_batch_requests(
+                frames_for_batch, custom_prompt
+            )
+            vision_batch_id = asyncio.run(
+                batch_proc.submit_batch_job(
+                    vision_requests, description=f"Celery: {blob_name} ({len(frames)} frames)"
+                )
+            )
             logger.info(f"Batch job created: {vision_batch_id}")
 
             # Esperar completación
             update_job_status(
-                job_id, "processing", 35, "batch_wait", "Esperando Batch API (típicamente 3-5 min)..."
+                job_id,
+                "processing",
+                35,
+                "batch_wait",
+                "Esperando Batch API (típicamente 3-5 min)...",
             )
-            success = asyncio.run(batch_proc.wait_for_batch_completion(
-                vision_batch_id, check_interval=30, max_wait_time=1800
-            ))
+            success = asyncio.run(
+                batch_proc.wait_for_batch_completion(
+                    vision_batch_id, check_interval=30, max_wait_time=1800
+                )
+            )
 
             if not success:
                 raise Exception(f"Batch job timeout or failed: {vision_batch_id}")
@@ -687,15 +705,17 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             for i, frame_data in enumerate(frames):
                 frame_id = f"frame_{frame_data.get('frame_number', i)}"
                 analysis_text = parsed_analyses.get(frame_id, {}).get("analysis", "")
-                frame_analyses.append({
-                    "index": i,
-                    "frame_number": frame_data.get("frame_number", i),
-                    "timestamp": frame_data.get("timestamp", 0),
-                    "analysis": analysis_text,
-                    "tokens_used": 0,
-                    "blur_score": frame_data.get("blur_score", 0.0),
-                    "brightness": frame_data.get("brightness", 0.0),
-                })
+                frame_analyses.append(
+                    {
+                        "index": i,
+                        "frame_number": frame_data.get("frame_number", i),
+                        "timestamp": frame_data.get("timestamp", 0),
+                        "analysis": analysis_text,
+                        "tokens_used": 0,
+                        "blur_score": frame_data.get("blur_score", 0.0),
+                        "brightness": frame_data.get("brightness", 0.0),
+                    }
+                )
 
             logger.info(f"Batch API completed: {len(frame_analyses)} frames analyzed")
 
@@ -703,10 +723,15 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             logger.warning(f"Batch API failed, falling back to individual calls: {batch_error}")
             # Fallback: análisis secuencial (más caro pero funciona)
             import base64
+
             for i, frame_data in enumerate(frames):
                 progress = 25 + int((i / len(frames)) * 35)
                 update_job_status(
-                    job_id, "processing", progress, "analyzing", f"Analizando frame {i+1}/{len(frames)} (fallback)"
+                    job_id,
+                    "processing",
+                    progress,
+                    "analyzing",
+                    f"Analizando frame {i+1}/{len(frames)} (fallback)",
                 )
 
                 frame_data_copy = frame_data.copy()
@@ -753,19 +778,21 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     frames_per_scene = max(3, frames_count // 10)
 
                     for scene_idx in range(0, frames_count, frames_per_scene):
-                        scene_frames = frame_analyses[scene_idx:scene_idx + frames_per_scene]
+                        scene_frames = frame_analyses[scene_idx : scene_idx + frames_per_scene]
                         if not scene_frames:
                             continue
 
                         start_time = scene_frames[0].get("timestamp", 0)
                         end_time = scene_frames[-1].get("timestamp", start_time + 10)
                         start_frame_num = scene_frames[0].get("frame_number", scene_idx)
-                        end_frame_num = scene_frames[-1].get("frame_number", scene_idx + len(scene_frames) - 1)
+                        end_frame_num = scene_frames[-1].get(
+                            "frame_number", scene_idx + len(scene_frames) - 1
+                        )
 
                         # Combinar descripciones visuales
-                        visual_desc = " ".join([
-                            f.get("analysis", "")[:500] for f in scene_frames if f.get("analysis")
-                        ])[:2000]
+                        visual_desc = " ".join(
+                            [f.get("analysis", "")[:500] for f in scene_frames if f.get("analysis")]
+                        )[:2000]
 
                         # Keyframe indices (use middle frame of scene)
                         keyframe_indices = [scene_idx + len(scene_frames) // 2]
@@ -803,13 +830,16 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         )
                         video_summary = structure.video_summary
                         key_topics = structure.key_topics or []
-                        logger.info(f"Generated hierarchical summaries: {len(scenes)} scenes, summary: {len(video_summary or '')} chars")
+                        logger.info(
+                            f"Generated hierarchical summaries: {len(scenes)} scenes, summary: {len(video_summary or '')} chars"
+                        )
                     finally:
                         loop.close()
 
             except Exception as e:
                 logger.warning(f"Hierarchical summarization skipped: {e}")
                 import traceback
+
                 logger.debug(traceback.format_exc())
 
         # 6. Generar embeddings
@@ -900,9 +930,9 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             end_time=float(s.end_time),
                             scene_index=int(s.scene_id),
                             description=s.visual_description,
-                            visual_change_score=float(getattr(s, 'visual_change_score', 0.0)),
-                            dominant_colors=getattr(s, 'dominant_colors', None) or [],
-                            transition_type=getattr(s, 'transition_type', 'cut'),
+                            visual_change_score=float(getattr(s, "visual_change_score", 0.0)),
+                            dominant_colors=getattr(s, "dominant_colors", None) or [],
+                            transition_type=getattr(s, "transition_type", "cut"),
                         )
                         graph.create_scene_node(sn)
                         scene_nodes.append(sn)
@@ -976,15 +1006,17 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 )
                 transcript_data = transcription_result.get("transcription", {})
                 total_segments = len(transcript_data.get("segments", []))
-                
+
                 index_result_transcript = index_transcription_to_graph(
                     video_id, transcript_data, job_id
                 )
                 transcript_indexed = index_result_transcript.get("indexed", 0)
-                
+
                 # Verificar que se indexaron los segmentos esperados
                 if total_segments > 0 and transcript_indexed == 0:
-                    transcript_indexing_error = index_result_transcript.get("error", "Unknown indexing error")
+                    transcript_indexing_error = index_result_transcript.get(
+                        "error", "Unknown indexing error"
+                    )
                     logger.error(
                         f"Transcript indexing failed for video {video_id}: "
                         f"expected {total_segments} segments, indexed {transcript_indexed}. "
@@ -996,8 +1028,10 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         f"indexed {transcript_indexed}/{total_segments} segments"
                     )
                 else:
-                    logger.info(f"Indexed {transcript_indexed}/{total_segments} transcript segments to graph")
-                    
+                    logger.info(
+                        f"Indexed {transcript_indexed}/{total_segments} transcript segments to graph"
+                    )
+
             except Exception as e:
                 transcript_indexing_error = str(e)
                 logger.error(f"Transcript graph indexing failed: {e}", exc_info=True)
@@ -1023,7 +1057,9 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         summary=video_summary,
                         topics=key_topics,
                     )
-                logger.info(f"Updated Video node with summary ({len(video_summary or '')} chars) and {len(key_topics)} topics")
+                logger.info(
+                    f"Updated Video node with summary ({len(video_summary or '')} chars) and {len(key_topics)} topics"
+                )
             except Exception as e:
                 logger.warning(f"Failed to update Video node with summary: {e}")
 
@@ -1033,12 +1069,12 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         # 9. Calcular estadísticas
         elapsed_time = time.time() - start_time
         total_tokens = sum(a.get("tokens_used", 0) for a in frame_analyses)
-        
+
         # Determinar si hubo warnings durante el procesamiento
         processing_warnings = []
         if transcript_indexing_error:
             processing_warnings.append(f"Transcript indexing error: {transcript_indexing_error}")
-        
+
         # Determinar estado: completed_with_warnings si hubo errores parciales
         final_status = "completed"
         if transcript_indexing_error and transcript_indexed == 0:
@@ -1093,14 +1129,20 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     }
 
                 # Store audio data for frontend access
-                if transcription_result.get("success") and transcription_result.get("transcription"):
+                if transcription_result.get("success") and transcription_result.get(
+                    "transcription"
+                ):
                     updates["audio_data"] = {
                         "transcription": transcription_result["transcription"],
                         "stats": {
                             "has_audio": True,
-                            "total_words": len(transcription_result["transcription"].get("text", "").split()),
-                            "segments_count": len(transcription_result["transcription"].get("segments", [])),
-                        }
+                            "total_words": len(
+                                transcription_result["transcription"].get("text", "").split()
+                            ),
+                            "segments_count": len(
+                                transcription_result["transcription"].get("segments", [])
+                            ),
+                        },
                     }
 
                 # Store video summary and topics for chat context

@@ -70,16 +70,18 @@ class CacheSettings(BaseModel):
     )
     ttl: CacheTTLConfig = Field(default_factory=CacheTTLConfig)
 
-    model_config = {"json_schema_extra": {
-        "example": {
-            "enabled": True,
-            "redis_url": "redis://localhost:6379/0",
-            "key_prefix": "qprisma",
-            "similarity_threshold": 8,
-            "max_memory_items": 1000,
-            "ttl": {"embedding_ttl": 604800, "frame_analysis_ttl": 259200},
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "enabled": True,
+                "redis_url": "redis://localhost:6379/0",
+                "key_prefix": "qprisma",
+                "similarity_threshold": 8,
+                "max_memory_items": 1000,
+                "ttl": {"embedding_ttl": 604800, "frame_analysis_ttl": 259200},
+            }
         }
-    }}
+    }
 
 
 # =============================================================================
@@ -100,19 +102,21 @@ class CacheMetricsResponse(BaseModel):
     api_calls_saved: int = Field(default=0, description="Llamadas a API evitadas")
     estimated_cost_saved: str = Field(description="Costo estimado ahorrado (USD)")
 
-    model_config = {"json_schema_extra": {
-        "example": {
-            "connected": True,
-            "backend": "redis",
-            "hits": 1250,
-            "misses": 320,
-            "errors": 2,
-            "hit_rate": "79.62%",
-            "bytes_saved": 15728640,
-            "api_calls_saved": 1250,
-            "estimated_cost_saved": "$12.50",
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "connected": True,
+                "backend": "redis",
+                "hits": 1250,
+                "misses": 320,
+                "errors": 2,
+                "hit_rate": "79.62%",
+                "bytes_saved": 15728640,
+                "api_calls_saved": 1250,
+                "estimated_cost_saved": "$12.50",
+            }
         }
-    }}
+    }
 
 
 class CacheStatsPerType(BaseModel):
@@ -153,9 +157,11 @@ class CacheInvalidateRequest(BaseModel):
     )
     clear_all: bool = Field(default=False, description="Si true, limpia TODO el cache (peligroso)")
 
-    model_config = {"json_schema_extra": {
-        "example": {"video_id": "abc123", "cache_type": None, "clear_all": False}
-    }}
+    model_config = {
+        "json_schema_extra": {
+            "example": {"video_id": "abc123", "cache_type": None, "clear_all": False}
+        }
+    }
 
 
 class CacheInvalidateResponse(BaseModel):
@@ -204,21 +210,23 @@ class JobStatusCache(BaseModel):
         default=None, description="Segundos estimados restantes"
     )
 
-    model_config = {"json_schema_extra": {
-        "example": {
-            "job_id": "job_abc123",
-            "video_id": "video_xyz789",
-            "status": "analyzing_frames",
-            "progress": 45,
-            "current_stage": "Analizando frames con GPT-4V",
-            "message": "Procesando frame 45 de 100",
-            "started_at": "2026-01-08T10:00:00Z",
-            "updated_at": "2026-01-08T10:05:30Z",
-            "frames_processed": 45,
-            "frames_total": 100,
-            "estimated_time_remaining": 180,
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "job_id": "job_abc123",
+                "video_id": "video_xyz789",
+                "status": "analyzing_frames",
+                "progress": 45,
+                "current_stage": "Analizando frames con GPT-4V",
+                "message": "Procesando frame 45 de 100",
+                "started_at": "2026-01-08T10:00:00Z",
+                "updated_at": "2026-01-08T10:05:30Z",
+                "frames_processed": 45,
+                "frames_total": 100,
+                "estimated_time_remaining": 180,
+            }
         }
-    }}
+    }
 
 
 # =============================================================================
@@ -237,17 +245,19 @@ class CachedEmbedding(BaseModel):
     expires_at: datetime
     source_type: str = Field(description="Tipo de fuente (text, frame, audio)")
 
-    model_config = {"json_schema_extra": {
-        "example": {
-            "content_hash": "a1b2c3d4e5f6...",
-            "embedding": [0.123, -0.456, 0.789],
-            "model": "text-embedding-3-large",
-            "dimensions": 3072,
-            "cached_at": "2026-01-08T10:00:00Z",
-            "expires_at": "2026-01-15T10:00:00Z",
-            "source_type": "frame",
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "content_hash": "a1b2c3d4e5f6...",
+                "embedding": [0.123, -0.456, 0.789],
+                "model": "text-embedding-3-large",
+                "dimensions": 3072,
+                "cached_at": "2026-01-08T10:00:00Z",
+                "expires_at": "2026-01-15T10:00:00Z",
+                "source_type": "frame",
+            }
         }
-    }}
+    }
 
 
 class CachedFrameAnalysis(BaseModel):
@@ -261,21 +271,23 @@ class CachedFrameAnalysis(BaseModel):
     expires_at: datetime
     was_deduplicated: bool = Field(default=False, description="Si se reutilizó de un frame similar")
 
-    model_config = {"json_schema_extra": {
-        "example": {
-            "frame_hash": "abc123...",
-            "perceptual_hash": "f0e1d2c3b4a5...",
-            "analysis": {
-                "description": "Una persona hablando en una presentación",
-                "objects": ["persona", "micrófono", "pantalla"],
-                "scene_type": "conference",
-            },
-            "model": "gpt-4o",
-            "cached_at": "2026-01-08T10:00:00Z",
-            "expires_at": "2026-01-11T10:00:00Z",
-            "was_deduplicated": False,
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "frame_hash": "abc123...",
+                "perceptual_hash": "f0e1d2c3b4a5...",
+                "analysis": {
+                    "description": "Una persona hablando en una presentación",
+                    "objects": ["persona", "micrófono", "pantalla"],
+                    "scene_type": "conference",
+                },
+                "model": "gpt-4o",
+                "cached_at": "2026-01-08T10:00:00Z",
+                "expires_at": "2026-01-11T10:00:00Z",
+                "was_deduplicated": False,
+            }
         }
-    }}
+    }
 
 
 # =============================================================================

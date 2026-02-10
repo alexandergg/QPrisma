@@ -28,9 +28,7 @@ def recall_at_k(
         Recall@K in [0, 1].
     """
     if not relevant:
-        logger.warning(
-            "Empty relevant set in recall_at_k — check ground truth annotations"
-        )
+        logger.warning("Empty relevant set in recall_at_k — check ground truth annotations")
         return 0.0
     top_k = set(retrieved[:k])
     return len(top_k & relevant) / len(relevant)
@@ -231,7 +229,7 @@ def compute_retrieval_metrics(
         k_values = [1, 5, 10, 20]
 
     if relevance_scores is None:
-        relevance_scores = {item: 1.0 for item in relevant}
+        relevance_scores = dict.fromkeys(relevant, 1.0)
 
     metrics = {}
     for k in k_values:

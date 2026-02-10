@@ -9,11 +9,11 @@ import base64
 import json
 import logging
 import os
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import httpx
-from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
+from openai import APIConnectionError, APIError, AzureOpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from models.graph_models import (

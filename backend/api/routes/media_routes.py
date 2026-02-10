@@ -449,7 +449,9 @@ async def get_media_metadata(media_id: str, current_user: User = Depends(get_cur
 
 
 @router.get("/media/{media_id}/status")
-async def get_media_processing_status(media_id: str, current_user: User = Depends(get_current_user)):
+async def get_media_processing_status(
+    media_id: str, current_user: User = Depends(get_current_user)
+):
     """Get the processing status of a video."""
     db = get_database_service()
 

@@ -29,7 +29,6 @@ import json
 import logging
 import sys
 import time
-import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -205,9 +204,7 @@ def index_videos_direct(
             file_ext = video_path.suffix.lstrip(".")
             blob_name = f"{video_id}.{file_ext}"
 
-            blob_client = blob_service.get_blob_client(
-                container=container_name, blob=blob_name
-            )
+            blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
             with open(video_path, "rb") as f:
                 blob_client.upload_blob(f, overwrite=True)
 
@@ -417,9 +414,7 @@ def main():
         logger.error("Video directory not found: %s", video_dir)
         sys.exit(1)
 
-    data_path = Path(
-        args.data_path or f"data/benchmarks/{args.benchmark}/{args.benchmark}.json"
-    )
+    data_path = Path(args.data_path or f"data/benchmarks/{args.benchmark}/{args.benchmark}.json")
     if not data_path.exists():
         logger.error(
             "Benchmark data not found at %s. Run download_benchmarks.py first.",
@@ -452,7 +447,7 @@ def main():
 
     # Summary
     statuses = {}
-    for vid, info in results.items():
+    for _vid, info in results.items():
         s = info.get("status", "unknown")
         statuses[s] = statuses.get(s, 0) + 1
 

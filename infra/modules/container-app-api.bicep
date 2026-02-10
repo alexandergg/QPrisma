@@ -24,7 +24,6 @@ param registryPassword string
 param envVars array = []
 
 @description('Secrets for the container app ({name, value} pairs)')
-@secure()
 param secrets array = []
 
 @description('Environment variables that reference secrets ({name, secretRef} pairs)')

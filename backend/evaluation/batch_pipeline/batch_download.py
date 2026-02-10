@@ -6,7 +6,6 @@ then downloads result files.
 """
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 
@@ -50,17 +49,13 @@ async def download_batch_results(
             status = batch.status
 
             if status == "completed":
-                path = await _download_output(
-                    client, batch.output_file_id, batch_id, output_dir
-                )
+                path = await _download_output(client, batch.output_file_id, batch_id, output_dir)
                 result_paths.append(path)
                 completed_this_round.append(batch_id)
                 logger.info("Batch %s completed -> %s", batch_id, path)
 
             elif status == "failed":
-                logger.error(
-                    "Batch %s failed: %s", batch_id, getattr(batch, "errors", "unknown")
-                )
+                logger.error("Batch %s failed: %s", batch_id, getattr(batch, "errors", "unknown"))
                 completed_this_round.append(batch_id)
 
             elif status == "expired":

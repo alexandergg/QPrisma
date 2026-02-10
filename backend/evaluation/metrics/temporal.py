@@ -69,9 +69,7 @@ def recall_at_iou_threshold(
         )
 
     hits = sum(
-        1
-        for pred, gt in zip(predictions, ground_truths)
-        if temporal_iou(pred, gt) >= threshold
+        1 for pred, gt in zip(predictions, ground_truths) if temporal_iou(pred, gt) >= threshold
     )
     return hits / len(predictions)
 
@@ -100,10 +98,7 @@ def mean_iou(
             f"got {len(predictions)} and {len(ground_truths)}"
         )
 
-    total_iou = sum(
-        temporal_iou(pred, gt)
-        for pred, gt in zip(predictions, ground_truths)
-    )
+    total_iou = sum(temporal_iou(pred, gt) for pred, gt in zip(predictions, ground_truths))
     return total_iou / len(predictions)
 
 
@@ -133,8 +128,7 @@ def timestamp_mae(
         )
 
     total_error = sum(
-        abs(pred - gt)
-        for pred, gt in zip(predicted_timestamps, ground_truth_timestamps)
+        abs(pred - gt) for pred, gt in zip(predicted_timestamps, ground_truth_timestamps)
     )
     return total_error / len(predicted_timestamps)
 

@@ -26,16 +26,10 @@ from .constants import (
     WHISPER_MAX_FILE_SIZE_MB,
 )
 from .exceptions import (
-    # Structured API errors (recommended)
-    APIError,
-    access_denied_error,
-    internal_error,
-    not_found_error,
-    rate_limit_error,
-    service_unavailable_error,
-    validation_error,
     # Base exceptions
     AccessDeniedError,
+    # Structured API errors (recommended)
+    APIError,
     ConfigurationError,
     GraphConnectionError,
     GraphError,
@@ -45,6 +39,12 @@ from .exceptions import (
     ServiceUnavailableError,
     TranscriptionError,
     ValidationError,
+    access_denied_error,
+    internal_error,
+    not_found_error,
+    rate_limit_error,
+    service_unavailable_error,
+    validation_error,
 )
 from .logging_config import PipelineLogger, get_logger, setup_logging
 

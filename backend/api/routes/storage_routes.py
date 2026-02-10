@@ -9,7 +9,7 @@ Endpoints for managing Azure Blob Storage tiers:
 - Generate lifecycle policy
 """
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,18 +34,21 @@ router = APIRouter(prefix="/storage", tags=["storage-tiering"])
 
 class ChangeTierRequest(BaseModel):
     """Request to change storage tier."""
+
     target_tier: StorageTier
     rehydrate_priority: RehydratePriority = RehydratePriority.STANDARD
 
 
 class RehydrateRequest(BaseModel):
     """Request to rehydrate an archived video."""
+
     priority: RehydratePriority = RehydratePriority.STANDARD
     target_tier: StorageTier = StorageTier.HOT
 
 
 class LifecyclePolicyRequest(BaseModel):
     """Request to generate lifecycle policy."""
+
     cool_days: int = 30
     cold_days: int = 90
     archive_days: int = 180
@@ -101,16 +104,21 @@ async def get_media_tier(
             "blob_name": media.blob_name,
             "storage_tier": media.storage_tier or "Hot",
             "rehydration_status": media.rehydration_status,
-            "last_accessed_at": media.last_accessed_at.isoformat() if media.last_accessed_at else None,
+            "last_accessed_at": (
+                media.last_accessed_at.isoformat() if media.last_accessed_at else None
+            ),
             "source": "database",
         }
 
     # Update database with current tier from Azure
     if tier_info.current_tier.value != media.storage_tier:
-        db.update_media(media_id, {
-            "storage_tier": tier_info.current_tier.value,
-            "rehydration_status": tier_info.rehydration_status,
-        })
+        db.update_media(
+            media_id,
+            {
+                "storage_tier": tier_info.current_tier.value,
+                "rehydration_status": tier_info.rehydration_status,
+            },
+        )
 
     return {
         "media_id": media_id,
@@ -120,7 +128,9 @@ async def get_media_tier(
         "is_rehydrating": tier_info.is_rehydrating,
         "rehydration_status": tier_info.rehydration_status,
         "estimated_rehydration_time": tier_info.estimated_rehydration_time,
-        "last_accessed_at": tier_info.last_accessed.isoformat() if tier_info.last_accessed else None,
+        "last_accessed_at": (
+            tier_info.last_accessed.isoformat() if tier_info.last_accessed else None
+        ),
         "source": "azure",
     }
 
@@ -158,7 +168,9 @@ async def change_media_tier(
         # Update database
         update_data = {"storage_tier": request.target_tier.value}
         if result.from_tier == StorageTier.ARCHIVE:
-            update_data["rehydration_status"] = f"rehydrate-pending-to-{request.target_tier.value.lower()}"
+            update_data["rehydration_status"] = (
+                f"rehydrate-pending-to-{request.target_tier.value.lower()}"
+            )
         else:
             update_data["rehydration_status"] = None
 
@@ -199,8 +211,7 @@ async def rehydrate_media(
     # Check if actually archived
     if media.storage_tier != "Archive":
         raise HTTPException(
-            status_code=400,
-            detail=f"Video is not archived (current tier: {media.storage_tier})"
+            status_code=400, detail=f"Video is not archived (current tier: {media.storage_tier})"
         )
 
     service = get_storage_tiering_service()
@@ -211,9 +222,12 @@ async def rehydrate_media(
     )
 
     if result.success:
-        db.update_media(media_id, {
-            "rehydration_status": f"rehydrate-pending-to-{request.target_tier.value.lower()}",
-        })
+        db.update_media(
+            media_id,
+            {
+                "rehydration_status": f"rehydrate-pending-to-{request.target_tier.value.lower()}",
+            },
+        )
 
     estimated_time = "< 1 hour" if request.priority == RehydratePriority.HIGH else "1-15 hours"
 
@@ -223,7 +237,11 @@ async def rehydrate_media(
         "priority": request.priority.value,
         "target_tier": request.target_tier.value,
         "estimated_time": estimated_time,
-        "message": f"Rehydration started. Video will be available in {estimated_time}." if result.success else result.error,
+        "message": (
+            f"Rehydration started. Video will be available in {estimated_time}."
+            if result.success
+            else result.error
+        ),
     }
 
 
@@ -251,12 +269,21 @@ async def get_tier_recommendation(
     return {
         "media_id": media_id,
         "current_tier": media.storage_tier or "Hot",
-        "recommended_tier": recommendation["recommended_tier"].value if hasattr(recommendation["recommended_tier"], "value") else recommendation["recommended_tier"],
+        "recommended_tier": (
+            recommendation["recommended_tier"].value
+            if hasattr(recommendation["recommended_tier"], "value")
+            else recommendation["recommended_tier"]
+        ),
         "reason": recommendation["reason"],
         "days_since_access": recommendation["days_since_access"],
         "estimated_monthly_cost_usd": recommendation["estimated_monthly_cost_usd"],
         "potential_monthly_savings_usd": recommendation["potential_monthly_savings_usd"],
-        "should_change": (media.storage_tier or "Hot") != (recommendation["recommended_tier"].value if hasattr(recommendation["recommended_tier"], "value") else recommendation["recommended_tier"]),
+        "should_change": (media.storage_tier or "Hot")
+        != (
+            recommendation["recommended_tier"].value
+            if hasattr(recommendation["recommended_tier"], "value")
+            else recommendation["recommended_tier"]
+        ),
     }
 
 
@@ -352,10 +379,13 @@ async def sync_all_tiers(
         try:
             tier_info = service.get_blob_tier_info(media.blob_name)
             if tier_info:
-                db.update_media(media.id, {
-                    "storage_tier": tier_info.current_tier.value,
-                    "rehydration_status": tier_info.rehydration_status,
-                })
+                db.update_media(
+                    media.id,
+                    {
+                        "storage_tier": tier_info.current_tier.value,
+                        "rehydration_status": tier_info.rehydration_status,
+                    },
+                )
                 synced += 1
         except Exception:
             errors += 1
@@ -381,9 +411,12 @@ async def record_media_access(
     db = get_database_service()
     get_media_or_404(media_id, current_user)
 
-    db.update_media(media_id, {
-        "last_accessed_at": datetime.now(UTC),
-    })
+    db.update_media(
+        media_id,
+        {
+            "last_accessed_at": datetime.now(UTC),
+        },
+    )
 
     return {
         "media_id": media_id,

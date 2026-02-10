@@ -16,7 +16,7 @@ Key Features:
 import logging
 import subprocess
 from dataclasses import asdict, dataclass
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -194,7 +194,8 @@ class SceneAnalyzer:
                             try:
                                 # Look for pattern like "scene:0.456789"
                                 import re
-                                scene_match = re.search(r'scene[:\s]+(\d+\.?\d*)', line.lower())
+
+                                scene_match = re.search(r"scene[:\s]+(\d+\.?\d*)", line.lower())
                                 if scene_match:
                                     scene_score = float(scene_match.group(1))
                             except (ValueError, IndexError):

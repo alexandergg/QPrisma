@@ -288,4 +288,3 @@ if __name__ == "__main__":
         print("  --simulate     Simular progreso de un job")
         print()
         print("Para tests unitarios: pytest tests/test_websocket.py -v")
-

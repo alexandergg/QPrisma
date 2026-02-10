@@ -823,7 +823,7 @@ export const apiClient = {
     let currentTaskId: string | undefined;
     let currentContextId: string | undefined;
     let accumulatedContent = '';
-    let toolsUsed: string[] = [];
+    const toolsUsed: string[] = [];
 
     while (true) {
       const { done, value } = await reader.read();
@@ -976,7 +976,7 @@ export const apiClient = {
     let buffer = '';
     let currentContextId: string | undefined;
     let accumulatedContent = '';
-    let toolsUsed: string[] = [];
+    const toolsUsed: string[] = [];
 
     while (true) {
       const { done, value } = await reader.read();

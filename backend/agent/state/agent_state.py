@@ -14,7 +14,6 @@ Best Practices (LangGraph v1.0+):
 """
 
 import logging
-
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage, ToolMessage, trim_messages
@@ -46,7 +45,9 @@ def _token_counter(messages: list[AnyMessage]) -> int:
         total += 10
 
         # Content tokens
-        content = msg.content if isinstance(msg.content, str) else str(msg.content) if msg.content else ""
+        content = (
+            msg.content if isinstance(msg.content, str) else str(msg.content) if msg.content else ""
+        )
         total += _estimate_tokens(content)
 
         # Tool calls overhead
@@ -69,7 +70,7 @@ def truncate_tool_message_content(msg: AnyMessage) -> AnyMessage:
         return ToolMessage(
             content=truncated,
             tool_call_id=msg.tool_call_id,
-            name=msg.name if hasattr(msg, 'name') else None,
+            name=msg.name if hasattr(msg, "name") else None,
         )
     return msg
 
@@ -122,7 +123,7 @@ class AgentState(TypedDict, total=False):
 
     Uses Annotated with add_messages reducer for automatic message accumulation.
     Each node reads/writes to this state.
-    
+
     NOTE: This is the INTERNAL state. Use AgentInputState for graph input
     and AgentOutputState for graph output to hide internal bookkeeping.
     """
@@ -149,7 +150,7 @@ class AgentState(TypedDict, total=False):
     # Iteration tracking (INTERNAL - hidden from API consumers)
     tool_calls_count: int
     conversation_context: list[str]  # Key topics/entities discussed (bounded to 10)
-    
+
     # Error tracking (INTERNAL - for graceful degradation)
     consecutive_errors: int
     last_error: str | None
@@ -168,10 +169,11 @@ class AgentState(TypedDict, total=False):
 class AgentInputState(TypedDict, total=False):
     """
     Input schema for the agent graph.
-    
+
     This is what API consumers provide - clean and simple.
     Internal bookkeeping fields (tool_calls_count, etc.) are hidden.
     """
+
     messages: Annotated[list[AnyMessage], add_messages]
     media_id: str | None
     media_ids: list[str] | None
@@ -185,10 +187,11 @@ class AgentInputState(TypedDict, total=False):
 class AgentOutputState(TypedDict, total=False):
     """
     Output schema for the agent graph.
-    
+
     This is what API consumers receive - only relevant results.
     Internal bookkeeping fields are excluded.
     """
+
     messages: Annotated[list[AnyMessage], add_messages]
     sources: list[dict]
     # Expose these for user context but not internal tracking
@@ -198,6 +201,7 @@ class AgentOutputState(TypedDict, total=False):
 
 class SourceMetadata(TypedDict, total=False):
     """Structured metadata for a source reference."""
+
     timestamp: float
     timestamp_formatted: str
     type: str  # 'visual', 'audio', 'entity', 'comparison', 'timeline'
@@ -207,6 +211,7 @@ class SourceMetadata(TypedDict, total=False):
 
 class NavigationAction(TypedDict, total=False):
     """A navigation action the user can take."""
+
     action: str  # 'jump_to', 'create_clip', etc.
     label: str
     timestamp: float
@@ -216,6 +221,7 @@ class NavigationAction(TypedDict, total=False):
 
 class ClipSuggestion(TypedDict, total=False):
     """A suggested clip from highlights or analysis."""
+
     action: str
     label: str
     timestamp: float
@@ -225,6 +231,7 @@ class ClipSuggestion(TypedDict, total=False):
 
 class EntityMention(TypedDict, total=False):
     """An entity mentioned in the conversation."""
+
     name: str
     type: str
     relevance: float
@@ -276,7 +283,7 @@ def create_agent_state(
         f"create_agent_state: media_id='{primary_media_id}', "
         f"media_ids={effective_ids}, session_id='{session_id}'"
     )
-    
+
     video_context: VideoContext | None = None
     if primary_media_id:
         video_context = VideoContext(media_id=primary_media_id)
@@ -306,47 +313,49 @@ def create_agent_state(
 
 class RetryableError(Exception):
     """Errors that should trigger retry (transient failures)."""
+
     pass
 
 
 class NonRetryableError(Exception):
     """Errors that should NOT trigger retry (auth, validation, etc.)."""
+
     pass
 
 
 # Exceptions that should NOT be retried
 NON_RETRYABLE_EXCEPTIONS = (
-    ValueError,           # Validation errors
-    TypeError,            # Type errors
-    KeyError,             # Missing keys
-    PermissionError,      # Auth errors
-    NonRetryableError,    # Explicit non-retryable
+    ValueError,  # Validation errors
+    TypeError,  # Type errors
+    KeyError,  # Missing keys
+    PermissionError,  # Auth errors
+    NonRetryableError,  # Explicit non-retryable
 )
 
 # Exceptions that SHOULD be retried
 RETRYABLE_EXCEPTIONS = (
-    ConnectionError,      # Network issues
-    TimeoutError,         # Timeouts
-    RetryableError,       # Explicit retryable
-    OSError,              # I/O errors (often transient)
+    ConnectionError,  # Network issues
+    TimeoutError,  # Timeouts
+    RetryableError,  # Explicit retryable
+    OSError,  # I/O errors (often transient)
 )
 
 
 def should_retry_exception(exc: Exception) -> bool:
     """
     Determine if an exception should trigger a retry.
-    
+
     Per-exception retry policy - only retry transient errors,
     fail fast on auth/validation errors.
     """
     # Never retry explicit non-retryable errors
     if isinstance(exc, NON_RETRYABLE_EXCEPTIONS):
         return False
-    
+
     # Always retry explicit retryable errors
     if isinstance(exc, RETRYABLE_EXCEPTIONS):
         return True
-    
+
     # Check error message for common transient patterns
     error_msg = str(exc).lower()
     transient_patterns = [
@@ -358,5 +367,5 @@ def should_retry_exception(exc: Exception) -> bool:
         "429",
         "retry",
     ]
-    
+
     return any(pattern in error_msg for pattern in transient_patterns)

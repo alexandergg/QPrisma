@@ -71,8 +71,10 @@ class ExportService:
         try:
             cmd = [
                 "ffprobe",
-                "-v", "quiet",
-                "-print_format", "json",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_format",
                 "-show_streams",
                 video_path,
@@ -133,9 +135,12 @@ class ExportService:
         cmd = [
             "ffmpeg",
             "-y",
-            "-ss", str(config.start_time),
-            "-to", str(config.end_time),
-            "-i", input_path,
+            "-ss",
+            str(config.start_time),
+            "-to",
+            str(config.end_time),
+            "-i",
+            input_path,
         ]
 
         filters = []
@@ -174,6 +179,7 @@ class ExportService:
             if blob_url.startswith("http"):
                 # Parse URL to get blob name
                 from urllib.parse import urlparse
+
                 parsed = urlparse(blob_url)
                 path_parts = parsed.path.lstrip("/").split("/", 1)
                 if len(path_parts) == 2:
@@ -360,9 +366,12 @@ class ExportService:
             cmd = [
                 "ffmpeg",
                 "-y",  # Overwrite output
-                "-ss", str(start_time),  # Seek to start (fast seek before input)
-                "-i", input_path,
-                "-t", str(duration),  # Duration
+                "-ss",
+                str(start_time),  # Seek to start (fast seek before input)
+                "-i",
+                input_path,
+                "-t",
+                str(duration),  # Duration
             ]
 
             # Add filter chain
@@ -370,24 +379,39 @@ class ExportService:
                 cmd.extend(["-vf", filter_str])
 
             # Video codec settings
-            cmd.extend([
-                "-c:v", preset.codec,
-                "-preset", quality.preset,
-                "-crf", str(quality.crf),
-                "-profile:v", preset.profile,
-                "-level:v", preset.level,
-                "-pix_fmt", preset.pixel_format,
-                "-maxrate", f"{video_bitrate}k",
-                "-bufsize", f"{video_bitrate * 2}k",
-            ])
+            cmd.extend(
+                [
+                    "-c:v",
+                    preset.codec,
+                    "-preset",
+                    quality.preset,
+                    "-crf",
+                    str(quality.crf),
+                    "-profile:v",
+                    preset.profile,
+                    "-level:v",
+                    preset.level,
+                    "-pix_fmt",
+                    preset.pixel_format,
+                    "-maxrate",
+                    f"{video_bitrate}k",
+                    "-bufsize",
+                    f"{video_bitrate * 2}k",
+                ]
+            )
 
             # Audio codec settings
             if video_info.get("has_audio"):
-                cmd.extend([
-                    "-c:a", "aac",
-                    "-b:a", f"{preset.audio_bitrate}k",
-                    "-ar", str(preset.audio_sample_rate),
-                ])
+                cmd.extend(
+                    [
+                        "-c:a",
+                        "aac",
+                        "-b:a",
+                        f"{preset.audio_bitrate}k",
+                        "-ar",
+                        str(preset.audio_sample_rate),
+                    ]
+                )
             else:
                 cmd.extend(["-an"])  # No audio
 
@@ -593,11 +617,14 @@ class ExportService:
                 return progress
 
             # Update clip in database
-            self.db.update_clip(clip_id, {
-                "export_status": "done",
-                "export_url": output_url,
-                "export_format": platform_preset.name,
-            })
+            self.db.update_clip(
+                clip_id,
+                {
+                    "export_status": "done",
+                    "export_url": output_url,
+                    "export_format": platform_preset.name,
+                },
+            )
 
             # Get file size
             file_size = os.path.getsize(output_path)
@@ -704,7 +731,11 @@ class ExportService:
                 {"id": "none", "name": "None", "description": "Keep original aspect ratio"},
                 {"id": "center", "name": "Center Crop", "description": "Crop to center of frame"},
                 {"id": "letterbox", "name": "Letterbox", "description": "Add black bars to fit"},
-                {"id": "blur_fill", "name": "Blur Fill", "description": "Fill with blurred background"},
+                {
+                    "id": "blur_fill",
+                    "name": "Blur Fill",
+                    "description": "Fill with blurred background",
+                },
             ],
         }
 

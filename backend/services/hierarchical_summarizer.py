@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from openai import AzureOpenAI, APIError, APIConnectionError, RateLimitError
+from openai import APIConnectionError, APIError, AzureOpenAI, RateLimitError
 
 from core.config import create_azure_openai_client, get_settings
 from services.scene_analyzer import Scene, VideoStructure

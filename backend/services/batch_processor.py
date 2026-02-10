@@ -34,8 +34,8 @@ class BatchProcessor:
     """
 
     # Pricing (batch = 50% of regular)
-    COST_PER_1K_INPUT = 0.0025   # $2.50 per 1M input tokens
-    COST_PER_1K_OUTPUT = 0.01    # $10.00 per 1M output tokens
+    COST_PER_1K_INPUT = 0.0025  # $2.50 per 1M input tokens
+    COST_PER_1K_OUTPUT = 0.01  # $10.00 per 1M output tokens
 
     # Estimates
     AVG_INPUT_TOKENS_PER_FRAME = 1000
@@ -177,14 +177,10 @@ Be thorough but factual. Prioritize information that would help users find this 
         requests = []
         for idx, frame_data in enumerate(frames_data):
             prompt_text = custom_prompt or default_prompt
-            frame_num = frame_data.get('frame_number', idx)
-            timestamp = frame_data.get('timestamp', 0)
-            prompt_text = prompt_text.replace(
-                "{frame_number}", str(frame_num)
-            )
-            prompt_text = prompt_text.replace(
-                "{timestamp}", str(timestamp)
-            )
+            frame_num = frame_data.get("frame_number", idx)
+            timestamp = frame_data.get("timestamp", 0)
+            prompt_text = prompt_text.replace("{frame_number}", str(frame_num))
+            prompt_text = prompt_text.replace("{timestamp}", str(timestamp))
 
             body: dict[str, Any] = {
                 "model": self.gpt_deployment,
@@ -232,7 +228,7 @@ Be thorough but factual. Prioritize information that would help users find this 
 
         Returns:
             batch_id del job creado.
-            
+
         Raises:
             APIError: Si hay un error de API.
             OSError: Si hay error escribiendo el archivo temporal.
@@ -272,10 +268,10 @@ Be thorough but factual. Prioritize information that would help users find this 
     async def check_batch_status(self, batch_id: str) -> dict[str, Any]:
         """
         Verifica el estado de un batch job.
-        
+
         Args:
             batch_id: ID del batch job.
-            
+
         Returns:
             Diccionario con estado del batch.
         """
@@ -350,13 +346,13 @@ Be thorough but factual. Prioritize information that would help users find this 
     async def get_batch_results(self, batch_id: str) -> list[dict[str, Any]]:
         """
         Obtiene los resultados de un batch job completado.
-        
+
         Args:
             batch_id: ID del batch job.
-            
+
         Returns:
             Lista de resultados del batch.
-            
+
         Raises:
             ValueError: Si el batch no está completado o no hay archivo de salida.
         """

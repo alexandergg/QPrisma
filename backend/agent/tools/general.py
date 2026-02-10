@@ -24,9 +24,7 @@ logger = logging.getLogger(__name__)
 @tool
 async def search_video(
     query: Annotated[str, "What to search for in the video"],
-    content_type: Annotated[
-        str, "Type of content: 'all', 'visual', or 'audio'"
-    ] = "all",
+    content_type: Annotated[str, "Type of content: 'all', 'visual', or 'audio'"] = "all",
     time_range_start: Annotated[float | None, "Start of time range in seconds"] = None,
     time_range_end: Annotated[float | None, "End of time range in seconds"] = None,
     limit: Annotated[int, "Maximum results to return"] = 5,
@@ -37,14 +35,14 @@ async def search_video(
     Returns timestamped results with descriptions.
     """
     logger.info(f"search_video called with query='{query}', media_id='{media_id}'")
-    
+
     if not media_id:
         logger.warning("search_video: No media_id provided via InjectedState")
         return {"error": "No video context available. Please select a video first.", "results": []}
 
     try:
-        from services.graph_search_service import get_graph_search_service
         from models.graph_models import NodeType
+        from services.graph_search_service import get_graph_search_service
 
         search_service = get_graph_search_service()
 
@@ -78,36 +76,42 @@ async def search_video(
                 continue
 
             if r.node_type == NodeType.FRAME:
-                results.append({
-                    "timestamp": ts,
-                    "timestamp_formatted": format_timestamp(ts),
-                    "type": "visual",
-                    "content": r.content.get("description", "")[:900],
-                    "score": round(r.combined_score, 3),
-                })
+                results.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "type": "visual",
+                        "content": r.content.get("description", "")[:900],
+                        "score": round(r.combined_score, 3),
+                    }
+                )
             elif r.node_type == NodeType.AUDIO_SEGMENT:
-                results.append({
-                    "timestamp": ts,
-                    "timestamp_formatted": format_timestamp(ts),
-                    "type": "audio",
-                    "content": r.content.get("text", "")[:600],
-                    "score": round(r.combined_score, 3),
-                })
+                results.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "type": "audio",
+                        "content": r.content.get("text", "")[:600],
+                        "score": round(r.combined_score, 3),
+                    }
+                )
             elif r.node_type == NodeType.ENTITY:
                 # Include entity attributes for richer context
                 entity_desc = f"{r.content.get('type', 'entity')}: {r.content.get('name', '')}"
-                if r.content.get('description'):
+                if r.content.get("description"):
                     entity_desc += f" - {r.content['description'][:200]}"
-                if r.content.get('attributes'):
-                    attrs = r.content['attributes']
+                if r.content.get("attributes"):
+                    attrs = r.content["attributes"]
                     entity_desc += f" [{', '.join(f'{k}={v}' for k,v in attrs.items())}]"
-                results.append({
-                    "timestamp": ts,
-                    "timestamp_formatted": format_timestamp(ts),
-                    "type": "entity",
-                    "content": entity_desc,
-                    "score": round(r.combined_score, 3),
-                })
+                results.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "type": "entity",
+                        "content": entity_desc,
+                        "score": round(r.combined_score, 3),
+                    }
+                )
 
             if len(results) >= limit:
                 break
@@ -139,8 +143,8 @@ async def find_entity(
         return {"error": "No video context available.", "occurrences": []}
 
     try:
-        from services.graph_search_service import get_graph_search_service
         from models.graph_models import NodeType
+        from services.graph_search_service import get_graph_search_service
 
         search_service = get_graph_search_service()
 
@@ -181,13 +185,15 @@ async def find_entity(
                 context = r.content.get("text", "")[:500]
                 occurrence_type = "mentioned"
 
-            occurrences.append({
-                "timestamp": ts,
-                "timestamp_formatted": format_timestamp(ts),
-                "occurrence_type": occurrence_type,
-                "context": context,
-                "confidence": round(r.combined_score, 3),
-            })
+            occurrences.append(
+                {
+                    "timestamp": ts,
+                    "timestamp_formatted": format_timestamp(ts),
+                    "occurrence_type": occurrence_type,
+                    "context": context,
+                    "confidence": round(r.combined_score, 3),
+                }
+            )
 
         occurrences.sort(key=lambda x: x["timestamp"])
 
@@ -233,13 +239,13 @@ async def get_transcript(
                 WHERE a.video_id = $media_id
                   AND a.timestamp >= $start_time
                   AND a.timestamp <= $end_time
-                RETURN a.timestamp as timestamp, a.text as text, 
+                RETURN a.timestamp as timestamp, a.text as text,
                        a.speaker as speaker, a.confidence as confidence
                 ORDER BY a.timestamp
                 """,
                 media_id=media_id,
                 start_time=start_time,
-                end_time=end_time
+                end_time=end_time,
             )
             segments = list(result)
 
@@ -253,12 +259,12 @@ async def get_transcript(
 
         transcript_parts = []
         speakers_found = set()
-        
+
         for seg in segments:
             ts = format_timestamp(seg.get("timestamp", 0))
             text = seg.get("text", "")
             speaker = seg.get("speaker")
-            
+
             if include_speakers and speaker:
                 speakers_found.add(speaker)
                 transcript_parts.append(f"[{ts}] **{speaker}**: {text}")
@@ -313,7 +319,7 @@ async def describe_scene(
                 LIMIT 1
                 """,
                 media_id=media_id,
-                timestamp=timestamp
+                timestamp=timestamp,
             )
             frame = result.single()
 
@@ -365,7 +371,7 @@ async def list_chapters(
                        s.description as description, s.scene_type as scene_type
                 ORDER BY s.start_time
                 """,
-                media_id=media_id
+                media_id=media_id,
             )
             scenes = list(result)
 
@@ -378,7 +384,7 @@ async def list_chapters(
                     WHERE v.video_id = $media_id OR v.id = $media_id
                     RETURN v.topics as topics, v.summary as summary
                     """,
-                    media_id=media_id
+                    media_id=media_id,
                 )
                 record = result.single()
                 if record and record.get("topics"):
@@ -474,7 +480,7 @@ async def get_summary(
                 RETURN v.summary as summary, v.title as title, v.topics as topics,
                        v.duration_seconds as duration
                 """,
-                media_id=media_id
+                media_id=media_id,
             )
             record = result.single()
 
@@ -542,7 +548,7 @@ async def get_scene_context(
                 """,
                 media_id=media_id,
                 start_time=start_time,
-                end_time=end_time
+                end_time=end_time,
             )
             frames = list(result)
 
@@ -559,7 +565,7 @@ async def get_scene_context(
                 """,
                 media_id=media_id,
                 start_time=start_time,
-                end_time=end_time
+                end_time=end_time,
             )
             audio_segments = list(result)
 
@@ -576,7 +582,7 @@ async def get_scene_context(
                 LIMIT 1
                 """,
                 media_id=media_id,
-                timestamp=timestamp
+                timestamp=timestamp,
             )
             scene = result.single()
 
@@ -594,11 +600,19 @@ async def get_scene_context(
                 "start_formatted": format_timestamp(start_time),
                 "end_formatted": format_timestamp(end_time),
             },
-            "current_scene": {
-                "type": scene.get("scene_type") if scene else None,
-                "description": scene.get("description") if scene else None,
-                "time_range": f"{format_timestamp(scene.get('start_time', 0))} - {format_timestamp(scene.get('end_time', 0))}" if scene else None,
-            } if scene else None,
+            "current_scene": (
+                {
+                    "type": scene.get("scene_type") if scene else None,
+                    "description": scene.get("description") if scene else None,
+                    "time_range": (
+                        f"{format_timestamp(scene.get('start_time', 0))} - {format_timestamp(scene.get('end_time', 0))}"
+                        if scene
+                        else None
+                    ),
+                }
+                if scene
+                else None
+            ),
             "before": {
                 "frames": [
                     {
@@ -621,7 +635,8 @@ async def get_scene_context(
                         "timestamp": format_timestamp(a["timestamp"]),
                         "text": a["text"],
                     }
-                    for a in audio_segments if timestamp - 10 <= a["timestamp"] <= timestamp + 10
+                    for a in audio_segments
+                    if timestamp - 10 <= a["timestamp"] <= timestamp + 10
                 ],
             },
             "after": {
@@ -660,8 +675,8 @@ async def get_related_content(
         return {"error": "No video context available.", "related": []}
 
     try:
-        from services.graph_search_service import get_graph_search_service
         from models.graph_models import NodeType
+        from services.graph_search_service import get_graph_search_service
 
         search_service = get_graph_search_service()
 
@@ -685,27 +700,33 @@ async def get_related_content(
 
         for r in search_response.results:
             if r.node_type == NodeType.ENTITY:
-                entities.append({
-                    "name": r.content.get("name"),
-                    "type": r.content.get("type"),
-                    "description": r.content.get("description", "")[:200],
-                    "relevance": round(r.combined_score, 3),
-                })
+                entities.append(
+                    {
+                        "name": r.content.get("name"),
+                        "type": r.content.get("type"),
+                        "description": r.content.get("description", "")[:200],
+                        "relevance": round(r.combined_score, 3),
+                    }
+                )
             elif r.node_type == NodeType.TOPIC:
-                topics.append({
-                    "name": r.content.get("name"),
-                    "description": r.content.get("description", "")[:200],
-                    "relevance": round(r.combined_score, 3),
-                })
+                topics.append(
+                    {
+                        "name": r.content.get("name"),
+                        "description": r.content.get("description", "")[:200],
+                        "relevance": round(r.combined_score, 3),
+                    }
+                )
             elif r.node_type in [NodeType.FRAME, NodeType.SCENE]:
                 ts = get_timestamp_from_content(r.content)
-                moments.append({
-                    "timestamp": ts,
-                    "timestamp_formatted": format_timestamp(ts),
-                    "type": "scene" if r.node_type == NodeType.SCENE else "frame",
-                    "description": r.content.get("description", "")[:300],
-                    "relevance": round(r.combined_score, 3),
-                })
+                moments.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "type": "scene" if r.node_type == NodeType.SCENE else "frame",
+                        "description": r.content.get("description", "")[:300],
+                        "relevance": round(r.combined_score, 3),
+                    }
+                )
 
         # Sort moments by timestamp
         moments.sort(key=lambda x: x["timestamp"])
@@ -726,7 +747,9 @@ async def get_related_content(
 @tool
 async def get_entity_timeline(
     entity_name: Annotated[str, "Name of the entity to track"],
-    entity_type: Annotated[str, "Type: 'person', 'object', 'concept', 'location', or 'any'"] = "any",
+    entity_type: Annotated[
+        str, "Type: 'person', 'object', 'concept', 'location', or 'any'"
+    ] = "any",
     include_context: Annotated[bool, "Include surrounding context for each appearance"] = True,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
@@ -759,7 +782,7 @@ async def get_entity_timeline(
                 RETURN e.name as name, e.type as entity_type, frames, audios
                 """,
                 media_id=media_id,
-                entity_name=entity_name
+                entity_name=entity_name,
             )
             entities = list(result)
 
@@ -767,7 +790,10 @@ async def get_entity_timeline(
         seen_timestamps = set()
 
         for entity in entities:
-            if entity_type != "any" and entity.get("entity_type", "").lower() != entity_type.lower():
+            if (
+                entity_type != "any"
+                and entity.get("entity_type", "").lower() != entity_type.lower()
+            ):
                 continue
 
             # Add frame appearances
@@ -780,13 +806,15 @@ async def get_entity_timeline(
                     continue
                 seen_timestamps.add(ts_key)
 
-                timeline.append({
-                    "timestamp": ts,
-                    "timestamp_formatted": format_timestamp(ts),
-                    "appearance_type": "visual",
-                    "entity_name": entity.get("name"),
-                    "context": frame.get("description", "")[:400] if include_context else None,
-                })
+                timeline.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "appearance_type": "visual",
+                        "entity_name": entity.get("name"),
+                        "context": frame.get("description", "")[:400] if include_context else None,
+                    }
+                )
 
             # Add audio mentions
             for audio in entity.get("audios", []):
@@ -798,13 +826,15 @@ async def get_entity_timeline(
                     continue
                 seen_timestamps.add(ts_key)
 
-                timeline.append({
-                    "timestamp": ts,
-                    "timestamp_formatted": format_timestamp(ts),
-                    "appearance_type": "spoken",
-                    "entity_name": entity.get("name"),
-                    "context": audio.get("text", "")[:400] if include_context else None,
-                })
+                timeline.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "appearance_type": "spoken",
+                        "entity_name": entity.get("name"),
+                        "context": audio.get("text", "")[:400] if include_context else None,
+                    }
+                )
 
         # Sort by timestamp
         timeline.sort(key=lambda x: x["timestamp"])
@@ -876,7 +906,7 @@ async def compare_moments(
                         LIMIT 1
                         """,
                         media_id=media_id,
-                        timestamp=ts
+                        timestamp=ts,
                     )
                     frame = result.single()
 
@@ -901,13 +931,15 @@ async def compare_moments(
                         """,
                         media_id=media_id,
                         start=ts - 5,
-                        end=ts + 5
+                        end=ts + 5,
                     )
                     audio_segments = list(result)
 
                 if audio_segments:
                     texts = [seg.get("text", "") for seg in audio_segments]
-                    speakers = list(set(seg.get("speaker") for seg in audio_segments if seg.get("speaker")))
+                    speakers = list(
+                        {seg.get("speaker") for seg in audio_segments if seg.get("speaker")}
+                    )
                     moment_data["audio"] = {
                         "transcript": " ".join(texts)[:400],
                         "speakers": speakers,
@@ -928,10 +960,7 @@ async def compare_moments(
 
 def _time_range_overlaps(start: float, end: float, used_ranges: list[tuple[float, float]]) -> bool:
     """Check if a time range overlaps with any existing used ranges."""
-    for used_start, used_end in used_ranges:
-        if start < used_end and end > used_start:
-            return True
-    return False
+    return any(start < used_end and end > used_start for used_start, used_end in used_ranges)
 
 
 def _find_frame_highlights(
@@ -962,7 +991,7 @@ def _find_frame_highlights(
             ORDER BY size(f.description) DESC
             LIMIT 100
             """,
-            media_id=media_id
+            media_id=media_id,
         )
         candidate_frames = list(result)
 
@@ -973,11 +1002,15 @@ def _find_frame_highlights(
         segment_idx = int(ts / segment_duration) if segment_duration > 0 else 0
 
         # Keep best (longest description) per segment
-        if segment_idx not in segment_best or frame.get("desc_length", 0) > segment_best[segment_idx].get("desc_length", 0):
+        if segment_idx not in segment_best or frame.get("desc_length", 0) > segment_best[
+            segment_idx
+        ].get("desc_length", 0):
             segment_best[segment_idx] = frame
 
     # Sort segments by quality and pick top ones, distributed across video
-    sorted_segments = sorted(segment_best.items(), key=lambda x: x[1].get("desc_length", 0), reverse=True)
+    sorted_segments = sorted(
+        segment_best.items(), key=lambda x: x[1].get("desc_length", 0), reverse=True
+    )
 
     # Get video duration from first frame if available
     video_duration = 0
@@ -990,12 +1023,12 @@ def _find_frame_highlights(
                 RETURN v.duration as duration
                 LIMIT 1
                 """,
-                media_id=media_id
+                media_id=media_id,
             )
             video = result.single()
             video_duration = video.get("duration", 0) if video else 0
 
-    for segment_idx, frame in sorted_segments:
+    for _segment_idx, frame in sorted_segments:
         if len(highlights) >= max_clips:
             break
 
@@ -1013,17 +1046,19 @@ def _find_frame_highlights(
             continue
 
         desc = frame.get("description", "") or ""
-        highlights.append({
-            "start_time": start,
-            "end_time": end,
-            "start_formatted": format_timestamp(start),
-            "end_formatted": format_timestamp(end),
-            "duration": round(end - start, 1),
-            "title": "Content Highlight",
-            "description": desc[:200],
-            "highlight_reason": "Rich visual content (distributed)",
-            "suggested_for": ["social_clip", "preview"],
-        })
+        highlights.append(
+            {
+                "start_time": start,
+                "end_time": end,
+                "start_formatted": format_timestamp(start),
+                "end_formatted": format_timestamp(end),
+                "duration": round(end - start, 1),
+                "title": "Content Highlight",
+                "description": desc[:200],
+                "highlight_reason": "Rich visual content (distributed)",
+                "suggested_for": ["social_clip", "preview"],
+            }
+        )
         used_ranges.append((start, end))
 
     return highlights
@@ -1057,7 +1092,7 @@ def _find_scene_highlights(
             ORDER BY segment
             """,
             media_id=media_id,
-            segment_size=segment_duration * 2
+            segment_size=segment_duration * 2,
         )
         distributed_scenes = list(result)
 
@@ -1087,23 +1122,31 @@ def _find_scene_highlights(
                 ORDER BY size(f.description) DESC
                 LIMIT 1
                 """,
-                media_id=media_id, start=start, end=end
+                media_id=media_id,
+                start=start,
+                end=end,
             )
             frame_rec = frame_result.single()
             if frame_rec:
                 scene_desc = frame_rec.get("description", "") or ""
 
-        highlights.append({
-            "start_time": start,
-            "end_time": end,
-            "start_formatted": format_timestamp(start),
-            "end_formatted": format_timestamp(end),
-            "duration": round(duration, 1),
-            "title": "Visual Highlight",
-            "description": scene_desc[:200] if scene_desc else f"Scene from {format_timestamp(start)} to {format_timestamp(end)}",
-            "highlight_reason": "Key visual moment",
-            "suggested_for": ["social_clip", "preview"],
-        })
+        highlights.append(
+            {
+                "start_time": start,
+                "end_time": end,
+                "start_formatted": format_timestamp(start),
+                "end_formatted": format_timestamp(end),
+                "duration": round(duration, 1),
+                "title": "Visual Highlight",
+                "description": (
+                    scene_desc[:200]
+                    if scene_desc
+                    else f"Scene from {format_timestamp(start)} to {format_timestamp(end)}"
+                ),
+                "highlight_reason": "Key visual moment",
+                "suggested_for": ["social_clip", "preview"],
+            }
+        )
         used_ranges.append((start, end))
 
     return highlights
@@ -1133,7 +1176,7 @@ def _find_entity_highlights(
             ORDER BY entity_count DESC
             LIMIT 20
             """,
-            media_id=media_id
+            media_id=media_id,
         )
         entity_rich_frames = list(result)
 
@@ -1149,17 +1192,19 @@ def _find_entity_highlights(
             continue
 
         desc = frame.get("description", "") or ""
-        highlights.append({
-            "start_time": start,
-            "end_time": end,
-            "start_formatted": format_timestamp(start),
-            "end_formatted": format_timestamp(end),
-            "duration": round(end - start, 1),
-            "title": "Key Moment",
-            "description": desc[:200],
-            "highlight_reason": f"Multiple key entities ({frame.get('entity_count', 0)} detected)",
-            "suggested_for": ["social_clip", "highlight_reel"],
-        })
+        highlights.append(
+            {
+                "start_time": start,
+                "end_time": end,
+                "start_formatted": format_timestamp(start),
+                "end_formatted": format_timestamp(end),
+                "duration": round(end - start, 1),
+                "title": "Key Moment",
+                "description": desc[:200],
+                "highlight_reason": f"Multiple key entities ({frame.get('entity_count', 0)} detected)",
+                "suggested_for": ["social_clip", "highlight_reel"],
+            }
+        )
         used_ranges.append((start, end))
 
     return highlights
@@ -1188,7 +1233,7 @@ def _find_fallback_highlights(
                 RETURN v.duration as duration
                 LIMIT 1
                 """,
-                media_id=media_id
+                media_id=media_id,
             )
             video = result.single()
             video_duration = video.get("duration", 0) if video else 0
@@ -1198,7 +1243,7 @@ def _find_fallback_highlights(
         sample_points = [
             video_duration * 0.1,  # 10% mark
             video_duration * 0.5,  # Middle
-            video_duration * 0.85, # Near end
+            video_duration * 0.85,  # Near end
         ]
 
         for ts in sample_points:
@@ -1211,17 +1256,19 @@ def _find_fallback_highlights(
             if _time_range_overlaps(start, end, used_ranges):
                 continue
 
-            highlights.append({
-                "start_time": start,
-                "end_time": end,
-                "start_formatted": format_timestamp(start),
-                "end_formatted": format_timestamp(end),
-                "duration": round(end - start, 1),
-                "title": f"Sample at {int(ts/video_duration*100)}%",
-                "description": f"Key moment from {format_timestamp(start)} to {format_timestamp(end)}",
-                "highlight_reason": "Representative sample",
-                "suggested_for": ["preview"],
-            })
+            highlights.append(
+                {
+                    "start_time": start,
+                    "end_time": end,
+                    "start_formatted": format_timestamp(start),
+                    "end_formatted": format_timestamp(end),
+                    "duration": round(end - start, 1),
+                    "title": f"Sample at {int(ts/video_duration*100)}%",
+                    "description": f"Key moment from {format_timestamp(start)} to {format_timestamp(end)}",
+                    "highlight_reason": "Representative sample",
+                    "suggested_for": ["preview"],
+                }
+            )
             used_ranges.append((start, end))
 
     return highlights
@@ -1229,7 +1276,9 @@ def _find_fallback_highlights(
 
 @tool
 async def find_highlights(
-    criteria: Annotated[str, "What makes a moment a highlight: 'engagement', 'action', 'key_topics', 'all'"] = "all",
+    criteria: Annotated[
+        str, "What makes a moment a highlight: 'engagement', 'action', 'key_topics', 'all'"
+    ] = "all",
     max_clips: Annotated[int, "Maximum number of highlight clips to suggest"] = 5,
     min_duration: Annotated[float, "Minimum clip duration in seconds"] = 10.0,
     max_duration: Annotated[float, "Maximum clip duration in seconds"] = 60.0,
@@ -1262,7 +1311,7 @@ async def find_highlights(
                 RETURN v.duration as duration
                 LIMIT 1
                 """,
-                media_id=media_id
+                media_id=media_id,
             )
             video = result.single()
             video_duration = video.get("duration", 0) if video else 0
@@ -1276,7 +1325,7 @@ async def find_highlights(
                     WHERE s.video_id = $media_id
                     RETURN max(s.end_time) as max_end
                     """,
-                    media_id=media_id
+                    media_id=media_id,
                 )
                 rec = result.single()
                 video_duration = rec.get("max_end", 0) if rec else 0
@@ -1294,8 +1343,13 @@ async def find_highlights(
         # Strategy 2: Scenes with visual variety
         if len(highlights) < max_clips:
             scene_highlights = _find_scene_highlights(
-                kg, media_id, segment_duration, max_clips - len(highlights),
-                min_duration, max_duration, used_ranges
+                kg,
+                media_id,
+                segment_duration,
+                max_clips - len(highlights),
+                min_duration,
+                max_duration,
+                used_ranges,
             )
             highlights.extend(scene_highlights)
 
@@ -1309,8 +1363,7 @@ async def find_highlights(
         # Strategy 4: Fallback - evenly spaced key moments
         if len(highlights) < 3:
             fallback_highlights = _find_fallback_highlights(
-                kg, media_id, video_duration, max_clips - len(highlights),
-                min_duration, used_ranges
+                kg, media_id, video_duration, max_clips - len(highlights), min_duration, used_ranges
             )
             highlights.extend(fallback_highlights)
 
@@ -1375,7 +1428,7 @@ async def search_across_videos(
                     query=query,
                     media_ids=media_ids,
                     limit=limit_per_video,
-                    max_videos=max_videos
+                    max_videos=max_videos,
                 )
                 video_results = list(result)
 
@@ -1400,7 +1453,7 @@ async def search_across_videos(
                         query=query,
                         media_ids=media_ids,
                         limit=limit_per_video,
-                        max_videos=max_videos
+                        max_videos=max_videos,
                     )
                     video_results = list(result)
         else:
@@ -1422,7 +1475,7 @@ async def search_across_videos(
                     """,
                     query=query,
                     limit=limit_per_video,
-                    max_videos=max_videos
+                    max_videos=max_videos,
                 )
                 video_results = list(result)
 
@@ -1444,7 +1497,7 @@ async def search_across_videos(
                         """,
                         query=query,
                         limit=limit_per_video,
-                        max_videos=max_videos
+                        max_videos=max_videos,
                     )
                     video_results = list(result)
 
@@ -1452,19 +1505,23 @@ async def search_across_videos(
         for vr in video_results:
             matches = []
             for m in vr.get("matches", []):
-                matches.append({
-                    "timestamp": m.get("timestamp", 0),
-                    "timestamp_formatted": format_timestamp(m.get("timestamp", 0)),
-                    "content": (m.get("description") or m.get("text", ""))[:200],
-                    "score": round(m.get("score", 0), 3),
-                })
-            
-            results_by_video.append({
-                "video_id": vr.get("video_id"),
-                "video_title": vr.get("video_title") or "Untitled",
-                "matches": matches,
-                "match_count": len(matches),
-            })
+                matches.append(
+                    {
+                        "timestamp": m.get("timestamp", 0),
+                        "timestamp_formatted": format_timestamp(m.get("timestamp", 0)),
+                        "content": (m.get("description") or m.get("text", ""))[:200],
+                        "score": round(m.get("score", 0), 3),
+                    }
+                )
+
+            results_by_video.append(
+                {
+                    "video_id": vr.get("video_id"),
+                    "video_title": vr.get("video_title") or "Untitled",
+                    "matches": matches,
+                    "match_count": len(matches),
+                }
+            )
 
         return {
             "query": query,
@@ -1503,7 +1560,7 @@ async def compare_videos(
     if len(effective_ids) < 2:
         return {
             "error": "Compare requires at least 2 videos selected. Currently only "
-                     f"{len(effective_ids)} video(s) in context.",
+            f"{len(effective_ids)} video(s) in context.",
             "comparison": [],
         }
 
@@ -1526,7 +1583,7 @@ async def compare_videos(
                            v.duration as duration
                     LIMIT 1
                     """,
-                    vid=vid
+                    vid=vid,
                 )
                 video = result.single()
 
@@ -1542,7 +1599,7 @@ async def compare_videos(
                     LIMIT 3
                     """,
                     query=query,
-                    vid=vid
+                    vid=vid,
                 )
                 frame_matches = list(result)
 
@@ -1558,43 +1615,48 @@ async def compare_videos(
                     LIMIT 3
                     """,
                     query=query,
-                    vid=vid
+                    vid=vid,
                 )
                 audio_matches = list(result)
 
             moments = []
             for m in frame_matches:
-                moments.append({
-                    "timestamp": m.get("timestamp", 0),
-                    "timestamp_formatted": format_timestamp(m.get("timestamp", 0)),
-                    "type": "visual",
-                    "content": (m.get("description") or "")[:200],
-                    "score": round(m.get("score", 0), 3),
-                })
+                moments.append(
+                    {
+                        "timestamp": m.get("timestamp", 0),
+                        "timestamp_formatted": format_timestamp(m.get("timestamp", 0)),
+                        "type": "visual",
+                        "content": (m.get("description") or "")[:200],
+                        "score": round(m.get("score", 0), 3),
+                    }
+                )
             for m in audio_matches:
-                moments.append({
-                    "timestamp": m.get("timestamp", 0),
-                    "timestamp_formatted": format_timestamp(m.get("timestamp", 0)),
-                    "type": "audio",
-                    "content": (m.get("text") or "")[:200],
-                    "score": round(m.get("score", 0), 3),
-                })
+                moments.append(
+                    {
+                        "timestamp": m.get("timestamp", 0),
+                        "timestamp_formatted": format_timestamp(m.get("timestamp", 0)),
+                        "type": "audio",
+                        "content": (m.get("text") or "")[:200],
+                        "score": round(m.get("score", 0), 3),
+                    }
+                )
             moments.sort(key=lambda x: x["score"], reverse=True)
 
-            comparison.append({
-                "video_id": vid,
-                "video_title": (video.get("title") if video else None) or "Untitled",
-                "summary": (video.get("summary") if video else None) or "",
-                "topics": (video.get("topics") if video else None) or [],
-                "duration_formatted": (
-                    format_timestamp(video.get("duration", 0))
-                    if video and video.get("duration") else None
-                ),
-                "relevant_moments": moments[:5],
-                "relevance_score": round(
-                    max((m["score"] for m in moments), default=0), 3
-                ),
-            })
+            comparison.append(
+                {
+                    "video_id": vid,
+                    "video_title": (video.get("title") if video else None) or "Untitled",
+                    "summary": (video.get("summary") if video else None) or "",
+                    "topics": (video.get("topics") if video else None) or [],
+                    "duration_formatted": (
+                        format_timestamp(video.get("duration", 0))
+                        if video and video.get("duration")
+                        else None
+                    ),
+                    "relevant_moments": moments[:5],
+                    "relevance_score": round(max((m["score"] for m in moments), default=0), 3),
+                }
+            )
 
         # Sort by relevance
         comparison.sort(key=lambda x: x["relevance_score"], reverse=True)
@@ -1638,6 +1700,7 @@ async def find_common_entities(
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
+
         kg = get_knowledge_graph_service()
         entities = kg.find_common_entities(
             video_ids=effective_ids,
@@ -1674,21 +1737,23 @@ async def get_library_overview(
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
+
         kg = get_knowledge_graph_service()
         videos = kg.get_video_topics(video_ids=effective_ids)
 
         result = []
         for v in videos:
-            result.append({
-                "video_id": v["video_id"],
-                "title": v.get("title") or "Untitled",
-                "summary": (v.get("summary") or "")[:500],
-                "topics": v.get("topics") or [],
-                "duration_formatted": (
-                    format_timestamp(v["duration"])
-                    if v.get("duration") else None
-                ),
-            })
+            result.append(
+                {
+                    "video_id": v["video_id"],
+                    "title": v.get("title") or "Untitled",
+                    "summary": (v.get("summary") or "")[:500],
+                    "topics": v.get("topics") or [],
+                    "duration_formatted": (
+                        format_timestamp(v["duration"]) if v.get("duration") else None
+                    ),
+                }
+            )
 
         all_topics = []
         for v in result:

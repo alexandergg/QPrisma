@@ -76,7 +76,9 @@ async def modify_clip(
     start_time: Annotated[float | None, "New start time in seconds"] = None,
     end_time: Annotated[float | None, "New end time in seconds"] = None,
     title: Annotated[str | None, "New title for the clip"] = None,
-    extend_start: Annotated[float | None, "Seconds to extend/shrink start (negative = shrink)"] = None,
+    extend_start: Annotated[
+        float | None, "Seconds to extend/shrink start (negative = shrink)"
+    ] = None,
     extend_end: Annotated[float | None, "Seconds to extend/shrink end (negative = shrink)"] = None,
 ) -> dict[str, Any]:
     """
@@ -340,7 +342,9 @@ async def add_suggested_clips(
 @tool
 async def add_subtitles(
     clip_id: Annotated[str, "ID of the clip"],
-    style: Annotated[str, "Subtitle style: 'hormozi', 'mrbeast', 'minimal', 'karaoke', 'news'"] = "hormozi",
+    style: Annotated[
+        str, "Subtitle style: 'hormozi', 'mrbeast', 'minimal', 'karaoke', 'news'"
+    ] = "hormozi",
 ) -> dict[str, Any]:
     """
     Enable subtitles on a clip with a specific style.
@@ -457,7 +461,9 @@ async def list_subtitle_styles() -> dict[str, Any]:
 @tool
 async def export_clip(
     clip_id: Annotated[str, "ID of the clip to export"],
-    platform: Annotated[str, "Target platform: 'tiktok', 'reels', 'shorts', 'youtube', 'twitter'"] = "tiktok",
+    platform: Annotated[
+        str, "Target platform: 'tiktok', 'reels', 'shorts', 'youtube', 'twitter'"
+    ] = "tiktok",
     quality: Annotated[str, "Quality: 'draft', 'standard', 'high', 'max'"] = "standard",
 ) -> dict[str, Any]:
     """

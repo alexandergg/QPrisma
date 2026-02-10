@@ -279,7 +279,9 @@ class AutoClipRequest(BaseModel):
     max_clips: int = Field(default=5, ge=1, le=20, description="Maximum clips to generate")
     min_duration: float = Field(default=15, ge=5, description="Minimum clip duration in seconds")
     max_duration: float = Field(default=60, le=180, description="Maximum clip duration in seconds")
-    min_viral_score: float = Field(default=50, ge=0, le=100, description="Minimum viral score threshold")
+    min_viral_score: float = Field(
+        default=50, ge=0, le=100, description="Minimum viral score threshold"
+    )
 
 
 class AutoClipSuggestion(BaseModel):

@@ -479,7 +479,9 @@ async def get_available_presets(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/search")
-async def search_media(request: ProcessingSearchRequest, current_user: User = Depends(get_current_user)):
+async def search_media(
+    request: ProcessingSearchRequest, current_user: User = Depends(get_current_user)
+):
     """Global search (Neo4j Knowledge Graph)."""
     try:
         from models.graph_models import NodeType

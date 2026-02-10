@@ -43,7 +43,7 @@ def list_videos():
 
     print("\n=== VIDEOS INDEXADOS ===")
     for v in videos:
-        duration = v['duration'] or 0
+        duration = v["duration"] or 0
         mins = int(duration // 60)
         secs = int(duration % 60)
         print(f"  [{v['video_id'][:8]}...] {v['title']}")
@@ -84,7 +84,7 @@ def get_video_stats(video_id: str):
         return None
 
     print(f"\n=== STATS: {record['title']} ===")
-    duration = record['duration'] or 0
+    duration = record["duration"] or 0
     print(f"  Duration: {int(duration//60)}m {int(duration%60)}s ({duration:.0f}s)")
     print(f"  Frames indexados: {record['frames']}")
     print(f"  Audio segments (via HAS_TRANSCRIPT): {record['audio_via_rel']}")
@@ -92,8 +92,8 @@ def get_video_stats(video_id: str):
     print(f"  Entities: {record['entities']}")
 
     # Calculate coverage
-    if duration > 0 and record['frames'] > 0:
-        avg_interval = duration / record['frames']
+    if duration > 0 and record["frames"] > 0:
+        avg_interval = duration / record["frames"]
         print(f"  Frame coverage: 1 frame every {avg_interval:.1f}s")
 
     return record
@@ -122,10 +122,10 @@ def search_in_frames(video_id: str, search_term: str, limit: int = 10):
     print(f"\n=== FRAMES containing '{search_term}' ===")
     if frames:
         for f in frames:
-            ts = f['timestamp'] or 0
+            ts = f["timestamp"] or 0
             mins = int(ts // 60)
             secs = int(ts % 60)
-            desc = (f['description'] or '')[:200]
+            desc = (f["description"] or "")[:200]
             print(f"  [{mins}:{secs:02d}]: {desc}...")
     else:
         print("  ❌ No matches in frame descriptions")
@@ -165,19 +165,21 @@ def search_in_transcripts(video_id: str, search_term: str, limit: int = 10):
         segments = list(result)
 
         if not segments:
-            result = session.run(query_prop, video_id=video_id, search_term=search_term, limit=limit)
+            result = session.run(
+                query_prop, video_id=video_id, search_term=search_term, limit=limit
+            )
             segments = list(result)
 
     print(f"\n=== TRANSCRIPTS containing '{search_term}' ===")
     if segments:
         for s in segments:
-            start = s['start_time'] or 0
-            end = s['end_time'] or 0
+            start = s["start_time"] or 0
+            end = s["end_time"] or 0
             start_mins = int(start // 60)
             start_secs = int(start % 60)
             end_mins = int(end // 60)
             end_secs = int(end % 60)
-            text = (s['text'] or '')[:150]
+            text = (s["text"] or "")[:150]
             print(f"  [{start_mins}:{start_secs:02d} - {end_mins}:{end_secs:02d}]: {text}...")
     else:
         print("  ❌ No matches in transcripts")
@@ -204,7 +206,9 @@ def fulltext_search(video_id: str, search_term: str, limit: int = 10):
         LIMIT $limit
         """
         with graph.get_session() as session:
-            result = session.run(query_frames, video_id=video_id, search_term=search_term, limit=limit)
+            result = session.run(
+                query_frames, video_id=video_id, search_term=search_term, limit=limit
+            )
             results.extend(list(result))
     except Exception as e:
         print(f"  (Frame fulltext search failed: {e})")
@@ -220,21 +224,23 @@ def fulltext_search(video_id: str, search_term: str, limit: int = 10):
         LIMIT $limit
         """
         with graph.get_session() as session:
-            result = session.run(query_audio, video_id=video_id, search_term=search_term, limit=limit)
+            result = session.run(
+                query_audio, video_id=video_id, search_term=search_term, limit=limit
+            )
             results.extend(list(result))
     except Exception as e:
         print(f"  (Audio fulltext search failed: {e})")
 
     # Sort by score
-    results.sort(key=lambda x: x['score'], reverse=True)
+    results.sort(key=lambda x: x["score"], reverse=True)
 
     print(f"\n=== FULLTEXT SEARCH: '{search_term}' ===")
     if results:
         for r in results[:limit]:
-            ts = r['time'] or 0
+            ts = r["time"] or 0
             mins = int(ts // 60)
             secs = int(ts % 60)
-            content = (r['content'] or '')[:120]
+            content = (r["content"] or "")[:120]
             print(f"  [{r['type']}] [{mins}:{secs:02d}] (score={r['score']:.2f}): {content}...")
     else:
         print("  ❌ No fulltext matches")
@@ -264,10 +270,10 @@ def sample_content(video_id: str, num_samples: int = 5):
     if all_frames:
         step = max(1, len(all_frames) // num_samples)
         for f in all_frames[::step][:num_samples]:
-            ts = f['ts'] or 0
+            ts = f["ts"] or 0
             mins = int(ts // 60)
             secs = int(ts % 60)
-            desc = (f['desc'] or '')[:250]
+            desc = (f["desc"] or "")[:250]
             print(f"\n  [{mins}:{secs:02d}]: {desc}...")
     else:
         print("  ❌ No frames")
@@ -288,10 +294,10 @@ def sample_content(video_id: str, num_samples: int = 5):
     if all_audio:
         step = max(1, len(all_audio) // num_samples)
         for a in all_audio[::step][:num_samples]:
-            ts = a['start'] or 0
+            ts = a["start"] or 0
             mins = int(ts // 60)
             secs = int(ts % 60)
-            text = (a['text'] or '')[:200]
+            text = (a["text"] or "")[:200]
             print(f"\n  [{mins}:{secs:02d}]: {text}...")
     else:
         print("  ❌ No transcripts")
@@ -335,7 +341,7 @@ def main():
     if args.video_id:
         video_id = args.video_id
     else:
-        video_id = videos[0]['video_id']
+        video_id = videos[0]["video_id"]
 
     print(f"\n📹 Testing video: {video_id[:16]}...")
 

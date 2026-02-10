@@ -11,7 +11,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 # =============================================================================
 # Enums
 # =============================================================================
@@ -50,9 +49,7 @@ class BenchmarkEntry(BaseModel):
     question_id: str = Field(description="Unique question identifier")
     video_id: str = Field(description="Video this question refers to")
     question: str = Field(description="The question text")
-    choices: list[str] | None = Field(
-        default=None, description="MC choices (None for open-ended)"
-    )
+    choices: list[str] | None = Field(default=None, description="MC choices (None for open-ended)")
     correct_answer: str | None = Field(
         default=None, description="Ground truth answer or correct choice index"
     )
@@ -61,9 +58,7 @@ class BenchmarkEntry(BaseModel):
     )
     category: str | None = Field(default=None, description="Task category")
     domain: str | None = Field(default=None, description="Video domain")
-    duration_tier: DurationTier | None = Field(
-        default=None, description="Video duration tier"
-    )
+    duration_tier: DurationTier | None = Field(default=None, description="Video duration tier")
     video_duration_seconds: float | None = Field(
         default=None, description="Video duration in seconds"
     )
@@ -160,9 +155,7 @@ class JudgeResponse(BaseModel):
     winrate_response: WinRateJudgeResponse | None = None
     quantitative_response: QuantitativeJudgeResponse | None = None
     judge_model: str = Field(default="gpt-4o")
-    raw_response: str | None = Field(
-        default=None, description="Raw JSON from judge for debugging"
-    )
+    raw_response: str | None = Field(default=None, description="Raw JSON from judge for debugging")
 
 
 # =============================================================================
@@ -188,23 +181,13 @@ class EvalResult(BaseModel):
     retrieved_nodes: list[str] | None = Field(
         default=None, description="KG node IDs used in retrieval"
     )
-    retrieved_context: str | None = Field(
-        default=None, description="RAG context fed to the LLM"
-    )
-    latency_ms: float | None = Field(
-        default=None, description="End-to-end response time"
-    )
-    retrieval_latency_ms: float | None = Field(
-        default=None, description="Retrieval-only time"
-    )
+    retrieved_context: str | None = Field(default=None, description="RAG context fed to the LLM")
+    latency_ms: float | None = Field(default=None, description="End-to-end response time")
+    retrieval_latency_ms: float | None = Field(default=None, description="Retrieval-only time")
     tokens_used: int | None = Field(default=None, description="Total tokens consumed")
     cost_usd: float | None = Field(default=None, description="Estimated API cost")
-    tool_calls: int | None = Field(
-        default=None, description="Number of agent tool calls"
-    )
-    error: str | None = Field(
-        default=None, description="Error message if answer generation failed"
-    )
+    tool_calls: int | None = Field(default=None, description="Number of agent tool calls")
+    error: str | None = Field(default=None, description="Error message if answer generation failed")
     metadata: dict[str, str | int | float | list | None] | None = None
 
 
@@ -303,8 +286,6 @@ class EvalConfig(BaseModel):
     judge_model: str = Field(default="gpt-4o")
     num_runs: int = Field(default=5, description="Number of evaluation runs")
     use_position_debiasing: bool = Field(default=True)
-    use_batch_api: bool = Field(
-        default=True, description="Use OpenAI Batch API for cost savings"
-    )
+    use_batch_api: bool = Field(default=True, description="Use OpenAI Batch API for cost savings")
     output_dir: str = Field(default="evaluation/results")
     max_concurrent_judges: int = Field(default=10)

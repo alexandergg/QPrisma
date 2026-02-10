@@ -41,15 +41,15 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import RetryPolicy
 from langgraph.prebuilt import ToolNode
+from langgraph.types import RetryPolicy
 
-from agent.nodes.video_nodes import call_model, should_continue, update_context
 from agent.nodes.base import error_handler_node
+from agent.nodes.video_nodes import call_model, should_continue, update_context
 from agent.state.agent_state import (
-    AgentState,
     AgentInputState,
     AgentOutputState,
+    AgentState,
     create_agent_state,
     should_retry_exception,
 )
@@ -81,53 +81,63 @@ def extract_metadata_from_tool_result(
     # Extract sources from search results
     for r in tool_result.get("results", []):
         if isinstance(r, dict) and "timestamp" in r:
-            sources.append({
-                "timestamp": r.get("timestamp", 0),
-                "timestamp_formatted": r.get("timestamp_formatted", ""),
-                "type": r.get("type", "unknown"),
-                "description": r.get("content", r.get("description", ""))[:150],
-                "score": r.get("score", 0),
-            })
-            navigation_actions.append({
-                "action": "jump_to",
-                "label": f"Go to {r.get('timestamp_formatted', '')}",
-                "timestamp": r.get("timestamp", 0),
-            })
+            sources.append(
+                {
+                    "timestamp": r.get("timestamp", 0),
+                    "timestamp_formatted": r.get("timestamp_formatted", ""),
+                    "type": r.get("type", "unknown"),
+                    "description": r.get("content", r.get("description", ""))[:150],
+                    "score": r.get("score", 0),
+                }
+            )
+            navigation_actions.append(
+                {
+                    "action": "jump_to",
+                    "label": f"Go to {r.get('timestamp_formatted', '')}",
+                    "timestamp": r.get("timestamp", 0),
+                }
+            )
 
     # Extract from occurrences (find_entity)
     for occ in tool_result.get("occurrences", []):
         if isinstance(occ, dict) and "timestamp" in occ:
-            sources.append({
-                "timestamp": occ.get("timestamp", 0),
-                "timestamp_formatted": occ.get("timestamp_formatted", ""),
-                "type": occ.get("occurrence_type", "entity"),
-                "description": occ.get("context", "")[:150],
-                "score": occ.get("confidence", 0),
-            })
+            sources.append(
+                {
+                    "timestamp": occ.get("timestamp", 0),
+                    "timestamp_formatted": occ.get("timestamp_formatted", ""),
+                    "type": occ.get("occurrence_type", "entity"),
+                    "description": occ.get("context", "")[:150],
+                    "score": occ.get("confidence", 0),
+                }
+            )
 
     # Extract clip suggestions from highlights
     for h in tool_result.get("highlights", []):
-        clip_suggestions.append({
-            "action": "create_clip",
-            "label": h.get("title", "Highlight"),
-            "timestamp": h.get("start_time", 0),
-            "end_timestamp": h.get("end_time", 0),
-            "parameters": {
-                "description": h.get("description", ""),
-                "reason": h.get("highlight_reason", ""),
-            },
-        })
+        clip_suggestions.append(
+            {
+                "action": "create_clip",
+                "label": h.get("title", "Highlight"),
+                "timestamp": h.get("start_time", 0),
+                "end_timestamp": h.get("end_time", 0),
+                "parameters": {
+                    "description": h.get("description", ""),
+                    "reason": h.get("highlight_reason", ""),
+                },
+            }
+        )
 
     # Extract from timeline
     for t in tool_result.get("timeline", [])[:10]:
         if isinstance(t, dict) and "timestamp" in t:
-            sources.append({
-                "timestamp": t.get("timestamp", 0),
-                "timestamp_formatted": t.get("timestamp_formatted", ""),
-                "type": t.get("appearance_type", "timeline"),
-                "description": t.get("context", "")[:150] if t.get("context") else "",
-                "score": 0,
-            })
+            sources.append(
+                {
+                    "timestamp": t.get("timestamp", 0),
+                    "timestamp_formatted": t.get("timestamp_formatted", ""),
+                    "type": t.get("appearance_type", "timeline"),
+                    "description": t.get("context", "")[:150] if t.get("context") else "",
+                    "score": 0,
+                }
+            )
 
     # Extract from moments (compare_moments output)
     for m in tool_result.get("moments", []):
@@ -137,26 +147,32 @@ def extract_metadata_from_tool_result(
             desc = ""
             if "visual" in m and m["visual"].get("description"):
                 desc = m["visual"]["description"][:150]
-            sources.append({
-                "timestamp": ts,
-                "timestamp_formatted": ts_fmt,
-                "type": "comparison",
-                "description": desc,
-                "score": 0,
-            })
-            navigation_actions.append({
-                "action": "jump_to",
-                "label": f"Go to {ts_fmt}",
-                "timestamp": ts,
-            })
+            sources.append(
+                {
+                    "timestamp": ts,
+                    "timestamp_formatted": ts_fmt,
+                    "type": "comparison",
+                    "description": desc,
+                    "score": 0,
+                }
+            )
+            navigation_actions.append(
+                {
+                    "action": "jump_to",
+                    "label": f"Go to {ts_fmt}",
+                    "timestamp": ts,
+                }
+            )
 
     # Extract entities
     for e in tool_result.get("related_entities", []):
-        entities.append({
-            "name": e.get("name"),
-            "type": e.get("type"),
-            "relevance": e.get("relevance", 0),
-        })
+        entities.append(
+            {
+                "name": e.get("name"),
+                "type": e.get("type"),
+                "relevance": e.get("relevance", 0),
+            }
+        )
 
     # Extract from cross-video results (search_across_videos)
     for vr in tool_result.get("results_by_video", []):
@@ -164,17 +180,17 @@ def extract_metadata_from_tool_result(
         vtitle = vr.get("video_title", "")
         for m in vr.get("matches", []):
             if isinstance(m, dict) and "timestamp" in m:
-                sources.append({
-                    "timestamp": m.get("timestamp", 0),
-                    "timestamp_formatted": m.get(
-                        "timestamp_formatted", ""
-                    ),
-                    "type": m.get("type", "visual"),
-                    "description": m.get("content", "")[:150],
-                    "score": m.get("score", 0),
-                    "video_id": vid,
-                    "video_title": vtitle,
-                })
+                sources.append(
+                    {
+                        "timestamp": m.get("timestamp", 0),
+                        "timestamp_formatted": m.get("timestamp_formatted", ""),
+                        "type": m.get("type", "visual"),
+                        "description": m.get("content", "")[:150],
+                        "score": m.get("score", 0),
+                        "video_id": vid,
+                        "video_title": vtitle,
+                    }
+                )
 
     # Extract from cross-video comparison (compare_videos)
     for cv in tool_result.get("comparison", []):
@@ -182,17 +198,17 @@ def extract_metadata_from_tool_result(
         vtitle = cv.get("video_title", "")
         for m in cv.get("relevant_moments", []):
             if isinstance(m, dict) and "timestamp" in m:
-                sources.append({
-                    "timestamp": m.get("timestamp", 0),
-                    "timestamp_formatted": m.get(
-                        "timestamp_formatted", ""
-                    ),
-                    "type": "visual",
-                    "description": m.get("content", "")[:150],
-                    "score": m.get("score", 0),
-                    "video_id": vid,
-                    "video_title": vtitle,
-                })
+                sources.append(
+                    {
+                        "timestamp": m.get("timestamp", 0),
+                        "timestamp_formatted": m.get("timestamp_formatted", ""),
+                        "type": "visual",
+                        "description": m.get("content", "")[:150],
+                        "score": m.get("score", 0),
+                        "video_id": vid,
+                        "video_title": vtitle,
+                    }
+                )
 
     return {
         "sources": sources,
@@ -222,7 +238,9 @@ def extract_metadata_from_messages(
 
         if isinstance(msg, ToolMessage):
             try:
-                tool_result = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
+                tool_result = (
+                    json.loads(msg.content) if isinstance(msg.content, str) else msg.content
+                )
                 if isinstance(tool_result, dict):
                     meta = extract_metadata_from_tool_result(tool_result)
                     sources.extend(meta["sources"])
@@ -251,37 +269,47 @@ def _generate_suggestions(query: str, sources: list, entities: list) -> list[dic
         first_source = sources[0]
         ts_fmt = first_source.get("timestamp_formatted", "")
         if ts_fmt:
-            suggestions.append({
-                "question": f"What happens right after {ts_fmt}?",
-                "category": "deeper",
-            })
+            suggestions.append(
+                {
+                    "question": f"What happens right after {ts_fmt}?",
+                    "category": "deeper",
+                }
+            )
 
     # If entities were found, suggest exploring them
     if entities:
         entity = entities[0]
-        suggestions.append({
-            "question": f"Show me the complete timeline of {entity.get('name', 'this entity')}",
-            "category": "related",
-        })
+        suggestions.append(
+            {
+                "question": f"Show me the complete timeline of {entity.get('name', 'this entity')}",
+                "category": "related",
+            }
+        )
 
     # General suggestions based on query type
     if "what" in query_lower and "about" in query_lower:
-        suggestions.append({
-            "question": "What are the key highlights I can use for clips?",
-            "category": "related",
-        })
+        suggestions.append(
+            {
+                "question": "What are the key highlights I can use for clips?",
+                "category": "related",
+            }
+        )
     elif "when" in query_lower or "where" in query_lower:
-        suggestions.append({
-            "question": "Are there any related moments to compare?",
-            "category": "compare",
-        })
+        suggestions.append(
+            {
+                "question": "Are there any related moments to compare?",
+                "category": "compare",
+            }
+        )
 
     # Always add a "deeper" suggestion
     if len(suggestions) < 3:
-        suggestions.append({
-            "question": "What else should I know about this topic?",
-            "category": "deeper",
-        })
+        suggestions.append(
+            {
+                "question": "What else should I know about this topic?",
+                "category": "deeper",
+            }
+        )
 
     return suggestions[:3]
 
@@ -294,7 +322,7 @@ def _generate_suggestions(query: str, sources: list, entities: list) -> list[dic
 def create_smart_retry_policy(max_attempts: int = 3) -> RetryPolicy:
     """
     Create a retry policy that only retries transient errors.
-    
+
     Per-exception retry - doesn't retry auth/validation errors.
     """
     return RetryPolicy(
@@ -330,7 +358,7 @@ def create_video_agent_graph(checkpointer=None):
                   tools → update_context → call_model
                     ↓ error_handler
               error_handler → END
-              
+
     Input/Output Schema Separation:
     - Input: AgentInputState (clean API interface)
     - Output: AgentOutputState (only relevant results)
@@ -368,13 +396,13 @@ def create_video_agent_graph(checkpointer=None):
             "tools": "tools",
             "error_handler": "error_handler",
             END: END,
-        }
+        },
     )
 
     # Tools go to context update, then back to model
     workflow.add_edge("tools", "update_context")
     workflow.add_edge("update_context", "call_model")
-    
+
     # Error handler ends the conversation gracefully
     workflow.add_edge("error_handler", END)
 
@@ -433,9 +461,7 @@ class VideoAgentGraph:
             logger.warning(f"Failed to generate graph diagram: {e}")
             return f"Graph visualization failed: {e}"
 
-    def _build_messages(
-        self, message: str, chat_history: list[dict] | None = None
-    ) -> list:
+    def _build_messages(self, message: str, chat_history: list[dict] | None = None) -> list:
         """Build LangChain message list from user input and chat history."""
         messages = []
         if chat_history:
@@ -448,7 +474,10 @@ class VideoAgentGraph:
         return messages
 
     def _build_config(
-        self, media_id: str | None, session_id: str | None, media_ids: list[str] | None = None,
+        self,
+        media_id: str | None,
+        session_id: str | None,
+        media_ids: list[str] | None = None,
     ) -> RunnableConfig:
         """Build RunnableConfig for graph invocation."""
         return RunnableConfig(
@@ -495,7 +524,9 @@ class VideoAgentGraph:
 
             # Extract response
             final_message = result["messages"][-1]
-            response = final_message.content if hasattr(final_message, "content") else str(final_message)
+            response = (
+                final_message.content if hasattr(final_message, "content") else str(final_message)
+            )
 
             # Extract rich metadata using shared helper
             metadata = extract_metadata_from_messages(result["messages"])
@@ -626,7 +657,9 @@ class VideoAgentGraph:
                         "data": {
                             "tool": tool_name,
                             "tool_call_id": event.get("run_id", ""),
-                            "success": not output.get("error") if isinstance(output, dict) else True,
+                            "success": (
+                                not output.get("error") if isinstance(output, dict) else True
+                            ),
                             "result_count": result_count,
                         },
                     }
@@ -641,13 +674,17 @@ class VideoAgentGraph:
                     if entities_mentioned:
                         yield {"event": "entities", "data": {"entities": entities_mentioned[:10]}}
 
-                    suggested_questions = _generate_suggestions(message, sources, entities_mentioned)
+                    suggested_questions = _generate_suggestions(
+                        message, sources, entities_mentioned
+                    )
 
                     final_output = event["data"].get("output", {})
                     final_messages = final_output.get("messages", [])
                     if final_messages:
                         last_msg = final_messages[-1]
-                        final_response = last_msg.content if hasattr(last_msg, "content") else collected_response
+                        final_response = (
+                            last_msg.content if hasattr(last_msg, "content") else collected_response
+                        )
                     else:
                         final_response = collected_response
 
@@ -680,12 +717,14 @@ class VideoAgentGraph:
 
         try:
             async for state in self.graph.aget_state_history(config):
-                history.append({
-                    "config": state.config,
-                    "values": state.values,
-                    "next": state.next,
-                    "created_at": state.created_at,
-                })
+                history.append(
+                    {
+                        "config": state.config,
+                        "values": state.values,
+                        "next": state.next,
+                        "created_at": state.created_at,
+                    }
+                )
                 if len(history) >= limit:
                     break
         except Exception as e:
@@ -710,7 +749,9 @@ class VideoAgentGraph:
         result = await self.graph.ainvoke(None, config)
 
         final_message = result["messages"][-1]
-        response = final_message.content if hasattr(final_message, "content") else str(final_message)
+        response = (
+            final_message.content if hasattr(final_message, "content") else str(final_message)
+        )
 
         return {
             "response": response,
@@ -737,17 +778,17 @@ def get_video_agent_graph(checkpointer=None) -> VideoAgentGraph:
 def create_postgres_checkpointer():
     """
     Create PostgreSQL checkpointer from environment.
-    
+
     Uses langgraph-checkpoint-postgres package for production persistence.
     """
     try:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-        
+
         database_url = os.getenv("DATABASE_URL")
         if not database_url:
             logger.warning("DATABASE_URL not set, cannot create PostgreSQL checkpointer")
             return None
-        
+
         saver = AsyncPostgresSaver.from_conn_string(database_url)
         logger.info("PostgreSQL checkpointer created successfully")
         return saver
@@ -777,25 +818,27 @@ def create_redis_checkpointer():
         logger.warning(f"Redis checkpoint packages not installed: {e}")
         return None
     except Exception as e:
-        logger.warning(f"Failed to create Redis checkpointer (Redis Stack may not be available): {e}")
+        logger.warning(
+            f"Failed to create Redis checkpointer (Redis Stack may not be available): {e}"
+        )
         return None
 
 
 def create_production_checkpointer():
     """
     Create the best available checkpointer for production.
-    
+
     Cascade order: PostgreSQL > Redis > MemorySaver
-    
+
     PostgreSQL is preferred for:
     - Durability and ACID compliance
     - Existing infrastructure (already used for app data)
     - Better querying capabilities
-    
+
     Redis is used when:
     - PostgreSQL is not available
     - Low-latency requirements
-    
+
     MemorySaver is a last resort (not production-ready).
     """
     # Try PostgreSQL first (most durable)
@@ -803,13 +846,13 @@ def create_production_checkpointer():
     if checkpointer is not None:
         logger.info("Using PostgreSQL checkpointer for production")
         return checkpointer
-    
+
     # Fall back to Redis (fast, but less durable)
     checkpointer = create_redis_checkpointer()
     if checkpointer is not None:
         logger.info("Using Redis checkpointer (PostgreSQL unavailable)")
         return checkpointer
-    
+
     # Last resort: MemorySaver (NOT production-ready)
     logger.warning(
         "No persistent checkpointer available! Using in-memory MemorySaver. "

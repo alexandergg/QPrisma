@@ -10,10 +10,8 @@ import statistics
 from collections import defaultdict
 
 from evaluation.models.eval_schemas import (
-    AggregatedResults,
     BenchmarkEntry,
     DimensionAggregation,
-    EvalDimension,
     JudgeResponse,
 )
 
@@ -90,10 +88,9 @@ def calculate_winrates(
                     # our_method is Answer 1
                     if dim_result.winner == "Answer 1":
                         dim_wins[dim_label] += 1
-                elif r.ordering == "reversed":
+                elif r.ordering == "reversed" and dim_result.winner == "Answer 2":
                     # our_method is Answer 2
-                    if dim_result.winner == "Answer 2":
-                        dim_wins[dim_label] += 1
+                    dim_wins[dim_label] += 1
 
         results[comparator] = {
             dim: (dim_wins[dim] / dim_total[dim] * 100) if dim_total[dim] > 0 else 0.0
@@ -189,13 +186,9 @@ def calculate_by_group(
 
         group_result = {}
         if winrate_responses and our_method:
-            group_result["winrates"] = calculate_winrates(
-                winrate_responses, our_method
-            )
+            group_result["winrates"] = calculate_winrates(winrate_responses, our_method)
         if quant_responses:
-            group_result["quantitative"] = calculate_quantitative_scores(
-                quant_responses
-            )
+            group_result["quantitative"] = calculate_quantitative_scores(quant_responses)
         results[group_val] = group_result
 
     return results

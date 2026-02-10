@@ -725,14 +725,16 @@ class KnowledgeGraphService:
                 return record["id"]
             return segment.id
 
-    def create_audio_segments_batch(self, segments: list[AudioSegmentNode], batch_size: int = 100) -> int:
+    def create_audio_segments_batch(
+        self, segments: list[AudioSegmentNode], batch_size: int = 100
+    ) -> int:
         """
         Crea múltiples segmentos de audio en batches.
-        
+
         Args:
             segments: Lista de AudioSegmentNode a crear
             batch_size: Tamaño de cada batch para evitar timeouts
-            
+
         Returns:
             Número total de segmentos creados
         """
@@ -760,10 +762,10 @@ class KnowledgeGraphService:
         """
 
         total_created = 0
-        
+
         # Procesar en batches para evitar timeouts con grandes volúmenes
         for i in range(0, len(segments), batch_size):
-            batch = segments[i:i + batch_size]
+            batch = segments[i : i + batch_size]
             segments_data = [
                 {
                     "id": s.id,
@@ -788,8 +790,10 @@ class KnowledgeGraphService:
                 logger.error(f"Failed to create batch {i//batch_size + 1}: {e}")
                 # Continuar con el siguiente batch en lugar de fallar completamente
                 continue
-        
-        logger.info(f"Created {total_created} AudioSegment nodes in {(len(segments) + batch_size - 1) // batch_size} batches")
+
+        logger.info(
+            f"Created {total_created} AudioSegment nodes in {(len(segments) + batch_size - 1) // batch_size} batches"
+        )
         return total_created
 
     def get_video_transcripts(self, video_id: str) -> list[dict]:
@@ -853,23 +857,23 @@ class KnowledgeGraphService:
         WHERE a.video_id = $video_id
         RETURN count(a) as count
         """
-        
+
         delete_query = """
         MATCH (a:AudioSegment)
         WHERE a.video_id = $video_id
         DETACH DELETE a
         """
-        
+
         try:
             # Contar antes de eliminar
             result = self._execute_query(count_query, {"video_id": video_id}, single=True)
             count = result["count"] if result else 0
-            
+
             if count > 0:
                 # Eliminar en batches para evitar memory issues
                 self._execute_query(delete_query, {"video_id": video_id})
                 logger.info(f"Deleted {count} AudioSegment nodes for video {video_id}")
-            
+
             return count
         except Exception as e:
             logger.error(f"Error deleting transcripts for video {video_id}: {e}")

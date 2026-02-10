@@ -15,14 +15,14 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.graphs.editor import create_editor_agent_graph
-from agent.state.agent_state import create_agent_state
 from agent.graphs.video import create_video_agent_graph
+from agent.state.agent_state import create_agent_state
 from models.a2a_models import (
     Artifact,
     Message,
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 class TaskStore:
     """
     In-memory task store for A2A task management.
-    
+
     In production, this should be replaced with a persistent store
     (Redis, PostgreSQL, etc.) for durability and multi-instance support.
     """
@@ -69,12 +69,12 @@ class TaskStore:
                 metadata=metadata or {},
             )
             self._tasks[task.id] = task
-            
+
             # Track by context
             if task.contextId not in self._context_tasks:
                 self._context_tasks[task.contextId] = []
             self._context_tasks[task.contextId].append(task.id)
-            
+
             return task
 
     async def get_task(self, task_id: str) -> Task | None:
@@ -96,23 +96,23 @@ class TaskStore:
     ) -> tuple[list[Task], int]:
         """List tasks with optional filtering."""
         tasks = list(self._tasks.values())
-        
+
         if context_id:
             task_ids = self._context_tasks.get(context_id, [])
             tasks = [t for t in tasks if t.id in task_ids]
-        
+
         if status:
             tasks = [t for t in tasks if t.status.state == status]
-        
+
         # Sort by timestamp descending
         tasks.sort(
             key=lambda t: t.status.timestamp or datetime.min,
             reverse=True,
         )
-        
+
         total = len(tasks)
         tasks = tasks[:page_size]
-        
+
         if not include_artifacts:
             # Strip artifacts for response size
             tasks = [
@@ -125,7 +125,7 @@ class TaskStore:
                 )
                 for t in tasks
             ]
-        
+
         return tasks, total
 
     async def cancel_task(self, task_id: str) -> Task | None:
@@ -134,7 +134,7 @@ class TaskStore:
             task = self._tasks.get(task_id)
             if not task:
                 return None
-            
+
             # Check if cancellable
             terminal_states = {
                 TaskState.COMPLETED,
@@ -168,14 +168,14 @@ def get_task_store() -> TaskStore:
 class A2AAgentExecutor:
     """
     A2A-compliant executor for QPrisma agents.
-    
+
     Wraps LangGraph-based agents (VideoAgentGraph, EditorAgentGraph) to provide
     A2A protocol operations including:
     - SendMessage (sync and streaming)
     - GetTask / ListTasks
     - CancelTask
     - Task lifecycle management
-    
+
     The executor translates between A2A Message/Task objects and the internal
     LangGraph agent state/messages.
     """
@@ -188,7 +188,7 @@ class A2AAgentExecutor:
     ):
         """
         Initialize the A2A executor.
-        
+
         Args:
             agent_type: Type of agent ("video" for VideoAgentGraph, "editor" for EditorAgentGraph)
             model_deployment: Azure OpenAI deployment name
@@ -219,29 +219,31 @@ class A2AAgentExecutor:
                 text_content += part.text + "\n"
             elif part.data:
                 import json
+
                 text_content += f"\n[Structured Data]: {json.dumps(part.data, indent=2)}\n"
-        
+
         text_content = text_content.strip()
-        
+
         if message.role == Role.USER:
             return HumanMessage(content=text_content)
         else:
             return AIMessage(content=text_content)
 
-    def _langchain_message_to_a2a(self, message: AIMessage, task_id: str, context_id: str) -> Message:
+    def _langchain_message_to_a2a(
+        self, message: AIMessage, task_id: str, context_id: str
+    ) -> Message:
         """Convert LangChain AI message to A2A Message."""
         content = message.content if isinstance(message.content, str) else str(message.content)
-        
+
         parts = [Part(text=content)]
-        
+
         # Include tool call info in metadata if present
         metadata = {}
         if hasattr(message, "tool_calls") and message.tool_calls:
             metadata["tool_calls"] = [
-                {"name": tc.get("name"), "id": tc.get("id")}
-                for tc in message.tool_calls
+                {"name": tc.get("name"), "id": tc.get("id")} for tc in message.tool_calls
             ]
-        
+
         return Message(
             messageId=str(uuid.uuid4()),
             contextId=context_id,
@@ -259,43 +261,55 @@ class A2AAgentExecutor:
     ) -> Artifact | None:
         """Extract sources/references from agent result as an artifact."""
         from agent.utils.formatting import format_timestamp
-        
+
         sources = []
-        
+
         # Extract from messages looking for tool results
         for msg in result.get("messages", []):
             if hasattr(msg, "name") and hasattr(msg, "content"):
                 try:
                     import json
-                    tool_result = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
-                    
+
+                    tool_result = (
+                        json.loads(msg.content) if isinstance(msg.content, str) else msg.content
+                    )
+
                     if isinstance(tool_result, dict):
                         # Extract from search results
                         for r in tool_result.get("results", []):
                             if isinstance(r, dict) and "timestamp" in r:
-                                sources.append({
-                                    "timestamp": r.get("timestamp", 0),
-                                    "timestamp_formatted": r.get("timestamp_formatted", format_timestamp(r.get("timestamp", 0))),
-                                    "type": r.get("type", "unknown"),
-                                    "description": r.get("content", r.get("description", ""))[:200],
-                                    "score": r.get("score", 0),
-                                })
-                        
+                                sources.append(
+                                    {
+                                        "timestamp": r.get("timestamp", 0),
+                                        "timestamp_formatted": r.get(
+                                            "timestamp_formatted",
+                                            format_timestamp(r.get("timestamp", 0)),
+                                        ),
+                                        "type": r.get("type", "unknown"),
+                                        "description": r.get("content", r.get("description", ""))[
+                                            :200
+                                        ],
+                                        "score": r.get("score", 0),
+                                    }
+                                )
+
                         # Extract from occurrences
                         for occ in tool_result.get("occurrences", []):
                             if isinstance(occ, dict) and "timestamp" in occ:
-                                sources.append({
-                                    "timestamp": occ.get("timestamp", 0),
-                                    "timestamp_formatted": occ.get("timestamp_formatted", ""),
-                                    "type": occ.get("occurrence_type", "entity"),
-                                    "description": occ.get("context", "")[:200],
-                                })
+                                sources.append(
+                                    {
+                                        "timestamp": occ.get("timestamp", 0),
+                                        "timestamp_formatted": occ.get("timestamp_formatted", ""),
+                                        "type": occ.get("occurrence_type", "entity"),
+                                        "description": occ.get("context", "")[:200],
+                                    }
+                                )
                 except Exception:
                     pass
-        
+
         if not sources:
             return None
-        
+
         # Deduplicate and sort by timestamp
         seen = set()
         unique_sources = []
@@ -304,9 +318,9 @@ class A2AAgentExecutor:
             if key not in seen:
                 seen.add(key)
                 unique_sources.append(s)
-        
+
         unique_sources.sort(key=lambda x: x.get("timestamp", 0))
-        
+
         return Artifact(
             artifactId=str(uuid.uuid4()),
             name="Video Sources",
@@ -322,36 +336,35 @@ class A2AAgentExecutor:
     ) -> Task | Message:
         """
         Process a message and return a Task or direct Message response.
-        
+
         For simple queries, may return a Message directly.
         For complex tasks, returns a Task object with status.
-        
+
         Args:
             request: The SendMessageRequest with message and configuration
             blocking: If True, wait for task completion before returning
-            
+
         Returns:
             Task or Message depending on the complexity of the request
         """
         message = request.message
-        config = request.configuration or {}
-        
+
         # Create task
         task = await self.task_store.create_task(
             context_id=message.contextId,
             metadata=request.metadata,
         )
-        
+
         # Add message to history
         task.history = [message]
-        
+
         # Update status to working
         task.status = TaskStatus(
             state=TaskState.WORKING,
             timestamp=datetime.now(UTC),
         )
         await self.task_store.update_task(task)
-        
+
         # Extract metadata from message
         media_id = None
         media_ids = None
@@ -360,10 +373,10 @@ class A2AAgentExecutor:
             media_id = message.metadata.get("media_id")
             media_ids = message.metadata.get("media_ids")
             project_id = message.metadata.get("project_id")
-        
+
         # Convert message to LangChain format
         lc_message = self._a2a_message_to_langchain(message)
-        
+
         # Build agent state
         state = create_agent_state(
             messages=[lc_message],
@@ -371,10 +384,10 @@ class A2AAgentExecutor:
             media_ids=media_ids,
             session_id=task.contextId,
         )
-        
+
         # Run the agent
         from langchain_core.runnables import RunnableConfig
-        
+
         run_config = RunnableConfig(
             configurable={
                 "thread_id": task.contextId,
@@ -384,16 +397,20 @@ class A2AAgentExecutor:
                 "model_deployment": self.model_deployment,
             }
         )
-        
+
         try:
-            logger.info(f"A2A executing task {task.id} with message: {message.parts[0].text[:50] if message.parts else ''}...")
-            
+            logger.info(
+                f"A2A executing task {task.id} with message: {message.parts[0].text[:50] if message.parts else ''}..."
+            )
+
             result = await self.graph.ainvoke(state, run_config)
-            
+
             # Extract final response
             final_message = result["messages"][-1]
-            response_content = final_message.content if hasattr(final_message, "content") else str(final_message)
-            
+            response_content = (
+                final_message.content if hasattr(final_message, "content") else str(final_message)
+            )
+
             # Create response artifact
             response_artifact = Artifact(
                 artifactId=str(uuid.uuid4()),
@@ -401,29 +418,29 @@ class A2AAgentExecutor:
                 description="The agent's response to the user's query",
                 parts=[Part(text=response_content)],
             )
-            
+
             task.artifacts = [response_artifact]
-            
+
             # Extract sources artifact if available
             sources_artifact = self._extract_sources_artifact(result, task.id, task.contextId)
             if sources_artifact:
                 task.artifacts.append(sources_artifact)
-            
+
             # Update task status to completed
             task.status = TaskStatus(
                 state=TaskState.COMPLETED,
                 timestamp=datetime.now(UTC),
             )
-            
+
             # Add agent response to history
             agent_msg = self._langchain_message_to_a2a(final_message, task.id, task.contextId)
             task.history.append(agent_msg)
-            
+
             await self.task_store.update_task(task)
-            
+
             logger.info(f"A2A task {task.id} completed successfully")
             return task
-            
+
         except Exception as e:
             logger.error(f"A2A task {task.id} failed: {e}")
 
@@ -444,21 +461,21 @@ class A2AAgentExecutor:
     ) -> AsyncGenerator[StreamResponse, None]:
         """
         Process a message with streaming updates.
-        
+
         Yields StreamResponse objects as the task progresses:
         1. Initial Task object with SUBMITTED status
         2. TaskStatusUpdateEvent when status changes to WORKING
         3. TaskArtifactUpdateEvent for incremental response chunks
         4. Final TaskStatusUpdateEvent when COMPLETED or FAILED
-        
+
         Args:
             request: The SendMessageRequest with message and configuration
-            
+
         Yields:
             StreamResponse objects wrapping status/artifact updates
         """
         message = request.message
-        
+
         # Create task
         task = await self.task_store.create_task(
             context_id=message.contextId,
@@ -466,17 +483,17 @@ class A2AAgentExecutor:
         )
         task.history = [message]
         await self.task_store.update_task(task)
-        
+
         # Yield initial task
         yield StreamResponse(task=task)
-        
+
         # Update to working
         task.status = TaskStatus(
             state=TaskState.WORKING,
             timestamp=datetime.now(UTC),
         )
         await self.task_store.update_task(task)
-        
+
         yield StreamResponse(
             statusUpdate=TaskStatusUpdateEvent(
                 taskId=task.id,
@@ -484,20 +501,17 @@ class A2AAgentExecutor:
                 status=task.status,
             )
         )
-        
+
         # Extract metadata
         media_id = message.metadata.get("media_id") if message.metadata else None
         media_ids = message.metadata.get("media_ids") if message.metadata else None
         project_id = message.metadata.get("project_id") if message.metadata else None
-        
-        logger.info(
-            f"A2A streaming: media_id='{media_id}', "
-            f"media_ids={media_ids}"
-        )
-        
+
+        logger.info(f"A2A streaming: media_id='{media_id}', " f"media_ids={media_ids}")
+
         # Convert message
         lc_message = self._a2a_message_to_langchain(message)
-        
+
         # Build state
         state = create_agent_state(
             messages=[lc_message],
@@ -505,9 +519,9 @@ class A2AAgentExecutor:
             media_ids=media_ids,
             session_id=task.contextId,
         )
-        
+
         from langchain_core.runnables import RunnableConfig
-        
+
         run_config = RunnableConfig(
             configurable={
                 "thread_id": task.contextId,
@@ -517,21 +531,21 @@ class A2AAgentExecutor:
                 "model_deployment": self.model_deployment,
             }
         )
-        
+
         try:
             # Stream events from the graph
             accumulated_content = ""
             artifact_id = str(uuid.uuid4())
-            
+
             async for event in self.graph.astream_events(state, run_config, version="v2"):
                 kind = event.get("event")
-                
+
                 # Stream token-by-token from LLM
                 if kind == "on_chat_model_stream":
                     chunk = event.get("data", {}).get("chunk")
                     if chunk and hasattr(chunk, "content") and chunk.content:
                         accumulated_content += chunk.content
-                        
+
                         # Yield artifact update with streaming chunk
                         yield StreamResponse(
                             artifactUpdate=TaskArtifactUpdateEvent(
@@ -546,7 +560,7 @@ class A2AAgentExecutor:
                                 lastChunk=False,
                             )
                         )
-                
+
                 # Tool execution events
                 elif kind == "on_tool_start":
                     tool_name = event.get("name", "unknown")
@@ -563,7 +577,7 @@ class A2AAgentExecutor:
                             ),
                         )
                     )
-            
+
             # Final artifact with complete content
             if accumulated_content:
                 yield StreamResponse(
@@ -579,7 +593,7 @@ class A2AAgentExecutor:
                         lastChunk=True,
                     )
                 )
-                
+
                 task.artifacts = [
                     Artifact(
                         artifactId=artifact_id,
@@ -587,14 +601,14 @@ class A2AAgentExecutor:
                         parts=[Part(text=accumulated_content)],
                     )
                 ]
-            
+
             # Complete
             task.status = TaskStatus(
                 state=TaskState.COMPLETED,
                 timestamp=datetime.now(UTC),
             )
             await self.task_store.update_task(task)
-            
+
             yield StreamResponse(
                 statusUpdate=TaskStatusUpdateEvent(
                     taskId=task.id,
@@ -602,7 +616,7 @@ class A2AAgentExecutor:
                     status=task.status,
                 )
             )
-            
+
         except Exception as e:
             logger.error(f"A2A streaming task {task.id} failed: {e}")
 
@@ -615,7 +629,7 @@ class A2AAgentExecutor:
                 timestamp=datetime.now(UTC),
             )
             await self.task_store.update_task(task)
-            
+
             yield StreamResponse(
                 statusUpdate=TaskStatusUpdateEvent(
                     taskId=task.id,
@@ -627,7 +641,7 @@ class A2AAgentExecutor:
     async def get_task(self, task_id: str, history_length: int | None = None) -> Task | None:
         """Get a task by ID."""
         task = await self.task_store.get_task(task_id)
-        
+
         if task and history_length is not None:
             # Trim history if requested
             if history_length == 0:
@@ -640,7 +654,7 @@ class A2AAgentExecutor:
                 )
             elif task.history and len(task.history) > history_length:
                 task.history = task.history[-history_length:]
-        
+
         return task
 
     async def list_tasks(

@@ -12,7 +12,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, Field
 from typing_extensions import TypedDict
 
-
 # =============================================================================
 # TypedDict Definitions (for structured dict typing)
 # =============================================================================
@@ -20,7 +19,7 @@ from typing_extensions import TypedDict
 
 class ChatHistoryMessage(TypedDict, total=False):
     """Structure for chat history messages."""
-    
+
     role: Literal["user", "assistant", "system"]
     content: str
     timestamp: str | None
@@ -29,7 +28,7 @@ class ChatHistoryMessage(TypedDict, total=False):
 
 class EntityReference(TypedDict, total=False):
     """Structure for entity references in responses."""
-    
+
     name: str
     type: str  # person, organization, location, topic, etc.
     confidence: float
@@ -39,7 +38,7 @@ class EntityReference(TypedDict, total=False):
 
 class TokenUsage(TypedDict, total=False):
     """Structure for token usage tracking."""
-    
+
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -48,7 +47,7 @@ class TokenUsage(TypedDict, total=False):
 
 class SourceReference(TypedDict, total=False):
     """Structure for source references."""
-    
+
     timestamp: float
     type: str  # visual, audio, entity, scene
     content: str
@@ -171,7 +170,7 @@ class AgentChatRequest(BaseModel):
     session_id: str | None = None
     output_format: Literal["markdown", "json", "structured"] = Field(
         default="markdown",
-        description="Response format: 'markdown' (default), 'json', or 'structured'"
+        description="Response format: 'markdown' (default), 'json', or 'structured'",
     )
 
     def get_effective_media_ids(self) -> list[str]:
@@ -195,7 +194,17 @@ class VideoSource(BaseModel):
 
     timestamp: float
     timestamp_formatted: str
-    type: Literal["visual", "audio", "entity", "scene", "visible", "comparison", "cross_video", "highlight", "unknown"] = "visual"
+    type: Literal[
+        "visual",
+        "audio",
+        "entity",
+        "scene",
+        "visible",
+        "comparison",
+        "cross_video",
+        "highlight",
+        "unknown",
+    ] = "visual"
     description: str
     score: float = 0.0
     thumbnail_url: str | None = None
@@ -228,27 +237,22 @@ class AgentChatResponse(BaseModel):
     sources: list[VideoSource] = Field(default_factory=list)
     tool_calls_made: int = 0
     session_id: str | None = None
-    
+
     # New fields for enhanced UX
     navigation_actions: list[NavigationAction] = Field(
-        default_factory=list,
-        description="Suggested UI actions like seeking to timestamps"
+        default_factory=list, description="Suggested UI actions like seeking to timestamps"
     )
     suggested_questions: list[SuggestedQuestion] = Field(
-        default_factory=list,
-        description="Follow-up questions the user might want to ask"
+        default_factory=list, description="Follow-up questions the user might want to ask"
     )
     clip_suggestions: list[NavigationAction] = Field(
-        default_factory=list,
-        description="Exportable clip time ranges found"
+        default_factory=list, description="Exportable clip time ranges found"
     )
     entities_mentioned: list[EntityReference] = Field(
-        default_factory=list,
-        description="Entities referenced in the response"
+        default_factory=list, description="Entities referenced in the response"
     )
     token_usage: TokenUsage | None = Field(
-        default=None,
-        description="Token consumption for this request"
+        default=None, description="Token consumption for this request"
     )
 
 

@@ -30,7 +30,7 @@ VAD_MIN_SILENCE_DURATION = 0.5  # minimum silence gap in seconds
 class AudioProcessor:
     """
     Procesa audio de videos: extracción, transcripción con Whisper, análisis.
-    
+
     Attributes:
         openai_client: Cliente de Azure OpenAI para Whisper y GPT.
         whisper_deployment: Nombre del deployment de Whisper.
@@ -110,10 +110,10 @@ class AudioProcessor:
     def get_audio_duration(self, audio_path: str) -> float:
         """
         Obtiene la duración del audio en segundos usando ffprobe.
-        
+
         Args:
             audio_path: Ruta al archivo de audio.
-            
+
         Returns:
             Duración en segundos, o 0.0 si hay error.
         """
@@ -150,9 +150,14 @@ class AudioProcessor:
         Returns list of silence intervals: [{"start": float, "end": float}, ...]
         """
         cmd = [
-            "ffmpeg", "-i", audio_path,
-            "-af", f"silencedetect=noise={noise_db}dB:d={min_silence}",
-            "-f", "null", "-",
+            "ffmpeg",
+            "-i",
+            audio_path,
+            "-af",
+            f"silencedetect=noise={noise_db}dB:d={min_silence}",
+            "-f",
+            "null",
+            "-",
         ]
 
         try:
@@ -164,10 +169,12 @@ class AudioProcessor:
 
             silences = []
             for i in range(min(len(starts), len(ends))):
-                silences.append({
-                    "start": float(starts[i]),
-                    "end": float(ends[i]),
-                })
+                silences.append(
+                    {
+                        "start": float(starts[i]),
+                        "end": float(ends[i]),
+                    }
+                )
             return silences
 
         except Exception as e:
@@ -351,7 +358,7 @@ class AudioProcessor:
     ) -> dict[str, Any]:
         """
         Transcribe audio usando Azure OpenAI Whisper.
-        
+
         Para archivos grandes, automáticamente divide en chunks.
 
         Args:
@@ -395,14 +402,14 @@ class AudioProcessor:
     ) -> dict[str, Any]:
         """
         Transcribe un archivo de audio individual.
-        
+
         Args:
             audio_path: Ruta al archivo de audio.
             language: Código de idioma (opcional).
             response_format: Formato de respuesta.
             timestamp_granularities: Granularidad de timestamps.
             time_offset: Offset de tiempo para ajustar timestamps.
-            
+
         Returns:
             Diccionario con resultados de transcripción.
         """
@@ -453,13 +460,13 @@ class AudioProcessor:
     ) -> dict[str, Any]:
         """
         Transcribe audio grande dividiéndolo en chunks.
-        
+
         Args:
             audio_path: Ruta al archivo de audio.
             language: Código de idioma (opcional).
             response_format: Formato de respuesta.
             timestamp_granularities: Granularidad de timestamps.
-            
+
         Returns:
             Diccionario con resultados combinados de transcripción.
         """
@@ -542,11 +549,11 @@ class AudioProcessor:
     def _adjust_timestamps(self, result: dict[str, Any], offset: float) -> dict[str, Any]:
         """
         Ajusta todos los timestamps añadiendo un offset.
-        
+
         Args:
             result: Diccionario con resultados de transcripción.
             offset: Offset en segundos a añadir a los timestamps.
-            
+
         Returns:
             Diccionario con timestamps ajustados.
         """

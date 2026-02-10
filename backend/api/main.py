@@ -32,7 +32,6 @@ logger = get_logger(__name__)
 from api.dependencies import get_blob_service, get_openai_client
 from services.database_service import get_database_service
 
-
 # =============================================================================
 # Lifespan Context Manager
 # =============================================================================
@@ -46,7 +45,7 @@ async def lifespan(app: FastAPI):
 
     # Fix Windows console encoding for emojis
     if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     # Startup
     print("=" * 50)
@@ -63,6 +62,7 @@ async def lifespan(app: FastAPI):
     pubsub_task = None
     try:
         from api.routes.websocket_manager import get_pubsub_manager
+
         pubsub_manager = await get_pubsub_manager()
         pubsub_task = asyncio.create_task(pubsub_manager.listen())
         print("📡 Redis Pub/Sub: ✓ (WebSocket sync enabled)")
@@ -86,6 +86,7 @@ async def lifespan(app: FastAPI):
 
         try:
             from api.routes.websocket_manager import _pubsub_manager
+
             if _pubsub_manager:
                 await _pubsub_manager.disconnect()
         except Exception:

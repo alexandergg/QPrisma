@@ -7,11 +7,10 @@ Covers:
 - run_evaluation orchestrator (config building, metric computation)
 """
 
-import asyncio
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -26,7 +25,6 @@ from evaluation.models.eval_schemas import (
     MethodConfig,
 )
 from evaluation.runner import EvaluationRunner
-
 
 # =============================================================================
 # Helpers
@@ -433,9 +431,7 @@ class TestComputeAllMetrics:
                 benchmark="test",
             )
         ]
-        results = [
-            EvalResult(question_id="q1", method="test", answer="A long description...")
-        ]
+        results = [EvalResult(question_id="q1", method="test", answer="A long description...")]
 
         agg = compute_all_metrics(results, entries, "test", "bench")
         assert agg.accuracy is None
@@ -529,9 +525,7 @@ class TestConfigBuilder:
             ],
         )
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write(config_data.model_dump_json(indent=2))
             config_path = f.name
 

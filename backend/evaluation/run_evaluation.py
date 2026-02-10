@@ -123,7 +123,6 @@ def compute_all_metrics(
     """
     from evaluation.metrics import (
         compute_accuracy,
-        compute_accuracy_by_duration_tier,
         compute_accuracy_by_group,
         mean_iou,
         timestamp_mae,
@@ -140,8 +139,10 @@ def compute_all_metrics(
 
     # --- MC Accuracy ---
     mc_results = [
-        r for r in results
-        if r.predicted_choice and entry_map.get(r.question_id, None)
+        r
+        for r in results
+        if r.predicted_choice
+        and entry_map.get(r.question_id, None)
         and entry_map[r.question_id].correct_answer
     ]
     mc_entries = [entry_map[r.question_id] for r in mc_results]
@@ -159,13 +160,12 @@ def compute_all_metrics(
         # By category
         has_categories = any(e.category for e in mc_entries)
         if has_categories:
-            agg.accuracy_by_category = compute_accuracy_by_group(
-                mc_results, mc_entries, "category"
-            )
+            agg.accuracy_by_category = compute_accuracy_by_group(mc_results, mc_entries, "category")
 
     # --- Temporal Metrics ---
     temporal_results = [
-        r for r in results
+        r
+        for r in results
         if r.predicted_timestamps
         and entry_map.get(r.question_id)
         and entry_map[r.question_id].ground_truth_segments
@@ -244,9 +244,7 @@ async def run_judge_pipeline(
         for r in method_results:
             base_r = baseline_map.get(r.question_id)
             if base_r:
-                entry = next(
-                    (e for e in entries if e.question_id == r.question_id), None
-                )
+                entry = next((e for e in entries if e.question_id == r.question_id), None)
                 if entry:
                     pairs.append((entry, r, base_r))
 
@@ -331,10 +329,18 @@ async def _run_batch_judge(
     # Save raw judge outputs
     judge_dir = output_dir / "judges" / method_name
     judge_dir.mkdir(parents=True, exist_ok=True)
-    (judge_dir / "winrate_raw.json").write_text(json.dumps(winrate_raw, indent=2, default=str), encoding="utf-8")
-    (judge_dir / "quant_raw.json").write_text(json.dumps(quant_raw, indent=2, default=str), encoding="utf-8")
-    (judge_dir / "winrate_results.json").write_text(json.dumps(winrates, indent=2), encoding="utf-8")
-    (judge_dir / "quant_results.json").write_text(json.dumps(quant_scores, indent=2), encoding="utf-8")
+    (judge_dir / "winrate_raw.json").write_text(
+        json.dumps(winrate_raw, indent=2, default=str), encoding="utf-8"
+    )
+    (judge_dir / "quant_raw.json").write_text(
+        json.dumps(quant_raw, indent=2, default=str), encoding="utf-8"
+    )
+    (judge_dir / "winrate_results.json").write_text(
+        json.dumps(winrates, indent=2), encoding="utf-8"
+    )
+    (judge_dir / "quant_results.json").write_text(
+        json.dumps(quant_scores, indent=2), encoding="utf-8"
+    )
 
     return {"winrates": winrates, "quantitative": quant_scores}
 
@@ -375,7 +381,9 @@ async def _run_online_judge(
             logger.warning("Quantitative judge failed for %s: %s", entry.question_id, e)
 
     return {
-        "winrate_results": [r.model_dump() if hasattr(r, "model_dump") else r for r in winrate_results],
+        "winrate_results": [
+            r.model_dump() if hasattr(r, "model_dump") else r for r in winrate_results
+        ],
         "quant_results": [r.model_dump() if hasattr(r, "model_dump") else r for r in quant_results],
     }
 
@@ -402,12 +410,14 @@ def generate_report(
     # Accuracy table
     has_accuracy = any(a.accuracy is not None for a in aggregated.values())
     if has_accuracy:
-        lines.extend([
-            "## MC Accuracy",
-            "",
-            "| Method | Overall | Short | Medium | Long |",
-            "|--------|---------|-------|--------|------|",
-        ])
+        lines.extend(
+            [
+                "## MC Accuracy",
+                "",
+                "| Method | Overall | Short | Medium | Long |",
+                "|--------|---------|-------|--------|------|",
+            ]
+        )
         for method, agg in sorted(aggregated.items()):
             if agg.accuracy is not None:
                 tiers = agg.accuracy_by_tier or {}
@@ -422,12 +432,14 @@ def generate_report(
     # Efficiency table
     has_efficiency = any(a.avg_latency_ms is not None for a in aggregated.values())
     if has_efficiency:
-        lines.extend([
-            "## Efficiency",
-            "",
-            "| Method | Avg Latency (ms) | P95 Latency (ms) | Avg Cost ($) | Avg Tokens |",
-            "|--------|-------------------|-------------------|--------------|------------|",
-        ])
+        lines.extend(
+            [
+                "## Efficiency",
+                "",
+                "| Method | Avg Latency (ms) | P95 Latency (ms) | Avg Cost ($) | Avg Tokens |",
+                "|--------|-------------------|-------------------|--------------|------------|",
+            ]
+        )
         for method, agg in sorted(aggregated.items()):
             if agg.avg_latency_ms is not None:
                 lines.append(
@@ -441,10 +453,12 @@ def generate_report(
 
     # Judge results
     if judge_results:
-        lines.extend([
-            "## LLM Judge Results",
-            "",
-        ])
+        lines.extend(
+            [
+                "## LLM Judge Results",
+                "",
+            ]
+        )
         for method, jr in judge_results.items():
             if isinstance(jr, dict) and "winrates" in jr:
                 lines.append(f"### {method}")
@@ -577,7 +591,9 @@ async def run_evaluation(config: EvalConfig, fresh: bool = False) -> dict:
         "aggregated": {k: v.model_dump() for k, v in all_aggregated.items()},
         "judge_results": all_judge_results,
     }
-    (output_dir / "final_results.json").write_text(json.dumps(final, indent=2, default=str), encoding="utf-8")
+    (output_dir / "final_results.json").write_text(
+        json.dumps(final, indent=2, default=str), encoding="utf-8"
+    )
 
     return final
 
@@ -624,12 +640,8 @@ Examples:
     )
     parser.add_argument("--judge-model", type=str, default="gpt-4o", help="LLM judge model")
     parser.add_argument("--num-runs", type=int, default=5, help="Number of judge runs")
-    parser.add_argument(
-        "--no-batch", action="store_true", help="Disable batch API for judge calls"
-    )
-    parser.add_argument(
-        "--skip-judge", action="store_true", help="Skip LLM judge evaluation"
-    )
+    parser.add_argument("--no-batch", action="store_true", help="Disable batch API for judge calls")
+    parser.add_argument("--skip-judge", action="store_true", help="Skip LLM judge evaluation")
     parser.add_argument(
         "--fresh",
         action="store_true",

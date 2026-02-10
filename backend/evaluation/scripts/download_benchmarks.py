@@ -14,7 +14,6 @@ Usage:
 import argparse
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -37,9 +36,7 @@ def download_video_mme(output_dir: Path, subset: str = "test") -> Path:
     try:
         from datasets import load_dataset
     except ImportError:
-        logger.error(
-            "The 'datasets' package is required. Install with: pip install datasets"
-        )
+        logger.error("The 'datasets' package is required. Install with: pip install datasets")
         sys.exit(1)
 
     bench_dir = output_dir / "video_mme"
@@ -110,9 +107,7 @@ def download_mlvu(output_dir: Path) -> Path:
     try:
         from datasets import load_dataset
     except ImportError:
-        logger.error(
-            "The 'datasets' package is required. Install with: pip install datasets"
-        )
+        logger.error("The 'datasets' package is required. Install with: pip install datasets")
         sys.exit(1)
 
     bench_dir = output_dir / "mlvu"
@@ -131,8 +126,13 @@ def download_mlvu(output_dir: Path) -> Path:
 
     # MC tasks
     mc_tasks = [
-        "topic_reasoning", "anomaly_recognition", "needle_qa",
-        "ego_reasoning", "plot_qa", "action_order", "action_count",
+        "topic_reasoning",
+        "anomaly_recognition",
+        "needle_qa",
+        "ego_reasoning",
+        "plot_qa",
+        "action_order",
+        "action_count",
     ]
     # Generation tasks
     gen_tasks = ["sub_scene", "summary"]
@@ -148,9 +148,7 @@ def download_mlvu(output_dir: Path) -> Path:
                     "choices": row.get("candidates", None),
                     "correct_answer": row.get("answer", ""),
                     "category": task,
-                    "duration_tier": _estimate_tier_from_seconds(
-                        row.get("duration", 0)
-                    ),
+                    "duration_tier": _estimate_tier_from_seconds(row.get("duration", 0)),
                     "video_duration_seconds": row.get("duration", None),
                     "benchmark": "mlvu",
                 }

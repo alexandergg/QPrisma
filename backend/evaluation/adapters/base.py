@@ -43,11 +43,11 @@ class BaseMethodAdapter(ABC):
         """
         ...
 
-    async def setup(self) -> None:
+    async def setup(self) -> None:  # noqa: B027
         """Optional setup before evaluation run (e.g., index videos)."""
         pass
 
-    async def teardown(self) -> None:
+    async def teardown(self) -> None:  # noqa: B027
         """Optional cleanup after evaluation run."""
         pass
 

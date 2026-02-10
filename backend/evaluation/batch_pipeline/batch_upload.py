@@ -8,7 +8,6 @@ Following VideoRAG's pattern with position debiasing and N runs.
 
 import json
 import logging
-import tempfile
 from pathlib import Path
 
 from openai import AsyncOpenAI
@@ -139,9 +138,7 @@ async def upload_quantitative_batch(
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     entry_map = {e.question_id: e for e in entries}
-    baseline_answers = {
-        r.question_id: r for r in method_answers[config.baseline_method]
-    }
+    baseline_answers = {r.question_id: r for r in method_answers[config.baseline_method]}
     batch_ids = []
 
     for method in methods_to_evaluate:

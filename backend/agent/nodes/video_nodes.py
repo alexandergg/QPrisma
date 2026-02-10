@@ -13,12 +13,12 @@ from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from agent.nodes.base import (
-    base_call_model,
-    base_should_continue,
-    update_context_node,
-    select_tools_for_query,
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_WARN_TOOL_ITERATIONS,
+    base_call_model,
+    base_should_continue,
+    select_tools_for_query,
+    update_context_node,
 )
 from agent.prompts import MULTI_VIDEO_SYSTEM_PROMPT, NO_VIDEO_CONTEXT_PROMPT, SYSTEM_PROMPT
 from agent.state.agent_state import AgentState
@@ -50,6 +50,7 @@ def get_system_message(state: AgentState) -> SystemMessage:
             content += f"\n\n**Current Video:** {video_context.get('title')}"
         if video_context and video_context.get("duration"):
             from agent.utils.formatting import format_timestamp as fmt_ts
+
             duration = video_context.get("duration")
             content += f" (Duration: {fmt_ts(duration)})"
     else:
@@ -75,12 +76,11 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
     media_ids = state.get("media_ids")
     is_multi_video = media_ids and len(media_ids) > 1
     has_video = is_multi_video or (video_context and video_context.get("media_id")) or media_id
-    
+
     logger.info(
-        f"call_model: media_id={media_id}, "
-        f"media_ids={media_ids}, has_video={has_video}"
+        f"call_model: media_id={media_id}, " f"media_ids={media_ids}, has_video={has_video}"
     )
-    
+
     # Get tools - use dynamic binding if enabled
     tools = []
     if has_video:
@@ -91,19 +91,19 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
             if hasattr(msg, "content") and msg.type == "human":
                 user_query = msg.content if isinstance(msg.content, str) else str(msg.content)
                 break
-        
+
         # Dynamic tool binding - select focused subset
         if user_query:
             tools = select_tools_for_query(user_query, SEARCH_TOOLS, max_tools=8)
         else:
             tools = SEARCH_TOOLS
-        
+
         logger.info(f"call_model: selected {len(tools)} tools for query: '{user_query[:50]}...'")
     else:
         logger.warning("call_model: NO VIDEO CONTEXT - tools will be empty!")
-    
+
     system_message = get_system_message(state)
-    
+
     return await base_call_model(
         state=state,
         config=config,
@@ -118,7 +118,7 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
 async def update_context(state: AgentState, config: RunnableConfig) -> dict:
     """
     Update conversation context after tool execution.
-    
+
     Extracts key topics and entities from the conversation
     to maintain context awareness across turns.
     """
@@ -140,4 +140,3 @@ def should_continue(state: AgentState) -> Literal["tools", "error_handler", "__e
     3. If error threshold reached
     """
     return base_should_continue(state, max_iterations=MAX_TOOL_ITERATIONS)
-

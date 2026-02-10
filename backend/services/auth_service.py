@@ -4,8 +4,7 @@ Uses PostgreSQL for user storage (replaces Cosmos DB).
 """
 
 import logging
-import os
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from jose import JWTError, jwt

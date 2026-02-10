@@ -98,10 +98,15 @@ class FrameExtractionConfig(BaseModel):
 
     # Para método HYBRID (scene_detect + uniform fill)
     hybrid_scene_ratio: float | None = Field(
-        default=0.6, description="Ratio de frames de escenas vs uniform (0.6 = 60% escenas, 40% fill)", ge=0, le=1
+        default=0.6,
+        description="Ratio de frames de escenas vs uniform (0.6 = 60% escenas, 40% fill)",
+        ge=0,
+        le=1,
     )
     hybrid_min_gap_seconds: float | None = Field(
-        default=10.0, description="Gap mínimo en segundos entre frames antes de insertar fill frames", gt=0
+        default=10.0,
+        description="Gap mínimo en segundos entre frames antes de insertar fill frames",
+        gt=0,
     )
 
     # Límites generales
@@ -121,7 +126,11 @@ class FrameExtractionConfig(BaseModel):
     @classmethod
     def end_time_must_be_after_start(cls, v: float | None, info) -> float | None:
         """Validar que end_time > start_time"""
-        if v is not None and info.data.get("start_time") is not None and v <= info.data["start_time"]:
+        if (
+            v is not None
+            and info.data.get("start_time") is not None
+            and v <= info.data["start_time"]
+        ):
             raise ValueError("end_time debe ser mayor que start_time")
         return v
 
@@ -478,7 +487,8 @@ def get_preset_config(preset: ProcessingPreset) -> FFmpegProcessingConfig:
                 max_frames=200,
             ),
             video_filters=VideoFilterConfig(
-                scale_width=1280, scale_height=720,
+                scale_width=1280,
+                scale_height=720,
             ),
         )
 

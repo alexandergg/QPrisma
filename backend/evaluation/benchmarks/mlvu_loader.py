@@ -61,7 +61,7 @@ def load_from_directory(
     entries = []
     question_counter = 0
 
-    for filename, (question_type, task_type, is_gen) in TASK_FILES.items():
+    for filename, (question_type, _task_type, is_gen) in TASK_FILES.items():
         if tasks and filename not in tasks:
             continue
 

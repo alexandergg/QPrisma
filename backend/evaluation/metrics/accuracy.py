@@ -34,9 +34,7 @@ def compute_accuracy(
         if r.question_id not in gt_map or r.predicted_choice is None:
             continue
         total += 1
-        if _normalize_choice(r.predicted_choice) == _normalize_choice(
-            gt_map[r.question_id]
-        ):
+        if _normalize_choice(r.predicted_choice) == _normalize_choice(gt_map[r.question_id]):
             correct += 1
 
     return correct / total if total > 0 else 0.0
@@ -72,9 +70,7 @@ def compute_accuracy_by_group(
             group_val = group_val.value
         groups[str(group_val)].append((r, entry))
 
-    return {
-        group: _accuracy_from_pairs(pairs) for group, pairs in sorted(groups.items())
-    }
+    return {group: _accuracy_from_pairs(pairs) for group, pairs in sorted(groups.items())}
 
 
 def compute_accuracy_by_duration_tier(
@@ -104,7 +100,7 @@ def compute_accuracy_by_duration_tier(
             DurationTier.VERY_LONG: (3600, float("inf")),
         }
 
-    entry_map = {e.question_id: e for e in entries}
+    {e.question_id: e for e in entries}
     enriched_entries = []
 
     for entry in entries:

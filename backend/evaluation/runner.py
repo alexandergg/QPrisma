@@ -9,11 +9,10 @@ for reproducibility. Supports resumable runs (skips already-generated answers).
 import asyncio
 import json
 import logging
-import os
 from pathlib import Path
 
 from evaluation.adapters.base import BaseMethodAdapter
-from evaluation.metrics.efficiency import EfficiencyRecord, EfficiencyTracker
+from evaluation.metrics.efficiency import EfficiencyTracker
 from evaluation.models.eval_schemas import BenchmarkEntry, EvalResult
 
 logger = logging.getLogger(__name__)
@@ -92,7 +91,9 @@ class EvaluationRunner:
                 result_path = method_dir / f"{entry.question_id}.json"
                 if result_path.exists():
                     try:
-                        saved = EvalResult.model_validate_json(result_path.read_text(encoding="utf-8"))
+                        saved = EvalResult.model_validate_json(
+                            result_path.read_text(encoding="utf-8")
+                        )
                         completed_results.append(saved)
                         continue
                     except (json.JSONDecodeError, ValueError) as e:
@@ -198,9 +199,7 @@ class EvaluationRunner:
         """
         results = {}
         for adapter in adapters:
-            method_results = await self.run_method(
-                adapter, entries, video_dir, benchmark_name
-            )
+            method_results = await self.run_method(adapter, entries, video_dir, benchmark_name)
             results[adapter.name] = method_results
 
         # Save combined results summary

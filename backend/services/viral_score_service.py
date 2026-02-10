@@ -22,43 +22,109 @@ logger = logging.getLogger(__name__)
 # Keywords that tend to perform well in short-form content
 HOOK_KEYWORDS = [
     # Curiosity triggers
-    "secret", "hidden", "unknown", "discover", "revealed",
-    "never", "always", "every", "nobody", "everyone",
+    "secret",
+    "hidden",
+    "unknown",
+    "discover",
+    "revealed",
+    "never",
+    "always",
+    "every",
+    "nobody",
+    "everyone",
     # Value indicators
-    "mistake", "wrong", "right", "truth", "lie",
-    "hack", "trick", "tip", "lesson", "learned",
+    "mistake",
+    "wrong",
+    "right",
+    "truth",
+    "lie",
+    "hack",
+    "trick",
+    "tip",
+    "lesson",
+    "learned",
     # Emotional triggers
-    "shocked", "surprised", "amazing", "incredible", "insane",
-    "changed", "transformed", "mind-blowing", "crazy",
+    "shocked",
+    "surprised",
+    "amazing",
+    "incredible",
+    "insane",
+    "changed",
+    "transformed",
+    "mind-blowing",
+    "crazy",
     # Action words
-    "stop", "start", "must", "need", "should",
-    "here's", "this is", "let me", "watch",
+    "stop",
+    "start",
+    "must",
+    "need",
+    "should",
+    "here's",
+    "this is",
+    "let me",
+    "watch",
     # Numbers and specifics
-    "one", "three", "five", "number", "reason",
+    "one",
+    "three",
+    "five",
+    "number",
+    "reason",
 ]
 
 # Topics that typically engage audiences
 ENGAGING_TOPICS = [
-    "money", "wealth", "income", "rich", "success",
-    "health", "fitness", "weight", "diet",
-    "relationship", "dating", "love", "marriage",
-    "career", "job", "business", "entrepreneur",
-    "productivity", "time", "habit", "routine",
-    "technology", "ai", "future", "innovation",
-    "mindset", "psychology", "brain", "thinking",
+    "money",
+    "wealth",
+    "income",
+    "rich",
+    "success",
+    "health",
+    "fitness",
+    "weight",
+    "diet",
+    "relationship",
+    "dating",
+    "love",
+    "marriage",
+    "career",
+    "job",
+    "business",
+    "entrepreneur",
+    "productivity",
+    "time",
+    "habit",
+    "routine",
+    "technology",
+    "ai",
+    "future",
+    "innovation",
+    "mindset",
+    "psychology",
+    "brain",
+    "thinking",
 ]
 
 # Words that indicate controversy or strong opinions
 CONTROVERSY_WORDS = [
-    "controversial", "debate", "disagree", "unpopular",
-    "actually", "truth is", "most people", "nobody tells you",
-    "wrong", "bad advice", "overrated", "underrated",
+    "controversial",
+    "debate",
+    "disagree",
+    "unpopular",
+    "actually",
+    "truth is",
+    "most people",
+    "nobody tells you",
+    "wrong",
+    "bad advice",
+    "overrated",
+    "underrated",
 ]
 
 
 @dataclass
 class ViralScoreResult:
     """Result of viral score calculation."""
+
     score: float  # 0-100
     reasons: list[str]
     components: dict[str, float]
@@ -68,6 +134,7 @@ class ViralScoreResult:
 @dataclass
 class TranscriptSegment:
     """A segment of transcript with timing."""
+
     start_time: float
     end_time: float
     text: str
@@ -128,11 +195,7 @@ class ViralScoreService:
             reasons.append("High-interest topic")
 
         # 3. Pacing Score (15% weight)
-        pacing_score = self._calculate_pacing_score(
-            transcript_segment,
-            words,
-            duration
-        )
+        pacing_score = self._calculate_pacing_score(transcript_segment, words, duration)
         components["pacing"] = pacing_score
         if pacing_score >= 70:
             reasons.append("Good energy and pacing")
@@ -170,13 +233,13 @@ class ViralScoreService:
 
         # Calculate weighted total
         total_score = (
-            hook_score * 0.25 +
-            topic_score * 0.20 +
-            pacing_score * 0.15 +
-            completeness_score * 0.15 +
-            controversy_score * 0.10 +
-            duration_score * 0.10 +
-            visual_score * 0.05
+            hook_score * 0.25
+            + topic_score * 0.20
+            + pacing_score * 0.15
+            + completeness_score * 0.15
+            + controversy_score * 0.10
+            + duration_score * 0.10
+            + visual_score * 0.05
         )
 
         # Apply bonuses
@@ -232,16 +295,13 @@ class ViralScoreService:
             score += 15
 
         # Check for specific/concrete examples
-        if re.search(r'\$[\d,]+|\d+%|\d+ (year|month|day)', text):
+        if re.search(r"\$[\d,]+|\d+%|\d+ (year|month|day)", text):
             score += 15
 
         return min(100, score)
 
     def _calculate_pacing_score(
-        self,
-        segment: TranscriptSegment,
-        words: list[str],
-        duration: float
+        self, segment: TranscriptSegment, words: list[str], duration: float
     ) -> float:
         """Calculate pacing based on words per minute."""
         if duration <= 0:
@@ -264,7 +324,7 @@ class ViralScoreService:
         score = 50  # Base score
 
         # Check for sentence structure
-        sentences = text.count('.') + text.count('!') + text.count('?')
+        sentences = text.count(".") + text.count("!") + text.count("?")
         if sentences >= 2:
             score += 20
 
@@ -274,7 +334,7 @@ class ViralScoreService:
             score += 20
 
         # Penalize if text seems cut off
-        if text.rstrip().endswith((',', 'and', 'but', 'or', 'the', 'a', 'an')):
+        if text.rstrip().endswith((",", "and", "but", "or", "the", "a", "an")):
             score -= 20
 
         # Ideal duration for completeness
@@ -320,11 +380,7 @@ class ViralScoreService:
         else:
             return 20
 
-    def _calculate_visual_score(
-        self,
-        has_face: bool | None,
-        scene_changes: int
-    ) -> float:
+    def _calculate_visual_score(self, has_face: bool | None, scene_changes: int) -> float:
         """Score based on visual engagement factors."""
         score = 50  # Base score
 
@@ -366,25 +422,25 @@ class ViralScoreService:
             return []
 
         # Group transcript into potential clip segments
-        segments = self._segment_transcript(
-            full_transcript,
-            min_duration,
-            max_duration
-        )
+        segments = self._segment_transcript(full_transcript, min_duration, max_duration)
 
         for segment in segments:
             result = self.calculate_viral_score(segment)
 
             if result.score >= min_score:
-                potential_clips.append({
-                    "start_time": segment.start_time,
-                    "end_time": segment.end_time,
-                    "duration": segment.end_time - segment.start_time,
-                    "text_preview": segment.text[:100] + "..." if len(segment.text) > 100 else segment.text,
-                    "viral_score": result.score,
-                    "reasons": result.reasons,
-                    "recommendations": result.recommendations,
-                })
+                potential_clips.append(
+                    {
+                        "start_time": segment.start_time,
+                        "end_time": segment.end_time,
+                        "duration": segment.end_time - segment.start_time,
+                        "text_preview": (
+                            segment.text[:100] + "..." if len(segment.text) > 100 else segment.text
+                        ),
+                        "viral_score": result.score,
+                        "reasons": result.reasons,
+                        "recommendations": result.recommendations,
+                    }
+                )
 
         # Sort by score and return top clips
         potential_clips.sort(key=lambda x: x["viral_score"], reverse=True)
@@ -395,10 +451,7 @@ class ViralScoreService:
         return filtered_clips[:max_clips]
 
     def _segment_transcript(
-        self,
-        full_transcript: list[dict],
-        min_duration: float,
-        max_duration: float
+        self, full_transcript: list[dict], min_duration: float, max_duration: float
     ) -> list[TranscriptSegment]:
         """Segment transcript into potential clips."""
         segments = []
@@ -431,30 +484,23 @@ class ViralScoreService:
                 end_time = min(current_start + window_size, last_end)
 
                 # Get text for this segment
-                segment_text = self._get_text_in_range(
-                    full_transcript,
-                    current_start,
-                    end_time
-                )
+                segment_text = self._get_text_in_range(full_transcript, current_start, end_time)
 
                 if segment_text:
-                    segments.append(TranscriptSegment(
-                        start_time=current_start,
-                        end_time=end_time,
-                        text=segment_text,
-                        words=[],
-                    ))
+                    segments.append(
+                        TranscriptSegment(
+                            start_time=current_start,
+                            end_time=end_time,
+                            text=segment_text,
+                            words=[],
+                        )
+                    )
 
             current_start += step_size
 
         return segments
 
-    def _get_text_in_range(
-        self,
-        transcript: list[dict],
-        start: float,
-        end: float
-    ) -> str:
+    def _get_text_in_range(self, transcript: list[dict], start: float, end: float) -> str:
         """Extract text from transcript within time range."""
         words = []
 
@@ -471,9 +517,7 @@ class ViralScoreService:
         return " ".join(words)
 
     def _remove_overlapping_clips(
-        self,
-        clips: list[dict],
-        overlap_threshold: float = 0.5
+        self, clips: list[dict], overlap_threshold: float = 0.5
     ) -> list[dict]:
         """Remove clips that overlap too much, keeping higher scored ones."""
         if not clips:

@@ -16,7 +16,7 @@ Ablation Configs:
 - fixedtokens: Fixed token budget per frame
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)

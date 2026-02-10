@@ -11,13 +11,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from api.dependencies import get_current_user
 from models.graph_models import (
-    EntityType,
     GraphSearchQuery,
     GraphSearchResponse,
     GraphSearchResult,
     GraphStats,
     NodeType,
-    RelationType,
     VideoGraphSummary,
 )
 from models.graph_route_schemas import (
@@ -43,8 +41,6 @@ from models.graph_route_schemas import (
     LoadChildrenResponse,
     ProcessHierarchyRequest,
     ProcessHierarchyResponse,
-    ProcessVideoGraphRequest,
-    ProcessVideoGraphResponse,
     RelatedEntitiesRequest,
 )
 from models.user import User
@@ -161,7 +157,9 @@ async def get_graph_stats(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/search/entities")
-async def search_entities(request: EntitySearchRequest, current_user: User = Depends(get_current_user)):
+async def search_entities(
+    request: EntitySearchRequest, current_user: User = Depends(get_current_user)
+):
     """
     Full-text search of entities in the Knowledge Graph.
 
@@ -187,7 +185,9 @@ async def search_entities(request: EntitySearchRequest, current_user: User = Dep
 
 
 @router.post("/search/frames")
-async def search_frames(request: FrameSearchRequest, current_user: User = Depends(get_current_user)):
+async def search_frames(
+    request: FrameSearchRequest, current_user: User = Depends(get_current_user)
+):
     """
     Full-text search in frame descriptions.
 
@@ -218,7 +218,9 @@ async def search_frames(request: FrameSearchRequest, current_user: User = Depend
 
 
 @router.post("/search/advanced", response_model=GraphSearchResponse)
-async def advanced_graph_search(query: GraphSearchQuery, current_user: User = Depends(get_current_user)):
+async def advanced_graph_search(
+    query: GraphSearchQuery, current_user: User = Depends(get_current_user)
+):
     """
     Advanced search with graph expansion.
 
@@ -327,7 +329,9 @@ async def advanced_graph_search(query: GraphSearchQuery, current_user: User = De
 
 
 @router.post("/search/hybrid", response_model=GraphSearchResponse)
-async def hybrid_search(request: HybridSearchRequest, current_user: User = Depends(get_current_user)):
+async def hybrid_search(
+    request: HybridSearchRequest, current_user: User = Depends(get_current_user)
+):
     """
     Hybrid search combining vector, full-text, and graph.
 
@@ -364,7 +368,9 @@ async def hybrid_search(request: HybridSearchRequest, current_user: User = Depen
 
 
 @router.post("/search/cross-video", response_model=CrossVideoSearchResponse)
-async def cross_video_search(request: CrossVideoSearchRequest, current_user: User = Depends(get_current_user)):
+async def cross_video_search(
+    request: CrossVideoSearchRequest, current_user: User = Depends(get_current_user)
+):
     """
     Finds similar nodes in other videos.
 
@@ -409,7 +415,9 @@ async def cross_video_search(request: CrossVideoSearchRequest, current_user: Use
 
 @router.post("/embeddings/generate", response_model=GenerateEmbeddingsResponse)
 async def generate_embeddings(
-    request: GenerateEmbeddingsRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)
+    request: GenerateEmbeddingsRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Generates embeddings in bulk for existing nodes.
@@ -479,7 +487,9 @@ async def get_embedding_stats(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/expand", response_model=ContextExpansionResponse)
-async def expand_context(request: ContextExpansionRequest, current_user: User = Depends(get_current_user)):
+async def expand_context(
+    request: ContextExpansionRequest, current_user: User = Depends(get_current_user)
+):
     """
     Expands the context of a node for RAG.
 
@@ -507,7 +517,9 @@ async def expand_context(request: ContextExpansionRequest, current_user: User = 
 
 
 @router.post("/timeline", response_model=EntityTimelineResponse)
-async def get_entity_timeline(request: EntityTimelineRequest, current_user: User = Depends(get_current_user)):
+async def get_entity_timeline(
+    request: EntityTimelineRequest, current_user: User = Depends(get_current_user)
+):
     """
     Gets the timeline of entity appearances in a video.
 
@@ -532,7 +544,9 @@ async def get_entity_timeline(request: EntityTimelineRequest, current_user: User
 
 
 @router.post("/related")
-async def get_related_entities(request: RelatedEntitiesRequest, current_user: User = Depends(get_current_user)):
+async def get_related_entities(
+    request: RelatedEntitiesRequest, current_user: User = Depends(get_current_user)
+):
     """
     Gets entities related to a given entity.
 
@@ -709,7 +723,9 @@ async def extract_entities_from_description(
 
 @router.post("/hierarchy/process", response_model=ProcessHierarchyResponse)
 async def process_video_hierarchy(
-    request: ProcessHierarchyRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)
+    request: ProcessHierarchyRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
 ):
     """
     Processes a video to create its complete hierarchy.
@@ -758,7 +774,9 @@ async def process_video_hierarchy(
 
 
 @router.post("/hierarchy/search/drill-down", response_model=DrillDownSearchResponse)
-async def drill_down_search(request: DrillDownSearchRequest, current_user: User = Depends(get_current_user)):
+async def drill_down_search(
+    request: DrillDownSearchRequest, current_user: User = Depends(get_current_user)
+):
     """
     Hierarchical drill-down search.
 
@@ -829,7 +847,9 @@ async def drill_down_search(request: DrillDownSearchRequest, current_user: User 
 
 
 @router.post("/hierarchy/children", response_model=LoadChildrenResponse)
-async def load_children(request: LoadChildrenRequest, current_user: User = Depends(get_current_user)):
+async def load_children(
+    request: LoadChildrenRequest, current_user: User = Depends(get_current_user)
+):
     """
     Carga lazy de nodos hijos.
 
@@ -909,7 +929,11 @@ async def get_hierarchy_stats(video_id: str, current_user: User = Depends(get_cu
 
 
 @router.get("/hierarchy/path/{node_id}", response_model=HierarchyPathResponse)
-async def get_hierarchy_path(node_id: str, node_type: NodeType = Query(NodeType.SCENE), current_user: User = Depends(get_current_user)):
+async def get_hierarchy_path(
+    node_id: str,
+    node_type: NodeType = Query(NodeType.SCENE),
+    current_user: User = Depends(get_current_user),
+):
     """
     Obtiene la ruta completa desde la raíz (video) hasta un nodo.
 
@@ -950,7 +974,9 @@ async def get_hierarchy_path(node_id: str, node_type: NodeType = Query(NodeType.
 
 
 @router.delete("/clear", include_in_schema=False)
-async def clear_all_graph_data(confirm: bool = Query(False), current_user: User = Depends(get_current_user)):
+async def clear_all_graph_data(
+    confirm: bool = Query(False), current_user: User = Depends(get_current_user)
+):
     """
     Elimina TODOS los datos del Knowledge Graph.
 

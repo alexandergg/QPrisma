@@ -74,10 +74,12 @@ class UniformBaselineAdapter(BaseMethodAdapter):
             query = self.build_mc_query(entry)
             content = [{"type": "text", "text": query}]
             for frame in frames_b64:
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{frame}"},
-                })
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{frame}"},
+                    }
+                )
 
             response = await self._client.chat.completions.create(
                 model=self.model,
@@ -120,13 +122,21 @@ class UniformBaselineAdapter(BaseMethodAdapter):
             with tempfile.TemporaryDirectory() as tmpdir:
                 # Use FFmpeg to extract N frames
                 cmd = [
-                    "ffmpeg", "-i", video_path,
-                    "-vf", f"select=not(mod(n\\,{max(1, self._get_interval(video_path))})),scale={FRAME_SCALE_WIDTH}:-1",
-                    "-frames:v", str(self.num_frames),
-                    "-vsync", "vfr",
-                    "-q:v", "5",
+                    "ffmpeg",
+                    "-i",
+                    video_path,
+                    "-vf",
+                    f"select=not(mod(n\\,{max(1, self._get_interval(video_path))})),scale={FRAME_SCALE_WIDTH}:-1",
+                    "-frames:v",
+                    str(self.num_frames),
+                    "-vsync",
+                    "vfr",
+                    "-q:v",
+                    "5",
                     f"{tmpdir}/frame_%04d.jpg",
-                    "-y", "-loglevel", "error",
+                    "-y",
+                    "-loglevel",
+                    "error",
                 ]
                 subprocess.run(cmd, check=True, timeout=FFMPEG_EXTRACT_TIMEOUT)
 
@@ -144,7 +154,7 @@ class UniformBaselineAdapter(BaseMethodAdapter):
             logger.error("File I/O error extracting frames from %s: %s", video_path, e)
             return []
 
-        return frames[:self.num_frames]
+        return frames[: self.num_frames]
 
     def _get_interval(self, video_path: str) -> int:
         """Estimate frame interval for uniform sampling."""
@@ -154,11 +164,22 @@ class UniformBaselineAdapter(BaseMethodAdapter):
             import subprocess
 
             result = subprocess.run(
-                ["ffprobe", "-v", "error", "-count_frames",
-                 "-select_streams", "v:0",
-                 "-show_entries", "stream=nb_read_frames",
-                 "-of", "csv=p=0", video_path],
-                capture_output=True, text=True, timeout=FFPROBE_TIMEOUT,
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-count_frames",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=nb_read_frames",
+                    "-of",
+                    "csv=p=0",
+                    video_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=FFPROBE_TIMEOUT,
             )
             total_frames = int(result.stdout.strip())
             return max(1, total_frames // self.num_frames)
@@ -285,9 +306,7 @@ class NaiveRAGAdapter(BaseMethodAdapter):
                         model="text-embedding-3-large",
                         input=chunk,
                     )
-                    chunks_with_embeddings.append(
-                        (chunk, emb_resp.data[0].embedding)
-                    )
+                    chunks_with_embeddings.append((chunk, emb_resp.data[0].embedding))
         except Exception as e:
             logger.warning("Failed to get transcripts for %s: %s", video_id, e)
 
@@ -423,9 +442,7 @@ class ExternalAPIAdapter(BaseMethodAdapter):
             error=error,
         )
 
-    async def _call_openai(
-        self, entry: BenchmarkEntry, video_path: str | None
-    ) -> tuple[str, int]:
+    async def _call_openai(self, entry: BenchmarkEntry, video_path: str | None) -> tuple[str, int]:
         """Call OpenAI GPT-4o with video frames."""
         # Reuse UniformBaselineAdapter's frame extraction
         uniform = UniformBaselineAdapter(num_frames=self.num_frames, model=self.model)
@@ -433,9 +450,7 @@ class ExternalAPIAdapter(BaseMethodAdapter):
         result = await uniform.generate_answer(entry, video_path)
         return result.answer, result.tokens_used or 0
 
-    async def _call_gemini(
-        self, entry: BenchmarkEntry, video_path: str | None
-    ) -> tuple[str, int]:
+    async def _call_gemini(self, entry: BenchmarkEntry, video_path: str | None) -> tuple[str, int]:
         """Call Gemini with video file.
 
         Raises:

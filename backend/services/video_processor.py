@@ -6,6 +6,7 @@ Usa FFmpeg ultra-rápido y Azure OpenAI Batch API (50% más barato).
 
 import base64
 import logging
+import os
 import subprocess
 import tempfile
 import time
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 class VideoProcessor:
     """
     Procesa videos: extracción de frames, análisis con GPT-4V, embeddings, audio.
-    
+
     Attributes:
         openai_client: Cliente de Azure OpenAI para análisis de visión y embeddings.
         blob_service: Cliente de Azure Blob Storage para almacenamiento de media.
@@ -262,10 +263,10 @@ Be thorough but factual. Prioritize information that would help users find this 
     async def generate_embedding(self, text: str) -> list[float]:
         """
         Genera embedding de un texto usando Azure OpenAI.
-        
+
         Args:
             text: Texto a convertir en embedding.
-            
+
         Returns:
             Lista de floats representando el embedding, o lista vacía en caso de error.
         """
@@ -286,13 +287,13 @@ Be thorough but factual. Prioritize information that would help users find this 
     ) -> list[list[float]]:
         """
         Genera embeddings para múltiples textos en lotes.
-        
+
         Azure OpenAI soporta hasta 2048 textos por request, usamos lotes de 16 por seguridad.
-        
+
         Args:
             texts: Lista de textos a convertir en embeddings.
             batch_size: Tamaño del batch para cada request.
-            
+
         Returns:
             Lista de embeddings, uno por cada texto de entrada.
         """
@@ -445,9 +446,7 @@ Be thorough but factual. Prioritize information that would help users find this 
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
 
-    def _prepare_frames_for_batch(
-        self, frames: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _prepare_frames_for_batch(self, frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Prepare extracted frames for Batch API submission.
 
@@ -578,12 +577,18 @@ Be thorough but factual. Prioritize information that would help users find this 
                     )
                     batch_embeddings = [item.embedding for item in response.data]
                     all_embeddings.extend(batch_embeddings)
-                    logger.debug(f"{len(all_embeddings)}/{len(texts_to_embed)} embeddings generados")
+                    logger.debug(
+                        f"{len(all_embeddings)}/{len(texts_to_embed)} embeddings generados"
+                    )
                 except (APIError, APIConnectionError, RateLimitError) as e:
-                    logger.error(f"OpenAI API error en batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}")
+                    logger.error(
+                        f"OpenAI API error en batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}"
+                    )
                     all_embeddings.extend([[] for _ in range(len(batch_texts))])
                 except Exception as e:
-                    logger.exception(f"Error inesperado en batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}")
+                    logger.exception(
+                        f"Error inesperado en batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}"
+                    )
                     all_embeddings.extend([[] for _ in range(len(batch_texts))])
 
             embeddings_time = time.time() - start_embeddings

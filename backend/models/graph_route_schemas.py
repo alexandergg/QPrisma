@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 
 from models.graph_models import EntityType, NodeType, RelationType
 
-
 # =============================================================================
 # Basic Graph Operations Models
 # =============================================================================

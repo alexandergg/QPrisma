@@ -16,7 +16,10 @@ from .export_service import ExportService, get_export_service
 from .face_tracking_service import FaceTrackingService, get_face_tracking_service
 from .ffmpeg_processor import FFmpegVideoProcessor
 from .graph_search_service import GraphSearchService, get_graph_search_service
-from .hierarchical_context_service import HierarchicalContextService, get_hierarchical_context_service
+from .hierarchical_context_service import (
+    HierarchicalContextService,
+    get_hierarchical_context_service,
+)
 from .hierarchical_summarizer import HierarchicalSummarizer, SceneEmbeddingGenerator
 from .knowledge_graph import KnowledgeGraphService, get_knowledge_graph_service
 from .relation_builder import RelationBuilder, get_relation_builder

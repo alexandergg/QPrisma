@@ -69,9 +69,7 @@ class TestEmbeddingServiceInit:
 
     def test_uses_default_api_version(self):
         """Test that default API version is set."""
-        service = EmbeddingService(
-            api_key="test_key", endpoint="https://test.openai.azure.com"
-        )
+        service = EmbeddingService(api_key="test_key", endpoint="https://test.openai.azure.com")
 
         assert service.api_version == "2024-08-01-preview"
 
@@ -88,9 +86,7 @@ class TestEmbeddingServiceInit:
 
     def test_initializes_stats(self):
         """Test that statistics are initialized."""
-        service = EmbeddingService(
-            api_key="test_key", endpoint="https://test.openai.azure.com"
-        )
+        service = EmbeddingService(api_key="test_key", endpoint="https://test.openai.azure.com")
 
         assert service.stats["total_requests"] == 0
         assert service.stats["cache_hits"] == 0
@@ -165,9 +161,7 @@ class TestHashComputation:
 class TestEmbeddingGeneration:
     """Tests for embedding generation."""
 
-    def test_generate_embedding_calls_azure_api(
-        self, embedding_service, sample_embedding
-    ):
+    def test_generate_embedding_calls_azure_api(self, embedding_service, sample_embedding):
         """Test that embedding generation calls Azure API."""
         mock_response = Mock()
         mock_response.data = [Mock(embedding=sample_embedding)]
@@ -182,9 +176,7 @@ class TestEmbeddingGeneration:
             mock_azure.return_value.embeddings.create.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_generate_embedding_uses_correct_model(
-        self, embedding_service, sample_embedding
-    ):
+    async def test_generate_embedding_uses_correct_model(self, embedding_service, sample_embedding):
         """Test that correct deployment name is used."""
         mock_response = Mock()
         mock_response.data = [Mock(embedding=sample_embedding)]
@@ -234,9 +226,7 @@ class TestCaching:
             # Should increment cache hit counter
             assert embedding_service.stats["cache_hits"] == 1
 
-    def test_caches_new_embedding(
-        self, embedding_service, mock_cache_service, sample_embedding
-    ):
+    def test_caches_new_embedding(self, embedding_service, mock_cache_service, sample_embedding):
         """Test that newly generated embeddings are cached."""
         embedding_service.cache_service = mock_cache_service
         mock_cache_service.get.return_value = None  # Cache miss
@@ -273,9 +263,7 @@ class TestCaching:
 class TestBatchProcessing:
     """Tests for batch embedding generation."""
 
-    def test_batch_generate_processes_multiple_texts(
-        self, embedding_service, sample_embedding
-    ):
+    def test_batch_generate_processes_multiple_texts(self, embedding_service, sample_embedding):
         """Test that batch generation handles multiple texts."""
         texts = ["text 1", "text 2", "text 3"]
 
@@ -333,7 +321,7 @@ class TestErrorHandling:
         with patch("services.embedding_service.AzureOpenAI") as mock_azure:
             mock_azure.return_value.embeddings.create.side_effect = Exception("API Error")
 
-            with pytest.raises(Exception):
+            with pytest.raises(Exception, match="API Error"):
                 embedding_service.generate_embedding("test text")
 
     def test_handles_empty_text(self, embedding_service):

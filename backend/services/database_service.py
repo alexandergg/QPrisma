@@ -9,7 +9,7 @@ import logging
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import create_engine, text
@@ -468,9 +468,7 @@ class DatabaseService:
                 session.expunge(project)
             return projects
 
-    def update_project(
-        self, project_id: str, updates: dict[str, Any]
-    ) -> EditorProjectModel | None:
+    def update_project(self, project_id: str, updates: dict[str, Any]) -> EditorProjectModel | None:
         """Update project record."""
         with self.get_session() as session:
             project = (
@@ -593,11 +591,7 @@ class DatabaseService:
     def reorder_clips(self, project_id: str, clip_ids: list[str]) -> list[ClipModel]:
         """Reorder clips in a project based on the provided ID list."""
         with self.get_session() as session:
-            clips = (
-                session.query(ClipModel)
-                .filter(ClipModel.project_id == project_id)
-                .all()
-            )
+            clips = session.query(ClipModel).filter(ClipModel.project_id == project_id).all()
 
             clip_map = {clip.id: clip for clip in clips}
 

@@ -17,7 +17,7 @@ from azure.storage.blob import (
     BlobType,
     generate_blob_sas,
 )
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.dependencies import (
@@ -51,6 +51,7 @@ MAX_FILE_SIZE_GB = 190  # Azure block blob limit ~190GB
 
 class InitUploadRequest(BaseModel):
     """Request to initialize a chunked upload."""
+
     filename: str
     file_size: int  # Total file size in bytes
     content_type: str = "video/mp4"
@@ -59,6 +60,7 @@ class InitUploadRequest(BaseModel):
 
 class InitUploadResponse(BaseModel):
     """Response with upload session details."""
+
     upload_id: str
     media_id: str
     blob_name: str
@@ -71,6 +73,7 @@ class InitUploadResponse(BaseModel):
 
 class CommitUploadRequest(BaseModel):
     """Request to commit/finalize a chunked upload."""
+
     upload_id: str
     media_id: str
     blob_name: str
@@ -83,6 +86,7 @@ class CommitUploadRequest(BaseModel):
 
 class CommitUploadResponse(BaseModel):
     """Response after successful commit."""
+
     media_id: str
     blob_name: str
     file_size: int
@@ -93,6 +97,7 @@ class CommitUploadResponse(BaseModel):
 
 class BlockUploadUrl(BaseModel):
     """URL for uploading a single block."""
+
     block_id: str
     block_index: int
     upload_url: str
@@ -105,10 +110,11 @@ class BlockUploadUrl(BaseModel):
 
 def generate_block_id(index: int) -> str:
     """Generate a unique block ID for Azure Blob Storage.
-    
+
     Block IDs must be base64-encoded and have consistent length.
     """
     import base64
+
     # Format: 6-digit padded index for sorting + 8 random chars for uniqueness
     block_id = f"{index:06d}-{uuid.uuid4().hex[:8]}"
     return base64.b64encode(block_id.encode()).decode()
@@ -126,7 +132,7 @@ async def init_chunked_upload(
 ):
     """
     Initialize a chunked upload session.
-    
+
     Returns:
     - upload_id: Unique session identifier
     - media_id: The ID that will be used for this media
@@ -134,7 +140,7 @@ async def init_chunked_upload(
     - total_blocks: Number of blocks to upload
     - upload_url: Base SAS URL for uploading blocks
     - blocks: List of block IDs to use for each chunk
-    
+
     The client should:
     1. Split the file into blocks of block_size bytes
     2. Upload each block to: {upload_url}&comp=block&blockid={base64_block_id}
@@ -148,8 +154,7 @@ async def init_chunked_upload(
     max_size = MAX_FILE_SIZE_GB * 1024 * 1024 * 1024
     if request.file_size > max_size:
         raise HTTPException(
-            status_code=400,
-            detail=f"File too large. Maximum size is {MAX_FILE_SIZE_GB}GB"
+            status_code=400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE_GB}GB"
         )
 
     # Validate block size
@@ -166,7 +171,7 @@ async def init_chunked_upload(
     # Generate IDs
     upload_id = str(uuid.uuid4())
     media_id = str(uuid.uuid4())
-    
+
     # Determine file extension
     file_extension = request.filename.split(".")[-1].lower() if "." in request.filename else "mp4"
     blob_name = f"{media_id}.{file_extension}"
@@ -175,10 +180,12 @@ async def init_chunked_upload(
     blocks = []
     for i in range(total_blocks):
         block_id = generate_block_id(i)
-        blocks.append({
-            "block_id": block_id,
-            "block_index": i,
-        })
+        blocks.append(
+            {
+                "block_id": block_id,
+                "block_index": i,
+            }
+        )
 
     # Generate SAS URL for upload
     account_info = get_storage_account_info()
@@ -186,7 +193,7 @@ async def init_chunked_upload(
         raise HTTPException(status_code=503, detail="Cannot generate SAS token")
 
     account_name, account_key, container_name = account_info
-    
+
     sas_expiry = datetime.now(UTC) + timedelta(hours=4)
     sas_token = generate_blob_sas(
         account_name=account_name,
@@ -196,8 +203,10 @@ async def init_chunked_upload(
         permission=BlobSasPermissions(write=True, create=True, read=True),
         expiry=sas_expiry,
     )
-    
-    upload_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas_token}"
+
+    upload_url = (
+        f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas_token}"
+    )
 
     # Store upload session in database (for resumability)
     db = get_database_service()
@@ -250,12 +259,12 @@ async def commit_chunked_upload(
 ):
     """
     Commit/finalize a chunked upload.
-    
+
     After all blocks are uploaded, call this to:
     1. Commit the block list to create the final blob
     2. Update media record
     3. Start video processing
-    
+
     Args:
         block_ids: Ordered list of block IDs (base64 encoded) that were uploaded
     """
@@ -273,7 +282,7 @@ async def commit_chunked_upload(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     container_name = get_storage_container_name()
-    
+
     try:
         # Get blob client
         blob_client = blob_service.get_blob_client(
@@ -284,7 +293,7 @@ async def commit_chunked_upload(
         # Commit the block list
         # Azure requires BlobBlock objects for the commit
         block_list = [BlobBlock(block_id=bid) for bid in request.block_ids]
-        
+
         blob_client.commit_block_list(
             block_list=block_list,
             blob_type=BlobType.BLOCKBLOB,
@@ -310,13 +319,16 @@ async def commit_chunked_upload(
         "use_hierarchical_summary": request.use_hierarchical_summary,
     }
 
-    db.update_media(request.media_id, {
-        "file_size": final_size,
-        "processing_status": "queued",
-        "optimized_pipeline": True,
-        "pipeline_config": pipeline_config,
-        "upload_session": None,  # Clear upload session
-    })
+    db.update_media(
+        request.media_id,
+        {
+            "file_size": final_size,
+            "processing_status": "queued",
+            "optimized_pipeline": True,
+            "pipeline_config": pipeline_config,
+            "upload_session": None,  # Clear upload session
+        },
+    )
 
     # Queue processing in Celery
     job_id = None
@@ -359,7 +371,7 @@ async def get_upload_status(
 ):
     """
     Get the status of a chunked upload.
-    
+
     Returns information about which blocks have been uploaded
     (useful for resuming interrupted uploads).
     """
@@ -372,8 +384,8 @@ async def get_upload_status(
     if media.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    upload_session = media.upload_session if hasattr(media, 'upload_session') else None
-    
+    upload_session = media.upload_session if hasattr(media, "upload_session") else None
+
     if not upload_session:
         return {
             "media_id": media_id,
@@ -403,8 +415,7 @@ async def get_upload_status(
         "uploaded_blocks": len(uploaded_block_ids),
         "uploaded_block_ids": list(uploaded_block_ids),
         "remaining_blocks": [
-            b for b in upload_session.get("blocks", [])
-            if b["block_id"] not in uploaded_block_ids
+            b for b in upload_session.get("blocks", []) if b["block_id"] not in uploaded_block_ids
         ],
     }
 
@@ -416,7 +427,7 @@ async def cancel_upload(
 ):
     """
     Cancel an in-progress chunked upload.
-    
+
     Deletes any uploaded blocks and the media record.
     """
     db = get_database_service()

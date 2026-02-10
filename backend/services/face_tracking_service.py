@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Try to import MediaPipe
 try:
     import mediapipe as mp
+
     MEDIAPIPE_AVAILABLE = True
 except ImportError:
     MEDIAPIPE_AVAILABLE = False
@@ -33,6 +34,7 @@ except ImportError:
 @dataclass
 class FaceDetection:
     """Detected face with bounding box and confidence."""
+
     x: int  # Top-left x
     y: int  # Top-left y
     width: int
@@ -45,6 +47,7 @@ class FaceDetection:
 @dataclass
 class CropKeyframe:
     """Crop position at a specific timestamp."""
+
     timestamp: float  # Seconds
     crop_x: int  # Crop region top-left x
     crop_y: int  # Crop region top-left y
@@ -56,6 +59,7 @@ class CropKeyframe:
 @dataclass
 class SmartCropResult:
     """Result of smart crop analysis."""
+
     keyframes: list[CropKeyframe]
     source_width: int
     source_height: int
@@ -158,9 +162,7 @@ class FaceTrackingService:
 
         return faces
 
-    def _detect_mediapipe(
-        self, frame: np.ndarray, width: int, height: int
-    ) -> list[FaceDetection]:
+    def _detect_mediapipe(self, frame: np.ndarray, width: int, height: int) -> list[FaceDetection]:
         """Detect faces using MediaPipe."""
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self._face_detector.process(rgb_frame)
@@ -180,18 +182,21 @@ class FaceTrackingService:
                 w = min(w, width - x)
                 h = min(h, height - y)
 
-                faces.append(FaceDetection(
-                    x=x, y=y, width=w, height=h,
-                    confidence=detection.score[0],
-                    center_x=x + w // 2,
-                    center_y=y + h // 2,
-                ))
+                faces.append(
+                    FaceDetection(
+                        x=x,
+                        y=y,
+                        width=w,
+                        height=h,
+                        confidence=detection.score[0],
+                        center_x=x + w // 2,
+                        center_y=y + h // 2,
+                    )
+                )
 
         return faces
 
-    def _detect_opencv_dnn(
-        self, frame: np.ndarray, width: int, height: int
-    ) -> list[FaceDetection]:
+    def _detect_opencv_dnn(self, frame: np.ndarray, width: int, height: int) -> list[FaceDetection]:
         """Detect faces using OpenCV DNN."""
         blob = cv2.dnn.blobFromImage(
             cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0)
@@ -216,18 +221,21 @@ class FaceTrackingService:
                 h = y2 - y1
 
                 if w > 0 and h > 0:
-                    faces.append(FaceDetection(
-                        x=x1, y=y1, width=w, height=h,
-                        confidence=float(confidence),
-                        center_x=x1 + w // 2,
-                        center_y=y1 + h // 2,
-                    ))
+                    faces.append(
+                        FaceDetection(
+                            x=x1,
+                            y=y1,
+                            width=w,
+                            height=h,
+                            confidence=float(confidence),
+                            center_x=x1 + w // 2,
+                            center_y=y1 + h // 2,
+                        )
+                    )
 
         return faces
 
-    def _detect_haar(
-        self, frame: np.ndarray, width: int, height: int
-    ) -> list[FaceDetection]:
+    def _detect_haar(self, frame: np.ndarray, width: int, height: int) -> list[FaceDetection]:
         """Detect faces using Haar cascades."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         detections = self._face_detector.detectMultiScale(
@@ -235,13 +243,18 @@ class FaceTrackingService:
         )
 
         faces = []
-        for (x, y, w, h) in detections:
-            faces.append(FaceDetection(
-                x=x, y=y, width=w, height=h,
-                confidence=0.8,  # Haar doesn't provide confidence
-                center_x=x + w // 2,
-                center_y=y + h // 2,
-            ))
+        for x, y, w, h in detections:
+            faces.append(
+                FaceDetection(
+                    x=x,
+                    y=y,
+                    width=w,
+                    height=h,
+                    confidence=0.8,  # Haar doesn't provide confidence
+                    center_x=x + w // 2,
+                    center_y=y + h // 2,
+                )
+            )
 
         return faces
 
@@ -346,9 +359,7 @@ class FaceTrackingService:
             target_height = int(source_width / target_aspect_ratio)
 
         # Extract frames for analysis
-        frames = self.extract_frames_for_analysis(
-            video_path, start_time, end_time, sample_interval
-        )
+        frames = self.extract_frames_for_analysis(video_path, start_time, end_time, sample_interval)
 
         if not frames:
             logger.warning("No frames extracted for analysis")
@@ -356,14 +367,16 @@ class FaceTrackingService:
             center_x = (source_width - target_width) // 2
             center_y = (source_height - target_height) // 2
             return SmartCropResult(
-                keyframes=[CropKeyframe(
-                    timestamp=start_time,
-                    crop_x=center_x,
-                    crop_y=center_y,
-                    crop_width=target_width,
-                    crop_height=target_height,
-                    has_face=False,
-                )],
+                keyframes=[
+                    CropKeyframe(
+                        timestamp=start_time,
+                        crop_x=center_x,
+                        crop_y=center_y,
+                        crop_width=target_width,
+                        crop_height=target_height,
+                        has_face=False,
+                    )
+                ],
                 source_width=source_width,
                 source_height=source_height,
                 target_width=target_width,
@@ -416,14 +429,16 @@ class FaceTrackingService:
             previous_crop_x = crop_x
             previous_crop_y = crop_y
 
-            keyframes.append(CropKeyframe(
-                timestamp=timestamp - start_time,  # Relative to clip start
-                crop_x=crop_x,
-                crop_y=crop_y,
-                crop_width=target_width,
-                crop_height=target_height,
-                has_face=has_face,
-            ))
+            keyframes.append(
+                CropKeyframe(
+                    timestamp=timestamp - start_time,  # Relative to clip start
+                    crop_x=crop_x,
+                    crop_y=crop_y,
+                    crop_width=target_width,
+                    crop_height=target_height,
+                    has_face=has_face,
+                )
+            )
 
         return SmartCropResult(
             keyframes=keyframes,

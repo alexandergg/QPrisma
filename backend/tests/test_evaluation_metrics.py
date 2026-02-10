@@ -4,8 +4,6 @@ Tests for QPrisma evaluation metrics.
 Covers: accuracy, retrieval, temporal, faithfulness, efficiency.
 """
 
-import math
-
 import pytest
 
 from evaluation.metrics.accuracy import (
@@ -39,7 +37,6 @@ from evaluation.metrics.temporal import (
 )
 from evaluation.models.eval_schemas import BenchmarkEntry, DurationTier, EvalResult
 
-
 # =============================================================================
 # Accuracy Tests
 # =============================================================================
@@ -59,9 +56,7 @@ class TestAccuracy:
         )
 
     def _make_result(self, qid, choice):
-        return EvalResult(
-            question_id=qid, method="test", answer="", predicted_choice=choice
-        )
+        return EvalResult(question_id=qid, method="test", answer="", predicted_choice=choice)
 
     def test_perfect_accuracy(self):
         entries = [self._make_entry("q1", "A"), self._make_entry("q2", "B")]
@@ -194,9 +189,7 @@ class TestRetrieval:
         retrieved = [["a", "b"], ["x", "y", "a"]]
         relevant = [{"a"}, {"a"}]
         # Query 1: RR = 1/1 = 1.0, Query 2: RR = 1/3
-        assert mean_reciprocal_rank(retrieved, relevant) == pytest.approx(
-            (1.0 + 1 / 3) / 2
-        )
+        assert mean_reciprocal_rank(retrieved, relevant) == pytest.approx((1.0 + 1 / 3) / 2)
 
     def test_map_single_query(self):
         retrieved = [["a", "x", "b"]]
@@ -307,9 +300,7 @@ class TestFaithfulness:
         assert compute_hallucination_rate(total_claims=10, unsupported_claims=3) == 0.3
 
     def test_source_attribution(self):
-        assert compute_source_attribution_rate(
-            total_claims=10, claims_with_timestamps=7
-        ) == 0.7
+        assert compute_source_attribution_rate(total_claims=10, claims_with_timestamps=7) == 0.7
 
     def test_aggregate_faithfulness(self):
         results = [
@@ -380,9 +371,7 @@ class TestEfficiency:
     def test_tracker_percentiles(self):
         tracker = EfficiencyTracker()
         for i in range(100):
-            tracker.add(
-                EfficiencyRecord(f"q{i}", "test", latency_ms=float(i + 1))
-            )
+            tracker.add(EfficiencyRecord(f"q{i}", "test", latency_ms=float(i + 1)))
 
         summary = tracker.summarize("test")
         assert summary["latency_p50_ms"] == pytest.approx(50.5, abs=1.0)

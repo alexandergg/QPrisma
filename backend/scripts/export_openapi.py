@@ -39,6 +39,7 @@ def export_openapi():
     # Try to export to YAML if pyyaml is installed
     try:
         import yaml
+
         yaml_path = os.path.join(docs_dir, "openapi.yaml")
         with open(yaml_path, "w", encoding="utf-8") as f:
             yaml.dump(openapi_schema, f, default_flow_style=False, allow_unicode=True)

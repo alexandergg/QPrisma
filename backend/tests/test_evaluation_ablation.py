@@ -9,14 +9,12 @@ Covers:
 - Config file validation
 """
 
-import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from evaluation.ablation import ABLATION_CONFIGS, AblationConfig, get_ablation_config
-
+from evaluation.ablation import ABLATION_CONFIGS, get_ablation_config
 
 # =============================================================================
 # AblationConfig Tests
@@ -26,8 +24,14 @@ from evaluation.ablation import ABLATION_CONFIGS, AblationConfig, get_ablation_c
 class TestAblationConfig:
     def test_all_configs_defined(self):
         expected = {
-            "full", "noagent", "flat", "vectoronly",
-            "norerank", "visualonly", "audioonly", "fixedtokens",
+            "full",
+            "noagent",
+            "flat",
+            "vectoronly",
+            "norerank",
+            "visualonly",
+            "audioonly",
+            "fixedtokens",
         }
         assert set(ABLATION_CONFIGS.keys()) == expected
 
@@ -283,9 +287,7 @@ class TestConfigFiles:
     def _load_config(self, name):
         from evaluation.models.eval_schemas import EvalConfig
 
-        config_path = (
-            Path(__file__).parent.parent / "evaluation" / "configs" / f"{name}.json"
-        )
+        config_path = Path(__file__).parent.parent / "evaluation" / "configs" / f"{name}.json"
         assert config_path.exists(), f"Config not found: {config_path}"
         return EvalConfig.model_validate_json(config_path.read_text())
 
@@ -326,6 +328,6 @@ class TestConfigFiles:
         for name in ["quick_test", "video_mme_full", "ablation_study", "mlvu_full"]:
             config = self._load_config(name)
             method_names = [m.name for m in config.methods]
-            assert config.baseline_method in method_names, (
-                f"Baseline '{config.baseline_method}' not in methods for {name}"
-            )
+            assert (
+                config.baseline_method in method_names
+            ), f"Baseline '{config.baseline_method}' not in methods for {name}"

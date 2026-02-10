@@ -93,7 +93,9 @@ class MediaModel(Base):
 
     # Storage tiering
     storage_tier = Column(String(32), default="Hot")  # Hot, Cool, Cold, Archive
-    rehydration_status = Column(String(32), nullable=True)  # rehydrate-pending-to-hot, rehydrate-pending-to-cool
+    rehydration_status = Column(
+        String(32), nullable=True
+    )  # rehydrate-pending-to-hot, rehydrate-pending-to-cool
 
     # Relationships
     user = relationship("UserModel", back_populates="media")
@@ -124,7 +126,9 @@ class MediaModel(Base):
             "upload_date": self.upload_date.isoformat() if self.upload_date else None,
             "uploaded_at": self.upload_date.isoformat() if self.upload_date else None,
             "last_updated": self.last_updated.isoformat() if self.last_updated else None,
-            "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
+            "last_accessed_at": (
+                self.last_accessed_at.isoformat() if self.last_accessed_at else None
+            ),
             "storage_tier": self.storage_tier,
             "rehydration_status": self.rehydration_status,
         }
@@ -197,7 +201,12 @@ class EditorProjectModel(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    clips = relationship("ClipModel", back_populates="project", cascade="all, delete-orphan", order_by="ClipModel.order")
+    clips = relationship(
+        "ClipModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by="ClipModel.order",
+    )
     source_media = relationship("MediaModel")
 
     def to_dict(self) -> dict[str, Any]:
@@ -382,7 +391,11 @@ class BatchJobModel(Base):
             "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "error_message": self.error_message,
             "progress_percent": round(
-                (self.completed_requests / self.total_requests * 100)
-                if self.total_requests > 0 else 0, 1
+                (
+                    (self.completed_requests / self.total_requests * 100)
+                    if self.total_requests > 0
+                    else 0
+                ),
+                1,
             ),
         }

@@ -6,10 +6,9 @@ Tests for the LangGraph-based video and editor agents.
 """
 
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 
@@ -65,7 +64,7 @@ class TestGraphState:
 
     def test_truncate_tool_message_content(self):
         """Test that large tool messages are truncated."""
-        from agent.state.agent_state import truncate_tool_message_content, MAX_TOOL_RESULT_CHARS
+        from agent.state.agent_state import MAX_TOOL_RESULT_CHARS, truncate_tool_message_content
 
         # Small message - should pass through unchanged
         small_msg = ToolMessage(content="short result", tool_call_id="tc-1", name="test")
@@ -185,9 +184,19 @@ class TestMetadataExtraction:
                 tool_calls=[{"name": "search_video", "args": {"query": "test"}, "id": "tc1"}],
             ),
             ToolMessage(
-                content=json.dumps({
-                    "results": [{"timestamp": 10, "timestamp_formatted": "0:10", "type": "visual", "content": "test", "score": 0.8}]
-                }),
+                content=json.dumps(
+                    {
+                        "results": [
+                            {
+                                "timestamp": 10,
+                                "timestamp_formatted": "0:10",
+                                "type": "visual",
+                                "content": "test",
+                                "score": 0.8,
+                            }
+                        ]
+                    }
+                ),
                 tool_call_id="tc1",
                 name="search_video",
             ),
@@ -228,10 +237,10 @@ class TestVideoAgentGraph:
     @pytest.mark.asyncio
     async def test_video_agent_graph_singleton(self):
         """Test that get_video_agent_graph returns singleton."""
-        from agent.graphs.video import get_video_agent_graph
-
         # Reset singleton
         import agent.graphs.video as module
+        from agent.graphs.video import get_video_agent_graph
+
         module._graph_instance = None
 
         agent1 = get_video_agent_graph()
@@ -281,10 +290,10 @@ class TestEditorAgentGraph:
     @pytest.mark.asyncio
     async def test_editor_agent_graph_singleton(self):
         """Test that get_editor_agent_graph returns singleton."""
-        from agent.graphs.editor import get_editor_agent_graph
-
         # Reset singleton
         import agent.graphs.editor as module
+        from agent.graphs.editor import get_editor_agent_graph
+
         module._editor_graph_instance = None
 
         agent1 = get_editor_agent_graph()
@@ -305,13 +314,15 @@ class TestIterationLimits:
 
     def test_video_should_continue_at_limit(self):
         """Test should_continue returns END when at max iterations."""
-        from agent.nodes.video_nodes import should_continue, MAX_TOOL_ITERATIONS
+        from agent.nodes.video_nodes import MAX_TOOL_ITERATIONS, should_continue
 
         state = {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
-            )],
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
+                )
+            ],
             "tool_calls_count": MAX_TOOL_ITERATIONS,
         }
         assert should_continue(state) == "__end__"
@@ -321,10 +332,12 @@ class TestIterationLimits:
         from agent.nodes.video_nodes import should_continue
 
         state = {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
-            )],
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
+                )
+            ],
             "tool_calls_count": 1,
         }
         assert should_continue(state) == "tools"
@@ -338,13 +351,15 @@ class TestIterationLimits:
 
     def test_editor_should_continue_at_limit(self):
         """Test editor should_continue returns END at max iterations."""
-        from agent.nodes.editor_nodes import should_continue_editor, MAX_EDITOR_TOOL_ITERATIONS
+        from agent.nodes.editor_nodes import MAX_EDITOR_TOOL_ITERATIONS, should_continue_editor
 
         state = {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{"name": "create_clip", "args": {}, "id": "tc1"}],
-            )],
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": "create_clip", "args": {}, "id": "tc1"}],
+                )
+            ],
             "tool_calls_count": MAX_EDITOR_TOOL_ITERATIONS,
         }
         assert should_continue_editor(state) == "__end__"
@@ -354,10 +369,12 @@ class TestIterationLimits:
         from agent.nodes.editor_nodes import should_continue_editor
 
         state = {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{"name": "create_clip", "args": {}, "id": "tc1"}],
-            )],
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": "create_clip", "args": {}, "id": "tc1"}],
+                )
+            ],
             "tool_calls_count": 2,
         }
         assert should_continue_editor(state) == "tools"
@@ -429,14 +446,15 @@ class TestRedisCheckpointer:
 
         with patch.dict("os.environ", {"REDIS_URL": "redis://invalid:6379"}):
             import importlib
+
             import agent.graphs.video as module
+
             importlib.reload(module)
 
             original_func = module.create_redis_checkpointer
 
             def mock_create():
                 try:
-                    from langgraph.checkpoint.redis import RedisSaver
                     raise Exception("Connection failed")
                 except Exception:
                     return MemorySaver()
@@ -483,10 +501,7 @@ class TestAgentImports:
         """Test state module exports."""
         from agent.state import (
             AgentState,
-            ProjectContext,
-            VideoContext,
             truncate_tool_message_content,
-            get_message_trimmer,
         )
 
         assert AgentState is not None
@@ -529,7 +544,7 @@ class TestFormattingUtils:
 class TestGraphExecutionPaths:
     """
     Test full graph execution paths with mocked LLM.
-    
+
     These tests verify the graph structure and routing logic
     without requiring actual LLM API calls.
     """
@@ -538,6 +553,7 @@ class TestGraphExecutionPaths:
     async def test_video_graph_structure(self):
         """Test that the video graph compiles with expected nodes."""
         from langgraph.checkpoint.memory import MemorySaver
+
         from agent.graphs.video import create_video_agent_graph
 
         checkpointer = MemorySaver()
@@ -546,7 +562,7 @@ class TestGraphExecutionPaths:
         # Verify graph structure
         graph_nodes = graph.get_graph().nodes
         node_names = list(graph_nodes.keys())
-        
+
         # Should have all expected nodes
         assert "call_model" in node_names
         assert "tools" in node_names
@@ -557,6 +573,7 @@ class TestGraphExecutionPaths:
     async def test_video_graph_edges(self):
         """Test that the video graph has correct edge connections."""
         from langgraph.checkpoint.memory import MemorySaver
+
         from agent.graphs.video import create_video_agent_graph
 
         checkpointer = MemorySaver()
@@ -564,7 +581,7 @@ class TestGraphExecutionPaths:
 
         # Get graph structure
         graph_repr = graph.get_graph()
-        
+
         # Verify we can generate a diagram (means graph is well-formed)
         mermaid = graph_repr.draw_mermaid()
         assert "call_model" in mermaid
@@ -577,10 +594,12 @@ class TestGraphExecutionPaths:
 
         # Simulate state at max iterations
         state = {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
-            )],
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
+                )
+            ],
             "tool_calls_count": MAX_TOOL_ITERATIONS,
             "consecutive_errors": 0,
         }
@@ -589,7 +608,7 @@ class TestGraphExecutionPaths:
         result = should_continue(state)
         assert result == "__end__"
 
-    @pytest.mark.asyncio  
+    @pytest.mark.asyncio
     async def test_editor_graph_destructive_tools_list(self):
         """Test that destructive tools are properly categorized."""
         from agent.graphs.editor import DESTRUCTIVE_TOOLS, SAFE_TOOLS
@@ -630,7 +649,10 @@ class TestErrorHandling:
         # Should generate a helpful response
         assert "messages" in result
         assert len(result["messages"]) == 1
-        assert "partial" in result["messages"][0].content.lower() or "found" in result["messages"][0].content.lower()
+        assert (
+            "partial" in result["messages"][0].content.lower()
+            or "found" in result["messages"][0].content.lower()
+        )
         # Should reset error state
         assert result["consecutive_errors"] == 0
 
@@ -658,31 +680,33 @@ class TestErrorHandling:
         from agent.state.agent_state import should_retry_exception
 
         # Transient errors should retry
-        assert should_retry_exception(ConnectionError("Network issue")) == True
-        assert should_retry_exception(TimeoutError("Request timed out")) == True
-        assert should_retry_exception(Exception("rate limit exceeded")) == True
-        assert should_retry_exception(Exception("503 Service Unavailable")) == True
+        assert should_retry_exception(ConnectionError("Network issue"))
+        assert should_retry_exception(TimeoutError("Request timed out"))
+        assert should_retry_exception(Exception("rate limit exceeded"))
+        assert should_retry_exception(Exception("503 Service Unavailable"))
 
     def test_should_retry_exception_permanent(self):
         """Test retry policy for permanent errors."""
         from agent.state.agent_state import should_retry_exception
 
         # Permanent errors should not retry
-        assert should_retry_exception(ValueError("Invalid input")) == False
-        assert should_retry_exception(TypeError("Wrong type")) == False
-        assert should_retry_exception(KeyError("Missing key")) == False
-        assert should_retry_exception(PermissionError("Access denied")) == False
+        assert not should_retry_exception(ValueError("Invalid input"))
+        assert not should_retry_exception(TypeError("Wrong type"))
+        assert not should_retry_exception(KeyError("Missing key"))
+        assert not should_retry_exception(PermissionError("Access denied"))
 
     def test_error_threshold_routing(self):
         """Test that error threshold routes to error_handler."""
-        from agent.nodes.base import base_should_continue, MAX_CONSECUTIVE_ERRORS
+        from agent.nodes.base import MAX_CONSECUTIVE_ERRORS, base_should_continue
 
         # State with errors but partial results
         state = {
-            "messages": [AIMessage(
-                content="",
-                tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
-            )],
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[{"name": "search", "args": {}, "id": "tc1"}],
+                )
+            ],
             "tool_calls_count": 1,
             "consecutive_errors": MAX_CONSECUTIVE_ERRORS,
             "partial_results": [{"tool": "test", "summary": "some result"}],
@@ -704,7 +728,7 @@ class TestInputOutputSchemaSeparation:
         assert "messages" in input_fields
         assert "media_id" in input_fields
         assert "user_id" in input_fields
-        
+
         # These internal fields should NOT be in InputState
         assert "tool_calls_count" not in input_fields
         assert "consecutive_errors" not in input_fields
@@ -715,11 +739,11 @@ class TestInputOutputSchemaSeparation:
         from agent.state.agent_state import AgentOutputState
 
         output_fields = AgentOutputState.__annotations__
-        
+
         # Should have results
         assert "messages" in output_fields
         assert "sources" in output_fields
-        
+
         # Should NOT have internal tracking
         assert "tool_calls_count" not in output_fields
         assert "consecutive_errors" not in output_fields
@@ -730,7 +754,7 @@ class TestInputOutputSchemaSeparation:
         from agent.state.agent_state import AgentState
 
         state_fields = AgentState.__annotations__
-        
+
         # Should have all fields
         assert "messages" in state_fields
         assert "tool_calls_count" in state_fields
@@ -768,7 +792,7 @@ class TestDynamicToolBinding:
     def test_select_tools_for_edit_query(self):
         """Test tool selection for editing queries."""
         from agent.nodes.base import select_tools_for_query
-        from agent.tools import SEARCH_TOOLS, EDITOR_TOOLS
+        from agent.tools import EDITOR_TOOLS, SEARCH_TOOLS
 
         all_tools = SEARCH_TOOLS + EDITOR_TOOLS
         query = "Create a clip from 1:00 to 2:00"
@@ -782,7 +806,7 @@ class TestDynamicToolBinding:
     def test_select_tools_max_limit(self):
         """Test that tool selection respects max_tools limit."""
         from agent.nodes.base import select_tools_for_query
-        from agent.tools import SEARCH_TOOLS, EDITOR_TOOLS
+        from agent.tools import EDITOR_TOOLS, SEARCH_TOOLS
 
         all_tools = SEARCH_TOOLS + EDITOR_TOOLS
         query = "Do everything"  # Vague query that might match many tools
@@ -797,27 +821,32 @@ class TestProductionCheckpointerFactory:
 
     def test_checkpointer_cascade_fallback(self):
         """Test that checkpointer factory falls back correctly."""
-        from agent.graphs.video import create_production_checkpointer
         from langgraph.checkpoint.memory import MemorySaver
 
+        from agent.graphs.video import create_production_checkpointer
+
         # When no persistent stores are available, should fall back to MemorySaver
-        with patch("agent.graphs.video.create_postgres_checkpointer", return_value=None):
-            with patch("agent.graphs.video.create_redis_checkpointer", return_value=None):
-                checkpointer = create_production_checkpointer()
-                assert isinstance(checkpointer, MemorySaver)
+        with (
+            patch("agent.graphs.video.create_postgres_checkpointer", return_value=None),
+            patch("agent.graphs.video.create_redis_checkpointer", return_value=None),
+        ):
+            checkpointer = create_production_checkpointer()
+            assert isinstance(checkpointer, MemorySaver)
 
     def test_checkpointer_prefers_postgres(self):
         """Test that PostgreSQL is preferred when available."""
         from agent.graphs.video import create_production_checkpointer
-        
+
         mock_postgres = MagicMock()
         mock_redis = MagicMock()
 
-        with patch("agent.graphs.video.create_postgres_checkpointer", return_value=mock_postgres):
-            with patch("agent.graphs.video.create_redis_checkpointer", return_value=mock_redis):
-                checkpointer = create_production_checkpointer()
-                # Should use PostgreSQL, not Redis
-                assert checkpointer is mock_postgres
+        with (
+            patch("agent.graphs.video.create_postgres_checkpointer", return_value=mock_postgres),
+            patch("agent.graphs.video.create_redis_checkpointer", return_value=mock_redis),
+        ):
+            checkpointer = create_production_checkpointer()
+            # Should use PostgreSQL, not Redis
+            assert checkpointer is mock_postgres
 
     def test_checkpointer_uses_redis_when_no_postgres(self):
         """Test that Redis is used when PostgreSQL unavailable."""
@@ -825,10 +854,12 @@ class TestProductionCheckpointerFactory:
 
         mock_redis = MagicMock()
 
-        with patch("agent.graphs.video.create_postgres_checkpointer", return_value=None):
-            with patch("agent.graphs.video.create_redis_checkpointer", return_value=mock_redis):
-                checkpointer = create_production_checkpointer()
-                assert checkpointer is mock_redis
+        with (
+            patch("agent.graphs.video.create_postgres_checkpointer", return_value=None),
+            patch("agent.graphs.video.create_redis_checkpointer", return_value=mock_redis),
+        ):
+            checkpointer = create_production_checkpointer()
+            assert checkpointer is mock_redis
 
 
 class TestMultiTenantSecurity:
@@ -881,7 +912,7 @@ class TestObservability:
         from agent.utils.observability import RequestContext
 
         ctx = RequestContext(user_id="user-1")
-        
+
         ctx.add_node("call_model")
         ctx.add_node("tools")
         ctx.add_tool_call("search_video", 150.5, True)
@@ -896,12 +927,12 @@ class TestObservability:
 
     def test_request_context_manager(self):
         """Test request_context context manager."""
-        from agent.utils.observability import request_context, get_request_context
+        from agent.utils.observability import get_request_context, request_context
 
         with request_context(user_id="test-user", media_id="test-video") as ctx:
             assert ctx.user_id == "test-user"
             assert ctx.media_id == "test-video"
-            
+
             # Should be accessible via get_request_context
             current = get_request_context()
             assert current.user_id == "test-user"
@@ -911,7 +942,7 @@ class TestObservability:
         from agent.utils.observability import Metrics
 
         Metrics.reset()
-        
+
         Metrics.inc_counter("test_counter", {"label": "a"})
         Metrics.inc_counter("test_counter", {"label": "a"})
         Metrics.inc_counter("test_counter", {"label": "b"})
@@ -944,21 +975,24 @@ class TestObservability:
         Metrics.record_tool_call("search_video", 0.20, False, "video")
 
         all_metrics = Metrics.get_all()
-        
+
         # Should have call counter
         assert "agent_tool_calls_total{agent=video,tool=search_video}" in all_metrics["counters"]
         assert all_metrics["counters"]["agent_tool_calls_total{agent=video,tool=search_video}"] == 2
-        
+
         # Should have error counter
-        assert all_metrics["counters"]["agent_tool_call_errors_total{agent=video,tool=search_video}"] == 1
+        assert (
+            all_metrics["counters"]["agent_tool_call_errors_total{agent=video,tool=search_video}"]
+            == 1
+        )
 
     def test_structured_logger(self):
         """Test StructuredLogger includes context."""
+
         from agent.utils.observability import get_logger, request_context
-        import logging
 
         logger = get_logger("test_module")
-        
+
         # Capture log output
         with request_context(user_id="log-test-user", request_id="req-123"):
             # Logger should work without errors
@@ -969,8 +1003,8 @@ class TestObservability:
     def test_inject_request_context_to_config(self):
         """Test injecting context into RunnableConfig."""
         from agent.utils.observability import (
-            inject_request_context_to_config,
             RequestContext,
+            inject_request_context_to_config,
         )
 
         ctx = RequestContext(
@@ -978,7 +1012,7 @@ class TestObservability:
             user_id="user-1",
             session_id="session-1",
         )
-        
+
         config = {"configurable": {"thread_id": "t1"}}
         updated = inject_request_context_to_config(config, ctx)
 
@@ -1009,10 +1043,11 @@ class TestHITLFlow:
     async def test_editor_graph_with_interrupt_compiles(self):
         """Test that editor graph with interrupt_before_clips compiles."""
         from langgraph.checkpoint.memory import MemorySaver
+
         from agent.graphs.editor import create_editor_agent_graph
 
         checkpointer = MemorySaver()
-        
+
         # Should compile without errors
         graph = create_editor_agent_graph(
             checkpointer=checkpointer,
@@ -1020,7 +1055,7 @@ class TestHITLFlow:
         )
 
         assert graph is not None
-        
+
         # Verify graph structure
         nodes = list(graph.get_graph().nodes.keys())
         assert "tools" in nodes
@@ -1031,7 +1066,7 @@ class TestHITLFlow:
         from agent.graphs.editor import EditorAgentGraph
 
         agent = EditorAgentGraph()
-        
+
         assert hasattr(agent, "confirm_and_continue")
         assert callable(agent.confirm_and_continue)
 
@@ -1058,14 +1093,14 @@ class TestStateValidation:
     def test_state_types_correct(self):
         """Test that state fields have correct types."""
         from agent.state.agent_state import (
-            AgentState,
             AgentInputState,
             AgentOutputState,
+            AgentState,
         )
 
         # Check AgentState has all expected fields
         state_annotations = AgentState.__annotations__
-        
+
         assert "messages" in state_annotations
         assert "tool_calls_count" in state_annotations
         assert "consecutive_errors" in state_annotations
@@ -1233,8 +1268,7 @@ class TestMultiVideoState:
         }
 
         msg = get_system_message(state)
-        assert "cross-video" in msg.content.lower() or \
-            "multiple videos" in msg.content.lower()
+        assert "cross-video" in msg.content.lower() or "multiple videos" in msg.content.lower()
 
     def test_single_video_prompt_without_media_ids(self):
         """Test single-video prompt is used without media_ids."""
@@ -1287,8 +1321,9 @@ class TestMultiVideoApiSchemas:
 
     def test_chat_request_max_10(self):
         """Test max 10 videos validation at schema level."""
-        from models.api_schemas import ChatRequest
         import pydantic
+
+        from models.api_schemas import ChatRequest
 
         with pytest.raises(pydantic.ValidationError):
             ChatRequest(

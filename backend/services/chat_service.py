@@ -78,9 +78,7 @@ class ChatService:
 
         return video_summary, video_topics
 
-    async def _build_video_context(
-        self, message: str, media_id: str
-    ) -> tuple[str, list[dict]]:
+    async def _build_video_context(self, message: str, media_id: str) -> tuple[str, list[dict]]:
         """Build context string and sources from video search results."""
         context = ""
         sources = []
@@ -120,33 +118,39 @@ class ChatService:
                     desc = result.content.get("description", "")
                     if ts is not None and desc:
                         visual_context.append(f"[{ts:.1f}s] {desc[:400]}")
-                        sources.append({
-                            "timestamp": float(ts),
-                            "type": "visual",
-                            "description": desc[:200],
-                            "score": result.combined_score,
-                        })
+                        sources.append(
+                            {
+                                "timestamp": float(ts),
+                                "type": "visual",
+                                "description": desc[:200],
+                                "score": result.combined_score,
+                            }
+                        )
                 elif result.node_type == NodeType.AUDIO_SEGMENT:
                     text = result.content.get("text", "")
                     if ts is not None and text:
                         audio_context.append(f'[{ts:.1f}s] "{text[:300]}"')
-                        sources.append({
-                            "timestamp": float(ts),
-                            "type": "audio",
-                            "description": text[:200],
-                            "score": result.combined_score,
-                        })
+                        sources.append(
+                            {
+                                "timestamp": float(ts),
+                                "type": "audio",
+                                "description": text[:200],
+                                "score": result.combined_score,
+                            }
+                        )
                 elif result.node_type == NodeType.ENTITY:
                     name = result.content.get("name", "")
                     entity_type = result.content.get("type", "entity")
                     if name:
                         entity_context.append(f"{entity_type}: {name}")
-                        sources.append({
-                            "timestamp": ts or 0,
-                            "type": "entity",
-                            "description": f"{entity_type}: {name}",
-                            "score": result.combined_score,
-                        })
+                        sources.append(
+                            {
+                                "timestamp": ts or 0,
+                                "type": "entity",
+                                "description": f"{entity_type}: {name}",
+                                "score": result.combined_score,
+                            }
+                        )
 
             # Build structured context string
             if video_summary:

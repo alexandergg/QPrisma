@@ -9,12 +9,10 @@ import asyncio
 import json
 import os
 import re
-import sys
 import time
 import uuid
-from pathlib import Path
-
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 
@@ -49,7 +47,13 @@ CATEGORY_TOOL_HINTS = {
     ),
 }
 
-SUBSET_PATH = Path(__file__).parent.parent.parent / "data" / "benchmarks" / "video_mme" / "video_mme_subset.json"
+SUBSET_PATH = (
+    Path(__file__).parent.parent.parent
+    / "data"
+    / "benchmarks"
+    / "video_mme"
+    / "video_mme_subset.json"
+)
 OUTPUT_BASE = Path(__file__).parent.parent / "results" / "video_mme_subset"
 
 
@@ -69,11 +73,11 @@ def extract_mc_choice(text: str, choices: list[str] | None = None) -> str:
 
     # Phase 1: Direct letter extraction
     patterns = [
-        r"\*\*(?:Answer:\s*)?([A-D])[\.\*]",           # **A** or **Answer: A**
+        r"\*\*(?:Answer:\s*)?([A-D])[\.\*]",  # **A** or **Answer: A**
         r"(?:Answer|answer|ANSWER)[:\s]+\**([A-D])\b",  # Answer: A, answer: **A**
-        r"(?:^|\n)\s*\**([A-D])\**[\.\)\:\s]",          # A. or **A.** at line start
-        r"^([A-D])$",                                    # Standalone letter
-        r"\b([A-D])\b\s*[\.\):]",                       # A. or A) anywhere
+        r"(?:^|\n)\s*\**([A-D])\**[\.\)\:\s]",  # A. or **A.** at line start
+        r"^([A-D])$",  # Standalone letter
+        r"\b([A-D])\b\s*[\.\):]",  # A. or A) anywhere
     ]
     for p in patterns:
         m = re.search(p, answer_text, re.MULTILINE)
@@ -110,9 +114,7 @@ async def run_evaluation():
 
     # Login
     if not EMAIL or not PASSWORD:
-        raise RuntimeError(
-            "Set QPRISMA_EVAL_EMAIL and QPRISMA_EVAL_PASSWORD environment variables"
-        )
+        raise RuntimeError("Set QPRISMA_EVAL_EMAIL and QPRISMA_EVAL_PASSWORD environment variables")
     async with httpx.AsyncClient(base_url=API_URL, timeout=60) as c:
         r = await c.post("/auth/login", json={"email": EMAIL, "password": PASSWORD})
         r.raise_for_status()
@@ -155,14 +157,16 @@ async def run_evaluation():
 
         try:
             async with httpx.AsyncClient(
-                base_url=API_URL, timeout=180,
-                headers={"Authorization": f"Bearer {token}"}
+                base_url=API_URL, timeout=180, headers={"Authorization": f"Bearer {token}"}
             ) as c:
-                resp = await c.post("/chat/agent", json={
-                    "message": query,
-                    "media_id": media_id,
-                    "session_id": session_id,
-                })
+                resp = await c.post(
+                    "/chat/agent",
+                    json={
+                        "message": query,
+                        "media_id": media_id,
+                        "session_id": session_id,
+                    },
+                )
 
                 if resp.status_code == 200:
                     data = resp.json()
@@ -222,7 +226,7 @@ async def run_evaluation():
             cats[c]["correct"] += 1
 
     print(f"\n{'='*70}")
-    print(f"Video-MME Subset Results (v2 - with improvements)")
+    print("Video-MME Subset Results (v2 - with improvements)")
     print(f"{'='*70}")
     print(f"Overall: {correct}/{total} = {accuracy*100:.1f}%")
     print(f"Avg latency: {sum(r['latency_ms'] for r in results)/total:.0f}ms")
@@ -241,7 +245,7 @@ async def run_evaluation():
     report = {
         "benchmark": "video_mme_subset_v2",
         "total_questions": total,
-        "total_videos": len(set(r["original_video_id"] for r in results)),
+        "total_videos": len({r["original_video_id"] for r in results}),
         "accuracy": accuracy,
         "accuracy_by_category": {
             cat: {

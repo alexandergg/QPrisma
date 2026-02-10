@@ -18,7 +18,7 @@ Cost Savings:
 
 import logging
 import os
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 class StorageTier(str, Enum):
     """Azure Blob Storage access tiers."""
+
     HOT = "Hot"
     COOL = "Cool"
     COLD = "Cold"
@@ -38,12 +39,14 @@ class StorageTier(str, Enum):
 
 class RehydratePriority(str, Enum):
     """Rehydration priority for archived blobs."""
+
     STANDARD = "Standard"  # 1-15 hours, cheaper
     HIGH = "High"  # < 1 hour, more expensive
 
 
 class TierInfo(BaseModel):
     """Information about a blob's storage tier."""
+
     blob_name: str
     current_tier: StorageTier
     last_accessed: datetime | None
@@ -55,6 +58,7 @@ class TierInfo(BaseModel):
 
 class TierTransition(BaseModel):
     """Represents a tier transition for a blob."""
+
     blob_name: str
     from_tier: StorageTier
     to_tier: StorageTier
@@ -93,9 +97,7 @@ class StorageTieringService:
             container_name: Container name for media (uses env var if not provided)
         """
         self.blob_service = blob_service
-        self.container_name = container_name or os.getenv(
-            "AZURE_STORAGE_CONTAINER_NAME", "media"
-        )
+        self.container_name = container_name or os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
 
         if not self.blob_service:
             conn_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
@@ -130,7 +132,9 @@ class StorageTieringService:
             rehydration_status = props.archive_status
 
             is_archived = current_tier == StorageTier.ARCHIVE
-            is_rehydrating = rehydration_status is not None and "rehydrate" in str(rehydration_status).lower()
+            is_rehydrating = (
+                rehydration_status is not None and "rehydrate" in str(rehydration_status).lower()
+            )
 
             # Estimate rehydration time based on priority
             estimated_time = None
@@ -189,8 +193,7 @@ class StorageTieringService:
             # Set tier with rehydration priority if coming from Archive
             if current_tier == StorageTier.ARCHIVE and target_tier != StorageTier.ARCHIVE:
                 blob_client.set_standard_blob_tier(
-                    azure_tier,
-                    rehydrate_priority=rehydrate_priority.value
+                    azure_tier, rehydrate_priority=rehydrate_priority.value
                 )
                 reason = f"Rehydrating from Archive with {rehydrate_priority.value} priority"
             else:
@@ -302,7 +305,9 @@ class StorageTieringService:
             hot_cost = size_gb * tier_costs[StorageTier.HOT]
             recommended_cost = size_gb * tier_costs[recommended]
             estimated_cost = round(recommended_cost, 4)
-            potential_savings = round(hot_cost - recommended_cost, 4) if recommended != StorageTier.HOT else 0
+            potential_savings = (
+                round(hot_cost - recommended_cost, 4) if recommended != StorageTier.HOT else 0
+            )
 
         return {
             "recommended_tier": recommended,
@@ -342,12 +347,8 @@ class StorageTieringService:
                     "definition": {
                         "actions": {
                             "baseBlob": {
-                                "tierToCool": {
-                                    "daysAfterLastAccessTimeGreaterThan": cool_days
-                                },
-                                "tierToCold": {
-                                    "daysAfterLastAccessTimeGreaterThan": cold_days
-                                },
+                                "tierToCool": {"daysAfterLastAccessTimeGreaterThan": cool_days},
+                                "tierToCold": {"daysAfterLastAccessTimeGreaterThan": cold_days},
                                 "tierToArchive": {
                                     "daysAfterLastAccessTimeGreaterThan": archive_days
                                 },
@@ -405,18 +406,24 @@ class StorageTieringService:
 
             # Get recommendation
             rec = self.get_tier_recommendation(last_accessed, file_size)
-            recommended_tier = rec["recommended_tier"].value if isinstance(rec["recommended_tier"], StorageTier) else rec["recommended_tier"]
+            recommended_tier = (
+                rec["recommended_tier"].value
+                if isinstance(rec["recommended_tier"], StorageTier)
+                else rec["recommended_tier"]
+            )
             optimized_monthly_cost += size_gb * tier_costs.get(recommended_tier, tier_costs["Hot"])
 
             if recommended_tier != current_tier:
-                recommendations.append({
-                    "media_id": item.get("id"),
-                    "blob_name": item.get("blob_name"),
-                    "current_tier": current_tier,
-                    "recommended_tier": recommended_tier,
-                    "reason": rec["reason"],
-                    "monthly_savings_usd": rec.get("potential_monthly_savings_usd", 0),
-                })
+                recommendations.append(
+                    {
+                        "media_id": item.get("id"),
+                        "blob_name": item.get("blob_name"),
+                        "current_tier": current_tier,
+                        "recommended_tier": recommended_tier,
+                        "reason": rec["reason"],
+                        "monthly_savings_usd": rec.get("potential_monthly_savings_usd", 0),
+                    }
+                )
 
         return {
             "total_media_count": len(media_items),
@@ -424,10 +431,16 @@ class StorageTieringService:
             "tier_distribution": tier_distribution,
             "current_monthly_cost_usd": round(current_monthly_cost, 4),
             "optimized_monthly_cost_usd": round(optimized_monthly_cost, 4),
-            "potential_monthly_savings_usd": round(current_monthly_cost - optimized_monthly_cost, 4),
+            "potential_monthly_savings_usd": round(
+                current_monthly_cost - optimized_monthly_cost, 4
+            ),
             "savings_percentage": round(
-                ((current_monthly_cost - optimized_monthly_cost) / current_monthly_cost * 100)
-                if current_monthly_cost > 0 else 0, 1
+                (
+                    ((current_monthly_cost - optimized_monthly_cost) / current_monthly_cost * 100)
+                    if current_monthly_cost > 0
+                    else 0
+                ),
+                1,
             ),
             "recommendations_count": len(recommendations),
             "recommendations": recommendations[:20],  # Top 20 recommendations

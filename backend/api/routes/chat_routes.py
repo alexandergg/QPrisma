@@ -132,7 +132,13 @@ async def search(request: SearchRequest, current_user: User = Depends(get_curren
 # =============================================================================
 
 
-from models.api_schemas import AgentChatRequest, AgentChatResponse, VideoSource, NavigationAction, SuggestedQuestion
+from models.api_schemas import (
+    AgentChatRequest,
+    AgentChatResponse,
+    NavigationAction,
+    SuggestedQuestion,
+    VideoSource,
+)
 
 
 @router.post("/chat/agent", response_model=AgentChatResponse)
@@ -154,7 +160,7 @@ async def agent_chat(
 
     The agent automatically decides which tools to use based on the user's question.
     Uses Redis checkpointing for conversation persistence.
-    
+
     Response includes:
     - Rich sources with timestamps and thumbnails
     - Navigation actions for UI seeking
@@ -196,7 +202,7 @@ async def agent_chat(
             )
             for s in result.get("sources", [])
         ]
-        
+
         navigation_actions = [
             NavigationAction(
                 action=n.get("action", "jump_to"),
@@ -207,7 +213,7 @@ async def agent_chat(
             )
             for n in result.get("navigation_actions", [])
         ]
-        
+
         suggested_questions = [
             SuggestedQuestion(
                 question=q.get("question", ""),
@@ -215,7 +221,7 @@ async def agent_chat(
             )
             for q in result.get("suggested_questions", [])
         ]
-        
+
         clip_suggestions = [
             NavigationAction(
                 action=c.get("action", "create_clip"),

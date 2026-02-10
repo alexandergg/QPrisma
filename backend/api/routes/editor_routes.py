@@ -10,13 +10,10 @@ Endpoints:
 - Chat: Streaming chat endpoint for Chat-to-Edit
 """
 
-import json
 import logging
-import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_current_user
@@ -152,7 +149,9 @@ async def get_project(
         # Include source media info with SAS URL
         result["source_media"] = _get_source_media_info(project)
 
-        logger.info(f"Returning project {project_id} with source_media: {result.get('source_media')}")
+        logger.info(
+            f"Returning project {project_id} with source_media: {result.get('source_media')}"
+        )
         return result
     except HTTPException:
         raise
@@ -237,9 +236,7 @@ async def create_clip(
 
     # Validate times
     if clip_data.end_time <= clip_data.start_time:
-        raise HTTPException(
-            status_code=400, detail="end_time must be greater than start_time"
-        )
+        raise HTTPException(status_code=400, detail="end_time must be greater than start_time")
 
     # Get source video duration to validate
     media = db.get_media(project.source_media_id)
@@ -343,9 +340,7 @@ async def update_clip(
     new_start = update_dict.get("start_time", clip.start_time)
     new_end = update_dict.get("end_time", clip.end_time)
     if new_end <= new_start:
-        raise HTTPException(
-            status_code=400, detail="end_time must be greater than start_time"
-        )
+        raise HTTPException(status_code=400, detail="end_time must be greater than start_time")
 
     if update_dict:
         clip = db.update_clip(clip_id, update_dict)
@@ -428,9 +423,7 @@ async def reorder_clips(
 
     for clip_id in reorder_data.clip_ids:
         if clip_id not in existing_ids:
-            raise HTTPException(
-                status_code=400, detail=f"Clip {clip_id} not found in project"
-            )
+            raise HTTPException(status_code=400, detail=f"Clip {clip_id} not found in project")
 
     clips = db.reorder_clips(project_id, reorder_data.clip_ids)
     return [clip.to_dict() for clip in clips]
@@ -669,9 +662,7 @@ async def export_subtitles_srt(
     return PlainTextResponse(
         content=srt_content,
         media_type="text/srt",
-        headers={
-            "Content-Disposition": f'attachment; filename="clip_{clip_id}.srt"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="clip_{clip_id}.srt"'},
     )
 
 

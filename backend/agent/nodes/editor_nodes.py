@@ -13,11 +13,11 @@ from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from agent.nodes.base import (
+    EDITOR_MAX_TOOL_ITERATIONS,
+    EDITOR_WARN_TOOL_ITERATIONS,
     base_call_model,
     base_should_continue,
     select_tools_for_query,
-    EDITOR_MAX_TOOL_ITERATIONS,
-    EDITOR_WARN_TOOL_ITERATIONS,
 )
 from agent.prompts import EDITOR_NO_PROJECT_PROMPT, build_editor_prompt
 from agent.state.agent_state import (
@@ -99,9 +99,7 @@ def build_editor_system_message(project_context: ProjectContext | None) -> Syste
             f"{clip.get('title') or 'Untitled'}{viral_info}{subtitle_info} (id: {clip['id']})\n"
         )
 
-    total_duration = sum(
-        c["end_time"] - c["start_time"] for c in project_context.get("clips", [])
-    )
+    total_duration = sum(c["end_time"] - c["start_time"] for c in project_context.get("clips", []))
 
     content = build_editor_prompt(
         project_name=project_context.get("project_name", "Unnamed Project"),
@@ -126,10 +124,10 @@ async def call_editor_model(state: AgentState, config: RunnableConfig) -> dict:
     # Build editor system message
     project_context = state.get("project_context")
     system_msg = build_editor_system_message(project_context)
-    
+
     # Combine search and editor tools
     all_tools = SEARCH_TOOLS + EDITOR_TOOLS
-    
+
     # Get user query for dynamic tool selection
     messages = state.get("messages", [])
     user_query = ""
@@ -137,13 +135,13 @@ async def call_editor_model(state: AgentState, config: RunnableConfig) -> dict:
         if hasattr(msg, "content") and msg.type == "human":
             user_query = msg.content if isinstance(msg.content, str) else str(msg.content)
             break
-    
+
     # Dynamic tool binding - select focused subset
     if user_query:
         tools = select_tools_for_query(user_query, all_tools, max_tools=10)
     else:
         tools = all_tools
-    
+
     return await base_call_model(
         state=state,
         config=config,

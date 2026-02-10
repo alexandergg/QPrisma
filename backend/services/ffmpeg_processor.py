@@ -61,7 +61,9 @@ class FFmpegVideoProcessor:
         try:
             result = subprocess.run(
                 ["ffmpeg", "-hwaccels"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             available = result.stdout.lower().split()
             for method in preferred:
@@ -369,9 +371,7 @@ class FFmpegVideoProcessor:
         # Paso 1: Detectar escenas
         scene_frames_target = int(max_frames * scene_ratio)
         scene_timestamps = self._detect_scene_timestamps(
-            video_info.get("path", ""),
-            scene_threshold,
-            scene_frames_target
+            video_info.get("path", ""), scene_threshold, scene_frames_target
         )
 
         # Si no hay detección de escenas, fallback a uniform
@@ -418,10 +418,7 @@ class FFmpegVideoProcessor:
         return all_timestamps[:max_frames]
 
     def _detect_scene_timestamps(
-        self,
-        video_path: str,
-        threshold: float,
-        max_scenes: int
+        self, video_path: str, threshold: float, max_scenes: int
     ) -> list[float]:
         """
         Detectar timestamps de cambios de escena usando FFmpeg.
@@ -442,9 +439,13 @@ class FFmpegVideoProcessor:
             cmd = [
                 "ffmpeg",
                 *self._build_hwaccel_args(),
-                "-i", video_path,
-                "-vf", f"select='gt(scene,{threshold})',showinfo",
-                "-f", "null", "-"
+                "-i",
+                video_path,
+                "-vf",
+                f"select='gt(scene,{threshold})',showinfo",
+                "-f",
+                "null",
+                "-",
             ]
 
             result = subprocess.run(
@@ -564,7 +565,9 @@ class FFmpegVideoProcessor:
 
                 logger.info(f"Calculated timestamps: {len(timestamps)} frames")
                 if timestamps:
-                    logger.debug(f"First timestamp: {timestamps[0]:.2f}s, Last: {timestamps[-1]:.2f}s")
+                    logger.debug(
+                        f"First timestamp: {timestamps[0]:.2f}s, Last: {timestamps[-1]:.2f}s"
+                    )
 
                     # Calcular y mostrar métricas de cobertura
                     coverage = self.calculate_coverage_metrics(timestamps, video_info["duration"])
@@ -572,7 +575,7 @@ class FFmpegVideoProcessor:
                         f"Coverage score: {coverage['coverage_score']}%, "
                         f"avg_gap={coverage['average_gap']:.1f}s, max_gap={coverage['max_gap']:.1f}s"
                     )
-                    if coverage['total_problematic_gaps'] > 0:
+                    if coverage["total_problematic_gaps"] > 0:
                         logger.warning(
                             f"{coverage['total_problematic_gaps']} gaps over {coverage['gap_threshold']}s"
                         )
@@ -677,12 +680,18 @@ class FFmpegVideoProcessor:
             cmd = [
                 "ffmpeg",
                 *self._build_hwaccel_args(),
-                "-ss", str(timestamp),
-                "-i", video_path,
-                "-vframes", "1",
-                "-q:v", "2",
-                "-f", "image2pipe",
-                "-vcodec", "mjpeg",
+                "-ss",
+                str(timestamp),
+                "-i",
+                video_path,
+                "-vframes",
+                "1",
+                "-q:v",
+                "2",
+                "-f",
+                "image2pipe",
+                "-vcodec",
+                "mjpeg",
                 "-",
             ]
 
@@ -738,8 +747,7 @@ class FFmpegVideoProcessor:
         """
         total = len(timestamps)
         logger.info(
-            f"Extrayendo {total} frames en paralelo "
-            f"(max {self.MAX_EXTRACTION_WORKERS} workers)"
+            f"Extrayendo {total} frames en paralelo " f"(max {self.MAX_EXTRACTION_WORKERS} workers)"
         )
         logger.debug(f"Video: {video_path}")
         if total > 5:
@@ -760,9 +768,7 @@ class FFmpegVideoProcessor:
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(
-                    self._extract_single_frame, video_path, ts, idx, filters
-                ): idx
+                executor.submit(self._extract_single_frame, video_path, ts, idx, filters): idx
                 for idx, ts in enumerate(timestamps)
             }
 
@@ -770,10 +776,8 @@ class FFmpegVideoProcessor:
                 result = future.result()
                 if result is not None:
                     # Write to disk for caller's return_as_bytes handling
-                    frame_num = result['frame_number']
-                    output_file = os.path.join(
-                        output_dir, f"frame_{frame_num:06d}.jpg"
-                    )
+                    frame_num = result["frame_number"]
+                    output_file = os.path.join(output_dir, f"frame_{frame_num:06d}.jpg")
                     with open(output_file, "wb") as f:
                         f.write(result["image_data"])
                     result["file_path"] = output_file
@@ -1020,9 +1024,7 @@ class FFmpegVideoProcessor:
         return self.status
 
     def calculate_coverage_metrics(
-        self,
-        timestamps: list[float],
-        video_duration: float
+        self, timestamps: list[float], video_duration: float
     ) -> dict[str, Any]:
         """
         Calcular métricas de cobertura del video.
@@ -1056,21 +1058,25 @@ class FFmpegVideoProcessor:
         gaps = []
         for i in range(len(sorted_ts) - 1):
             gap = sorted_ts[i + 1] - sorted_ts[i]
-            gaps.append({
-                "start": sorted_ts[i],
-                "end": sorted_ts[i + 1],
-                "duration": gap,
-            })
+            gaps.append(
+                {
+                    "start": sorted_ts[i],
+                    "end": sorted_ts[i + 1],
+                    "duration": gap,
+                }
+            )
 
         # Añadir gap inicial y final
         if sorted_ts[0] > 1.0:  # Si hay más de 1 segundo al inicio
             gaps.insert(0, {"start": 0, "end": sorted_ts[0], "duration": sorted_ts[0]})
         if video_duration - sorted_ts[-1] > 1.0:
-            gaps.append({
-                "start": sorted_ts[-1],
-                "end": video_duration,
-                "duration": video_duration - sorted_ts[-1]
-            })
+            gaps.append(
+                {
+                    "start": sorted_ts[-1],
+                    "end": video_duration,
+                    "duration": video_duration - sorted_ts[-1],
+                }
+            )
 
         # Métricas básicas
         gap_durations = [g["duration"] for g in gaps]
@@ -1099,20 +1105,28 @@ class FFmpegVideoProcessor:
 
         # Penalización por gaps grandes
         gap_penalty = min(len(problematic_gaps) * 10, 50)
-        max_gap_penalty = min((max_gap / gap_threshold - 1) * 20, 30) if max_gap > gap_threshold else 0
+        max_gap_penalty = (
+            min((max_gap / gap_threshold - 1) * 20, 30) if max_gap > gap_threshold else 0
+        )
 
         coverage_score = max(0, density_score - gap_penalty - max_gap_penalty)
 
         # Recomendaciones
         recommendations = []
         if coverage_score < 50:
-            recommendations.append("Consider using DEEP_ANALYSIS or ADAPTIVE preset for better coverage")
+            recommendations.append(
+                "Consider using DEEP_ANALYSIS or ADAPTIVE preset for better coverage"
+            )
         if max_gap > gap_threshold * 2:
-            recommendations.append(f"Large gap detected ({max_gap:.1f}s) - use HYBRID extraction to fill gaps")
+            recommendations.append(
+                f"Large gap detected ({max_gap:.1f}s) - use HYBRID extraction to fill gaps"
+            )
         if density < 5:
             recommendations.append("Low frame density - increase max_frames or reduce interval")
         if len(problematic_gaps) > 5:
-            recommendations.append(f"{len(problematic_gaps)} gaps over {gap_threshold}s - content may be missed")
+            recommendations.append(
+                f"{len(problematic_gaps)} gaps over {gap_threshold}s - content may be missed"
+            )
         if not recommendations:
             recommendations.append("Good coverage achieved")
 

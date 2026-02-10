@@ -30,7 +30,6 @@ from evaluation.metrics.accuracy import (
     compute_accuracy,
     compute_accuracy_by_group,
 )
-from evaluation.metrics.efficiency import EfficiencyTracker
 from evaluation.models.eval_schemas import BenchmarkEntry, EvalResult
 from evaluation.runner import EvaluationRunner
 
@@ -40,8 +39,16 @@ logger = logging.getLogger(__name__)
 # server context, so we'll use the chat API endpoint as our adapter.
 
 QUICK_QUESTION_IDS = {
-    "ignite_q1", "ignite_q2", "ignite_q3", "ignite_q4", "ignite_q5",
-    "ignite_q6", "ignite_q7", "ignite_q8", "ignite_q9", "ignite_q10",
+    "ignite_q1",
+    "ignite_q2",
+    "ignite_q3",
+    "ignite_q4",
+    "ignite_q5",
+    "ignite_q6",
+    "ignite_q7",
+    "ignite_q8",
+    "ignite_q9",
+    "ignite_q10",
 }
 
 
@@ -212,10 +219,7 @@ class DirectSearchAdapter(BaseMethodAdapter):
                         mc_query += f"{letter}. {c}\n"
                     mc_query += "\nAnswer with just the letter (A/B/C/D)."
 
-                full_prompt = (
-                    f"Based on this video context:\n{context}\n\n"
-                    f"Question: {mc_query}"
-                )
+                full_prompt = f"Based on this video context:\n{context}\n\n" f"Question: {mc_query}"
 
                 resp2 = await client.post(
                     "/chat",
@@ -286,17 +290,14 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
     email = os.environ.get("QPRISMA_EVAL_EMAIL", "")
     password = os.environ.get("QPRISMA_EVAL_PASSWORD", "")
     if not email or not password:
-        raise RuntimeError(
-            "Set QPRISMA_EVAL_EMAIL and QPRISMA_EVAL_PASSWORD environment variables"
-        )
+        raise RuntimeError("Set QPRISMA_EVAL_EMAIL and QPRISMA_EVAL_PASSWORD environment variables")
     token = get_token(api_url, email, password)
     print("  Token obtained.")
 
     # 2. Load benchmark
     bench_path = Path("data/benchmarks/qprisma_first_eval/benchmark.json")
     all_entries = [
-        BenchmarkEntry.model_validate(e)
-        for e in json.loads(bench_path.read_text(encoding="utf-8"))
+        BenchmarkEntry.model_validate(e) for e in json.loads(bench_path.read_text(encoding="utf-8"))
     ]
 
     if expanded:
@@ -324,9 +325,7 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
     for i, entry in enumerate(entries, 1):
         print(f"  [{i}/{len(entries)}] {entry.question_id}: {entry.question[:60]}...")
 
-    qprisma_results = await runner.run_method(
-        qprisma, entries, benchmark_name="first_eval"
-    )
+    qprisma_results = await runner.run_method(qprisma, entries, benchmark_name="first_eval")
 
     print("\n" + "=" * 60)
     print("RUNNING BASELINE (Direct Search)")
@@ -335,9 +334,7 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
     for i, entry in enumerate(entries, 1):
         print(f"  [{i}/{len(entries)}] {entry.question_id}: {entry.question[:60]}...")
 
-    baseline_results = await runner.run_method(
-        baseline, entries, benchmark_name="first_eval"
-    )
+    baseline_results = await runner.run_method(baseline, entries, benchmark_name="first_eval")
 
     # 5. Compute metrics
     print("\n" + "=" * 60)
@@ -379,11 +376,7 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
         print(f"\n{'Category':<25} {'QPrisma':>10} {'Baseline':>10}")
         print("-" * 45)
         for cat in all_cats:
-            print(
-                f"{cat:<25} "
-                f"{qp_by_cat.get(cat, 0):>9.1%} "
-                f"{bl_by_cat.get(cat, 0):>9.1%}"
-            )
+            print(f"{cat:<25} " f"{qp_by_cat.get(cat, 0):>9.1%} " f"{bl_by_cat.get(cat, 0):>9.1%}")
 
     # Per-question details
     print(f"\n{'QID':<15} {'QPrisma':>10} {'Baseline':>10} {'Correct':>10}")
@@ -394,8 +387,12 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
         sorted(baseline_results, key=lambda r: r.question_id),
     ):
         correct = entry_map[qr.question_id].correct_answer
-        qp_mark = "OK" if qr.predicted_choice and qr.predicted_choice.upper() == correct.upper() else "X"
-        bl_mark = "OK" if br.predicted_choice and br.predicted_choice.upper() == correct.upper() else "X"
+        qp_mark = (
+            "OK" if qr.predicted_choice and qr.predicted_choice.upper() == correct.upper() else "X"
+        )
+        bl_mark = (
+            "OK" if br.predicted_choice and br.predicted_choice.upper() == correct.upper() else "X"
+        )
         print(
             f"{qr.question_id:<15} "
             f"{qr.predicted_choice or '?':>5} {qp_mark:>4} "

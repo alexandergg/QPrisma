@@ -14,7 +14,7 @@ Inspirado en VideoRAG para retrieval inteligente de contenido multimedia.
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from models.graph_models import (
     GraphSearchResponse,
@@ -337,8 +337,7 @@ class GraphSearchService:
 
         if not results:
             results = self._fallback_vector_search(
-                query_embedding, node_type, limit,
-                video_id, min_score, video_ids
+                query_embedding, node_type, limit, video_id, min_score, video_ids
             )
 
         return results
@@ -363,8 +362,11 @@ class GraphSearchService:
                 ORDER BY score DESC LIMIT $limit
             """
             params = {
-                "index_name": index_name, "embedding": embedding,
-                "limit": limit, "video_ids": video_ids, "min_score": min_score,
+                "index_name": index_name,
+                "embedding": embedding,
+                "limit": limit,
+                "video_ids": video_ids,
+                "min_score": min_score,
             }
         elif video_id:
             query = """
@@ -375,8 +377,11 @@ class GraphSearchService:
                 ORDER BY score DESC LIMIT $limit
             """
             params = {
-                "index_name": index_name, "embedding": embedding,
-                "limit": limit, "video_id": video_id, "min_score": min_score,
+                "index_name": index_name,
+                "embedding": embedding,
+                "limit": limit,
+                "video_id": video_id,
+                "min_score": min_score,
             }
         else:
             query = """
@@ -387,8 +392,10 @@ class GraphSearchService:
                 ORDER BY score DESC LIMIT $limit
             """
             params = {
-                "index_name": index_name, "embedding": embedding,
-                "limit": limit, "min_score": min_score,
+                "index_name": index_name,
+                "embedding": embedding,
+                "limit": limit,
+                "min_score": min_score,
             }
 
         results = []
@@ -400,14 +407,16 @@ class GraphSearchService:
                     node_data.pop("embedding", None)
                     node_data.pop("embedding_coarse", None)
 
-                    results.append(ScoredNode(
-                        node_id=node_data.get("id"),
-                        node_type=node_type,
-                        content=node_data,
-                        vector_score=record["score"],
-                        timestamp=node_data.get("timestamp") or node_data.get("start_time"),
-                        video_id=node_data.get("video_id"),
-                    ))
+                    results.append(
+                        ScoredNode(
+                            node_id=node_data.get("id"),
+                            node_type=node_type,
+                            content=node_data,
+                            vector_score=record["score"],
+                            timestamp=node_data.get("timestamp") or node_data.get("start_time"),
+                            video_id=node_data.get("video_id"),
+                        )
+                    )
         except Exception as e:
             logger.debug(f"Vector query on {index_name} failed: {e}")
 
@@ -439,22 +448,27 @@ class GraphSearchService:
         try:
             with self.graph_service.get_session() as session:
                 result = session.run(
-                    query, ids=candidate_ids,
-                    embedding=query_embedding, min_score=min_score, limit=limit,
+                    query,
+                    ids=candidate_ids,
+                    embedding=query_embedding,
+                    min_score=min_score,
+                    limit=limit,
                 )
                 for record in result:
                     node_data = dict(record["node"])
                     node_data.pop("embedding", None)
                     node_data.pop("embedding_coarse", None)
 
-                    results.append(ScoredNode(
-                        node_id=node_data.get("id"),
-                        node_type=node_type,
-                        content=node_data,
-                        vector_score=record["score"],
-                        timestamp=node_data.get("timestamp") or node_data.get("start_time"),
-                        video_id=node_data.get("video_id"),
-                    ))
+                    results.append(
+                        ScoredNode(
+                            node_id=node_data.get("id"),
+                            node_type=node_type,
+                            content=node_data,
+                            vector_score=record["score"],
+                            timestamp=node_data.get("timestamp") or node_data.get("start_time"),
+                            video_id=node_data.get("video_id"),
+                        )
+                    )
         except Exception as e:
             # gds.similarity.cosine may not be available — fall back gracefully
             logger.debug(f"Full embedding re-rank failed (GDS may not be installed): {e}")
@@ -603,12 +617,8 @@ class GraphSearchService:
             )
 
             # Merge full-text scores
-            vid = effective_video_id or (
-                effective_video_ids[0] if effective_video_ids else None
-            )
-            self._merge_fulltext_scores(
-                all_candidates, fulltext_results, node_type, vid
-            )
+            vid = effective_video_id or (effective_video_ids[0] if effective_video_ids else None)
+            self._merge_fulltext_scores(all_candidates, fulltext_results, node_type, vid)
 
         vector_search_time = (datetime.now(UTC) - vector_start).total_seconds() * 1000
 

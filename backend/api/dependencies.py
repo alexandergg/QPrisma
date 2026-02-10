@@ -180,7 +180,7 @@ async def get_current_user(
     Raises:
         HTTPException: 401 if token is invalid or expired
     """
-    from datetime import datetime, UTC
+    from datetime import UTC, datetime
 
     auth_service = get_auth_service()
 
@@ -208,14 +208,14 @@ async def get_current_user_optional(
 ) -> User | None:
     """
     Optionally validate JWT token and return current user.
-    
+
     Returns None if no token is provided or if token is invalid.
     Does not raise exceptions - useful for endpoints that work with or without auth.
     """
     if credentials is None:
         return None
 
-    from datetime import datetime, UTC
+    from datetime import UTC, datetime
 
     auth_service = get_auth_service()
 

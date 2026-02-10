@@ -26,30 +26,40 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from agent.nodes.editor_nodes import call_editor_model, get_project_context, should_continue_editor
+from agent.graphs.video import create_smart_retry_policy
 from agent.nodes.base import error_handler_node
+from agent.nodes.editor_nodes import call_editor_model, get_project_context, should_continue_editor
 from agent.state.agent_state import (
-    AgentState,
     AgentInputState,
     AgentOutputState,
+    AgentState,
     create_agent_state,
 )
 from agent.tools import EDITOR_TOOLS, SEARCH_TOOLS
-from agent.graphs.video import create_smart_retry_policy
 
 logger = logging.getLogger(__name__)
 
 # Tools that modify clips (for human-in-the-loop support)
 DESTRUCTIVE_TOOLS = {
-    "create_clip", "modify_clip", "delete_clip", "reorder_clips",
-    "add_suggested_clips", "add_subtitles", "change_subtitle_style", "remove_subtitles",
-    "export_clip", "export_all_clips",
+    "create_clip",
+    "modify_clip",
+    "delete_clip",
+    "reorder_clips",
+    "add_suggested_clips",
+    "add_subtitles",
+    "change_subtitle_style",
+    "remove_subtitles",
+    "export_clip",
+    "export_all_clips",
 }
 
 # Read-only tools that don't need confirmation
 SAFE_TOOLS = {
-    "list_clips", "generate_auto_clips", "list_subtitle_styles", 
-    "get_export_status", "list_export_presets",
+    "list_clips",
+    "generate_auto_clips",
+    "list_subtitle_styles",
+    "get_export_status",
+    "list_export_presets",
 }
 
 
@@ -61,35 +71,35 @@ SAFE_TOOLS = {
 async def tools_with_interrupt(state: AgentState, config: RunnableConfig) -> dict:
     """
     Tool execution node with granular interrupt() for destructive tools.
-    
+
     This replaces interrupt_before=["tools"] with selective interruption:
     - Safe tools (list_clips, etc.) execute immediately
     - Destructive tools (create_clip, delete_clip) use interrupt() for confirmation
-    
+
     The interrupt() function is the LangGraph v1.0+ way to handle HITL,
     allowing per-tool-call decisions instead of all-or-nothing.
     """
     from langgraph.types import interrupt
-    
+
     messages = state.get("messages", [])
     if not messages:
         return {"messages": []}
-    
+
     last_message = messages[-1]
     if not hasattr(last_message, "tool_calls") or not last_message.tool_calls:
         return {"messages": []}
-    
+
     # Check if any tool calls require confirmation
     needs_confirmation = []
     safe_calls = []
-    
+
     for tool_call in last_message.tool_calls:
         tool_name = tool_call.get("name", "")
         if tool_name in DESTRUCTIVE_TOOLS:
             needs_confirmation.append(tool_call)
         else:
             safe_calls.append(tool_call)
-    
+
     # If there are destructive tools, interrupt for confirmation
     if needs_confirmation:
         # Build confirmation message
@@ -106,34 +116,38 @@ async def tools_with_interrupt(state: AgentState, config: RunnableConfig) -> dic
             else:
                 desc = f"{name} with {args}"
             tool_descriptions.append(desc)
-        
+
         confirmation_msg = (
             "I'm about to perform the following action(s):\n"
             + "\n".join(f"  • {d}" for d in tool_descriptions)
             + "\n\nWould you like me to proceed?"
         )
-        
+
         # Use interrupt() - this is the LangGraph v1.0+ HITL pattern
         # The graph will pause here and resume when the user responds
-        user_response = interrupt({"message": confirmation_msg, "pending_tools": needs_confirmation})
-        
+        user_response = interrupt(
+            {"message": confirmation_msg, "pending_tools": needs_confirmation}
+        )
+
         # If user didn't confirm, skip the destructive tools
         if not user_response.get("confirmed", False):
             from langchain_core.messages import ToolMessage
-            
+
             cancelled_messages = []
             for tc in needs_confirmation:
-                cancelled_messages.append(ToolMessage(
-                    content='{"cancelled": true, "message": "Operation cancelled by user."}',
-                    tool_call_id=tc.get("id", ""),
-                    name=tc.get("name", ""),
-                ))
+                cancelled_messages.append(
+                    ToolMessage(
+                        content='{"cancelled": true, "message": "Operation cancelled by user."}',
+                        tool_call_id=tc.get("id", ""),
+                        name=tc.get("name", ""),
+                    )
+                )
             return {"messages": cancelled_messages}
-    
+
     # Execute all approved tools
     all_tools = SEARCH_TOOLS + EDITOR_TOOLS
     tool_node = ToolNode(all_tools, handle_tool_errors=True)
-    
+
     return await tool_node.ainvoke(state, config)
 
 
@@ -155,14 +169,14 @@ def create_editor_agent_graph(
                                (recommended for production)
 
     Returns a compiled StateGraph with search and editor tools.
-    
+
     Architecture:
         START → call_model → should_continue?
                     ↓ tools          ↓ end
                   tools → call_model
                     ↓ error_handler
               error_handler → END
-    
+
     Input/Output Schema Separation:
     - Input: AgentInputState (clean API interface)
     - Output: AgentOutputState (only relevant results)
@@ -182,7 +196,7 @@ def create_editor_agent_graph(
         call_editor_model,
         retry_policy=create_smart_retry_policy(max_attempts=3),
     )
-    
+
     # Use granular interrupt tool node or standard ToolNode
     if interrupt_before_clips:
         workflow.add_node("tools", tools_with_interrupt)
@@ -192,7 +206,7 @@ def create_editor_agent_graph(
             ToolNode(all_tools, handle_tool_errors=True),
             retry_policy=create_smart_retry_policy(max_attempts=2),
         )
-    
+
     workflow.add_node("error_handler", error_handler_node)
 
     workflow.add_edge(START, "call_model")
@@ -205,7 +219,7 @@ def create_editor_agent_graph(
             "tools": "tools",
             "error_handler": "error_handler",
             END: END,
-        }
+        },
     )
 
     workflow.add_edge("tools", "call_model")
@@ -348,12 +362,13 @@ class EditorAgentGraph:
 
             # Extract response
             final_message = result["messages"][-1]
-            response = final_message.content if hasattr(final_message, "content") else str(final_message)
+            response = (
+                final_message.content if hasattr(final_message, "content") else str(final_message)
+            )
 
             # Count tool calls
             tool_calls = sum(
-                1 for msg in result["messages"]
-                if isinstance(msg, AIMessage) and msg.tool_calls
+                1 for msg in result["messages"] if isinstance(msg, AIMessage) and msg.tool_calls
             )
 
             # Check if clips changed
@@ -462,7 +477,9 @@ class EditorAgentGraph:
                         "data": {
                             "tool": tool_name,
                             "tool_call_id": event.get("run_id", ""),
-                            "success": not output.get("error") if isinstance(output, dict) else True,
+                            "success": (
+                                not output.get("error") if isinstance(output, dict) else True
+                            ),
                             "result_summary": self._summarize_result(tool_name, output),
                         },
                     }
@@ -485,7 +502,9 @@ class EditorAgentGraph:
 
                     if final_messages:
                         last_msg = final_messages[-1]
-                        final_response = last_msg.content if hasattr(last_msg, "content") else collected_response
+                        final_response = (
+                            last_msg.content if hasattr(last_msg, "content") else collected_response
+                        )
                     else:
                         final_response = collected_response
 
@@ -535,12 +554,14 @@ class EditorAgentGraph:
 
         try:
             async for state in self.graph.aget_state_history(config):
-                history.append({
-                    "config": state.config,
-                    "values": state.values,
-                    "next": state.next,
-                    "created_at": state.created_at,
-                })
+                history.append(
+                    {
+                        "config": state.config,
+                        "values": state.values,
+                        "next": state.next,
+                        "created_at": state.created_at,
+                    }
+                )
                 if len(history) >= limit:
                     break
         except Exception as e:
@@ -580,7 +601,9 @@ class EditorAgentGraph:
 
         return {
             "response": response,
-            "project_context": get_project_context(config.get("configurable", {}).get("project_id")),
+            "project_context": get_project_context(
+                config.get("configurable", {}).get("project_id")
+            ),
             "clips_updated": True,
         }
 

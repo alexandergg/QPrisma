@@ -44,9 +44,7 @@ class ProcessingConfig(BaseModel):
     """Configuration for video processing"""
 
     max_frames: int = Field(default=100, ge=1, le=500, description="Maximum frames to extract")
-    custom_prompt: str | None = Field(
-        default=None, description="Custom prompt for analysis"
-    )
+    custom_prompt: str | None = Field(default=None, description="Custom prompt for analysis")
     use_cache: bool = Field(default=True, description="Use cache for similar frames")
     transcribe_audio: bool = Field(default=True, description="Transcribe audio with Whisper")
     index_content: bool = Field(default=True, description="Index for search (Knowledge Graph)")
@@ -71,9 +69,7 @@ class JobSubmitRequest(BaseModel):
 
     video_id: str = Field(description="Unique video ID")
     blob_name: str = Field(description="Blob name in Azure Storage")
-    config: ProcessingConfig | None = Field(
-        default=None, description="Processing configuration"
-    )
+    config: ProcessingConfig | None = Field(default=None, description="Processing configuration")
 
 
 class JobSubmitResponse(BaseModel):
@@ -355,7 +351,9 @@ async def get_job_result(job_id: str, current_user: User = Depends(get_current_u
     summary="List recent jobs",
     description="Lists recent jobs with their status.",
 )
-async def list_jobs(status: JobStatus | None = None, limit: int = 20, current_user: User = Depends(get_current_user)):
+async def list_jobs(
+    status: JobStatus | None = None, limit: int = 20, current_user: User = Depends(get_current_user)
+):
     """Lists recent jobs"""
     # Get jobs from cache
     try:

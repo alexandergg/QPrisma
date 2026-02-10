@@ -18,7 +18,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from evaluation.ablation import AblationConfig, get_ablation_config
+from evaluation.ablation import get_ablation_config
 from evaluation.adapters.base import BaseMethodAdapter
 from evaluation.models.eval_schemas import BenchmarkEntry, EvalResult
 
@@ -225,7 +225,11 @@ class QPrismaAdapter(BaseMethodAdapter):
                 ),
                 "use_reranking": self._search_overrides.get(
                     "use_reranking",
-                    self.ablation.use_reranking if self.ablation.use_reranking is not None else True,
+                    (
+                        self.ablation.use_reranking
+                        if self.ablation.use_reranking is not None
+                        else True
+                    ),
                 ),
             }
             search_response = await search_service.hybrid_search(**search_kwargs)
@@ -234,8 +238,9 @@ class QPrismaAdapter(BaseMethodAdapter):
             context = self._format_search_response(search_response)
 
             # Generate answer with LLM
-            from agent.nodes.base import create_model
             from langchain_core.messages import HumanMessage, SystemMessage
+
+            from agent.nodes.base import create_model
 
             model = create_model()
             messages = [
@@ -250,11 +255,17 @@ class QPrismaAdapter(BaseMethodAdapter):
 
             sources = []
             for r in search_response.results[:10]:
-                sources.append({
-                    "timestamp": getattr(r, "timestamp", 0),
-                    "type": str(getattr(r, "node_type", "")),
-                    "content": getattr(r, "content", "")[:200] if isinstance(getattr(r, "content", ""), str) else "",
-                })
+                sources.append(
+                    {
+                        "timestamp": getattr(r, "timestamp", 0),
+                        "type": str(getattr(r, "node_type", "")),
+                        "content": (
+                            getattr(r, "content", "")[:200]
+                            if isinstance(getattr(r, "content", ""), str)
+                            else ""
+                        ),
+                    }
+                )
 
             return {
                 "response": response.content,
@@ -275,7 +286,10 @@ class QPrismaAdapter(BaseMethodAdapter):
         query = self.build_mc_query(entry)
         # Override the generic suffix with QPrisma-specific one that requests explanation
         if entry.choices:
-            query = query.rsplit("\n", 1)[0] + "\nProvide the answer letter (A/B/C/D) and a brief explanation."
+            query = (
+                query.rsplit("\n", 1)[0]
+                + "\nProvide the answer letter (A/B/C/D) and a brief explanation."
+            )
         return query
 
     def _format_search_response(self, search_response) -> str:

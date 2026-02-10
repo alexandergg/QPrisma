@@ -22,7 +22,7 @@ Key Features:
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from enum import Enum
 
 import numpy as np
@@ -582,26 +582,32 @@ class HierarchicalContextService:
             )
 
             chapter_node_ids[chapter.get("chapter_id", 0)] = chapter_node.id
-            chapters_data.append({
-                "id": chapter_node.id,
-                "video_id": chapter_node.video_id,
-                "start_time": chapter_node.start_time,
-                "end_time": chapter_node.end_time,
-                "chapter_index": chapter_node.chapter_index,
-                "title": chapter_node.title,
-                "summary": chapter_node.summary,
-                "topics": chapter_node.topics,
-            })
-            chapter_rels.append({
-                "source_id": f"video:{structure.media_id}",
-                "target_id": chapter_node.id,
-            })
+            chapters_data.append(
+                {
+                    "id": chapter_node.id,
+                    "video_id": chapter_node.video_id,
+                    "start_time": chapter_node.start_time,
+                    "end_time": chapter_node.end_time,
+                    "chapter_index": chapter_node.chapter_index,
+                    "title": chapter_node.title,
+                    "summary": chapter_node.summary,
+                    "topics": chapter_node.topics,
+                }
+            )
+            chapter_rels.append(
+                {
+                    "source_id": f"video:{structure.media_id}",
+                    "target_id": chapter_node.id,
+                }
+            )
 
             if self.config.store_chapter_embeddings and chapter.get("embedding"):
-                chapter_embeddings.append({
-                    "node_id": chapter_node.id,
-                    "embedding": chapter["embedding"],
-                })
+                chapter_embeddings.append(
+                    {
+                        "node_id": chapter_node.id,
+                        "embedding": chapter["embedding"],
+                    }
+                )
 
         if chapters_data:
             self._create_chapters_batch(chapters_data)
@@ -629,32 +635,38 @@ class HierarchicalContextService:
                 description=scene.summary or scene.visual_description,
                 embedding=scene.embedding if self.config.store_scene_embeddings else None,
                 embedding_model="text-embedding-3-large",
-                visual_change_score=getattr(scene, 'visual_change_score', 0.0),
-                dominant_colors=getattr(scene, 'dominant_colors', None) or [],
-                transition_type=getattr(scene, 'transition_type', 'cut'),
+                visual_change_score=getattr(scene, "visual_change_score", 0.0),
+                dominant_colors=getattr(scene, "dominant_colors", None) or [],
+                transition_type=getattr(scene, "transition_type", "cut"),
             )
 
-            scenes_data.append({
-                "id": scene_node.id,
-                "video_id": scene_node.video_id,
-                "chapter_id": scene_node.chapter_id,
-                "start_time": scene_node.start_time,
-                "end_time": scene_node.end_time,
-                "scene_index": scene_node.scene_index,
-                "description": scene_node.description,
-            })
+            scenes_data.append(
+                {
+                    "id": scene_node.id,
+                    "video_id": scene_node.video_id,
+                    "chapter_id": scene_node.chapter_id,
+                    "start_time": scene_node.start_time,
+                    "end_time": scene_node.end_time,
+                    "scene_index": scene_node.scene_index,
+                    "description": scene_node.description,
+                }
+            )
 
             if chapter_id_for_scene:
-                scene_rels.append({
-                    "source_id": chapter_id_for_scene,
-                    "target_id": scene_node.id,
-                })
+                scene_rels.append(
+                    {
+                        "source_id": chapter_id_for_scene,
+                        "target_id": scene_node.id,
+                    }
+                )
 
             if self.config.store_scene_embeddings and scene.embedding:
-                scene_embeddings.append({
-                    "node_id": scene_node.id,
-                    "embedding": scene.embedding,
-                })
+                scene_embeddings.append(
+                    {
+                        "node_id": scene_node.id,
+                        "embedding": scene.embedding,
+                    }
+                )
 
         if scenes_data:
             self._create_scenes_batch(scenes_data)
@@ -784,9 +796,7 @@ class HierarchicalContextService:
         with self.graph_service._driver.session() as session:
             session.run(query, source_id=source_id, target_id=target_id)
 
-    def _create_relationships_batch(
-        self, rels: list[dict], relation_type: RelationType
-    ) -> None:
+    def _create_relationships_batch(self, rels: list[dict], relation_type: RelationType) -> None:
         """Create multiple relationships of the same type in a single UNWIND transaction."""
         query = f"""
         UNWIND $batch AS rel
