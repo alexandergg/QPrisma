@@ -18,10 +18,15 @@ This folder contains reference documentation for AI-assisted development special
 |-------|---------|
 | `code-reviewer.md` | Quick code review checklist |
 | `code-quality-reviewer.md` | Detailed architecture and quality review |
+| `architect-review.md` | SOLID principles, layering, architectural consistency |
 | `test-engineer.md` | Testing strategies and patterns |
 | `devops-engineer.md` | CI/CD, deployment, infrastructure |
 | `documentation-expert.md` | Technical writing and docs |
 | `performance-engineer.md` | Optimization and profiling |
+| `api-documenter.md` | OpenAPI/Swagger specs, SDK generation, developer experience |
+| `python-pro.md` | Idiomatic Python, decorators, async/await, pytest |
+| `ui-ux-designer.md` | User-centered design, wireframes, accessibility |
+| `context-manager.md` | Multi-agent workflows, session coordination |
 
 ## Usage
 

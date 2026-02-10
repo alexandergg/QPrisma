@@ -18,20 +18,20 @@ Debug and troubleshoot LangGraph video agent issues.
 **Diagnosis:**
 ```python
 # Check if tools are bound correctly
-from agent.video_agent_graph import create_video_agent_graph
+from agent.graphs.video import create_video_agent_graph
 
 graph = create_video_agent_graph()
 print(graph.get_graph().draw_mermaid())  # Visualize graph
 
 # Check tool definitions
-from agent.tools import SEARCH_TOOLS, TOOL_DEFINITIONS
-print(f"Available tools: {[t.name for t in SEARCH_TOOLS]}")
-print(f"Tool definitions: {len(TOOL_DEFINITIONS)}")
+from agent.tools import SEARCH_TOOLS, EDITOR_TOOLS
+print(f"Search tools: {[t.name for t in SEARCH_TOOLS]}")  # 16 tools
+print(f"Editor tools: {[t.name for t in EDITOR_TOOLS]}")  # 15 tools
 ```
 
 **Solutions:**
-1. Ensure `media_id` is passed to agent (tools only bind with video context)
-2. Check `MAX_TOOL_ITERATIONS` limit (default: 5)
+1. Ensure `media_id` is passed to agent (tools use `InjectedState("media_id")` for video context)
+2. Check `MAX_TOOL_ITERATIONS` limit (default: 5 for video, 8 for editor)
 3. Verify tool is in correct list (`SEARCH_TOOLS` vs `EDITOR_TOOLS`)
 
 ### 2. Context Window Overflow
@@ -42,22 +42,16 @@ print(f"Tool definitions: {len(TOOL_DEFINITIONS)}")
 
 **Diagnosis:**
 ```python
-# Check message sizes
-from agent.video_agent import estimate_messages_tokens
-
+# Check message sizes in state
 messages = state.get("messages", [])
-total_tokens = estimate_messages_tokens(messages)
-print(f"Total tokens: {total_tokens} / 128000")
-
-# Check tool result sizes
 for msg in messages:
-    if msg.get("role") == "tool":
-        content = msg.get("content", "")
+    if hasattr(msg, "type") and msg.type == "tool":
+        content = msg.content if isinstance(msg.content, str) else str(msg.content)
         print(f"Tool result size: {len(content)} chars (~{len(content)//4} tokens)")
 ```
 
 **Solutions:**
-1. Increase truncation in `truncate_tool_result()`
+1. Increase truncation in tool result formatting
 2. Reduce `MAX_TOOL_RESULT_CHARS` (default: 8000)
 3. Limit search result count in tool parameters
 
@@ -71,8 +65,8 @@ for msg in messages:
 ```python
 # Check tool call history
 for i, msg in enumerate(messages):
-    if msg.get("tool_calls"):
-        tools = [tc["function"]["name"] for tc in msg["tool_calls"]]
+    if hasattr(msg, "tool_calls") and msg.tool_calls:
+        tools = [tc["name"] for tc in msg.tool_calls]
         print(f"Turn {i}: {tools}")
 ```
 
@@ -92,17 +86,16 @@ for i, msg in enumerate(messages):
 # Test tool directly
 from agent.tools import search_video
 
-result = await search_video(
-    media_id="test-media-id",
-    query="test query",
+result = await search_video.ainvoke(
+    {"query": "test query"},
+    config={"configurable": {"media_id": "test-media-id"}},
 )
 print(result)
 
 # Check Knowledge Graph connection
-from services.knowledge_graph import get_knowledge_graph_service
-kg = get_knowledge_graph_service()
-status = await kg.health_check()
-print(f"Neo4j status: {status}")
+from api.dependencies import get_graph_search_service
+search_svc = get_graph_search_service()
+# Verify service is healthy
 ```
 
 **Solutions:**
@@ -119,14 +112,15 @@ print(f"Neo4j status: {status}")
 **Diagnosis:**
 ```python
 # Check checkpointer type
-from agent.video_agent_graph import get_video_agent_graph
+from agent.graphs.video import VideoAgentGraph
 
-agent = get_video_agent_graph()
+agent = VideoAgentGraph()
 print(f"Checkpointer: {type(agent.checkpointer)}")
 
-# Check Redis connection for AsyncRedisSaver
+# Check Redis connection
+from core.config import settings
 import redis
-r = redis.from_url(os.getenv("REDIS_URL"))
+r = redis.from_url(settings.redis.url)
 r.ping()
 
 # List stored sessions
@@ -180,7 +174,7 @@ logging.getLogger("langgraph").setLevel(logging.DEBUG)
 
 ```python
 # Generate Mermaid diagram
-from agent.video_agent_graph import create_video_agent_graph
+from agent.graphs.video import create_video_agent_graph
 
 graph = create_video_agent_graph()
 mermaid = graph.get_graph().draw_mermaid()
@@ -196,7 +190,9 @@ print(ascii_diagram)
 ```python
 # Get state history for a session
 async def inspect_session(session_id: str):
-    agent = get_video_agent_graph()
+    from agent.graphs.video import VideoAgentGraph
+
+    agent = VideoAgentGraph()
     history = await agent.get_state_history(session_id, limit=5)
 
     for state in history:
@@ -233,5 +229,5 @@ search_video = profile_tool(search_video)
 - [ ] Test tool directly outside agent
 - [ ] Check token counts aren't exceeding limits
 - [ ] Verify Redis Stack (not standard Redis) for checkpointing
-- [ ] Review tool iteration count
+- [ ] Review tool iteration count (video: 5, editor: 8)
 - [ ] Inspect message history for anomalies

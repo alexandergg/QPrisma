@@ -22,10 +22,11 @@ When creating a new service for QPrisma, follow these patterns:
 """
 
 import logging
-import os
 from typing import Any
 
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,8 @@ class {Name}Service:
         self._client = None
         self._initialized = False
 
-        # Load configuration from environment
-        self.config_value = os.getenv("{NAME}_CONFIG", "default")
+        # Load configuration from centralized settings (never use os.getenv directly)
+        # self.config_value = settings.{section}.{key}
 
         logger.info(f"{Name}Service initialized")
 
@@ -185,11 +186,12 @@ Azure-integrated service for {description}.
 """
 
 import logging
-import os
 from typing import Any
 
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient  # or other Azure SDK
+
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -201,14 +203,14 @@ class {Name}Service:
         """Initialize with Azure credentials."""
         self._client = None
 
-        # Azure configuration
-        self.connection_string = os.getenv("AZURE_{NAME}_CONNECTION_STRING")
-        self.endpoint = os.getenv("AZURE_{NAME}_ENDPOINT")
+        # Azure configuration from centralized settings
+        self.connection_string = settings.azure.storage_connection  # or relevant setting
+        self.endpoint = settings.azure.openai_endpoint  # or relevant setting
 
         if not self.connection_string and not self.endpoint:
             logger.warning(
                 "No Azure {name} configuration found. "
-                "Set AZURE_{NAME}_CONNECTION_STRING or AZURE_{NAME}_ENDPOINT"
+                "Check core.config.settings for required Azure settings."
             )
 
     @property
@@ -241,19 +243,19 @@ class {Name}Service:
             raise
 ```
 
-### 3. Add lazy initialization in `backend/api/main.py`
+### 3. Add lazy initialization in `backend/api/dependencies.py`
 
 ```python
-# Service instances (lazy initialization)
-_{name}_service = None
+# In api/dependencies.py (single source of truth for service singletons)
+_{name}_service: {Name}Service | None = None
 
 
-def get_{name}_service():
+def get_{name}_service() -> {Name}Service:
     """Get or create {name} service singleton."""
     global _{name}_service
     if _{name}_service is None:
-        from services.{name}_service import get_{name}_service as create_service
-        _{name}_service = create_service()
+        from services.{name}_service import {Name}Service
+        _{name}_service = {Name}Service()
     return _{name}_service
 ```
 
@@ -332,6 +334,6 @@ class Test{Name}ServiceIntegration:
 - [ ] Health check method implemented
 - [ ] Cleanup method for resources
 - [ ] Singleton getter function created
-- [ ] Added to `api/main.py` lazy initialization
+- [ ] Added to `api/dependencies.py` lazy initialization
 - [ ] Unit tests created
 - [ ] Integration tests created (marked with `@pytest.mark.integration`)
