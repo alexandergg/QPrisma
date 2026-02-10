@@ -1,14 +1,12 @@
 name: Build and Push Images
 
 on:
-  # Uncomment push trigger after configuring Azure OIDC secrets:
-  # AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
-  # push:
-  #   branches: [main]
-  #   paths:
-  #     - 'backend/**'
-  #     - 'frontend/**'
-  #     - 'docker-compose.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'docker-compose.yml'
   workflow_dispatch:
 
 permissions:

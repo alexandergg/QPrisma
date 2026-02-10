@@ -1,12 +1,10 @@
 name: Deploy Infrastructure
 
 on:
-  # Uncomment push trigger after configuring Azure OIDC secrets:
-  # AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
-  # push:
-  #   branches: [main]
-  #   paths:
-  #     - 'infra/**'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
   workflow_dispatch:
 
 permissions:
@@ -35,8 +33,6 @@ jobs:
             --parameters infra/parameters/dev.bicepparam \
             --parameters \
               dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
-              neo4jUri='${{ secrets.NEO4J_URI }}' \
-              neo4jUser='neo4j' \
               neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
               jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
 
@@ -48,8 +44,6 @@ jobs:
             --parameters infra/parameters/dev.bicepparam \
             --parameters \
               dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
-              neo4jUri='${{ secrets.NEO4J_URI }}' \
-              neo4jUser='neo4j' \
               neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
               jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
 
@@ -75,8 +69,6 @@ jobs:
             --parameters infra/parameters/dev.bicepparam \
             --parameters \
               dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
-              neo4jUri='${{ secrets.NEO4J_URI }}' \
-              neo4jUser='neo4j' \
               neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
               jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
 
@@ -84,23 +76,8 @@ jobs:
         run: |
           az keyvault secret set \
             --vault-name ${{ vars.KEY_VAULT_NAME }} \
-            --name "azure-openai-api-key" \
-            --value "${{ secrets.AZURE_OPENAI_API_KEY }}"
-
-          az keyvault secret set \
-            --vault-name ${{ vars.KEY_VAULT_NAME }} \
             --name "jwt-secret-key" \
             --value "${{ secrets.JWT_SECRET_KEY }}"
-
-          az keyvault secret set \
-            --vault-name ${{ vars.KEY_VAULT_NAME }} \
-            --name "neo4j-uri" \
-            --value "${{ secrets.NEO4J_URI }}"
-
-          az keyvault secret set \
-            --vault-name ${{ vars.KEY_VAULT_NAME }} \
-            --name "neo4j-password" \
-            --value "${{ secrets.NEO4J_PASSWORD }}"
 
       - name: Deployment summary
         run: |
@@ -110,4 +87,5 @@ jobs:
           echo "|----------|------|" >> $GITHUB_STEP_SUMMARY
           echo "| Resource Group | ${{ vars.AZURE_RESOURCE_GROUP }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Key Vault | ${{ vars.KEY_VAULT_NAME }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Secrets synced | 4 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Neo4j | Provisioned as Container App (internal) |" >> $GITHUB_STEP_SUMMARY
+          echo "| OpenAI | Provisioned via Bicep (4 model deployments) |" >> $GITHUB_STEP_SUMMARY

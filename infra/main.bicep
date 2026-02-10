@@ -14,15 +14,9 @@ param dbAdminPassword string
 @description('Deploy batch model (gpt-4o-batch)')
 param deployBatchModel bool = true
 
-@description('Neo4j URI (e.g., neo4j+s://xxx.databases.neo4j.io)')
-param neo4jUri string = ''
-
-@description('Neo4j username')
-param neo4jUser string = 'neo4j'
-
-@description('Neo4j password')
+@description('Neo4j admin password (for Container App Neo4j instance)')
 @secure()
-param neo4jPassword string = ''
+param neo4jPassword string
 
 @description('JWT secret key')
 @secure()
@@ -57,6 +51,7 @@ var logAnalyticsName = 'log-qprisma-${environment}'
 var apiContainerAppName = 'ca-qprisma-api-${environment}'
 var frontendContainerAppName = 'ca-qprisma-web-${environment}'
 var workerContainerAppName = 'ca-qprisma-worker-${environment}'
+var neo4jContainerAppName = 'ca-qprisma-neo4j-${environment}'
 
 // =====================================================================
 // Foundation: Storage, Databases, AI
@@ -125,6 +120,23 @@ module containerAppsEnv 'modules/container-apps-env.bicep' = {
 }
 
 // =====================================================================
+// Neo4j (Container App — dev environment)
+// =====================================================================
+
+module neo4j 'modules/neo4j.bicep' = {
+  name: 'neo4j-deployment'
+  params: {
+    name: neo4jContainerAppName
+    location: location
+    environmentId: containerAppsEnv.outputs.id
+    neo4jPassword: neo4jPassword
+    storageAccountName: storage.outputs.name
+    storageAccountKey: storage.outputs.storageKey
+    tags: tags
+  }
+}
+
+// =====================================================================
 // Shared secrets & env vars for API and Worker
 // =====================================================================
 
@@ -138,10 +150,10 @@ var appSecrets = [
   { name: 'redis-url', value: redis.outputs.connectionString }
 ]
 
-// Plain-value env vars
+// Plain-value env vars (Neo4j URI auto-wired from Container App internal FQDN)
 var appEnvVars = [
-  { name: 'NEO4J_URI', value: neo4jUri }
-  { name: 'NEO4J_USER', value: neo4jUser }
+  { name: 'NEO4J_URI', value: neo4j.outputs.boltUri }
+  { name: 'NEO4J_USER', value: 'neo4j' }
   { name: 'AZURE_OPENAI_ENDPOINT', value: openAi.outputs.endpoint }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
@@ -244,3 +256,4 @@ output keyVaultUri string = keyVault.outputs.uri
 output storageAccountName string = storage.outputs.name
 output postgresServerName string = postgres.outputs.name
 output redisHostName string = redis.outputs.hostName
+output neo4jBoltUri string = neo4j.outputs.boltUri

@@ -43,5 +43,6 @@ resource mediaContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
 
 output id string = storageAccount.id
 output name string = storageAccount.name
+output storageKey string = storageAccount.listKeys().keys[0].value
 output connectionString string = 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value};EndpointSuffix=${environment().suffixes.storage}'
 output blobEndpoint string = storageAccount.properties.primaryEndpoints.blob
