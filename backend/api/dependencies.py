@@ -180,14 +180,14 @@ async def get_current_user(
     Raises:
         HTTPException: 401 if token is invalid or expired
     """
-    from datetime import datetime
+    from datetime import datetime, UTC
 
     auth_service = get_auth_service()
 
     try:
         token_data = auth_service.verify_token(credentials.credentials)
         # Create User from token data
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         return User(
             id=token_data.user_id,
             email=token_data.email or "",
@@ -214,14 +214,14 @@ async def get_current_user_optional(
     """
     if credentials is None:
         return None
-    
-    from datetime import datetime
+
+    from datetime import datetime, UTC
 
     auth_service = get_auth_service()
 
     try:
         token_data = auth_service.verify_token(credentials.credentials)
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         return User(
             id=token_data.user_id,
             email=token_data.email or "",

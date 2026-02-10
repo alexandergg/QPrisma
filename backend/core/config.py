@@ -150,6 +150,7 @@ class AuthSettings(BaseSettings):
     )
     jwt_algorithm: str = Field(default="HS256")
     jwt_access_token_expire_minutes: int = Field(default=1440)  # 24 hours
+    jwt_refresh_token_expire_days: int = Field(default=30)  # 30 days
 
     @field_validator("jwt_secret_key")
     @classmethod

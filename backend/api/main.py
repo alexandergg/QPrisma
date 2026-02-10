@@ -1,6 +1,6 @@
 """
 QPrisma API - FastAPI Application
-Procesamiento inteligente de contenido multimedia con Azure
+Intelligent multimedia content processing with Azure
 """
 
 import os
@@ -8,16 +8,14 @@ import sys
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from azure.storage.blob import BlobServiceClient
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from openai import AzureOpenAI
 
-# Agregar parent directory al path para imports
+# Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Cargar variables de entorno
+# Load environment variables
 load_dotenv()
 
 from core.config import settings
@@ -28,48 +26,11 @@ setup_logging(level=settings.app.log_level)
 logger = get_logger(__name__)
 
 # =============================================================================
-# Lazy Initialization of Azure Clients
+# Service Getters (consolidated in api.dependencies)
 # =============================================================================
 
-_blob_service = None
-_openai_client = None
-_db_service = None
-
-
-def get_blob_service():
-    """Obtiene el cliente de Azure Blob Storage"""
-    global _blob_service
-    if _blob_service is None:
-        conn_string = settings.azure.storage_connection_string
-        if conn_string:
-            _blob_service = BlobServiceClient.from_connection_string(conn_string)
-    return _blob_service
-
-
-def get_database_service():
-    """Obtiene el servicio de PostgreSQL"""
-    global _db_service
-    if _db_service is None:
-        from services.database_service import get_database_service as get_db
-
-        _db_service = get_db()
-    return _db_service
-
-
-def get_openai_client():
-    """Obtiene el cliente de Azure OpenAI"""
-    global _openai_client
-    if _openai_client is None:
-        endpoint = settings.azure.openai_endpoint
-        api_key = settings.azure.openai_api_key
-
-        if endpoint and api_key:
-            _openai_client = AzureOpenAI(
-                azure_endpoint=endpoint,
-                api_key=api_key,
-                api_version=settings.azure.openai_api_version,
-            )
-    return _openai_client
+from api.dependencies import get_blob_service, get_openai_client
+from services.database_service import get_database_service
 
 
 # =============================================================================
@@ -91,7 +52,7 @@ async def lifespan(app: FastAPI):
     print("=" * 50)
     print("QPrisma API v0.3.0")
     print("=" * 50)
-    print(f"📍 Entorno: {settings.app.environment}")
+    print(f"📍 Environment: {settings.app.environment}")
     print(f"📊 Azure OpenAI: {'✓' if get_openai_client() else '✗'}")
     print(f"💾 Azure Storage: {'✓' if get_blob_service() else '✗'}")
     db = get_database_service()
@@ -137,12 +98,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QPrisma API",
-    description="Procesamiento Inteligente de Contenido Multimedia",
+    description="Intelligent Multimedia Content Processing",
     version="0.2.0",
     lifespan=lifespan,
 )
 
-# Configuración CORS
+# CORS Configuration
 allowed_origins = settings.app.cors_origins
 app.add_middleware(
     CORSMiddleware,
@@ -208,7 +169,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Detailed health check de todos los servicios"""
+    """Detailed health check of all services"""
     services = {
         "api": "healthy",
         "blob_storage": "not_configured",
@@ -236,7 +197,7 @@ async def health_check():
 
 @app.get("/config")
 async def get_config():
-    """Retorna el estado de configuración"""
+    """Returns the configuration status"""
     db = get_database_service()
     db_healthy = db and db.health_check().get("status") == "healthy"
     return {

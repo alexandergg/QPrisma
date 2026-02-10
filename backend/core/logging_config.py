@@ -16,7 +16,7 @@ Usage:
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, UTC
 
 
 class ColoredFormatter(logging.Formatter):
@@ -51,7 +51,7 @@ class StructuredFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         # Base format
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(UTC).isoformat()
         level = record.levelname
         name = record.name
         message = record.getMessage()
