@@ -1,15 +1,15 @@
 """
 Knowledge Graph API Routes for QPrisma
 
-Endpoints para gestionar el Knowledge Graph multimodal.
-Incluye operaciones CRUD, búsqueda y graph expansion.
+Endpoints for managing the multimodal Knowledge Graph.
+Includes CRUD operations, search, and graph expansion.
 """
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
+from api.dependencies import get_current_user
 from models.graph_models import (
     EntityType,
     GraphSearchQuery,
@@ -20,6 +20,34 @@ from models.graph_models import (
     RelationType,
     VideoGraphSummary,
 )
+from models.graph_route_schemas import (
+    ContextExpansionRequest,
+    ContextExpansionResponse,
+    CrossVideoSearchRequest,
+    CrossVideoSearchResponse,
+    DrillDownSearchRequest,
+    DrillDownSearchResponse,
+    EmbeddingStatsResponse,
+    EntitySearchRequest,
+    EntityTimelineRequest,
+    EntityTimelineResponse,
+    FrameSearchRequest,
+    GenerateEmbeddingsRequest,
+    GenerateEmbeddingsResponse,
+    GraphHealthResponse,
+    HierarchyLevelResponse,
+    HierarchyPathResponse,
+    HierarchyStatsResponse,
+    HybridSearchRequest,
+    LoadChildrenRequest,
+    LoadChildrenResponse,
+    ProcessHierarchyRequest,
+    ProcessHierarchyResponse,
+    ProcessVideoGraphRequest,
+    ProcessVideoGraphResponse,
+    RelatedEntitiesRequest,
+)
+from models.user import User
 from services.embedding_service import get_embedding_service
 from services.entity_extractor import get_entity_extractor
 from services.graph_search_service import GraphSearchService, get_graph_search_service
@@ -35,249 +63,6 @@ router = APIRouter(prefix="/graph", tags=["Knowledge Graph"])
 
 
 # =============================================================================
-# Request/Response Models
-# =============================================================================
-
-
-class GraphHealthResponse(BaseModel):
-    """Respuesta de health check del grafo."""
-
-    status: str
-    connected: bool
-    uri: str
-    message: str | None = None
-
-
-class EntitySearchRequest(BaseModel):
-    """Request para búsqueda de entidades."""
-
-    query: str
-    entity_types: list[EntityType] | None = None
-    video_id: str | None = None
-    limit: int = Field(default=20, ge=1, le=100)
-
-
-class FrameSearchRequest(BaseModel):
-    """Request para búsqueda en frames."""
-
-    query: str
-    video_id: str | None = None
-    time_start: float | None = None
-    time_end: float | None = None
-    limit: int = Field(default=20, ge=1, le=100)
-
-
-class ContextExpansionRequest(BaseModel):
-    """Request para expansión de contexto."""
-
-    node_id: str
-    hops: int = Field(default=2, ge=1, le=4)
-    relation_types: list[RelationType] | None = None
-    max_nodes: int = Field(default=50, ge=1, le=200)
-
-
-class ContextExpansionResponse(BaseModel):
-    """Respuesta de expansión de contexto."""
-
-    center_node_id: str
-    hops: int
-    total_nodes: int
-    nodes_by_distance: dict
-
-
-class EntityTimelineRequest(BaseModel):
-    """Request para timeline de entidad."""
-
-    entity_name: str
-    video_id: str
-
-
-class EntityTimelineResponse(BaseModel):
-    """Respuesta de timeline de entidad."""
-
-    entity_name: str
-    video_id: str
-    occurrences: list[dict]
-    total_occurrences: int
-
-
-class RelatedEntitiesRequest(BaseModel):
-    """Request para entidades relacionadas."""
-
-    entity_id: str
-    relation_types: list[RelationType] | None = None
-    limit: int = Field(default=20, ge=1, le=100)
-
-
-class ProcessVideoGraphRequest(BaseModel):
-    """Request para procesar el grafo de un video."""
-
-    video_id: str
-    reprocess: bool = False
-    include_semantic_relations: bool = True
-
-
-class ProcessVideoGraphResponse(BaseModel):
-    """Respuesta de procesamiento de grafo."""
-
-    video_id: str
-    status: str
-    message: str
-    stats: dict | None = None
-
-
-class HybridSearchRequest(BaseModel):
-    """Request para búsqueda híbrida (vector + graph + fulltext)."""
-
-    query: str
-    node_types: list[NodeType] | None = None
-    video_id: str | None = None
-    time_start: float | None = None
-    time_end: float | None = None
-    limit: int = Field(default=20, ge=1, le=100)
-    expansion_hops: int = Field(default=2, ge=1, le=4)
-    use_reranking: bool = True
-
-
-class GenerateEmbeddingsRequest(BaseModel):
-    """Request para generar embeddings en bulk."""
-
-    node_type: NodeType
-    video_id: str | None = None
-    batch_size: int = Field(default=50, ge=1, le=200)
-
-
-class GenerateEmbeddingsResponse(BaseModel):
-    """Respuesta de generación de embeddings."""
-
-    node_type: str
-    embeddings_generated: int
-    video_id: str | None = None
-
-
-class CrossVideoSearchRequest(BaseModel):
-    """Request para búsqueda cross-video."""
-
-    reference_node_id: str
-    limit: int = Field(default=10, ge=1, le=50)
-    min_similarity: float = Field(default=0.7, ge=0.0, le=1.0)
-
-
-class CrossVideoSearchResponse(BaseModel):
-    """Respuesta de búsqueda cross-video."""
-
-    reference_node_id: str
-    similar_nodes: list[dict]
-    total_found: int
-
-
-class EmbeddingStatsResponse(BaseModel):
-    """Estadísticas del servicio de embeddings."""
-
-    total_requests: int
-    cache_hits: int
-    cache_hit_rate: float
-    tokens_used: int
-
-
-# =============================================================================
-# Hierarchical Context Models
-# =============================================================================
-
-
-class ProcessHierarchyRequest(BaseModel):
-    """Request para procesar jerarquía completa de un video."""
-
-    video_path: str
-    video_id: str
-    title: str | None = None
-    fps: float = 30.0
-    duration: float | None = None
-    resolution: tuple[int, int] = (1920, 1080)
-
-
-class ProcessHierarchyResponse(BaseModel):
-    """Respuesta de procesamiento jerárquico."""
-
-    video_id: str
-    status: str
-    levels_processed: dict
-    embeddings_generated: dict
-    nodes_created: dict
-    processing_time_seconds: float | None = None
-    errors: list[str] = []
-
-
-class DrillDownSearchRequest(BaseModel):
-    """Request para búsqueda drill-down jerárquica."""
-
-    query: str
-    video_id: str | None = None
-    start_level: str = Field(default="video", pattern="^(video|chapter|scene)$")
-    target_level: str = Field(default="scene", pattern="^(video|chapter|scene|frame)$")
-    top_k: int = Field(default=5, ge=1, le=20)
-    include_context: bool = True
-
-
-class HierarchyLevelResponse(BaseModel):
-    """Representación de un nivel en la jerarquía."""
-
-    level: str
-    node_id: str
-    node_type: str
-    summary: str | None = None
-    title: str | None = None
-    start_time: float = 0.0
-    end_time: float = 0.0
-    children_count: int = 0
-
-
-class DrillDownSearchResponse(BaseModel):
-    """Respuesta de búsqueda drill-down."""
-
-    query: str
-    results: list[dict]
-    total_results: int
-    levels_traversed: list[str]
-
-
-class LoadChildrenRequest(BaseModel):
-    """Request para carga lazy de hijos."""
-
-    node_id: str
-    node_type: NodeType
-    limit: int = Field(default=20, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
-
-
-class LoadChildrenResponse(BaseModel):
-    """Respuesta de carga lazy."""
-
-    parent_node_id: str
-    children: list[HierarchyLevelResponse]
-    total_children: int
-    has_more: bool
-
-
-class HierarchyStatsResponse(BaseModel):
-    """Estadísticas de la jerarquía de un video."""
-
-    video_id: str
-    video_title: str | None = None
-    duration_seconds: float | None = None
-    hierarchy: dict
-    embeddings: dict
-
-
-class HierarchyPathResponse(BaseModel):
-    """Ruta desde la raíz hasta un nodo."""
-
-    node_id: str
-    path: list[HierarchyLevelResponse]
-    depth: int
-
-
-# =============================================================================
 # Lazy service initialization
 # =============================================================================
 
@@ -287,7 +72,7 @@ _hierarchical_service: HierarchicalContextService | None = None
 
 
 def get_graph_service() -> KnowledgeGraphService:
-    """Obtiene el servicio del Knowledge Graph, inicializándolo si es necesario."""
+    """Gets the Knowledge Graph service, initializing it if necessary."""
     global _graph_service
     if _graph_service is None:
         _graph_service = get_knowledge_graph_service()
@@ -297,7 +82,7 @@ def get_graph_service() -> KnowledgeGraphService:
 
 
 def get_search_service() -> GraphSearchService:
-    """Obtiene el servicio de Graph Search, inicializándolo si es necesario."""
+    """Gets the Graph Search service, initializing it if necessary."""
     global _search_service
     if _search_service is None:
         graph_svc = get_graph_service()
@@ -307,7 +92,7 @@ def get_search_service() -> GraphSearchService:
 
 
 def get_hierarchy_service() -> HierarchicalContextService:
-    """Obtiene el servicio de Hierarchical Context, inicializándolo si es necesario."""
+    """Gets the Hierarchical Context service, initializing it if necessary."""
     global _hierarchical_service
     if _hierarchical_service is None:
         graph_svc = get_graph_service()
@@ -324,9 +109,9 @@ def get_hierarchy_service() -> HierarchicalContextService:
 
 
 @router.get("/health", response_model=GraphHealthResponse)
-async def graph_health_check():
+async def graph_health_check(current_user: User = Depends(get_current_user)):
     """
-    Verifica el estado de conexión con Neo4j.
+    Verifies the connection status with Neo4j.
     """
     try:
         service = get_graph_service()
@@ -352,14 +137,14 @@ async def graph_health_check():
 
 
 @router.get("/stats", response_model=GraphStats)
-async def get_graph_stats():
+async def get_graph_stats(current_user: User = Depends(get_current_user)):
     """
-    Obtiene estadísticas del Knowledge Graph.
+    Gets Knowledge Graph statistics.
 
-    Incluye:
-    - Total de nodos y relaciones
-    - Conteos por tipo
-    - Métricas del grafo
+    Includes:
+    - Total nodes and relationships
+    - Counts by type
+    - Graph metrics
     """
     try:
         service = get_graph_service()
@@ -376,11 +161,11 @@ async def get_graph_stats():
 
 
 @router.post("/search/entities")
-async def search_entities(request: EntitySearchRequest):
+async def search_entities(request: EntitySearchRequest, current_user: User = Depends(get_current_user)):
     """
-    Búsqueda full-text de entidades en el Knowledge Graph.
+    Full-text search of entities in the Knowledge Graph.
 
-    Soporta filtros por tipo de entidad y video.
+    Supports filters by entity type and video.
     """
     try:
         service = get_graph_service()
@@ -402,11 +187,11 @@ async def search_entities(request: EntitySearchRequest):
 
 
 @router.post("/search/frames")
-async def search_frames(request: FrameSearchRequest):
+async def search_frames(request: FrameSearchRequest, current_user: User = Depends(get_current_user)):
     """
-    Búsqueda full-text en descripciones de frames.
+    Full-text search in frame descriptions.
 
-    Soporta filtros por video y rango temporal.
+    Supports filters by video and temporal range.
     """
     try:
         service = get_graph_service()
@@ -433,23 +218,23 @@ async def search_frames(request: FrameSearchRequest):
 
 
 @router.post("/search/advanced", response_model=GraphSearchResponse)
-async def advanced_graph_search(query: GraphSearchQuery):
+async def advanced_graph_search(query: GraphSearchQuery, current_user: User = Depends(get_current_user)):
     """
-    Búsqueda avanzada con expansión de grafo.
+    Advanced search with graph expansion.
 
-    Combina:
-    - Búsqueda vectorial (si hay embeddings)
-    - Búsqueda full-text
-    - Expansión de contexto en el grafo
+    Combines:
+    - Vector search (if embeddings available)
+    - Full-text search
+    - Context expansion in the graph
     """
     try:
         service = get_graph_service()
         start_time = __import__("time").time()
 
-        # 1. Búsqueda base (full-text)
+        # 1. Base search (full-text)
         base_results = []
 
-        # Buscar en entidades
+        # Search in entities
         if not query.node_types or NodeType.ENTITY in query.node_types:
             entity_results = service.search_entities(
                 query_text=query.query,
@@ -467,7 +252,7 @@ async def advanced_graph_search(query: GraphSearchQuery):
                     }
                 )
 
-        # Buscar en frames
+        # Search in frames
         if not query.node_types or NodeType.FRAME in query.node_types:
             frame_results = service.search_frames_by_description(
                 query_text=query.query,
@@ -487,12 +272,12 @@ async def advanced_graph_search(query: GraphSearchQuery):
 
         vector_search_time = (time.time() - start_time) * 1000
 
-        # 2. Expansión de grafo (si está habilitada)
+        # 2. Graph expansion (if enabled)
         graph_expansion_time = 0
         if query.use_graph_expansion and base_results:
             expansion_start = time.time()
 
-            for result in base_results[:10]:  # Limitar expansión a top 10
+            for result in base_results[:10]:  # Limit expansion to top 10
                 try:
                     expansion = service.expand_context(
                         node_id=result["node_id"],
@@ -505,7 +290,7 @@ async def advanced_graph_search(query: GraphSearchQuery):
 
             graph_expansion_time = (time.time() - expansion_start) * 1000
 
-        # 3. Construir respuesta
+        # 3. Build response
         search_results = []
         for r in base_results[: query.limit]:
             search_results.append(
@@ -542,17 +327,17 @@ async def advanced_graph_search(query: GraphSearchQuery):
 
 
 @router.post("/search/hybrid", response_model=GraphSearchResponse)
-async def hybrid_search(request: HybridSearchRequest):
+async def hybrid_search(request: HybridSearchRequest, current_user: User = Depends(get_current_user)):
     """
-    Búsqueda híbrida combinando vector, full-text y graph.
+    Hybrid search combining vector, full-text, and graph.
 
-    Combina múltiples señales de relevancia:
-    - **Vector similarity**: Similitud semántica via embeddings
-    - **Full-text match**: Coincidencia de términos
-    - **Graph proximity**: Cercanía en el grafo (hops)
-    - **Temporal relevance**: Cercanía temporal en el video
+    Combines multiple relevance signals:
+    - **Vector similarity**: Semantic similarity via embeddings
+    - **Full-text match**: Term matching
+    - **Graph proximity**: Closeness in the graph (hops)
+    - **Temporal relevance**: Temporal proximity in the video
 
-    Incluye re-ranking con contexto expandido para mejores resultados.
+    Includes re-ranking with expanded context for better results.
     """
     try:
         search_service = get_search_service()
@@ -579,14 +364,14 @@ async def hybrid_search(request: HybridSearchRequest):
 
 
 @router.post("/search/cross-video", response_model=CrossVideoSearchResponse)
-async def cross_video_search(request: CrossVideoSearchRequest):
+async def cross_video_search(request: CrossVideoSearchRequest, current_user: User = Depends(get_current_user)):
     """
-    Encuentra nodos similares en otros videos.
+    Finds similar nodes in other videos.
 
-    Útil para:
-    - Encontrar la misma persona/objeto en diferentes videos
-    - Descubrir contenido relacionado entre videos
-    - Crear relaciones SAME_ENTITY cross-video
+    Useful for:
+    - Finding the same person/object in different videos
+    - Discovering related content between videos
+    - Creating SAME_ENTITY relationships cross-video
     """
     try:
         search_service = get_search_service()
@@ -624,20 +409,20 @@ async def cross_video_search(request: CrossVideoSearchRequest):
 
 @router.post("/embeddings/generate", response_model=GenerateEmbeddingsResponse)
 async def generate_embeddings(
-    request: GenerateEmbeddingsRequest, background_tasks: BackgroundTasks
+    request: GenerateEmbeddingsRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)
 ):
     """
-    Genera embeddings en bulk para nodos existentes.
+    Generates embeddings in bulk for existing nodes.
 
-    Procesa nodos que no tienen embedding y genera usando text-embedding-3-large.
-    Puede filtrar por tipo de nodo y video.
+    Processes nodes that don't have embeddings and generates using text-embedding-3-large.
+    Can filter by node type and video.
 
-    Nota: Para grandes cantidades, considerar ejecutar en background.
+    Note: For large quantities, consider running in background.
     """
     try:
         search_service = get_search_service()
 
-        # Determinar campo de texto según tipo de nodo
+        # Determine text field based on node type
         text_field = "description"
         if request.node_type == NodeType.ENTITY:
             text_field = "name"
@@ -663,14 +448,14 @@ async def generate_embeddings(
 
 
 @router.get("/embeddings/stats", response_model=EmbeddingStatsResponse)
-async def get_embedding_stats():
+async def get_embedding_stats(current_user: User = Depends(get_current_user)):
     """
-    Obtiene estadísticas del servicio de embeddings.
+    Gets embedding service statistics.
 
-    Incluye:
-    - Total de requests
+    Includes:
+    - Total requests
     - Cache hits
-    - Tokens usados
+    - Tokens used
     """
     try:
         embedding_service = get_embedding_service()
@@ -694,12 +479,12 @@ async def get_embedding_stats():
 
 
 @router.post("/expand", response_model=ContextExpansionResponse)
-async def expand_context(request: ContextExpansionRequest):
+async def expand_context(request: ContextExpansionRequest, current_user: User = Depends(get_current_user)):
     """
-    Expande el contexto de un nodo para RAG.
+    Expands the context of a node for RAG.
 
-    Retorna nodos relacionados hasta N hops de distancia.
-    Útil para enriquecer el contexto en consultas RAG.
+    Returns related nodes up to N hops distance.
+    Useful for enriching context in RAG queries.
     """
     try:
         service = get_graph_service()
@@ -722,11 +507,11 @@ async def expand_context(request: ContextExpansionRequest):
 
 
 @router.post("/timeline", response_model=EntityTimelineResponse)
-async def get_entity_timeline(request: EntityTimelineRequest):
+async def get_entity_timeline(request: EntityTimelineRequest, current_user: User = Depends(get_current_user)):
     """
-    Obtiene la línea temporal de apariciones de una entidad en un video.
+    Gets the timeline of entity appearances in a video.
 
-    Útil para entender cuándo y dónde aparece una entidad.
+    Useful for understanding when and where an entity appears.
     """
     try:
         service = get_graph_service()
@@ -747,11 +532,11 @@ async def get_entity_timeline(request: EntityTimelineRequest):
 
 
 @router.post("/related")
-async def get_related_entities(request: RelatedEntitiesRequest):
+async def get_related_entities(request: RelatedEntitiesRequest, current_user: User = Depends(get_current_user)):
     """
-    Obtiene entidades relacionadas a una entidad dada.
+    Gets entities related to a given entity.
 
-    Soporta filtros por tipo de relación.
+    Supports filters by relationship type.
     """
     try:
         service = get_graph_service()
@@ -777,24 +562,24 @@ async def get_related_entities(request: RelatedEntitiesRequest):
 
 
 @router.get("/video/{video_id}")
-async def get_video_graph(video_id: str):
+async def get_video_graph(video_id: str, current_user: User = Depends(get_current_user)):
     """
-    Obtiene el subgrafo completo de un video.
+    Gets the complete subgraph of a video.
 
-    Incluye scenes, frames, entities y relaciones.
+    Includes scenes, frames, entities, and relationships.
     """
     try:
         service = get_graph_service()
 
-        # Obtener nodo de video
+        # Get video node
         video = service.get_video_node(video_id)
         if not video:
             raise HTTPException(status_code=404, detail=f"Video {video_id} not found in graph")
 
-        # Obtener scenes
+        # Get scenes
         scenes = service.get_video_scenes(video_id)
 
-        # Estadísticas básicas
+        # Basic statistics
         stats = service.get_stats()
 
         return {
@@ -811,11 +596,11 @@ async def get_video_graph(video_id: str):
 
 
 @router.delete("/video/{video_id}")
-async def delete_video_graph(video_id: str):
+async def delete_video_graph(video_id: str, current_user: User = Depends(get_current_user)):
     """
-    Elimina todo el subgrafo asociado a un video.
+    Deletes all subgraph associated with a video.
 
-    Incluye scenes, frames, entities y relaciones.
+    Includes scenes, frames, entities, and relationships.
     """
     try:
         service = get_graph_service()
@@ -832,13 +617,13 @@ async def delete_video_graph(video_id: str):
 
 
 @router.get("/video/{video_id}/summary", response_model=VideoGraphSummary)
-async def get_video_graph_summary(video_id: str):
+async def get_video_graph_summary(video_id: str, current_user: User = Depends(get_current_user)):
     """
-    Obtiene un resumen del grafo de un video.
+    Gets a summary of a video's graph.
 
-    Incluye entidades más frecuentes, temas principales, etc.
+    Includes most frequent entities, main topics, etc.
     """
-    # TODO: Implementar query de resumen
+    # TODO: Implement summary query
     raise HTTPException(status_code=501, detail="Not implemented yet")
 
 
@@ -852,11 +637,12 @@ async def extract_entities_from_frame(
     image_url: str,
     timestamp: float = 0.0,
     context: str = "",
+    current_user: User = Depends(get_current_user),
 ):
     """
-    Extrae entidades de un frame individual usando GPT-4o.
+    Extracts entities from an individual frame using GPT-4o.
 
-    Útil para testing o procesamiento manual.
+    Useful for testing or manual processing.
     """
     try:
         extractor = get_entity_extractor()
@@ -887,11 +673,12 @@ async def extract_entities_from_description(
     description: str,
     timestamp: float = 0.0,
     context: str = "",
+    current_user: User = Depends(get_current_user),
 ):
     """
-    Extrae entidades de una descripción textual de frame.
+    Extracts entities from a textual frame description.
 
-    Útil para re-procesar frames que ya tienen descripción.
+    Useful for re-processing frames that already have a description.
     """
     try:
         extractor = get_entity_extractor()
@@ -922,20 +709,20 @@ async def extract_entities_from_description(
 
 @router.post("/hierarchy/process", response_model=ProcessHierarchyResponse)
 async def process_video_hierarchy(
-    request: ProcessHierarchyRequest, background_tasks: BackgroundTasks
+    request: ProcessHierarchyRequest, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)
 ):
     """
-    Procesa un video para crear su jerarquía completa.
+    Processes a video to create its complete hierarchy.
 
     Pipeline:
-    1. Detecta escenas usando FFmpeg
-    2. Genera capítulos agrupando escenas
-    3. Crea resúmenes jerárquicos (scene → chapter → video)
-    4. Genera embeddings en cada nivel
-    5. Almacena en Neo4j Knowledge Graph
+    1. Detects scenes using FFmpeg
+    2. Generates chapters by grouping scenes
+    3. Creates hierarchical summaries (scene → chapter → video)
+    4. Generates embeddings at each level
+    5. Stores in Neo4j Knowledge Graph
 
-    Ideal para videos largos (100+ minutos) que necesitan
-    navegación jerárquica y búsqueda drill-down.
+    Ideal for long videos (100+ minutes) that need
+    hierarchical navigation and drill-down search.
     """
     try:
         hierarchy_service = get_hierarchy_service()
@@ -971,22 +758,22 @@ async def process_video_hierarchy(
 
 
 @router.post("/hierarchy/search/drill-down", response_model=DrillDownSearchResponse)
-async def drill_down_search(request: DrillDownSearchRequest):
+async def drill_down_search(request: DrillDownSearchRequest, current_user: User = Depends(get_current_user)):
     """
-    Búsqueda jerárquica drill-down.
+    Hierarchical drill-down search.
 
-    Comienza en un nivel alto (video/chapter) y desciende al nivel
-    objetivo basándose en relevancia semántica.
+    Starts at a high level (video/chapter) and descends to the target
+    level based on semantic relevance.
 
-    Ideal para:
-    - Navegar videos largos eficientemente
-    - Encontrar escenas específicas partiendo del contexto general
-    - Exploración progresiva de contenido
+    Ideal for:
+    - Efficiently navigating long videos
+    - Finding specific scenes starting from general context
+    - Progressive content exploration
 
-    Ejemplo de uso:
-    1. Buscar "presentación de producto" a nivel video
-    2. Drill-down a chapters relevantes
-    3. Encontrar escenas específicas dentro de esos chapters
+    Usage example:
+    1. Search "product presentation" at video level
+    2. Drill-down to relevant chapters
+    3. Find specific scenes within those chapters
     """
     try:
         hierarchy_service = get_hierarchy_service()
@@ -1042,7 +829,7 @@ async def drill_down_search(request: DrillDownSearchRequest):
 
 
 @router.post("/hierarchy/children", response_model=LoadChildrenResponse)
-async def load_children(request: LoadChildrenRequest):
+async def load_children(request: LoadChildrenRequest, current_user: User = Depends(get_current_user)):
     """
     Carga lazy de nodos hijos.
 
@@ -1090,7 +877,7 @@ async def load_children(request: LoadChildrenRequest):
 
 
 @router.get("/hierarchy/stats/{video_id}", response_model=HierarchyStatsResponse)
-async def get_hierarchy_stats(video_id: str):
+async def get_hierarchy_stats(video_id: str, current_user: User = Depends(get_current_user)):
     """
     Obtiene estadísticas de la jerarquía de un video.
 
@@ -1122,7 +909,7 @@ async def get_hierarchy_stats(video_id: str):
 
 
 @router.get("/hierarchy/path/{node_id}", response_model=HierarchyPathResponse)
-async def get_hierarchy_path(node_id: str, node_type: NodeType = Query(NodeType.SCENE)):
+async def get_hierarchy_path(node_id: str, node_type: NodeType = Query(NodeType.SCENE), current_user: User = Depends(get_current_user)):
     """
     Obtiene la ruta completa desde la raíz (video) hasta un nodo.
 
@@ -1163,7 +950,7 @@ async def get_hierarchy_path(node_id: str, node_type: NodeType = Query(NodeType.
 
 
 @router.delete("/clear", include_in_schema=False)
-async def clear_all_graph_data(confirm: bool = Query(False)):
+async def clear_all_graph_data(confirm: bool = Query(False), current_user: User = Depends(get_current_user)):
     """
     Elimina TODOS los datos del Knowledge Graph.
 
