@@ -145,8 +145,8 @@ Respond in JSON:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=200,
-                temperature=0.1,
+                max_completion_tokens=200,
+                temperature=1,
                 response_format={"type": "json_object"},
             )
 
@@ -235,8 +235,8 @@ Respond with JSON array of indices:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=100,
-                temperature=0.1,
+                max_completion_tokens=100,
+                temperature=1,
                 response_format={"type": "json_object"},
             )
 

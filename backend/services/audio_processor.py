@@ -610,7 +610,7 @@ Responde SOLO con el JSON válido, sin markdown ni explicaciones adicionales."""
 
         try:
             response = await self.openai_client.chat.completions.create(
-                model="gpt-5-mini",
+                model=self.gpt_deployment,
                 messages=[
                     {
                         "role": "system",

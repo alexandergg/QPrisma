@@ -202,7 +202,7 @@ Be thorough but factual. Prioritize information that would help users find this 
                         ],
                     }
                 ],
-                "max_tokens": frame_data.get("max_tokens", 900),
+                "max_completion_tokens": frame_data.get("max_tokens", 900),
             }
 
             # Use structured output only with default prompt (custom prompts

@@ -74,7 +74,7 @@ class UniformBaselineAdapter(BaseMethodAdapter):
             response = await self._client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": content}],
-                max_tokens=1000,
+                max_completion_tokens=1000,
             )
 
             answer_text = response.choices[0].message.content or ""
@@ -231,7 +231,7 @@ class NaiveRAGAdapter(BaseMethodAdapter):
                         "content": f"Context:\n{context}\n\nQuestion: {query}",
                     },
                 ],
-                max_tokens=1000,
+                max_completion_tokens=1000,
             )
             answer_text = response.choices[0].message.content or ""
             tokens_used = response.usage.total_tokens if response.usage else 0

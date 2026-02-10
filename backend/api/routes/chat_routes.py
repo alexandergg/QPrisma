@@ -219,11 +219,9 @@ Please answer the user's question based on the video context above."""
 
         completion_params = {"model": deployment, "messages": messages}
 
-        if "gpt-5" in deployment.lower():
-            completion_params["max_completion_tokens"] = 800
-        else:
-            completion_params["temperature"] = 0.7
-            completion_params["max_tokens"] = 800
+        completion_params["max_completion_tokens"] = 800
+
+        completion_params["temperature"] = 1
 
         response = openai_client.chat.completions.create(**completion_params)
         assistant_message = response.choices[0].message.content

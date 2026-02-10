@@ -335,8 +335,8 @@ Only include pairs where has_relation is true."""
                     },
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=1500,
-                temperature=0.3,
+                max_completion_tokens=1500,
+                temperature=1,
                 response_format={"type": "json_object"},
             )
 

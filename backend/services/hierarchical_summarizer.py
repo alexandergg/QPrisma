@@ -111,8 +111,8 @@ Respond in JSON format:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=config.scene_summary_max_tokens,
-                temperature=0.3,
+                max_completion_tokens=config.scene_summary_max_tokens,
+                temperature=1,
                 response_format={"type": "json_object"},
             )
 
@@ -191,8 +191,8 @@ Respond in JSON format:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=config.chapter_summary_max_tokens,
-                temperature=0.3,
+                max_completion_tokens=config.chapter_summary_max_tokens,
+                temperature=1,
                 response_format={"type": "json_object"},
             )
 
@@ -272,8 +272,8 @@ Respond in JSON format:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=config.video_summary_max_tokens,
-                temperature=0.3,
+                max_completion_tokens=config.video_summary_max_tokens,
+                temperature=1,
                 response_format={"type": "json_object"},
             )
 

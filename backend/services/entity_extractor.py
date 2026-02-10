@@ -218,8 +218,8 @@ class EntityExtractor:
         response = self.client.chat.completions.create(
             model=self.deployment,
             messages=messages,
-            max_tokens=2000,
-            temperature=0.1,  # Baja temperatura para consistencia
+            max_completion_tokens=2000,
+            temperature=1,
             response_format={"type": "json_object"},
         )
 
@@ -335,8 +335,8 @@ Respond with JSON following this schema:
         response = self.client.chat.completions.create(
             model=self.deployment,
             messages=messages,
-            max_tokens=1500,
-            temperature=0.1,
+            max_completion_tokens=1500,
+            temperature=1,
             response_format={"type": "json_object"},
         )
 
