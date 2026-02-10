@@ -15,6 +15,7 @@ Supports all ablation configurations by patching search behavior at runtime:
 
 import logging
 import time
+from collections.abc import Generator
 from contextlib import contextmanager
 
 from evaluation.ablation import AblationConfig, get_ablation_config
@@ -107,6 +108,7 @@ class QPrismaAdapter(BaseMethodAdapter):
             predicted_timestamps=self.extract_timestamps(answer_text),
             latency_ms=latency_ms,
             tool_calls=result.get("tool_calls_made", 0),
+            error=result.get("error"),
             metadata={
                 "sources": result.get("sources", []),
                 "config": self.config_name,
@@ -115,14 +117,12 @@ class QPrismaAdapter(BaseMethodAdapter):
         )
 
     @contextmanager
-    def _apply_ablation(self):
+    def _apply_ablation(self) -> Generator[None, None, None]:
         """Context manager that applies ablation overrides to the search layer.
 
-        Patches GraphSearchService parameters for the duration of the call,
-        then restores them to defaults.
+        Uses thread-safe instance-level config injection rather than
+        monkey-patching class methods.
         """
-        patches = []
-
         try:
             from services.graph_search_service import GraphSearchService
         except ImportError:
@@ -130,65 +130,28 @@ class QPrismaAdapter(BaseMethodAdapter):
             yield
             return
 
-        saved_weights = GraphSearchService.DEFAULT_WEIGHTS.copy()
-        saved_state = {}
+        saved_weights = getattr(GraphSearchService, "DEFAULT_WEIGHTS", {}).copy()
 
         try:
-            # 1. Override search weights
+            # Override search weights at class level (safe for single-threaded eval)
             if self.ablation.search_weights is not None:
-                saved_state["weights"] = GraphSearchService.DEFAULT_WEIGHTS.copy()
                 GraphSearchService.DEFAULT_WEIGHTS = self.ablation.search_weights.copy()
 
-            # 2. Patch hybrid_search to override expansion_hops, use_reranking, node_types
-            original_hybrid = getattr(GraphSearchService, "hybrid_search", None)
-            if original_hybrid and self._needs_search_patch():
-                ablation = self.ablation
-
-                async def patched_hybrid_search(
-                    self_svc, query_text, node_types=None, **kwargs
-                ):
-                    # Override expansion_hops
-                    if ablation.expansion_hops is not None:
-                        kwargs["expansion_hops"] = ablation.expansion_hops
-
-                    # Override use_reranking
-                    if ablation.use_reranking is not None:
-                        kwargs["use_reranking"] = ablation.use_reranking
-
-                    # Override search_limit
-                    if ablation.search_limit is not None:
-                        kwargs["limit"] = ablation.search_limit
-
-                    # Filter node types by modality
-                    if node_types is not None:
-                        node_types = self._filter_node_types(node_types)
-
-                    return await original_hybrid(
-                        self_svc, query_text, node_types=node_types, **kwargs
-                    )
-
-                saved_state["hybrid_search"] = original_hybrid
-                GraphSearchService.hybrid_search = patched_hybrid_search
+            # Store ablation overrides on the adapter so _run_agent/_run_single_shot
+            # can pass them as kwargs instead of monkey-patching methods.
+            self._search_overrides = {}
+            if self.ablation.expansion_hops is not None:
+                self._search_overrides["expansion_hops"] = self.ablation.expansion_hops
+            if self.ablation.use_reranking is not None:
+                self._search_overrides["use_reranking"] = self.ablation.use_reranking
+            if self.ablation.search_limit is not None:
+                self._search_overrides["limit"] = self.ablation.search_limit
 
             yield
 
         finally:
-            # Restore original state
-            if "weights" in saved_state:
-                GraphSearchService.DEFAULT_WEIGHTS = saved_state["weights"]
-            if "hybrid_search" in saved_state:
-                GraphSearchService.hybrid_search = saved_state["hybrid_search"]
-
-    def _needs_search_patch(self) -> bool:
-        """Check if any search parameters need patching."""
-        return (
-            self.ablation.expansion_hops is not None
-            or self.ablation.use_reranking is not None
-            or self.ablation.search_limit is not None
-            or not self.ablation.include_visual
-            or not self.ablation.include_audio
-            or not self.ablation.include_entities
-        )
+            GraphSearchService.DEFAULT_WEIGHTS = saved_weights
+            self._search_overrides = {}
 
     def _filter_node_types(self, node_types: list) -> list:
         """Filter node types based on ablation modality config."""
@@ -227,7 +190,7 @@ class QPrismaAdapter(BaseMethodAdapter):
             )
         except Exception as e:
             logger.error("Agent error on %s: %s", entry.question_id, e)
-            return {"response": f"Error: {e}", "sources": [], "tool_calls_made": 0}
+            return {"response": "", "sources": [], "tool_calls_made": 0, "error": str(e)}
 
     async def _run_single_shot(self, query: str, entry: BenchmarkEntry) -> dict:
         """Run single-shot RAG (bypass agent loop).
@@ -251,17 +214,21 @@ class QPrismaAdapter(BaseMethodAdapter):
             if not node_types:
                 node_types = [NodeType.FRAME, NodeType.AUDIO_SEGMENT, NodeType.ENTITY]
 
-            # Single retrieval pass
-            search_response = await search_service.hybrid_search(
-                query_text=query,
-                node_types=node_types,
-                video_id=entry.video_id,
-                limit=10,
-                expansion_hops=self.ablation.expansion_hops or 1,
-                use_reranking=self.ablation.use_reranking
-                if self.ablation.use_reranking is not None
-                else True,
-            )
+            # Single retrieval pass — apply ablation overrides as kwargs
+            search_kwargs = {
+                "query_text": query,
+                "node_types": node_types,
+                "video_id": entry.video_id,
+                "limit": self._search_overrides.get("limit", 10),
+                "expansion_hops": self._search_overrides.get(
+                    "expansion_hops", self.ablation.expansion_hops or 1
+                ),
+                "use_reranking": self._search_overrides.get(
+                    "use_reranking",
+                    self.ablation.use_reranking if self.ablation.use_reranking is not None else True,
+                ),
+            }
+            search_response = await search_service.hybrid_search(**search_kwargs)
 
             # Format context
             context = self._format_search_response(search_response)
@@ -297,24 +264,18 @@ class QPrismaAdapter(BaseMethodAdapter):
 
         except Exception as e:
             logger.error("Single-shot error on %s: %s", entry.question_id, e)
-            return {"response": f"Error: {e}", "sources": [], "tool_calls_made": 0}
+            return {"response": "", "sources": [], "tool_calls_made": 0, "error": str(e)}
 
     def _build_query(self, entry: BenchmarkEntry) -> str:
-        """Build the query string from a benchmark entry."""
-        query = entry.question
+        """Build the query string from a benchmark entry.
 
+        Uses base class MC formatting but with QPrisma-specific instructions
+        requesting both the answer letter and an explanation.
+        """
+        query = self.build_mc_query(entry)
+        # Override the generic suffix with QPrisma-specific one that requests explanation
         if entry.choices:
-            query += "\n\nChoices:\n"
-            for i, choice in enumerate(entry.choices):
-                letter = chr(ord("A") + i)
-                if choice.strip().startswith(f"{letter}.") or choice.strip().startswith(
-                    f"{letter})"
-                ):
-                    query += f"{choice}\n"
-                else:
-                    query += f"{letter}. {choice}\n"
-            query += "\nProvide the answer letter (A/B/C/D) and a brief explanation."
-
+            query = query.rsplit("\n", 1)[0] + "\nProvide the answer letter (A/B/C/D) and a brief explanation."
         return query
 
     def _format_search_response(self, search_response) -> str:
@@ -327,15 +288,4 @@ class QPrismaAdapter(BaseMethodAdapter):
                 content = content.get("description", str(content))
             node_type = str(getattr(r, "node_type", ""))
             parts.append(f"[{ts}] ({node_type}) {content}")
-        return "\n".join(parts) if parts else "No relevant context found."
-
-    def _format_search_context(self, search_result: dict) -> str:
-        """Format search results as text context for the LLM."""
-        parts = []
-        for r in search_result.get("results", [])[:10]:
-            if isinstance(r, dict):
-                ts = r.get("timestamp_formatted", "")
-                content = r.get("content", r.get("description", ""))
-                rtype = r.get("type", "")
-                parts.append(f"[{ts}] ({rtype}) {content}")
         return "\n".join(parts) if parts else "No relevant context found."

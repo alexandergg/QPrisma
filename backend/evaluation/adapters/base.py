@@ -51,6 +51,31 @@ class BaseMethodAdapter(ABC):
         """Optional cleanup after evaluation run."""
         pass
 
+    def build_mc_query(self, entry: BenchmarkEntry) -> str:
+        """Build query string with optional MC choices.
+
+        Shared by all adapters to avoid duplicating choice formatting logic.
+
+        Args:
+            entry: Benchmark entry containing question and optional choices.
+
+        Returns:
+            Formatted query string with choices appended if present.
+        """
+        query = entry.question
+        if entry.choices:
+            query += "\n\nChoices:\n"
+            for i, choice in enumerate(entry.choices):
+                letter = chr(ord("A") + i)
+                if choice.strip().startswith(f"{letter}.") or choice.strip().startswith(
+                    f"{letter})"
+                ):
+                    query += f"{choice}\n"
+                else:
+                    query += f"{letter}. {choice}\n"
+            query += "\nAnswer with just the letter (A/B/C/D)."
+        return query
+
     def extract_mc_choice(self, answer: str, choices: list[str] | None) -> str | None:
         """Extract the MC choice letter from a free-form answer.
 

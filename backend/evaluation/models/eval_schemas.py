@@ -9,7 +9,7 @@ output enforcement via OpenAI's response_format (following VideoRAG pattern).
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # =============================================================================
@@ -68,7 +68,23 @@ class BenchmarkEntry(BaseModel):
         default=None, description="Video duration in seconds"
     )
     benchmark: str = Field(description="Source benchmark name")
-    metadata: dict | None = Field(default=None, description="Additional metadata")
+    metadata: dict[str, str | int | float | bool | None] | None = Field(
+        default=None, description="Additional metadata"
+    )
+
+    @field_validator("question_id")
+    @classmethod
+    def validate_question_id(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("question_id cannot be empty")
+        return v.strip()
+
+    @field_validator("video_duration_seconds")
+    @classmethod
+    def validate_duration(cls, v: float | None) -> float | None:
+        if v is not None and v <= 0:
+            raise ValueError("video_duration_seconds must be positive")
+        return v
 
 
 # =============================================================================
@@ -101,7 +117,7 @@ class WinRateJudgeResponse(BaseModel):
     source_grounding: DimensionWinner = Field(alias="Source Grounding")
     overall_winner: DimensionWinner = Field(alias="Overall Winner")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class DimensionScore(BaseModel):
@@ -128,7 +144,7 @@ class QuantitativeJudgeResponse(BaseModel):
     source_grounding: DimensionScore = Field(alias="Source Grounding")
     overall_score: DimensionScore = Field(alias="Overall Score")
 
-    model_config = {"populate_by_name": True}
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class JudgeResponse(BaseModel):
@@ -186,17 +202,20 @@ class EvalResult(BaseModel):
     tool_calls: int | None = Field(
         default=None, description="Number of agent tool calls"
     )
-    metadata: dict | None = None
+    error: str | None = Field(
+        default=None, description="Error message if answer generation failed"
+    )
+    metadata: dict[str, str | int | float | list | None] | None = None
 
 
 class DimensionAggregation(BaseModel):
     """Aggregated scores for a single evaluation dimension."""
 
-    mean: float
-    std: float
-    min: float
-    max: float
-    n: int
+    mean: float = Field(description="Mean score across all questions")
+    std: float = Field(description="Standard deviation of scores")
+    min: float = Field(description="Minimum score observed")
+    max: float = Field(description="Maximum score observed")
+    n: int = Field(description="Number of questions evaluated")
 
 
 class AggregatedResults(BaseModel):
@@ -256,7 +275,7 @@ class MethodConfig(BaseModel):
     display_name: str = Field(description="Human-readable name")
     description: str | None = None
     is_baseline: bool = Field(default=False, description="Whether this is a baseline")
-    config: dict | None = Field(
+    config: dict[str, str | int | float | bool | None] | None = Field(
         default=None, description="Method-specific configuration"
     )
 

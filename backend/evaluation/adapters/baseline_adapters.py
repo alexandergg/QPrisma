@@ -15,6 +15,13 @@ from evaluation.models.eval_schemas import BenchmarkEntry, EvalResult
 
 logger = logging.getLogger(__name__)
 
+# Module-level constants
+MAX_COMPLETION_TOKENS = 1000
+FRAME_SCALE_WIDTH = 720
+DEFAULT_FRAME_INTERVAL = 30
+FFMPEG_EXTRACT_TIMEOUT = 60
+FFPROBE_TIMEOUT = 30
+
 
 class UniformBaselineAdapter(BaseMethodAdapter):
     """Uniform frame sampling + GPT-4o single-shot QA.
@@ -57,13 +64,14 @@ class UniformBaselineAdapter(BaseMethodAdapter):
         start_time = time.perf_counter()
         answer_text = ""
         tokens_used = 0
+        error = None
 
         try:
             # Extract frames
             frames_b64 = await self._extract_frames(video_path)
 
             # Build vision message
-            query = self._build_query(entry)
+            query = self.build_mc_query(entry)
             content = [{"type": "text", "text": query}]
             for frame in frames_b64:
                 content.append({
@@ -74,7 +82,7 @@ class UniformBaselineAdapter(BaseMethodAdapter):
             response = await self._client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": content}],
-                max_completion_tokens=1000,
+                max_completion_tokens=MAX_COMPLETION_TOKENS,
             )
 
             answer_text = response.choices[0].message.content or ""
@@ -82,7 +90,7 @@ class UniformBaselineAdapter(BaseMethodAdapter):
 
         except Exception as e:
             logger.error("Uniform baseline error on %s: %s", entry.question_id, e)
-            answer_text = f"Error: {e}"
+            error = str(e)
 
         latency_ms = (time.perf_counter() - start_time) * 1000
 
@@ -94,6 +102,7 @@ class UniformBaselineAdapter(BaseMethodAdapter):
             predicted_timestamps=self.extract_timestamps(answer_text),
             latency_ms=latency_ms,
             tokens_used=tokens_used,
+            error=error,
         )
 
     async def _extract_frames(self, video_path: str | None) -> list[str]:
@@ -107,23 +116,33 @@ class UniformBaselineAdapter(BaseMethodAdapter):
         from pathlib import Path
 
         frames = []
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Use FFmpeg to extract N frames
-            cmd = [
-                "ffmpeg", "-i", video_path,
-                "-vf", f"select=not(mod(n\\,{max(1, self._get_interval(video_path))})),scale=720:-1",
-                "-frames:v", str(self.num_frames),
-                "-vsync", "vfr",
-                "-q:v", "5",
-                f"{tmpdir}/frame_%04d.jpg",
-                "-y", "-loglevel", "error",
-            ]
-            subprocess.run(cmd, check=True, timeout=60)
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # Use FFmpeg to extract N frames
+                cmd = [
+                    "ffmpeg", "-i", video_path,
+                    "-vf", f"select=not(mod(n\\,{max(1, self._get_interval(video_path))})),scale={FRAME_SCALE_WIDTH}:-1",
+                    "-frames:v", str(self.num_frames),
+                    "-vsync", "vfr",
+                    "-q:v", "5",
+                    f"{tmpdir}/frame_%04d.jpg",
+                    "-y", "-loglevel", "error",
+                ]
+                subprocess.run(cmd, check=True, timeout=FFMPEG_EXTRACT_TIMEOUT)
 
-            # Read frames as base64
-            for frame_path in sorted(Path(tmpdir).glob("frame_*.jpg")):
-                with open(frame_path, "rb") as f:
-                    frames.append(base64.b64encode(f.read()).decode())
+                # Read frames as base64
+                for frame_path in sorted(Path(tmpdir).glob("frame_*.jpg")):
+                    with open(frame_path, "rb") as f:
+                        frames.append(base64.b64encode(f.read()).decode())
+        except subprocess.TimeoutExpired:
+            logger.error("Frame extraction timed out for %s", video_path)
+            return []
+        except subprocess.CalledProcessError as e:
+            logger.error("FFmpeg failed on %s: exit code %d", video_path, e.returncode)
+            return []
+        except OSError as e:
+            logger.error("File I/O error extracting frames from %s: %s", video_path, e)
+            return []
 
         return frames[:self.num_frames]
 
@@ -139,26 +158,12 @@ class UniformBaselineAdapter(BaseMethodAdapter):
                  "-select_streams", "v:0",
                  "-show_entries", "stream=nb_read_frames",
                  "-of", "csv=p=0", video_path],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=FFPROBE_TIMEOUT,
             )
             total_frames = int(result.stdout.strip())
             return max(1, total_frames // self.num_frames)
         except Exception:
-            return 30  # Default: every 30th frame (~1fps)
-
-    def _build_query(self, entry: BenchmarkEntry) -> str:
-        """Build query with MC choices."""
-        query = entry.question
-        if entry.choices:
-            query += "\n\nChoices:\n"
-            for i, c in enumerate(entry.choices):
-                letter = chr(ord("A") + i)
-                if not c.strip().startswith(f"{letter}."):
-                    query += f"{letter}. {c}\n"
-                else:
-                    query += f"{c}\n"
-            query += "\nAnswer with just the letter (A/B/C/D)."
-        return query
+            return DEFAULT_FRAME_INTERVAL
 
 
 class NaiveRAGAdapter(BaseMethodAdapter):
@@ -206,6 +211,7 @@ class NaiveRAGAdapter(BaseMethodAdapter):
         start_time = time.perf_counter()
         answer_text = ""
         tokens_used = 0
+        error = None
 
         try:
             # Get or build chunk index for this video
@@ -216,7 +222,7 @@ class NaiveRAGAdapter(BaseMethodAdapter):
 
             # Generate answer from retrieved context
             context = "\n\n".join([c[0] for c in relevant])
-            query = self._build_query(entry)
+            query = self.build_mc_query(entry)
 
             response = await self._client.chat.completions.create(
                 model=self.model,
@@ -231,14 +237,14 @@ class NaiveRAGAdapter(BaseMethodAdapter):
                         "content": f"Context:\n{context}\n\nQuestion: {query}",
                     },
                 ],
-                max_completion_tokens=1000,
+                max_completion_tokens=MAX_COMPLETION_TOKENS,
             )
             answer_text = response.choices[0].message.content or ""
             tokens_used = response.usage.total_tokens if response.usage else 0
 
         except Exception as e:
             logger.error("NaiveRAG error on %s: %s", entry.question_id, e)
-            answer_text = f"Error: {e}"
+            error = str(e)
 
         latency_ms = (time.perf_counter() - start_time) * 1000
 
@@ -250,6 +256,7 @@ class NaiveRAGAdapter(BaseMethodAdapter):
             predicted_timestamps=self.extract_timestamps(answer_text),
             latency_ms=latency_ms,
             tokens_used=tokens_used,
+            error=error,
         )
 
     async def _get_video_chunks(
@@ -336,19 +343,6 @@ class NaiveRAGAdapter(BaseMethodAdapter):
             return 0.0
         return dot / (norm_a * norm_b)
 
-    def _build_query(self, entry: BenchmarkEntry) -> str:
-        query = entry.question
-        if entry.choices:
-            query += "\n\nChoices:\n"
-            for i, c in enumerate(entry.choices):
-                letter = chr(ord("A") + i)
-                if not c.strip().startswith(f"{letter}."):
-                    query += f"{letter}. {c}\n"
-                else:
-                    query += f"{c}\n"
-            query += "\nAnswer with just the letter (A/B/C/D)."
-        return query
-
 
 class ExternalAPIAdapter(BaseMethodAdapter):
     """Wrapper for external API-based video understanding (GPT-4o, Gemini).
@@ -405,6 +399,7 @@ class ExternalAPIAdapter(BaseMethodAdapter):
         start_time = time.perf_counter()
         answer_text = ""
         tokens_used = 0
+        error = None
 
         try:
             if self.provider == "openai":
@@ -413,7 +408,7 @@ class ExternalAPIAdapter(BaseMethodAdapter):
                 answer_text, tokens_used = await self._call_gemini(entry, video_path)
         except Exception as e:
             logger.error("%s error on %s: %s", self.name, entry.question_id, e)
-            answer_text = f"Error: {e}"
+            error = str(e)
 
         latency_ms = (time.perf_counter() - start_time) * 1000
 
@@ -425,6 +420,7 @@ class ExternalAPIAdapter(BaseMethodAdapter):
             predicted_timestamps=self.extract_timestamps(answer_text),
             latency_ms=latency_ms,
             tokens_used=tokens_used,
+            error=error,
         )
 
     async def _call_openai(
@@ -440,7 +436,11 @@ class ExternalAPIAdapter(BaseMethodAdapter):
     async def _call_gemini(
         self, entry: BenchmarkEntry, video_path: str | None
     ) -> tuple[str, int]:
-        """Call Gemini with video file."""
-        # Placeholder — Gemini supports direct video upload
-        logger.warning("Gemini adapter not yet implemented")
-        return "Gemini not implemented", 0
+        """Call Gemini with video file.
+
+        Raises:
+            NotImplementedError: Gemini support is planned but not yet available.
+        """
+        raise NotImplementedError(
+            "Gemini adapter is not yet implemented. Use provider='openai' instead."
+        )
