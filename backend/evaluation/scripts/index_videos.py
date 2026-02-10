@@ -83,7 +83,7 @@ def index_videos_via_api(
 
             # Check if already indexed
             try:
-                check = client.get(f"/api/media/{video_id}")
+                check = client.get(f"/media/{video_id}")
                 if check.status_code == 200:
                     status = check.json().get("processing_status", "")
                     if status == "completed":
@@ -105,7 +105,7 @@ def index_videos_via_api(
             try:
                 with open(video_path, "rb") as f:
                     response = client.post(
-                        "/api/media/upload",
+                        "/upload",
                         files={"file": (video_path.name, f, "video/mp4")},
                         data={"max_frames": str(max_frames), "preset": preset},
                     )
@@ -280,7 +280,7 @@ def monitor_indexing(results: dict, api_url: str = "http://localhost:8000", time
         while queued and (time.time() - start) < timeout:
             for vid, info in list(queued.items()):
                 try:
-                    resp = client.get(f"/api/processing/jobs/{info['job_id']}/status")
+                    resp = client.get(f"/jobs/{info['job_id']}")
                     if resp.status_code == 200:
                         status = resp.json().get("status", "")
                         progress = resp.json().get("progress", 0)

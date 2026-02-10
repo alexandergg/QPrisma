@@ -90,7 +90,11 @@ class APIChatAdapter(BaseMethodAdapter):
                 for i, c in enumerate(entry.choices):
                     letter = chr(ord("A") + i)
                     query += f"{letter}. {c}\n"
-                query += "\nAnswer with just the letter (A/B/C/D) and a brief explanation."
+                query += (
+                    "\nIMPORTANT: First use your search tools to find relevant visual and audio evidence "
+                    "from the video before answering. Then answer with just the letter (A/B/C/D) "
+                    "and a brief explanation based on the evidence you found."
+                )
 
             headers = {"Authorization": f"Bearer {self.token}"}
 
