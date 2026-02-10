@@ -2,7 +2,10 @@
 param environment string = 'dev'
 
 @description('Location for all resources')
-param location string = resourceGroup().location
+param location string = 'westeurope'
+
+@description('Location for Azure AI Foundry (OpenAI) resources')
+param aiLocation string = 'swedencentral'
 
 @description('Database administrator login')
 param dbAdminLogin string = 'qprismaadmin'
@@ -99,7 +102,7 @@ module openAi 'modules/ai-foundry.bicep' = {
   name: 'openai-deployment'
   params: {
     name: openAiName
-    location: location
+    location: aiLocation
     deployBatchModel: deployBatchModel
     tags: tags
   }
