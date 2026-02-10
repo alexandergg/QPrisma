@@ -128,24 +128,31 @@ class TestQPrismaAdapterAblation:
         with pytest.raises(ValueError):
             QPrismaAdapter(config_name="nonexistent")
 
-    def test_needs_search_patch_for_modality(self):
+    def test_search_overrides_for_modality(self):
+        """Ablation configs with modality restrictions should filter node types."""
         from evaluation.adapters.qprisma_adapter import QPrismaAdapter
 
         adapter = QPrismaAdapter(config_name="audioonly")
-        assert adapter._needs_search_patch() is True
+        # audioonly excludes visual nodes — verified via ablation config
+        assert adapter.ablation.include_visual is False
+        assert adapter.ablation.include_audio is True
 
-    def test_no_search_patch_for_full(self):
+    def test_no_search_overrides_for_full(self):
+        """Full config should have no ablation overrides."""
         from evaluation.adapters.qprisma_adapter import QPrismaAdapter
 
         adapter = QPrismaAdapter(config_name="full")
-        assert adapter._needs_search_patch() is False
+        assert adapter.ablation.search_weights is None
+        assert adapter.ablation.expansion_hops is None
+        assert adapter.ablation.use_reranking is None
 
-    def test_no_search_patch_for_noagent(self):
+    def test_no_search_overrides_for_noagent(self):
+        """noagent only bypasses agent loop, no search parameter changes."""
         from evaluation.adapters.qprisma_adapter import QPrismaAdapter
 
         adapter = QPrismaAdapter(config_name="noagent")
-        # noagent only bypasses agent, no search patches needed
-        assert adapter._needs_search_patch() is False
+        assert adapter.ablation.bypass_agent is True
+        assert adapter.ablation.search_weights is None
 
 
 # =============================================================================
