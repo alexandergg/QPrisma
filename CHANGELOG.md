@@ -47,6 +47,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `video_processor.py`: Frame data includes `embedding_coarse` alongside full embedding.
   - `hierarchical_context_service.py`: `_store_embeddings_batch()` stores both embedding tiers. `_ensure_vector_indexes()` creates coarse indexes for Video/Chapter/Scene.
 
+## [0.19.0] - 2026-02-11
+
+### Added
+- **CI/CD Pipeline with GitHub Actions**: Full automated build, test, and deployment pipeline for Azure Container Apps.
+  - `ci.yml`: Parallel backend lint/test + frontend lint/typecheck/test on every push/PR to `main`.
+  - `build-and-push.yml`: Path-filtered Docker image builds for API, Worker, and Frontend with GHA layer caching. Automatically triggers deployment.
+  - `deploy-infra.yml`: Infrastructure-as-Code deployment with Bicep validation, What-If preview, retry logic, and stale deployment cancellation.
+  - `deploy-app.yml`: Rolling container updates with health checks, revision tracking, and automatic rollback on failure. Includes smoke tests.
+  - Reusable composite actions: `.github/actions/setup-backend` and `.github/actions/setup-frontend`.
+- **Azure Infrastructure as Code (Bicep)**: Complete Azure environment defined in `infra/` with 12 Bicep modules.
+  - `ai-foundry.bicep`: Azure AI Foundry with 5 model deployments (GPT-4o, GPT-5.2-chat, text-embedding-3-large, Whisper, GPT-4o-batch).
+  - `container-apps-env.bicep`: Managed environment with VNet integration (10.0.0.0/16) and Log Analytics workspace.
+  - `container-app-api.bicep`: External API service (port 8000, 0.5 CPU/1Gi, 1-2 replicas, managed identity).
+  - `container-app-frontend.bicep`: External frontend (port 3000, 0.25 CPU/0.5Gi, 1-2 replicas).
+  - `container-app-worker.bicep`: Celery worker with KEDA Redis scaler (1-3 replicas, scales on queue depth >5, 600s graceful shutdown).
+  - `neo4j.bicep`: Neo4j 5 Community container with Azure File Share persistence and APOC plugin.
+  - `postgresql.bicep`: Flexible Server v16 (Standard_B1ms, 32GB, auto-grow) in North Europe.
+  - `redis.bicep`: Azure Managed Redis Enterprise (Balanced_B0) with TLS 1.2+ and VolatileLRU eviction.
+  - `storage.bicep`: StorageV2 with `media` blob container, CORS configuration, HTTPS-only.
+  - `container-registry.bicep`: Azure Container Registry (Basic tier) for Docker images.
+  - `key-vault.bicep`: Key Vault with RBAC authorization, managed identity access for API/Worker.
+  - `parameters/dev.bicepparam`: Dev environment parameters with multi-region deployment (West Europe, Sweden Central, North Europe).
+- **Neo4j Container App**: Deployed as internal Azure Container App with TCP ingress on port 7687 (Bolt protocol), VNet-enabled for inter-container communication.
+- **Video deletion endpoint**: `delete_video` method added for complete media cleanup.
+
+### Changed
+- **AI Foundry Migration**: Migrated from standalone Azure OpenAI to Azure AI Foundry with project management, adding GPT-5.2-chat deployment (1000 TPM GlobalStandard).
+- **Redis Enterprise Migration**: Migrated from Azure Cache for Redis to Azure Managed Redis Enterprise (Balanced_B0 SKU) with TLS and access key authentication.
+- **Multi-Region Infrastructure**: AI resources deployed to Sweden Central (model availability), PostgreSQL to North Europe (service availability), application to West Europe (user proximity).
+- **Deploy Robustness**: Added stale ARM deployment cancellation, AI Foundry provisioning wait loop (10 attempts), Bicep deploy retry (3 attempts), OIDC re-authentication before Key Vault sync.
+- **Container App Reliability**: Set `minReplicas=1` for API and Frontend to avoid cold start issues. Increased API startup probe tolerance.
+- **Celery Redis Compatibility**: Added Redis Cluster hash tag prefix (`{celery}`) and `ssl_cert_reqs=CERT_NONE` for Azure Redis Enterprise TLS connections.
+- **Frontend CORS**: Added Azure Container Apps domain to CORS allowed origins. Aligned frontend registration payload with backend schema.
+- **Neo4j Connectivity**: Resolved TCP ingress with VNet integration, switched between `bolt://` and `bolt+ssc://` for internal vs TLS connections.
+
+### Fixed
+- Dynamic API FQDN resolution for frontend Docker builds (build-arg injection).
+- JMESPath query shell escaping in deploy-app revision checks.
+- `trigger-deploy` 403 error by adding `actions:write` permission.
+- OIDC token expiry during Key Vault secret sync (re-authentication step).
+- Secret output removal from Bicep modules to fix AI Foundry provisioning conflicts.
+- Redis Enterprise API version compatibility (downgraded to 2025-04-01).
+- Redis `listKeys` failure by enabling access key auth on database.
+
+## [0.18.0] - 2026-02-08
+
+### Added
+- **Evaluation Framework**: Comprehensive benchmarking system for video understanding quality.
+  - `evaluation/runner.py`: Evaluation runner with adapter pattern for multiple benchmark formats.
+  - `evaluation/benchmarks/`: Support for Video-MME and MLVU benchmark datasets.
+  - `evaluation/judges/`: LLM-based evaluation judges with configurable prompts.
+  - `evaluation/metrics/`: Standardized metrics with `EvalResult.error` field consistency.
+  - `evaluation/batch_pipeline/`: Batch processing pipeline for large-scale evaluations.
+  - `evaluation/scripts/`: Video-MME subset evaluation runner script.
+  - `evaluation/configs/`: Ablation study configurations.
+  - `EVALUATION_REPORT.md`: Evaluation results documentation.
+- **A2A Agent Executor Improvements**: Enhanced agent-to-agent executor with better tool binding and error handling.
+- **Video-MME Subset Evaluation Script**: Standalone runner for Video-MME benchmark subset evaluation.
+
+### Changed
+- **Backend Refactoring** (major quality improvements across 24 services):
+  - `services/chat_service.py`, `services/structure_service.py`: Extracted from route handlers into dedicated service classes (Service Layer pattern).
+  - `models/graph_route_schemas.py`: Added Pydantic schemas for Graph API, replacing raw dict responses.
+  - `core/config.py`, `core/logging_config.py`: Improved centralized configuration and structured logging.
+  - `api/dependencies.py`: Enhanced dependency injection with cleaner lazy initialization.
+  - All route handlers: Consistent error handling, authentication, and response patterns.
+  - All services: Improved error handling with narrowed exceptions, better type annotations, and consistent return types.
+- **Celery Pipeline Improvements**: Refined video processing pipeline with better task chaining, error propagation, and retry logic.
+- **Agent Tool Improvements**: Enhanced video agent tools with better query handling, context injection, and result formatting.
+- **Evaluation Adapter Pattern**: Standardized adapter interface for benchmark integration with `__all__` exports.
+- **Evaluation Quality**: Narrowed exceptions, deduplicated prompt I/O, UTF-8 encoding fixes, and standardized metrics across all evaluation components.
+
+### Fixed
+- Evaluation API endpoint paths and improved eval prompts.
+- `EvalResult.error` field consistency across all adapter patterns.
+- UTF-8 encoding issues in evaluation batch pipeline.
+- `.claude` agent and command documentation alignment with codebase.
+
 ## [0.17.0] - 2026-02-05
 
 ### Changed

@@ -40,9 +40,10 @@ graph TD
 ### Core Technologies
 - **Runtime**: Python 3.11+ (Backend), Node.js 20+ (Frontend)
 - **Frameworks**: FastAPI, Next.js 16, LangGraph, Celery
-- **AI/ML**: Azure OpenAI (GPT-4o, Whisper, text-embedding-3-large)
-- **Databases**: PostgreSQL (Metadata), Neo4j (Graph + Vector), Redis (Cache/Queue)
-- **Infrastructure**: Azure Blob Storage, Docker
+- **AI/ML**: Azure AI Foundry (GPT-4o, GPT-5.2-chat, Whisper, text-embedding-3-large)
+- **Databases**: PostgreSQL (Metadata), Neo4j (Graph + Vector), Redis Enterprise (Cache/Queue)
+- **Infrastructure**: Azure Container Apps, Azure Bicep IaC, GitHub Actions CI/CD
+- **Storage**: Azure Blob Storage
 
 ---
 
@@ -145,7 +146,56 @@ The "Brain" of QPrisma is a **LangGraph StateGraph** that manages the cognitive 
 
 ---
 
-## 6. References & Inspiration
+## 6. Deployment Architecture
+
+QPrisma deploys to **Azure Container Apps** using Infrastructure as Code (Bicep) and GitHub Actions CI/CD.
+
+### 6.1. Azure Container Apps
+
+Three application containers run in a VNet-enabled managed environment:
+
+| Container | Role | Scaling | Ingress |
+|-----------|------|---------|---------|
+| **API** (FastAPI) | REST/WebSocket server | 1–2 replicas (HTTP concurrency) | External HTTPS |
+| **Frontend** (Next.js) | SSR web application | 1–2 replicas (HTTP concurrency) | External HTTPS |
+| **Worker** (Celery) | Background video processing | 1–3 replicas (KEDA Redis queue scaler) | Internal only |
+| **Neo4j** | Knowledge Graph database | 1 replica (fixed) | Internal TCP (Bolt 7687) |
+
+### 6.2. CI/CD Pipeline
+
+```
+Code Push → CI (lint/test) → Build Docker Images → Push to ACR → Deploy to ACA
+Infra Push → Validate Bicep → What-If → Deploy Azure Resources
+```
+
+Four GitHub Actions workflows form the pipeline:
+1. **`ci.yml`**: 5 parallel jobs (backend lint/test, frontend lint/typecheck/test)
+2. **`build-and-push.yml`**: Path-filtered builds, GHA layer caching, auto-triggers deployment
+3. **`deploy-infra.yml`**: Bicep validation → What-If → Deploy with retry logic
+4. **`deploy-app.yml`**: Rolling updates with health checks and automatic rollback
+
+Key patterns: OIDC authentication, stale deployment cancellation, AI Foundry provisioning wait loop, revision-based rollback.
+
+### 6.3. Multi-Region Strategy
+
+| Region | Resources | Rationale |
+|--------|-----------|-----------|
+| West Europe | Container Apps, Redis, Storage, Key Vault | User proximity |
+| Sweden Central | AI Foundry (GPT-4o, GPT-5.2, Whisper, Embeddings) | Model availability |
+| North Europe | PostgreSQL Flexible Server | Service availability |
+
+### 6.4. Security Architecture
+
+- **Managed Identity**: API and Worker apps use system-assigned identities for Key Vault access
+- **OIDC Federation**: GitHub Actions authenticate via federated credentials (no stored secrets)
+- **Key Vault**: RBAC-authorized secrets for JWT keys, with "Key Vault Secrets User" role grants
+- **TLS**: All external traffic encrypted; Redis Enterprise requires TLS 1.2+
+
+For detailed infrastructure documentation, see [`docs/INFRASTRUCTURE.md`](./INFRASTRUCTURE.md).
+
+---
+
+## 7. References & Inspiration
 
 This architecture draws inspiration from the following research:
 *   **VideoRAG**: *"VideoRAG: Knowledge-Graph-Enhanced Retrieval-Augmented Generation for Video Understanding"* (HKUDS).

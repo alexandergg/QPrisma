@@ -95,6 +95,8 @@ graph TD
 | **Database** | PostgreSQL, Neo4j | Relational metadata and graph-based relationship mapping. |
 | **Caching/Queue** | Redis, Celery | Task queue management and real-time state caching. |
 | **Storage** | Azure Blob Storage | Scalable object storage for raw media assets. |
+| **Infrastructure** | Azure Bicep, GitHub Actions | Infrastructure as Code and CI/CD pipelines. |
+| **Deployment** | Azure Container Apps | Managed container orchestration with auto-scaling. |
 
 ## Key Features
 
@@ -217,21 +219,31 @@ Ensure you have the following Azure resources provisioned:
 ```bash
 qprisma/
 ├── backend/                # FastAPI Application
-│   ├── api/               # Routes and Controllers
+│   ├── api/               # Routes (14 modules) and Dependencies
 │   ├── agent/             # LangGraph Agent System
 │   │   ├── graphs/        # StateGraph definitions (video, editor)
 │   │   ├── nodes/         # Graph node implementations
 │   │   ├── state/         # State definitions with reducers
-│   │   ├── tools/         # @tool implementations
-│   │   └── utils/         # Helper functions
-│   ├── services/          # Core Business Logic (AI, Processing)
+│   │   ├── tools/         # @tool implementations (general, editor)
+│   │   └── utils/         # Formatting and observability helpers
+│   ├── core/              # Config, logging, exceptions, async utils
+│   ├── services/          # Core Business Logic (24 services)
 │   ├── models/            # Data Models (Pydantic, SQLModel)
+│   ├── evaluation/        # Benchmark framework (Video-MME, MLVU)
 │   └── tasks/             # Async Workers (Celery)
-├── frontend/               # Next.js Application
+├── frontend/               # Next.js 16 Application
 │   ├── app/               # App Router Pages
 │   ├── components/        # Reusable UI Components
-│   └── lib/               # Utility Functions
-├── scripts/                # DevOps & Setup Scripts
+│   └── lib/               # Utility Functions and API Client
+├── infra/                  # Azure Infrastructure as Code
+│   ├── main.bicep         # Bicep orchestrator (12 modules)
+│   ├── modules/           # ACR, ACA, AI Foundry, PostgreSQL, Redis, Neo4j, etc.
+│   └── parameters/        # Environment-specific parameters
+├── .github/
+│   ├── workflows/         # CI/CD (ci, build-and-push, deploy-infra, deploy-app)
+│   └── actions/           # Reusable composite actions (setup-backend, setup-frontend)
+├── docs/                   # Architecture and Infrastructure documentation
+├── scripts/                # Azure setup and lifecycle scripts
 └── docker-compose.yml     # Local Dev Infrastructure
 ```
 
@@ -330,9 +342,42 @@ docker-compose logs -f postgres
 - Enable caching with Redis
 - Consider using storage tiering for large files
 
+## Azure Deployment
+
+QPrisma includes full Infrastructure as Code and CI/CD for deployment to Azure Container Apps.
+
+### CI/CD Pipeline
+
+```
+Push to main → CI (lint/test) → Build & Push Images → Deploy to Azure Container Apps
+                                                        ↓
+infra/** changes → Deploy Infrastructure (Bicep) ─────────
+```
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci.yml` | Push/PR to `main` | Backend lint/test + Frontend lint/typecheck/test |
+| `build-and-push.yml` | Push to `main` (path-filtered) | Build Docker images, push to ACR |
+| `deploy-infra.yml` | Push to `main` (`infra/**`) | Provision Azure resources via Bicep |
+| `deploy-app.yml` | Auto-triggered after build | Rolling deployment with health checks + rollback |
+
+### Azure Resources
+
+The infrastructure is defined in `infra/` using Azure Bicep (12 modules):
+
+- **Compute**: 3 Container Apps (API, Frontend, Worker) + Neo4j in managed environment with VNet
+- **AI**: Azure AI Foundry with GPT-4o, GPT-5.2-chat, Whisper, text-embedding-3-large
+- **Data**: PostgreSQL Flexible Server, Azure Managed Redis Enterprise, Azure Blob Storage
+- **Security**: Key Vault (RBAC + managed identity), Container Registry
+- **Observability**: Log Analytics workspace (30-day retention)
+
+For detailed infrastructure and CI/CD documentation, see **[Infrastructure Guide](./docs/INFRASTRUCTURE.md)**.
+
 ## Documentation
 
 *   **[API Documentation](./API_DOCUMENTATION.md)** - Complete REST API reference with examples
+*   **[Architecture Deep Dive](./docs/ARCHITECTURE.md)** - System architecture, pipelines, and algorithms
+*   **[Infrastructure & CI/CD Guide](./docs/INFRASTRUCTURE.md)** - Azure deployment, Bicep IaC, and CI/CD pipelines
 *   **[Testing Guide](./TESTING.md)** - Testing standards and best practices
 *   **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute to QPrisma
 *   **[Changelog](./CHANGELOG.md)** - Version history and release notes

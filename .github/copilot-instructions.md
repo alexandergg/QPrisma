@@ -7,8 +7,9 @@ This document provides context and guidelines for GitHub Copilot when working wi
 QPrisma is an intelligent multimedia processing platform built with:
 - **Backend**: FastAPI (Python 3.11+) with LangGraph agents
 - **Frontend**: Next.js 16 with React 19
-- **Data**: PostgreSQL, Neo4j Knowledge Graph, Redis Stack
-- **AI**: Azure OpenAI (GPT-4o, Whisper, text-embedding-3-large)
+- **Data**: PostgreSQL, Neo4j Knowledge Graph, Redis Enterprise
+- **AI**: Azure AI Foundry (GPT-4o, GPT-5.2-chat, Whisper, text-embedding-3-large)
+- **Infrastructure**: Azure Container Apps, Bicep IaC, GitHub Actions CI/CD
 
 ## Code Style Guidelines
 
@@ -80,6 +81,25 @@ def get_my_service() -> MyService:
         _service_instance = MyService()
     return _service_instance
 ```
+
+### Centralized Configuration
+
+All configuration uses `core.config.settings` (Pydantic Settings). Do NOT use `os.getenv()` directly:
+```python
+from core.config import settings
+settings.azure.openai_endpoint       # Azure OpenAI
+settings.azure.storage_connection     # Blob Storage
+settings.neo4j.uri                    # Neo4j
+settings.redis.url                    # Redis
+settings.app.environment              # App environment
+```
+
+### Service Layer Extraction
+
+Business logic lives in `services/`, NOT in route handlers:
+- `services/chat_service.py` — ChatService (RAG chat with video context)
+- `services/structure_service.py` — StructureService (video scene/chapter generation)
+- `services/graph_search_service.py` — GraphSearchService (hybrid search)
 
 ### LangGraph Agent Tools
 
@@ -158,11 +178,11 @@ export function MediaViewer({ mediaId, className = '' }: Props) {
 | Type | Pattern | Example |
 |------|---------|---------|
 | API Route | `{name}_routes.py` | `media_routes.py` |
-| Service | `{name}_service.py` | `embedding_service.py` |
-| Agent Tool | `{category}_tools.py` | `search_tools.py` |
-| Model | `{name}.py` | `ffmpeg_config.py` |
+| Service | `{name}_service.py` or `{name}_processor.py` | `embedding_service.py` |
+| Agent Tool | grouped in `tools/general.py` or `tools/editor.py` | |
+| Pydantic Model | `{name}.py` in `models/` | `ffmpeg_config.py`, `graph_route_schemas.py` |
 | React Component | `{Name}.tsx` | `VideoPlayer.tsx` |
-| Test (Python) | `test_{name}.py` | `test_media_routes.py` |
+| Test (Python) | `test_{name}.py` | `test_langgraph_agent.py` |
 | Test (React) | `{Name}.test.tsx` | `VideoPlayer.test.tsx` |
 
 ## Key Directories
@@ -170,21 +190,62 @@ export function MediaViewer({ mediaId, className = '' }: Props) {
 ```
 backend/
 ├── api/
-│   ├── main.py          # FastAPI app entry point
-│   └── routes/          # API route modules
+│   ├── main.py              # FastAPI app entry point
+│   ├── dependencies.py      # Lazy init singletons (single source of truth)
+│   └── routes/              # 14 API route modules
 ├── agent/
-│   ├── video_agent.py   # Custom ReAct agent
-│   ├── video_agent_graph.py  # LangGraph agent
-│   └── tools/           # Agent tool implementations
-├── services/            # Business logic services
-├── models/              # Pydantic models
-└── tests/               # pytest tests
+│   ├── graphs/              # StateGraph definitions (video.py, editor.py)
+│   ├── nodes/               # Node implementations (base, video, editor)
+│   ├── state/               # AgentInputState / AgentOutputState
+│   ├── tools/               # general.py (16 tools), editor.py (15 tools)
+│   ├── utils/               # formatting.py, observability.py
+│   ├── a2a.py               # Agent-to-Agent executor
+│   └── prompts.py           # System prompts
+├── core/                    # config.py, logging_config.py, exceptions.py, async_utils.py
+├── services/                # 24 business logic services
+├── models/                  # Pydantic models and schemas
+├── evaluation/              # Benchmark framework (Video-MME, MLVU, ablation)
+├── tasks/                   # Celery workers (celery_app.py, video_tasks.py)
+└── tests/                   # pytest tests
 
 frontend/
-├── app/                 # Next.js App Router pages
-├── components/          # React components
-└── lib/                 # Utility functions
+├── app/                     # Next.js 16 App Router pages
+├── components/              # React 19 components
+└── lib/                     # Utility functions and API client
+
+infra/
+├── main.bicep               # Bicep orchestrator (12 modules)
+├── modules/                 # ACR, ACA, AI Foundry, PostgreSQL, Redis, Neo4j, etc.
+└── parameters/              # Environment-specific parameters (dev.bicepparam)
+
+.github/
+├── workflows/               # CI/CD (ci, build-and-push, deploy-infra, deploy-app)
+└── actions/                 # Reusable composite actions
 ```
+
+## CI/CD Pipeline
+
+Four GitHub Actions workflows:
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci.yml` | Push/PR to `main` | Backend lint/test + Frontend lint/typecheck/test (5 parallel jobs) |
+| `build-and-push.yml` | Push to `main` (path-filtered) | Build Docker images, push to ACR, trigger deployment |
+| `deploy-infra.yml` | Push to `main` (`infra/**`) | Validate + deploy Azure infrastructure via Bicep |
+| `deploy-app.yml` | Auto-triggered | Rolling container updates with health checks + rollback |
+
+Key patterns: OIDC auth, path-filtered builds, GHA Docker layer caching, automatic rollback, KEDA autoscaling.
+
+## Azure Infrastructure
+
+12 Bicep modules in `infra/modules/`:
+- **Compute**: Container Apps (API, Frontend, Worker) + Neo4j in VNet-enabled managed environment
+- **AI**: Azure AI Foundry with 5 model deployments (Sweden Central)
+- **Data**: PostgreSQL Flex v16 (North Europe), Redis Enterprise, Blob Storage
+- **Security**: Key Vault with RBAC + managed identity access
+- **Observability**: Log Analytics workspace
+
+Multi-region: West Europe (apps), Sweden Central (AI), North Europe (PostgreSQL).
 
 ## Common Imports
 
@@ -203,6 +264,9 @@ from typing import Annotated
 from services.database_service import get_database_service
 from services.knowledge_graph import get_knowledge_graph_service
 from services.embedding_service import get_embedding_service
+
+# Config (always use settings, never os.getenv)
+from core.config import settings
 
 # Agent
 from langchain_core.tools import tool
@@ -234,14 +298,17 @@ WHERE f.timestamp >= $start_time
 RETURN f.timestamp, f.description
 ORDER BY f.timestamp
 LIMIT $limit
+
+-- Use UNWIND for batch operations (not one-by-one)
+UNWIND $items AS item
+CREATE (n:Entity {name: item.name, type: item.type})
 ```
 
 ## Testing Patterns
 
 ### Python (pytest)
-
 ```python
-@pytest.mark.asyncio
+# asyncio_mode = "auto" — no @pytest.mark.asyncio needed
 async def test_process_success(mock_db, sample_data):
     """Test successful processing."""
     with patch("module.get_database_service", return_value=mock_db):
@@ -250,7 +317,6 @@ async def test_process_success(mock_db, sample_data):
 ```
 
 ### TypeScript (Jest)
-
 ```typescript
 it('handles click events', async () => {
   const handleClick = jest.fn();
@@ -262,27 +328,13 @@ it('handles click events', async () => {
 });
 ```
 
-## Environment Variables
-
-Always use environment variables for configuration:
-
-```python
-# Python
-import os
-endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-```
-
-```typescript
-// TypeScript
-const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-```
-
 ## Error Handling
 
 - Backend: Use HTTPException with appropriate status codes
 - Frontend: Display user-friendly error messages
 - Agent tools: Return error dict, never raise exceptions
 - Always log errors with context
+- Use `datetime.now(UTC)` (never `datetime.utcnow()`)
 
 ## Performance Considerations
 
@@ -291,3 +343,4 @@ const apiUrl = process.env.NEXT_PUBLIC_API_URL;
 - Use Redis caching for frequent queries
 - Batch Azure OpenAI calls when possible (50% cost savings)
 - Truncate large tool results to prevent context overflow
+- `@lru_cache(maxsize=4)` on LLM model creation functions

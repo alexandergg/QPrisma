@@ -203,6 +203,90 @@ Backend: `backend/.env` — requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY
 
 Frontend: `frontend/.env.local` — requires NEXT_PUBLIC_API_URL=http://localhost:8000
 
+## CI/CD Pipeline
+
+Four GitHub Actions workflows in `.github/workflows/`:
+
+```
+ci.yml (PR/push) → build-and-push.yml (main push) → deploy-app.yml (auto)
+deploy-infra.yml (infra/** changes, independent)
+```
+
+### Workflow Commands
+```bash
+# CI runs automatically on push/PR to main
+# Manual triggers:
+gh workflow run build-and-push.yml              # Build & push all images
+gh workflow run deploy-infra.yml                # Deploy infrastructure
+gh workflow run deploy-app.yml -f image_tag=abc123  # Deploy specific image
+```
+
+### Key CI/CD Patterns
+- **OIDC Authentication**: `azure/login@v2` with federated credentials (no stored secrets)
+- **Path Filtering**: `dorny/paths-filter@v3` — only rebuild changed components
+- **Docker Layer Caching**: `cache-from: type=gha`, `cache-to: type=gha,mode=max`
+- **Deployment with Rollback**: Records previous revision, health checks, auto-rollback on failure
+- **Stale Deployment Cancellation**: Cancels running ARM deployments before starting new ones
+- **AI Foundry Wait Loop**: Polls provisioning state up to 10 minutes before proceeding
+- **Retry Logic**: `nick-fields/retry@v3` for Bicep deployments (3 attempts, 20min timeout)
+
+### Reusable Composite Actions
+- `.github/actions/setup-backend/action.yml` — Python 3.11 + uv + dependencies
+- `.github/actions/setup-frontend/action.yml` — Node.js 20 + npm install
+
+## Azure Infrastructure (Bicep IaC)
+
+All infrastructure defined in `infra/` with 12 Bicep modules orchestrated by `main.bicep`:
+
+```
+infra/
+├── main.bicep                  # Orchestrator
+├── parameters/dev.bicepparam   # Dev environment config
+└── modules/
+    ├── ai-foundry.bicep        # AI Foundry + 5 model deployments
+    ├── container-apps-env.bicep # Managed env + VNet + Log Analytics
+    ├── container-app-api.bicep  # API (ext, 0.5C/1Gi, 1-2 replicas)
+    ├── container-app-frontend.bicep  # Frontend (ext, 0.25C/0.5Gi)
+    ├── container-app-worker.bicep    # Worker (int, KEDA Redis scaler)
+    ├── neo4j.bicep              # Neo4j 5 Community + File Share
+    ├── postgresql.bicep         # Flex Server v16 (North Europe)
+    ├── redis.bicep              # Managed Redis Enterprise
+    ├── storage.bicep            # Blob Storage + media container
+    ├── container-registry.bicep # ACR (Basic)
+    └── key-vault.bicep          # Key Vault + RBAC roles
+```
+
+### Multi-Region Deployment
+| Region | Resources |
+|--------|-----------|
+| West Europe | Container Apps, Redis, Storage, Key Vault, ACR |
+| Sweden Central | AI Foundry (model availability) |
+| North Europe | PostgreSQL (service availability) |
+
+### Key Infrastructure Patterns
+- **VNet Integration**: Required for Neo4j Bolt (TCP) between containers
+- **Managed Identity**: API/Worker get Key Vault Secrets User role via system-assigned identity
+- **KEDA Autoscaling**: Worker scales 1-3 replicas based on Celery Redis queue depth
+- **Container App Secrets**: Database URLs, API keys stored as secrets, referenced by env vars
+
+## Evaluation Framework
+
+Benchmarking system in `backend/evaluation/`:
+
+```bash
+cd backend
+# Run evaluation
+python -m evaluation.run_evaluation --config evaluation/configs/default.yaml
+
+# Video-MME subset evaluation
+python evaluation/scripts/run_videomme_subset.py
+
+# Ablation studies
+python -m evaluation.ablation --config evaluation/configs/ablation.yaml
+```
+
+Components: `adapters/` (benchmark formats), `judges/` (LLM evaluators), `metrics/` (scoring), `batch_pipeline/` (scale), `benchmarks/` (Video-MME, MLVU)
+
 ## Access Points (Local Dev)
 
 | Service | URL |
