@@ -70,15 +70,7 @@ celery_app = Celery(
 # Configuración de Celery
 # =============================================================================
 
-# Azure Redis Enterprise uses OSS Cluster mode — hash tags ensure all Celery
-# keys map to the same slot, avoiding ClusterCrossSlotError in pipelines.
-_is_cluster = REDIS_URL.startswith("rediss://")
-
 celery_app.conf.update(
-    **({
-        "broker_transport_options": {"global_keyprefix": "{celery}."},
-        "result_backend_transport_options": {"global_keyprefix": "{celery}."},
-    } if _is_cluster else {}),
     # -------------------------------------------------------------------------
     # Serialización
     # -------------------------------------------------------------------------

@@ -25,7 +25,7 @@ resource redisDatabase 'Microsoft.Cache/redisEnterprise/databases@2025-04-01' = 
   name: 'default'
   properties: {
     clientProtocol: 'Encrypted'
-    clusteringPolicy: 'OSSCluster'
+    clusteringPolicy: 'EnterpriseCluster'
     evictionPolicy: 'VolatileLRU'
     port: 10000
     accessKeysAuthentication: 'Enabled'
