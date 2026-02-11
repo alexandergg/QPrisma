@@ -163,6 +163,6 @@ resource neo4jContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 output fqdn string = neo4jContainerApp.properties.configuration.ingress.fqdn
-output boltUri string = 'bolt+ssc://${neo4jContainerApp.properties.configuration.ingress.fqdn}:7687'
+output boltUri string = 'bolt://${neo4jContainerApp.properties.configuration.ingress.fqdn}:7687'
 output id string = neo4jContainerApp.id
 output name string = neo4jContainerApp.name
