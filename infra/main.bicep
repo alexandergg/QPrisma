@@ -168,6 +168,7 @@ var appEnvVars = [
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT52_CHAT', value: 'gpt-5.2-chat' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_WHISPER', value: 'whisper' }
+  { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_BATCH', value: 'gpt-4o-batch' }
   { name: 'ENVIRONMENT', value: environment }
   { name: 'ALLOWED_ORIGINS', value: 'https://${frontendFqdn}' }
 ]
