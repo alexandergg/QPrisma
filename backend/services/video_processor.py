@@ -68,6 +68,13 @@ class VideoProcessor:
             openai_client, rate_limit_rpm=settings.azure.openai_whisper_rpm
         )
 
+    def delete_video(self, blob_name: str) -> None:
+        """Delete a video blob from Azure Storage."""
+        blob_client = self.blob_service.get_blob_client(
+            container=self.container_name, blob=blob_name
+        )
+        blob_client.delete_blob()
+
     async def _download_blob_streaming(self, blob_name: str, file_path: str) -> None:
         """
         Stream download a blob from Azure Storage to a local file.
