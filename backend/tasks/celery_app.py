@@ -51,6 +51,11 @@ load_dotenv()
 # Configuración de Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+# Azure Redis uses rediss:// (TLS) — Celery requires ssl_cert_reqs parameter
+if REDIS_URL.startswith("rediss://") and "ssl_cert_reqs" not in REDIS_URL:
+    separator = "&" if "?" in REDIS_URL else "?"
+    REDIS_URL = f"{REDIS_URL}{separator}ssl_cert_reqs=CERT_REQUIRED"
+
 # Crear aplicación Celery
 celery_app = Celery(
     "qprisma",
