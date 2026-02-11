@@ -28,6 +28,7 @@ resource redisDatabase 'Microsoft.Cache/redisEnterprise/databases@2025-04-01' = 
     clusteringPolicy: 'OSSCluster'
     evictionPolicy: 'VolatileLRU'
     port: 10000
+    accessKeysAuthentication: 'Enabled'
   }
 }
 
