@@ -58,7 +58,7 @@ jobs:
             STATUS=$(az containerapp revision list \
               --name ca-qprisma-api-dev \
               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-              --query "[?properties.active && properties.trafficWeight > 0].properties.provisioningState" \
+              --query '[?properties.active && properties.trafficWeight > `0`].properties.provisioningState' \
               -o tsv | head -n 1)
 
             if [ "$STATUS" == "Provisioned" ]; then
@@ -176,7 +176,7 @@ jobs:
             STATUS=$(az containerapp revision list \
               --name ca-qprisma-web-dev \
               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-              --query "[?properties.active && properties.trafficWeight > 0].properties.provisioningState" \
+              --query '[?properties.active && properties.trafficWeight > `0`].properties.provisioningState' \
               -o tsv | head -n 1)
 
             if [ "$STATUS" == "Provisioned" ]; then
