@@ -70,7 +70,18 @@ celery_app = Celery(
 # Configuración de Celery
 # =============================================================================
 
+# Azure Redis Enterprise enforces cross-slot constraints in MULTI/EXEC even
+# with EnterpriseCluster mode. Hash tags {celery} ensure all Celery/Kombu keys
+# map to the same slot, avoiding ClusterCrossSlotError in pipeline transactions.
+_redis_transport_opts = (
+    {"global_keyprefix": "{celery}."}
+    if REDIS_URL.startswith("rediss://")
+    else {}
+)
+
 celery_app.conf.update(
+    broker_transport_options=_redis_transport_opts,
+    result_backend_transport_options=_redis_transport_opts,
     # -------------------------------------------------------------------------
     # Serialización
     # -------------------------------------------------------------------------
