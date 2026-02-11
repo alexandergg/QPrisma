@@ -146,13 +146,35 @@ module neo4j 'modules/neo4j.bicep' = {
 // Shared secrets & env vars for API and Worker
 // =====================================================================
 
-// Resolve secrets inline via listKeys/listCredentials (never exposed as Bicep outputs)
-var acrAdminPassword = listCredentials(containerRegistry.outputs.id, '2023-11-01-preview').passwords[0].value
-var aiApiKey = listKeys(aiFoundry.outputs.id, '2025-06-01').key1
-var storageAccountKey = listKeys(storage.outputs.id, '2023-05-01').keys[0].value
-var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.outputs.name};AccountKey=${storageAccountKey};EndpointSuffix=${environment().suffixes.storage}'
+// Existing resource references for secret retrieval (avoids exposing secrets as module outputs)
+resource existingAcr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' existing = {
+  name: containerRegistryName
+}
+
+resource existingAiFoundry 'Microsoft.CognitiveServices/accounts@2025-06-01' existing = {
+  name: aiFoundryName
+}
+
+resource existingStorage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
+  name: storageAccountName
+}
+
+resource existingRedis 'Microsoft.Cache/redisEnterprise@2025-04-01' existing = {
+  name: redisName
+}
+
+resource existingRedisDb 'Microsoft.Cache/redisEnterprise/databases@2025-04-01' existing = {
+  name: 'default'
+  parent: existingRedis
+}
+
+// Resolve secrets via existing resource methods (never exposed as Bicep outputs)
+var acrAdminPassword = existingAcr.listCredentials().passwords[0].value
+var aiApiKey = existingAiFoundry.listKeys().key1
+var storageAccountKey = existingStorage.listKeys().keys[0].value
+var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccountName};AccountKey=${storageAccountKey};EndpointSuffix=${az.environment().suffixes.storage}'
 var pgConnectionString = 'postgresql://${dbAdminLogin}:${dbAdminPassword}@${postgres.outputs.fqdn}:5432/qprisma?sslmode=require'
-var redisAccessKey = listKeys('${redis.outputs.id}/databases/default', '2025-04-01').primaryKey
+var redisAccessKey = existingRedisDb.listKeys().primaryKey
 var redisConnectionString = 'rediss://:${redisAccessKey}@${redis.outputs.hostName}'
 
 // Secrets stored in Container Apps (actual values)
@@ -198,6 +220,7 @@ var appSecretEnvVars = [
 
 module apiContainerApp 'modules/container-app-api.bicep' = {
   name: 'api-deployment'
+  dependsOn: [storage, postgres, redis, containerRegistry, aiFoundry]
   params: {
     name: apiContainerAppName
     location: location
@@ -215,6 +238,7 @@ module apiContainerApp 'modules/container-app-api.bicep' = {
 
 module frontendContainerApp 'modules/container-app-frontend.bicep' = {
   name: 'frontend-deployment'
+  dependsOn: [containerRegistry]
   params: {
     name: frontendContainerAppName
     location: location
@@ -232,6 +256,7 @@ module frontendContainerApp 'modules/container-app-frontend.bicep' = {
 
 module workerContainerApp 'modules/container-app-worker.bicep' = {
   name: 'worker-deployment'
+  dependsOn: [storage, postgres, redis, containerRegistry, aiFoundry]
   params: {
     name: workerContainerAppName
     location: location
