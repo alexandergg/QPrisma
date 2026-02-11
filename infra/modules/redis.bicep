@@ -8,7 +8,7 @@ param location string = resourceGroup().location
 param tags object = {}
 
 // Azure Managed Redis (redisEnterprise) — replaces retired Azure Cache for Redis
-resource redisEnterprise 'Microsoft.Cache/redisEnterprise@2025-04-01' = {
+resource redisEnterprise 'Microsoft.Cache/redisEnterprise@2025-07-01' = {
   name: name
   location: location
   tags: tags
@@ -21,7 +21,7 @@ resource redisEnterprise 'Microsoft.Cache/redisEnterprise@2025-04-01' = {
   }
 }
 
-resource redisDatabase 'Microsoft.Cache/redisEnterprise/databases@2025-04-01' = {
+resource redisDatabase 'Microsoft.Cache/redisEnterprise/databases@2025-07-01' = {
   parent: redisEnterprise
   name: 'default'
   properties: {
