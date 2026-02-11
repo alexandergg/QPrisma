@@ -55,14 +55,14 @@ jobs:
         run: |
           echo "Waiting for new revision to be ready..."
           for i in {1..20}; do
-            STATUS=$(az containerapp revision list \
+            STATUS=$(az containerapp show \
               --name ca-qprisma-api-dev \
               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-              --query '[?properties.active && properties.trafficWeight > `0`].properties.provisioningState' \
-              -o tsv | head -n 1)
+              --query "properties.runningStatus" \
+              -o tsv)
 
-            if [ "$STATUS" == "Provisioned" ]; then
-              echo "Revision is ready"
+            if [ "$STATUS" == "Running" ]; then
+              echo "Revision is ready (status: $STATUS)"
               break
             fi
 
@@ -73,9 +73,14 @@ jobs:
       - name: Health check
         id: health-check
         run: |
-          echo "Performing health check..."
+          FQDN=$(az containerapp show \
+            --name ca-qprisma-api-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" \
+            -o tsv)
+          echo "Health checking https://$FQDN/health ..."
           for i in {1..10}; do
-            if curl -sf https://${{ vars.API_FQDN }}/health; then
+            if curl -sf "https://$FQDN/health"; then
               echo "Health check passed"
               exit 0
             fi
@@ -119,14 +124,14 @@ jobs:
         run: |
           echo "Waiting for worker revision to be ready..."
           for i in {1..20}; do
-            STATUS=$(az containerapp revision list \
+            STATUS=$(az containerapp show \
               --name ca-qprisma-worker-dev \
               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-              --query "[?properties.active].properties.provisioningState" \
-              -o tsv | head -n 1)
+              --query "properties.runningStatus" \
+              -o tsv)
 
-            if [ "$STATUS" == "Provisioned" ]; then
-              echo "Worker revision is ready"
+            if [ "$STATUS" == "Running" ]; then
+              echo "Worker revision is ready (status: $STATUS)"
               break
             fi
 
@@ -173,14 +178,14 @@ jobs:
         run: |
           echo "Waiting for frontend revision to be ready..."
           for i in {1..20}; do
-            STATUS=$(az containerapp revision list \
+            STATUS=$(az containerapp show \
               --name ca-qprisma-web-dev \
               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-              --query '[?properties.active && properties.trafficWeight > `0`].properties.provisioningState' \
-              -o tsv | head -n 1)
+              --query "properties.runningStatus" \
+              -o tsv)
 
-            if [ "$STATUS" == "Provisioned" ]; then
-              echo "Frontend revision is ready"
+            if [ "$STATUS" == "Running" ]; then
+              echo "Frontend revision is ready (status: $STATUS)"
               break
             fi
 
@@ -191,9 +196,14 @@ jobs:
       - name: Health check
         id: health-check
         run: |
-          echo "Performing frontend health check..."
+          FQDN=$(az containerapp show \
+            --name ca-qprisma-web-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" \
+            -o tsv)
+          echo "Health checking https://$FQDN/ ..."
           for i in {1..10}; do
-            if curl -sf https://${{ vars.FRONTEND_FQDN }}/; then
+            if curl -sf "https://$FQDN/"; then
               echo "Frontend health check passed"
               exit 0
             fi
@@ -215,11 +225,24 @@ jobs:
   smoke-test:
     needs: [deploy-api, deploy-worker, deploy-frontend]
     runs-on: ubuntu-latest
+    environment: dev
     steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Verify API health
         run: |
-          echo "Verifying API health endpoint..."
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://${{ vars.API_FQDN }}/health)
+          API_FQDN=$(az containerapp show \
+            --name ca-qprisma-api-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" \
+            -o tsv)
+          echo "Verifying API health at https://$API_FQDN/health ..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "https://$API_FQDN/health")
           if [ "$RESPONSE" == "200" ]; then
             echo "API health check passed (HTTP $RESPONSE)"
           else
@@ -229,8 +252,13 @@ jobs:
 
       - name: Verify Frontend loads
         run: |
-          echo "Verifying frontend loads..."
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" https://${{ vars.FRONTEND_FQDN }}/)
+          WEB_FQDN=$(az containerapp show \
+            --name ca-qprisma-web-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" \
+            -o tsv)
+          echo "Verifying frontend at https://$WEB_FQDN/ ..."
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "https://$WEB_FQDN/")
           if [ "$RESPONSE" == "200" ]; then
             echo "Frontend health check passed (HTTP $RESPONSE)"
           else
@@ -240,11 +268,21 @@ jobs:
 
       - name: Deployment summary
         run: |
+          API_FQDN=$(az containerapp show \
+            --name ca-qprisma-api-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" \
+            -o tsv)
+          WEB_FQDN=$(az containerapp show \
+            --name ca-qprisma-web-dev \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" \
+            -o tsv)
           echo "## Deployment Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Deployed Services" >> $GITHUB_STEP_SUMMARY
-          echo "- API: https://${{ vars.API_FQDN }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Frontend: https://${{ vars.FRONTEND_FQDN }}" >> $GITHUB_STEP_SUMMARY
+          echo "- API: https://$API_FQDN" >> $GITHUB_STEP_SUMMARY
+          echo "- Frontend: https://$WEB_FQDN" >> $GITHUB_STEP_SUMMARY
           echo "- Worker: Deployed (no public endpoint)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Image Tag" >> $GITHUB_STEP_SUMMARY
