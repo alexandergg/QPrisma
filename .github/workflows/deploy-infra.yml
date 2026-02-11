@@ -97,6 +97,13 @@ jobs:
                 jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
 
       - name: Sync additional secrets to Key Vault
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set Key Vault secrets
         run: |
           az keyvault secret set \
             --vault-name ${{ vars.KEY_VAULT_NAME }} \
