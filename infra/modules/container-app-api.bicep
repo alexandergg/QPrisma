@@ -79,7 +79,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
                 scheme: 'HTTP'
               }
               periodSeconds: 10
-              failureThreshold: 3
+              failureThreshold: 10
             }
             {
               type: 'Liveness'
@@ -105,7 +105,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       scale: {
-        minReplicas: 0
+        minReplicas: 1
         maxReplicas: 2
         rules: [
           {
