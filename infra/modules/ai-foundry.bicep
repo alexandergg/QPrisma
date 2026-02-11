@@ -149,4 +149,3 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
 output endpoint string = aiFoundry.properties.endpoint
 output id string = aiFoundry.id
 output name string = aiFoundry.name
-output apiKey string = aiFoundry.listKeys().key1

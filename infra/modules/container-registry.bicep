@@ -23,4 +23,3 @@ resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-11-01-pr
 output loginServer string = containerRegistry.properties.loginServer
 output name string = containerRegistry.name
 output id string = containerRegistry.id
-output adminPassword string = containerRegistry.listCredentials().passwords[0].value

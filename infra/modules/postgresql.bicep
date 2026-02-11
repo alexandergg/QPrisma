@@ -65,4 +65,3 @@ resource firewallRule 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2
 output fqdn string = postgresServer.properties.fullyQualifiedDomainName
 output id string = postgresServer.id
 output name string = postgresServer.name
-output connectionString string = 'postgresql://${adminLogin}:${adminPassword}@${postgresServer.properties.fullyQualifiedDomainName}:5432/qprisma?sslmode=require'

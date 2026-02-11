@@ -35,4 +35,3 @@ resource redisDatabase 'Microsoft.Cache/redisEnterprise/databases@2025-04-01' = 
 output hostName string = '${redisEnterprise.properties.hostName}:${redisDatabase.properties.port}'
 output id string = redisEnterprise.id
 output name string = redisEnterprise.name
-output connectionString string = 'rediss://:${redisDatabase.listKeys().primaryKey}@${redisEnterprise.properties.hostName}:${redisDatabase.properties.port}'

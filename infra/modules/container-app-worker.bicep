@@ -69,6 +69,7 @@ resource workerContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
           env: union(envVars, secretEnvVars)
         }
       ]
+      terminationGracePeriodSeconds: 600
       scale: {
         minReplicas: 1
         maxReplicas: 3

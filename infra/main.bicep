@@ -137,7 +137,7 @@ module neo4j 'modules/neo4j.bicep' = {
     environmentId: containerAppsEnv.outputs.id
     neo4jPassword: neo4jPassword
     storageAccountName: storage.outputs.name
-    storageAccountKey: storage.outputs.storageKey
+    storageAccountKey: storageAccountKey
     tags: tags
   }
 }
@@ -146,14 +146,23 @@ module neo4j 'modules/neo4j.bicep' = {
 // Shared secrets & env vars for API and Worker
 // =====================================================================
 
+// Resolve secrets inline via listKeys/listCredentials (never exposed as Bicep outputs)
+var acrAdminPassword = listCredentials(containerRegistry.outputs.id, '2023-11-01-preview').passwords[0].value
+var aiApiKey = listKeys(aiFoundry.outputs.id, '2025-06-01').key1
+var storageAccountKey = listKeys(storage.outputs.id, '2023-05-01').keys[0].value
+var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.outputs.name};AccountKey=${storageAccountKey};EndpointSuffix=${environment().suffixes.storage}'
+var pgConnectionString = 'postgresql://${dbAdminLogin}:${dbAdminPassword}@${postgres.outputs.fqdn}:5432/qprisma?sslmode=require'
+var redisAccessKey = listKeys('${redis.outputs.id}/databases/default', '2025-04-01').primaryKey
+var redisConnectionString = 'rediss://:${redisAccessKey}@${redis.outputs.hostName}'
+
 // Secrets stored in Container Apps (actual values)
 var appSecrets = [
   { name: 'neo4j-password', value: neo4jPassword }
-  { name: 'openai-api-key', value: aiFoundry.outputs.apiKey }
-  { name: 'storage-connection-string', value: storage.outputs.connectionString }
+  { name: 'openai-api-key', value: aiApiKey }
+  { name: 'storage-connection-string', value: storageConnectionString }
   { name: 'jwt-secret-key', value: jwtSecretKey }
-  { name: 'database-url', value: postgres.outputs.connectionString }
-  { name: 'redis-url', value: redis.outputs.connectionString }
+  { name: 'database-url', value: pgConnectionString }
+  { name: 'redis-url', value: redisConnectionString }
 ]
 
 // Construct frontend FQDN from naming convention + environment domain (avoids circular dependency)
@@ -196,7 +205,7 @@ module apiContainerApp 'modules/container-app-api.bicep' = {
     imageName: apiImageName
     registryServer: containerRegistry.outputs.loginServer
     registryUsername: containerRegistry.outputs.name
-    registryPassword: containerRegistry.outputs.adminPassword
+    registryPassword: acrAdminPassword
     envVars: appEnvVars
     secrets: appSecrets
     secretEnvVars: appSecretEnvVars
@@ -213,7 +222,7 @@ module frontendContainerApp 'modules/container-app-frontend.bicep' = {
     imageName: frontendImageName
     registryServer: containerRegistry.outputs.loginServer
     registryUsername: containerRegistry.outputs.name
-    registryPassword: containerRegistry.outputs.adminPassword
+    registryPassword: acrAdminPassword
     envVars: [
       { name: 'NEXT_PUBLIC_API_URL', value: 'https://${apiContainerApp.outputs.fqdn}' }
     ]
@@ -230,7 +239,7 @@ module workerContainerApp 'modules/container-app-worker.bicep' = {
     imageName: workerImageName
     registryServer: containerRegistry.outputs.loginServer
     registryUsername: containerRegistry.outputs.name
-    registryPassword: containerRegistry.outputs.adminPassword
+    registryPassword: acrAdminPassword
     redisHost: redis.outputs.hostName
     envVars: appEnvVars
     secrets: appSecrets
