@@ -1,11 +1,6 @@
 name: Deploy Application
 
 on:
-  workflow_run:
-    workflows: ["Build and Push Images"]
-    types:
-      - completed
-    branches: [main]
   workflow_dispatch:
     inputs:
       image_tag:
@@ -20,7 +15,6 @@ permissions:
 
 jobs:
   deploy-api:
-    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: dev
     outputs:
@@ -36,15 +30,8 @@ jobs:
       - name: Set image tag
         id: set-tag
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
-          elif [ "${{ github.event.workflow_run.head_sha }}" != "" ]; then
-            IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
-          else
-            IMAGE_TAG="latest"
-          fi
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-          echo "Deploying image tag: $IMAGE_TAG"
+          echo "IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_ENV
+          echo "Deploying image tag: ${{ github.event.inputs.image_tag }}"
 
       - name: Get current revision for rollback
         id: get-revision
@@ -108,7 +95,6 @@ jobs:
             --revision ${{ steps.get-revision.outputs.revision }}
 
   deploy-worker:
-    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: dev
     steps:
@@ -120,15 +106,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set image tag
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
-          elif [ "${{ github.event.workflow_run.head_sha }}" != "" ]; then
-            IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
-          else
-            IMAGE_TAG="latest"
-          fi
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        run: echo "IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_ENV
 
       - name: Update Worker container
         run: |
@@ -171,15 +149,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set image tag
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            IMAGE_TAG="${{ github.event.inputs.image_tag }}"
-          elif [ "${{ github.event.workflow_run.head_sha }}" != "" ]; then
-            IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
-          else
-            IMAGE_TAG="latest"
-          fi
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        run: echo "IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_ENV
 
       - name: Get current revision for rollback
         id: get-revision
@@ -278,10 +248,4 @@ jobs:
           echo "- Worker: Deployed (no public endpoint)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Image Tag" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "${{ github.event.inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ github.event.workflow_run.head_sha }}" != "" ]; then
-            echo "${{ github.event.workflow_run.head_sha }}" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "latest" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "${{ github.event.inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
