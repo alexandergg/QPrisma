@@ -156,6 +156,9 @@ var appSecrets = [
   { name: 'redis-url', value: redis.outputs.connectionString }
 ]
 
+// Construct frontend FQDN from naming convention + environment domain (avoids circular dependency)
+var frontendFqdn = '${frontendContainerAppName}.${containerAppsEnv.outputs.defaultDomain}'
+
 // Plain-value env vars (Neo4j URI auto-wired from Container App internal FQDN)
 var appEnvVars = [
   { name: 'NEO4J_URI', value: neo4j.outputs.boltUri }
@@ -166,6 +169,7 @@ var appEnvVars = [
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_WHISPER', value: 'whisper' }
   { name: 'ENVIRONMENT', value: environment }
+  { name: 'ALLOWED_ORIGINS', value: 'https://${frontendFqdn}' }
 ]
 
 // Env vars that reference secrets by name

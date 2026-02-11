@@ -407,11 +407,11 @@ export const apiClient = {
     return handleResponse<TokenData>(response);
   },
 
-  async register(email: string, password: string, fullName?: string): Promise<TokenData> {
+  async register(email: string, password: string, name?: string): Promise<TokenData> {
     const response = await fetch(`${API_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, full_name: fullName }),
+      body: JSON.stringify({ email, password, name }),
     });
     return handleResponse<TokenData>(response);
   },

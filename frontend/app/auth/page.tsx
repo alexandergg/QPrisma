@@ -90,11 +90,13 @@ export default function AuthPage() {
             {!isLogin && (
               <div>
                 <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
-                  Full Name (Optional)
+                  Full Name
                 </label>
                 <input
                   id="fullName"
                   type="text"
+                  required
+                  minLength={2}
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition text-gray-900 bg-white placeholder:text-gray-400"
