@@ -75,16 +75,26 @@ jobs:
             --location ${{ vars.AZURE_LOCATION || 'westeurope' }} \
             --output none
 
-      - name: Deploy Bicep template
+      - name: Wait for Azure resources to settle
         run: |
-          az deployment group create \
-            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --template-file infra/main.bicep \
-            --parameters infra/parameters/dev.bicepparam \
-            --parameters \
-              dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
-              neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
-              jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
+          echo "Waiting 60s for any in-progress provisioning to complete..."
+          sleep 60
+
+      - name: Deploy Bicep template
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 90
+          command: |
+            az deployment group create \
+              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+              --template-file infra/main.bicep \
+              --parameters infra/parameters/dev.bicepparam \
+              --parameters \
+                dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
+                neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
+                jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
 
       - name: Sync additional secrets to Key Vault
         run: |
