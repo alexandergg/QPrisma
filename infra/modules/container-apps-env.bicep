@@ -25,6 +25,36 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
+// VNet required for TCP ingress between Container Apps (e.g., Neo4j Bolt protocol)
+resource vnet 'Microsoft.Network/virtualNetworks@2024-01-01' = {
+  name: 'vnet-${name}'
+  location: location
+  tags: tags
+  properties: {
+    addressSpace: {
+      addressPrefixes: [
+        '10.0.0.0/16'
+      ]
+    }
+    subnets: [
+      {
+        name: 'infrastructure'
+        properties: {
+          addressPrefix: '10.0.0.0/21'
+          delegations: [
+            {
+              name: 'Microsoft.App.environments'
+              properties: {
+                serviceName: 'Microsoft.App/environments'
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: name
   location: location
@@ -36,6 +66,10 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2024-03-01'
         customerId: logAnalytics.properties.customerId
         sharedKey: logAnalytics.listKeys().primarySharedKey
       }
+    }
+    vnetConfiguration: {
+      infrastructureSubnetId: vnet.properties.subnets[0].id
+      internal: false
     }
     workloadProfiles: [
       {
