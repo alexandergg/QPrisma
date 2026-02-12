@@ -48,7 +48,7 @@ export default function ChatContainer({
 
   const hasMessages = messages.length > 0;
   const isMultiVideo = videoIds && videoIds.length > 1;
-  const hasVideo = isMultiVideo || mode === 'library' || (mode === 'single' && videoId);
+  const hasVideo = isMultiVideo || !!videoId;
 
   const generateId = () => Math.random().toString(36).substring(2, 9);
 
@@ -180,7 +180,7 @@ export default function ChatContainer({
   };
 
   // Show welcome screen if no messages and appropriate context
-  const showWelcome = !hasMessages && (!hasVideo || mode === 'library');
+  const showWelcome = !hasMessages && !hasVideo;
 
   return (
     <div className="flex flex-col h-full">
@@ -210,7 +210,7 @@ export default function ChatContainer({
             onChange={setInputValue}
             onSend={handleSend}
             isLoading={isLoading}
-            isDisabled={!hasVideo && mode === 'single'}
+            isDisabled={!hasVideo}
             mode={mode}
             attachedVideos={
               isMultiVideo && videoIds && videoNames
