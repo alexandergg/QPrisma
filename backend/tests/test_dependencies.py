@@ -5,7 +5,6 @@ Covers authentication dependencies (get_current_user, get_current_user_optional)
 get_media_or_404, singleton service getters, and storage helpers.
 """
 
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,8 +21,6 @@ from api.dependencies import (
     get_storage_account_info,
     get_storage_container_name,
 )
-from models.user import User
-
 
 # =============================================================================
 # get_current_user
@@ -45,8 +42,9 @@ class TestGetCurrentUser:
         assert user.email == test_user.email
 
     async def test_expired_token_raises_401(self, auth_service):
-        from freezegun import freeze_time
         from datetime import timedelta
+
+        from freezegun import freeze_time
 
         with freeze_time("2024-01-01"):
             token = auth_service.create_access_token(
@@ -55,11 +53,13 @@ class TestGetCurrentUser:
 
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
-        with freeze_time("2024-01-02"):
-            with patch("api.dependencies.get_auth_service", return_value=auth_service):
-                with pytest.raises(HTTPException) as exc_info:
-                    await get_current_user(credentials)
-                assert exc_info.value.status_code == 401
+        with (
+            freeze_time("2024-01-02"),
+            patch("api.dependencies.get_auth_service", return_value=auth_service),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await get_current_user(credentials)
+        assert exc_info.value.status_code == 401
 
     async def test_invalid_token_raises_401(self, auth_service):
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="garbage.token.here")

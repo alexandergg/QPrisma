@@ -7,7 +7,6 @@ Covers register, login, /me, and refresh token endpoints.
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.mark.unit

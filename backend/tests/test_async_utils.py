@@ -4,8 +4,6 @@ Tests for core/async_utils.py
 Covers run_sync, async_wrap, file operations, and executor management.
 """
 
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -16,7 +14,6 @@ from core.async_utils import (
     run_sync,
     write_file_async,
 )
-
 
 # =============================================================================
 # run_sync

@@ -7,7 +7,6 @@ Covers job submission, status, cancellation, and listing.
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.mark.unit

@@ -26,7 +26,7 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         uv pip install --system -e .
-        uv pip install --system pytest pytest-asyncio black ruff
+        uv pip install --system pytest pytest-asyncio pytest-cov black ruff
 
     - name: Verify installation
       shell: bash

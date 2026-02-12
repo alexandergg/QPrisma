@@ -21,7 +21,6 @@ from core.config import (
     get_settings,
 )
 
-
 # =============================================================================
 # AzureSettings
 # =============================================================================
@@ -79,11 +78,13 @@ class TestPostgresSettings:
         assert s.is_configured is True
 
     def test_production_rejects_default_credentials(self):
-        with patch.dict(os.environ, {"APP_ENV": "production"}):
-            with pytest.raises(ValueError, match="Default database credentials"):
-                PostgresSettings(
-                    database_url="postgresql://qprisma:qprisma123@localhost:5432/qprisma"
-                )
+        with (
+            patch.dict(os.environ, {"APP_ENV": "production"}),
+            pytest.raises(ValueError, match="Default database credentials"),
+        ):
+            PostgresSettings(
+                database_url="postgresql://qprisma:qprisma123@localhost:5432/qprisma"
+            )
 
     def test_production_accepts_secure_credentials(self):
         with patch.dict(os.environ, {"APP_ENV": "production"}):
@@ -111,9 +112,11 @@ class TestNeo4jSettings:
         assert s.is_configured is True
 
     def test_production_rejects_default_password(self):
-        with patch.dict(os.environ, {"APP_ENV": "production"}):
-            with pytest.raises(ValueError, match="Default Neo4j password"):
-                Neo4jSettings(password="qprisma123")
+        with (
+            patch.dict(os.environ, {"APP_ENV": "production"}),
+            pytest.raises(ValueError, match="Default Neo4j password"),
+        ):
+            Neo4jSettings(password="qprisma123")
 
     def test_production_accepts_secure_password(self):
         with patch.dict(os.environ, {"APP_ENV": "production"}):
@@ -135,14 +138,18 @@ class TestAuthSettings:
         assert s.jwt_refresh_token_expire_days == 30
 
     def test_production_rejects_default_secret(self):
-        with patch.dict(os.environ, {"APP_ENV": "production"}):
-            with pytest.raises(ValueError, match="Default JWT secret"):
-                AuthSettings(jwt_secret_key="your-secret-key-change-in-production")
+        with (
+            patch.dict(os.environ, {"APP_ENV": "production"}),
+            pytest.raises(ValueError, match="Default JWT secret"),
+        ):
+            AuthSettings(jwt_secret_key="your-secret-key-change-in-production")
 
     def test_production_rejects_short_secret(self):
-        with patch.dict(os.environ, {"APP_ENV": "production"}):
-            with pytest.raises(ValueError, match="at least 32 characters"):
-                AuthSettings(jwt_secret_key="tooshort")
+        with (
+            patch.dict(os.environ, {"APP_ENV": "production"}),
+            pytest.raises(ValueError, match="at least 32 characters"),
+        ):
+            AuthSettings(jwt_secret_key="tooshort")
 
     def test_production_accepts_secure_secret(self):
         with patch.dict(os.environ, {"APP_ENV": "production"}):
@@ -253,9 +260,11 @@ class TestClientFactories:
         mock_settings = MagicMock()
         mock_settings.azure.is_openai_configured = False
 
-        with patch("core.config.get_settings", return_value=mock_settings):
-            with pytest.raises(ValueError, match="not configured"):
-                create_azure_openai_client()
+        with (
+            patch("core.config.get_settings", return_value=mock_settings),
+            pytest.raises(ValueError, match="not configured"),
+        ):
+            create_azure_openai_client()
 
     def test_create_async_azure_openai_client_raises_without_config(self, reset_settings):
         from unittest.mock import MagicMock
@@ -265,6 +274,8 @@ class TestClientFactories:
         mock_settings = MagicMock()
         mock_settings.azure.is_openai_configured = False
 
-        with patch("core.config.get_settings", return_value=mock_settings):
-            with pytest.raises(ValueError, match="not configured"):
-                create_async_azure_openai_client()
+        with (
+            patch("core.config.get_settings", return_value=mock_settings),
+            pytest.raises(ValueError, match="not configured"),
+        ):
+            create_async_azure_openai_client()

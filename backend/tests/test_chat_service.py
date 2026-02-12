@@ -4,7 +4,7 @@ Tests for services/chat_service.py
 Covers chat with/without media context, context building, and error handling.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

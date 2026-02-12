@@ -1,169 +1,77 @@
-"""
-Comparación de Performance: Procesamiento Secuencial vs Paralelo
-"""
+"""Performance smoke tests for FFmpeg processing request latency."""
 
+import os
 import time
+from pathlib import Path
 
+import pytest
 import requests
 
-API_URL = "http://localhost:8000"
+pytestmark = [pytest.mark.integration, pytest.mark.e2e, pytest.mark.slow]
 
 
-def test_processing_performance():
-    """Compara el tiempo de procesamiento con diferentes métodos"""
+def _performance_enabled() -> bool:
+    return os.getenv("RUN_PERFORMANCE_TESTS", "").lower() in {"1", "true", "yes"}
 
-    print("=" * 70)
-    print("🚀 TEST DE PERFORMANCE: Procesamiento Paralelo vs Secuencial")
-    print("=" * 70)
 
-    # 1. Verificar API
-    print("\n1️⃣  Verificando API...")
+@pytest.fixture(scope="module")
+def api_url() -> str:
+    if not _performance_enabled():
+        pytest.skip("Performance tests disabled. Set RUN_PERFORMANCE_TESTS=true to enable.")
+    return os.getenv("QPRISMA_API_URL", "http://localhost:8000").rstrip("/")
+
+
+@pytest.fixture(scope="module")
+def auth_headers() -> dict[str, str]:
+    token = os.getenv("QPRISMA_E2E_BEARER_TOKEN")
+    if not token:
+        pytest.skip("Missing QPRISMA_E2E_BEARER_TOKEN for authenticated performance tests.")
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def ensure_api_available(api_url: str) -> None:
     try:
-        response = requests.get(f"{API_URL}/health", timeout=5)
-        health = response.json()
-        print(f"   ✓ API Status: {health['services']['api']}")
-    except Exception as e:
-        print(f"   ✗ Error: {e}")
-        return
-
-    # 2. Verificar video de prueba
-    print("\n2️⃣  Verificando video de prueba...")
-    import os
-
-    test_video = "test_data/test_video.mp4"
-
-    if not os.path.exists(test_video):
-        print(f"   ✗ Video no encontrado: {test_video}")
-        print("   💡 Ejecuta: uv run python create_test_video.py")
-        return
-
-    file_size = os.path.getsize(test_video) / (1024 * 1024)
-    print(f"   ✓ Video: {test_video} ({file_size:.2f} MB)")
-
-    # 3. Upload video
-    print("\n3️⃣  Subiendo video al servidor...")
-    try:
-        with open(test_video, "rb") as f:
-            files = {"file": (os.path.basename(test_video), f, "video/mp4")}
-            response = requests.post(f"{API_URL}/upload", files=files, timeout=120)
-
-        if response.status_code == 200:
-            upload_result = response.json()
-            media_id = upload_result["media_id"]
-            print(f"   ✓ Video subido: {media_id}")
-        else:
-            print(f"   ✗ Error: {response.status_code}")
-            return
-    except Exception as e:
-        print(f"   ✗ Error: {e}")
-        return
-
-    # Esperar procesamiento inicial
-    time.sleep(2)
-
-    # 4. Test con diferentes presets
-    presets_to_test = [
-        ("fast_preview", "20 frames, 640x360"),
-        ("balanced", "100 frames, 1280x720"),
-    ]
-
-    print("\n4️⃣  Probando diferentes configuraciones...")
-    print()
-
-    results = []
-
-    for preset_name, description in presets_to_test:
-        print(f"\n{'='*70}")
-        print(f"📊 TEST: Preset '{preset_name}' ({description})")
-        print(f"{'='*70}")
-
-        try:
-            # Iniciar procesamiento
-            start_time = time.time()
-
-            response = requests.post(
-                f"{API_URL}/process/video/ffmpeg",
-                params={"media_id": media_id, "preset": preset_name},
-                timeout=300,
-            )
-
-            request_time = time.time() - start_time
-
-            if response.status_code == 200:
-                result = response.json()
-                print(f"\n✅ Procesamiento iniciado en {request_time:.2f}s")
-                print(f"   Status: {result.get('message')}")
-
-                # Esperar a que complete (en producción usarías WebSocket)
-                print("\n⏳ Esperando procesamiento...")
-                time.sleep(15)  # Ajustar según preset
-
-                # Intentar obtener stats (si estuvieran disponibles)
-                print("\n📈 Estimación de performance:")
-                print(f"   • Request time: {request_time:.2f}s")
-                print(f"   • Preset: {preset_name}")
-
-                results.append(
-                    {
-                        "preset": preset_name,
-                        "description": description,
-                        "request_time": request_time,
-                        "status": "completed",
-                    }
-                )
-
-            else:
-                print(f"   ✗ Error: {response.status_code}")
-                results.append(
-                    {
-                        "preset": preset_name,
-                        "description": description,
-                        "status": "error",
-                        "error": response.text,
-                    }
-                )
-
-        except Exception as e:
-            print(f"   ✗ Error: {e}")
-            results.append(
-                {
-                    "preset": preset_name,
-                    "description": description,
-                    "status": "error",
-                    "error": str(e),
-                }
-            )
-
-    # 5. Resumen
-    print("\n" + "=" * 70)
-    print("📊 RESUMEN DE RESULTADOS")
-    print("=" * 70)
-
-    for result in results:
-        print(f"\n{result['preset']} ({result['description']}):")
-        if result["status"] == "completed":
-            print(f"  ✓ Request time: {result.get('request_time', 0):.2f}s")
-        else:
-            print(f"  ✗ Error: {result.get('error', 'Unknown')}")
-
-    print("\n💡 MEJORAS IMPLEMENTADAS:")
-    print("  • ThreadPoolExecutor con hasta 10 workers paralelos")
-    print("  • Batch embeddings (16 textos por request)")
-    print("  • Análisis de frames en paralelo")
-    print("  • Mejor uso de CPU y recursos")
-
-    print("\n📈 MEJORAS ESPERADAS:")
-    print("  • Secuencial: ~3-5s por frame (análisis + embedding)")
-    print("  • Paralelo (10 workers): ~0.3-0.5s por frame efectivo")
-    print("  • Speedup esperado: 5-10x más rápido")
-
-    print("\n🎯 EJEMPLO CON 100 FRAMES:")
-    print("  • Secuencial: ~300-500s (5-8 minutos)")
-    print("  • Paralelo: ~30-50s (0.5-1 minuto)")
-    print("  • Ahorro de tiempo: ~250-450s (4-7 minutos)")
-
-    print("\n" + "=" * 70)
+        response = requests.get(f"{api_url}/health", timeout=5)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        pytest.skip(f"API unavailable at {api_url}: {exc}")
 
 
-if __name__ == "__main__":
-    test_processing_performance()
+@pytest.fixture(scope="module")
+def uploaded_media_id(api_url: str, auth_headers: dict[str, str], sample_video_path: Path) -> str:
+    if not sample_video_path.exists():
+        pytest.skip(f"Sample video not found: {sample_video_path}")
+
+    with sample_video_path.open("rb") as file_obj:
+        response = requests.post(
+            f"{api_url}/upload",
+            files={"file": (sample_video_path.name, file_obj, "video/mp4")},
+            headers=auth_headers,
+            timeout=120,
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload.get("media_id")
+    return payload["media_id"]
+
+
+@pytest.mark.parametrize("preset", ["fast_preview", "balanced"])
+def test_processing_request_latency(
+    api_url: str,
+    auth_headers: dict[str, str],
+    uploaded_media_id: str,
+    preset: str,
+) -> None:
+    start = time.perf_counter()
+    response = requests.post(
+        f"{api_url}/process/video/ffmpeg",
+        params={"media_id": uploaded_media_id, "preset": preset},
+        headers=auth_headers,
+        timeout=120,
+    )
+    elapsed_seconds = time.perf_counter() - start
+
+    assert response.status_code == 200, response.text
+    assert elapsed_seconds < 120

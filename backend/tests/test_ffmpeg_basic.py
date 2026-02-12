@@ -1,96 +1,54 @@
-"""
-Test simple de extracción de frames con FFmpeg
-"""
+"""Basic FFmpeg frame extraction smoke test."""
 
-import os
+import shutil
 import subprocess
+from pathlib import Path
+
+import pytest
+
+pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
 
-def test_ffmpeg_extraction():
-    """Test básico de extracción de un frame"""
+@pytest.fixture(scope="module")
+def sample_video() -> Path:
+    video_path = Path(__file__).parent / "test_data" / "test_video.mp4"
+    if not video_path.exists():
+        pytest.skip(f"Sample video not found: {video_path}")
+    return video_path
 
-    video_path = "test_data/test_video.mp4"
-    output_path = "test_data/test_frame.jpg"
 
-    if not os.path.exists(video_path):
-        print(f"❌ Video no encontrado: {video_path}")
-        return False
+@pytest.fixture(scope="module")
+def output_frame_path() -> Path:
+    return Path(__file__).parent / "test_data" / "test_frame.jpg"
 
-    print("🎬 Testing FFmpeg frame extraction")
-    print(f"   Video: {video_path}")
-    print(f"   Output: {output_path}")
 
-    # Comando simple para extraer un frame en t=5s
-    cmd = [
+def test_ffmpeg_extraction(sample_video: Path, output_frame_path: Path) -> None:
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg executable not found in PATH")
+
+    output_frame_path.unlink(missing_ok=True)
+    command = [
         "ffmpeg",
         "-ss",
-        "5.0",  # Seek a 5 segundos
+        "5.0",
         "-i",
-        video_path,
+        str(sample_video),
         "-vframes",
-        "1",  # Solo 1 frame
+        "1",
         "-q:v",
-        "2",  # Calidad alta
-        "-y",  # Sobrescribir
-        output_path,
+        "2",
+        "-y",
+        str(output_frame_path),
     ]
 
-    print(f"\n📝 Comando: {' '.join(cmd)}\n")
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-
-        if os.path.exists(output_path):
-            size = os.path.getsize(output_path)
-            print("✅ Frame extraído exitosamente!")
-            print(f"   Archivo: {output_path}")
-            print(f"   Tamaño: {size:,} bytes")
-
-            # Mostrar info del video
-            print("\n📊 Info del video:")
-            info_cmd = [
-                "ffprobe",
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=width,height,r_frame_rate,duration",
-                "-of",
-                "default=noprint_wrappers=1",
-                video_path,
-            ]
-
-            info_result = subprocess.run(info_cmd, capture_output=True, text=True)
-            print(info_result.stdout)
-
-            return True
-        else:
-            print("❌ Error: Frame no fue creado")
-            print("\n📋 FFmpeg stdout:")
-            print(result.stdout)
-            print("\n❌ FFmpeg stderr:")
-            print(result.stderr)
-            return False
-
-    except subprocess.TimeoutExpired:
-        print("❌ Timeout: FFmpeg tardó más de 10 segundos")
-        return False
-    except Exception as e:
-        print(f"❌ Error: {type(e).__name__}: {e}")
-        return False
-
-
-if __name__ == "__main__":
-    print("=" * 70)
-    print("🧪 Test de FFmpeg - Extracción de Frame")
-    print("=" * 70)
-
-    success = test_ffmpeg_extraction()
-
-    print("\n" + "=" * 70)
-    if success:
-        print("✅ TEST EXITOSO - FFmpeg está funcionando correctamente")
-    else:
-        print("❌ TEST FALLIDO - Revisar configuración de FFmpeg")
-    print("=" * 70)
+    assert result.returncode == 0, result.stderr
+    assert output_frame_path.exists()
+    assert output_frame_path.stat().st_size > 0

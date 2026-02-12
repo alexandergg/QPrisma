@@ -101,6 +101,7 @@ ignore = [
     "B008",   # do not perform function calls in argument defaults (FastAPI Depends)
     "B904",   # raise-without-from-inside-except (too noisy, low priority)
     "B905",   # zip without strict= (Python 3.10+)
+    "UP042",  # StrEnum migration tracked separately
     "SIM105", # suppressible-exception (contextlib.suppress - stylistic)
     "SIM108", # ternary operator (sometimes less readable)
 ]

@@ -12,7 +12,6 @@ from pydantic import ValidationError
 
 from models.user import Token, TokenData, User, UserCreate, UserInDB
 
-
 # =============================================================================
 # UserCreate Password Validation
 # =============================================================================

@@ -8,8 +8,8 @@ QPrismaException hierarchy, and domain-specific exceptions.
 import pytest
 
 from core.exceptions import (
-    APIError,
     AccessDeniedError,
+    APIError,
     ConfigurationError,
     FrameExtractionError,
     GraphConnectionError,
@@ -27,7 +27,6 @@ from core.exceptions import (
     service_unavailable_error,
     validation_error,
 )
-
 
 # =============================================================================
 # APIError

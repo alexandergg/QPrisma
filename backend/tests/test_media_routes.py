@@ -8,7 +8,6 @@ from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.mark.unit
@@ -29,16 +28,16 @@ class TestUploadMedia:
             patch("api.routes.media_routes.get_blob_service", return_value=mock_blob_service),
             patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
             patch("api.routes.media_routes.get_storage_container_name", return_value="media"),
+            patch("tasks.video_tasks.process_video_pipeline.apply_async") as mock_apply_async,
         ):
-            # Mock celery to avoid ImportError
-            with patch("api.routes.media_routes.process_video_pipeline", create=True):
-                resp = authenticated_client.post(
-                    "/upload",
-                    files={"file": ("test.mp4", BytesIO(b"fake_video_data"), "video/mp4")},
-                )
+            mock_apply_async.return_value = MagicMock(id="job_test123")
+            resp = authenticated_client.post(
+                "/upload",
+                files={"file": ("test.mp4", BytesIO(b"fake_video_data"), "video/mp4")},
+            )
 
-        # May be 200 or 503 depending on celery import, but blob service is there
-        assert resp.status_code in (200, 503)
+        assert resp.status_code == 200
+        assert resp.json()["job_id"] == "job_test123"
 
     def test_upload_image_success(self, authenticated_client, mock_blob_service, mock_db_service):
         with (

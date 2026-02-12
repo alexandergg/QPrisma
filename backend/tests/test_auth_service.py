@@ -13,8 +13,6 @@ from fastapi import HTTPException
 from freezegun import freeze_time
 
 from models.user import UserCreate
-from services.auth_service import AuthService
-
 
 # =============================================================================
 # Password Hashing
@@ -243,16 +241,18 @@ class TestLogin:
         mock_db = MagicMock()
         mock_db.get_user_by_email.return_value = None
 
-        with patch("services.database_service.get_database_service", return_value=mock_db):
-            with patch.object(
+        with (
+            patch("services.database_service.get_database_service", return_value=mock_db),
+            patch.object(
                 type(auth_service),
                 "login",
                 wraps=auth_service.login,
-            ):
-                # In non-dev mode, should return error
-                with patch("services.auth_service.settings") as mock_settings:
-                    mock_settings.app.environment = "production"
-                    result = auth_service.login("test@example.com", "WrongPass1")
+            ),
+            patch("services.auth_service.settings") as mock_settings,
+        ):
+            # In non-dev mode, should return error
+            mock_settings.app.environment = "production"
+            result = auth_service.login("test@example.com", "WrongPass1")
 
         assert "error" in result
 

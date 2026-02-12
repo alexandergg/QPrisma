@@ -11,7 +11,6 @@ from hypothesis import strategies as st
 
 from core.serializers import sanitize_for_json
 
-
 # =============================================================================
 # Standard Tests
 # =============================================================================

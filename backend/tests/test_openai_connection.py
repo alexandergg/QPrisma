@@ -1,74 +1,68 @@
-"""
-Test de conexión con Azure OpenAI
-"""
+"""Integration tests for Azure OpenAI connectivity."""
 
 import os
 
+import pytest
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 
 load_dotenv()
 
-endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
-api_key = os.getenv("AZURE_OPENAI_API_KEY")
-resource_name = os.getenv("AZURE_OPENAI_RESOURCE_NAME", "openai-qprisma-dev")
-gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT")
-embedding_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_EMBEDDING")
-api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+pytestmark = [pytest.mark.integration, pytest.mark.requires_azure]
 
-print("=" * 60)
-print("Configuración Azure OpenAI")
-print("=" * 60)
-print(f"Endpoint original: {endpoint}")
-print(f"API Key: {api_key[:8]}...")
-print(f"GPT Deployment: {gpt_deployment}")
-print(f"Embedding Deployment: {embedding_deployment}")
-print(f"API Version: {api_version}")
-print()
 
-endpoint_final = endpoint
-print(f"Endpoint final: {endpoint_final}")
-print()
+def _integration_enabled() -> bool:
+    return os.getenv("RUN_INTEGRATION_TESTS", "").lower() in {"1", "true", "yes"}
 
-# Test 1: Crear cliente
-print("Test 1: Creando cliente...")
-try:
-    client = AzureOpenAI(azure_endpoint=endpoint_final, api_key=api_key, api_version=api_version)
-    print("✓ Cliente creado correctamente")
-except Exception as e:
-    print(f"✗ Error creando cliente: {e}")
-    exit(1)
 
-# Test 2: Generar embedding
-print("\nTest 2: Generando embedding...")
-try:
-    response = client.embeddings.create(model=embedding_deployment, input="Hello world")
+@pytest.fixture(scope="module")
+def azure_config() -> dict[str, str]:
+    if not _integration_enabled():
+        pytest.skip("Integration tests disabled. Set RUN_INTEGRATION_TESTS=true to enable.")
+
+    config = {
+        "endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+        "api_key": os.getenv("AZURE_OPENAI_API_KEY", ""),
+        "gpt_deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", ""),
+        "embedding_deployment": os.getenv("AZURE_OPENAI_DEPLOYMENT_EMBEDDING", ""),
+        "api_version": os.getenv("AZURE_OPENAI_API_VERSION", ""),
+    }
+    missing = [key for key, value in config.items() if not value]
+    if missing:
+        pytest.skip(f"Missing Azure OpenAI settings: {', '.join(missing)}")
+    return config
+
+
+@pytest.fixture(scope="module")
+def openai_client(azure_config: dict[str, str]) -> AzureOpenAI:
+    return AzureOpenAI(
+        azure_endpoint=azure_config["endpoint"],
+        api_key=azure_config["api_key"],
+        api_version=azure_config["api_version"],
+    )
+
+
+def test_create_azure_openai_client(openai_client: AzureOpenAI) -> None:
+    assert openai_client is not None
+
+
+def test_generate_embedding(openai_client: AzureOpenAI, azure_config: dict[str, str]) -> None:
+    response = openai_client.embeddings.create(
+        model=azure_config["embedding_deployment"],
+        input="Hello world",
+    )
     embedding = response.data[0].embedding
-    print(f"✓ Embedding generado: {len(embedding)} dimensiones")
-    print(f"  Primeros 5 valores: {embedding[:5]}")
-except Exception as e:
-    print(f"✗ Error generando embedding: {e}")
-    import traceback
+    assert isinstance(embedding, list)
+    assert len(embedding) > 0
+    assert all(isinstance(value, float) for value in embedding[:10])
 
-    traceback.print_exc()
 
-# Test 3: Chat completion
-print("\nTest 3: Chat completion...")
-try:
-    response = client.chat.completions.create(
-        model=gpt_deployment,
+def test_chat_completion(openai_client: AzureOpenAI, azure_config: dict[str, str]) -> None:
+    response = openai_client.chat.completions.create(
+        model=azure_config["gpt_deployment"],
         messages=[{"role": "user", "content": "Say hello in Spanish"}],
         max_tokens=50,
     )
     message = response.choices[0].message.content
-    print("✓ Chat completion exitoso")
-    print(f"  Respuesta: {message}")
-except Exception as e:
-    print(f"✗ Error en chat: {e}")
-    import traceback
-
-    traceback.print_exc()
-
-print("\n" + "=" * 60)
-print("Tests completados")
-print("=" * 60)
+    assert isinstance(message, str)
+    assert message.strip()

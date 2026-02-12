@@ -4,10 +4,9 @@ Tests for api/routes/chat_routes.py
 Covers chat, search, and agent chat endpoints.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.mark.unit

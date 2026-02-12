@@ -142,7 +142,7 @@ def compute_all_metrics(
         r
         for r in results
         if r.predicted_choice
-        and entry_map.get(r.question_id, None)
+        and entry_map.get(r.question_id)
         and entry_map[r.question_id].correct_answer
     ]
     mc_entries = [entry_map[r.question_id] for r in mc_results]

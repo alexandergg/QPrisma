@@ -6,6 +6,7 @@ Uses SQLite in-memory for fast, isolated tests of CRUD operations.
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from models.database import Base
@@ -83,7 +84,7 @@ class TestUserCRUD:
 
     def test_create_duplicate_email_raises(self, db_service):
         db_service.create_user(email="dup@example.com", hashed_password="hash1", full_name="First")
-        with pytest.raises(Exception):
+        with pytest.raises(IntegrityError):
             db_service.create_user(email="dup@example.com", hashed_password="hash2", full_name="Second")
 
 

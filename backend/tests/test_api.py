@@ -4,10 +4,8 @@ Tests for api/main.py core endpoints.
 Covers root health check, detailed health, and config endpoints.
 """
 
-from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 @pytest.mark.unit

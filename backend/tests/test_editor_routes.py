@@ -7,7 +7,6 @@ Covers project CRUD, clip CRUD, clip reordering.
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 
 def _mock_project(user_id, project_id="proj_123", source_media_id="media_456"):
