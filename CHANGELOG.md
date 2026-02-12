@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Hybrid memory architecture for LangGraph agents**:
+  - Durable full tool-output artifacts via `ToolArtifactService` (Redis cache + Azure Blob + PostgreSQL metadata).
+  - Mem0 integration via `Mem0MemoryService` for semantic summary add/search (feature-flagged with graceful fallback).
+  - Agent state extensions: compact `memory_context` plus `artifact_refs` for precise evidence recovery.
+- **Memory-focused test coverage**:
+  - Added targeted tests for artifact persistence/retrieval, Mem0 service behavior, and agent memory context/rehydration flow.
+
+### Changed
+- **Prompt context pipeline upgraded for long conversations**:
+  - Hybrid candidate retrieval (local memory + Mem0 + artifact refs) with reranking (lexical overlap + semantic score + recency).
+  - Dynamic memory context budget per query and selective artifact rehydration for detail-heavy prompts.
+  - Added structured logs and metrics (latency, candidate counts, snippet counts, budget usage, rehydration attempts/success/errors).
+- **Infrastructure runtime wiring**:
+  - `infra/main.bicep` now injects `MEM0_*` and `ARTIFACT_*` environment variables into API/Worker Container Apps.
+  - `MEM0_API_KEY` added as secure Container Apps secret reference (`mem0-api-key`).
+
 ### Changed
 - **Blob Transfer Performance Optimization**: Overhauled all Azure Blob Storage upload/download paths for 3-5x faster transfers on large videos with ~60% less RAM usage.
   - `dependencies.py`: `BlobServiceClient` now configured with `max_single_put_size=256MB`, `max_block_size=100MB`, `max_concurrency=8` — all blob operations parallelized automatically.

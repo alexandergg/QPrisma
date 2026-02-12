@@ -82,6 +82,17 @@ Two LangGraph StateGraph agents in `backend/agent/`:
 
 **Checkpointers**: Production cascade — PostgreSQL → Redis → MemorySaver
 
+### Agent Memory Architecture (Current)
+- **Short-term operational memory**: LangGraph checkpointer persists full thread state for resumability/retries.
+- **Durable full tool outputs**: `ToolArtifactService` stores complete payloads (Redis hot cache + Blob + PostgreSQL metadata).
+- **Semantic long-term memory**: `Mem0MemoryService` persists/retrieves compact summaries when enabled.
+- **Prompt-time context strategy**:
+  - Hybrid retrieval (local memory + Mem0 + artifact refs)
+  - Lightweight reranking (lexical overlap + semantic score + recency)
+  - Dynamic context budget before model call
+  - Selective artifact rehydration for detail-heavy queries
+- **Observability**: Use structured logger + `Metrics` counters/histograms (no `print()` in runtime paths).
+
 ### LangGraph Version Notes (v1.0+)
 - `from langgraph.types import RetryPolicy` (NOT `langgraph.pregel`)
 - Use `retry_policy=` parameter in `add_node()` (NOT `retry=`)
@@ -201,6 +212,14 @@ async def list_items(
 
 Backend: `backend/.env` — requires AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_STORAGE_CONNECTION_STRING, DATABASE_URL, NEO4J_URI, REDIS_URL, JWT_SECRET_KEY
 
+Optional memory/artifact runtime variables:
+- `MEM0_ENABLED` (true/false)
+- `MEM0_API_KEY` (required for Mem0 Cloud)
+- `MEM0_TOP_K` (retrieval top-k)
+- `ARTIFACT_CACHE_TTL_SECONDS`
+- `ARTIFACT_CACHE_KEY_PREFIX`
+- `ARTIFACT_BLOB_PREFIX`
+
 Frontend: `frontend/.env.local` — requires NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ## CI/CD Pipeline
@@ -268,6 +287,7 @@ infra/
 - **Managed Identity**: API/Worker get Key Vault Secrets User role via system-assigned identity
 - **KEDA Autoscaling**: Worker scales 1-3 replicas based on Celery Redis queue depth
 - **Container App Secrets**: Database URLs, API keys stored as secrets, referenced by env vars
+- **Memory Runtime Wiring**: `infra/main.bicep` injects `MEM0_*` and `ARTIFACT_*` vars into API/Worker Container Apps, with `MEM0_API_KEY` provided as secret reference.
 
 ## Evaluation Framework
 

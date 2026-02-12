@@ -21,11 +21,11 @@ This folder contains configuration for Claude Code and reference documentation f
 
 | File/Folder | Used By | Purpose |
 |-------------|---------|---------|
-| `CLAUDE.md` (root) | Claude Code | Main project instructions - **always read** |
+| `CLAUDE.md` (root) | Claude Code | Main project instructions - **always read** (includes current LangGraph memory/context architecture) |
 | `settings.json` | Claude Code | Project paths, conventions, code style |
 | `commands/*.md` | Claude Code | Slash commands (e.g., `/create-route`) |
 | `agents/*.md` | Reference only | Specialist documentation (not auto-loaded) |
-| `.github/copilot-instructions.md` | GitHub Copilot | Code style and patterns for Copilot |
+| `.github/copilot-instructions.md` | GitHub Copilot | Code style and patterns for Copilot (includes hybrid memory + rehydration patterns) |
 
 ## Commands (21 total)
 

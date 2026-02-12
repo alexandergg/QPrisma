@@ -108,6 +108,19 @@ graph TD
 *   **⚡ Real-time Processing**: WebSocket-enabled status updates provide immediate feedback on long-running ingestion tasks.
 *   **💰 Cost Optimization**: Integrated support for Azure OpenAI Batch API to reduce processing costs by up to 50% for non-urgent workloads.
 
+### Memory & Context Engineering (LangGraph)
+
+QPrisma uses a layered memory design to keep responses accurate without context-window collapse:
+
+- **Short-term state**: LangGraph checkpointer for thread continuity and resumability.
+- **Full tool outputs**: durable artifact storage (`ToolArtifactService`) in Redis + Blob + PostgreSQL metadata.
+- **Long-term semantic memory**: Mem0 summaries (`Mem0MemoryService`) when enabled.
+- **Prompt-time context strategy**:
+  - hybrid retrieval from local memory + Mem0 + artifact refs,
+  - lightweight reranking (lexical overlap + semantic score + recency),
+  - dynamic context budget,
+  - selective artifact rehydration for detail-heavy questions.
+
 ## Business Scenario
 
 Organizations today generate vast amounts of video data—from warehouse feeds to training materials—that remains "dark data" because it is difficult to search and analyze. QPrisma addresses these challenges:
@@ -381,6 +394,13 @@ The infrastructure is defined in `infra/` using Azure Bicep (12 modules):
 - **Data**: PostgreSQL Flexible Server, Azure Managed Redis Enterprise, Azure Blob Storage
 - **Security**: Key Vault (RBAC + managed identity), Container Registry
 - **Observability**: Log Analytics workspace (30-day retention)
+
+### Azure Container Apps Memory Runtime Variables
+
+`infra/main.bicep` now wires memory/artifact runtime configuration into API and Worker Container Apps:
+
+- Plain env vars: `MEM0_ENABLED`, `MEM0_TOP_K`, `ARTIFACT_CACHE_TTL_SECONDS`, `ARTIFACT_CACHE_KEY_PREFIX`, `ARTIFACT_BLOB_PREFIX`
+- Secret env var: `MEM0_API_KEY` via Container Apps secret reference (`mem0-api-key`)
 
 For detailed infrastructure and CI/CD documentation, see **[Infrastructure Guide](./docs/INFRASTRUCTURE.md)**.
 

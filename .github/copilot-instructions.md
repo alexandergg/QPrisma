@@ -126,6 +126,21 @@ async def my_tool(media_id: str, query: str) -> dict:
         return {"error": str(e), "results": [], "count": 0}
 ```
 
+### LangGraph Memory & Context Patterns
+
+Use the current layered memory approach:
+- **Checkpointer** for thread-scoped operational state (resume/retry continuity)
+- **Artifact storage** for full tool payloads (`ToolArtifactService`: Redis + Blob + Postgres metadata)
+- **Mem0** for compact semantic summaries (optional, feature-flagged)
+
+Before each model call, prefer:
+1. Hybrid candidate collection (local memory + Mem0 + artifact refs)
+2. Reranking (lexical overlap + semantic signal + recency)
+3. Dynamic context budget
+4. Selective artifact rehydration only for detail-heavy queries
+
+Never use `print()` in runtime paths; use structured logging (`agent.utils.observability.get_logger`) and `Metrics`.
+
 ### FastAPI Route Pattern
 
 ```python
@@ -343,4 +358,6 @@ it('handles click events', async () => {
 - Use Redis caching for frequent queries
 - Batch Azure OpenAI calls when possible (50% cost savings)
 - Truncate large tool results to prevent context overflow
+- Keep full tool payloads in artifacts and inject compact/ranked context into prompts
+- Rehydrate artifacts selectively instead of expanding every tool output
 - `@lru_cache(maxsize=4)` on LLM model creation functions
