@@ -123,6 +123,14 @@ def get_graph_search_service():
     return _graph_search_service
 
 
+async def get_tool_artifact_service():
+    """Get ToolArtifactService singleton."""
+    from services.tool_artifact_service import (
+        get_tool_artifact_service as _get_tool_artifact_service,
+    )
+
+    return await _get_tool_artifact_service()
+
 def get_storage_container_name() -> str:
     """Get Azure Storage container name for media."""
     return settings.azure.storage_container_name

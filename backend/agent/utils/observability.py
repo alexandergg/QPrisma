@@ -281,6 +281,19 @@ class Metrics:
     TOOL_ITERATIONS = "agent_tool_iterations"
     ERROR_RECOVERIES = "agent_error_recoveries_total"
 
+    # Memory metrics
+    MEMORY_RETRIEVAL_DURATION = "agent_memory_retrieval_duration_seconds"
+    MEMORY_RETRIEVAL_ERRORS = "agent_memory_retrieval_errors_total"
+    MEMORY_CANDIDATES = "agent_memory_candidates"
+    MEMORY_SNIPPETS_INJECTED = "agent_memory_snippets_injected"
+    MEMORY_BUDGET_CHARS = "agent_memory_budget_chars"
+
+    # Artifact rehydration metrics
+    ARTIFACT_REHYDRATION_DURATION = "agent_artifact_rehydration_duration_seconds"
+    ARTIFACT_REHYDRATION_ATTEMPTS = "agent_artifact_rehydration_attempts_total"
+    ARTIFACT_REHYDRATION_SUCCESSES = "agent_artifact_rehydration_successes_total"
+    ARTIFACT_REHYDRATION_ERRORS = "agent_artifact_rehydration_errors_total"
+
     @classmethod
     def inc_counter(cls, name: str, labels: dict[str, str] | None = None, value: float = 1) -> None:
         """Increment a counter metric."""

@@ -155,6 +155,8 @@ class AgentState(TypedDict, total=False):
     consecutive_errors: int
     last_error: str | None
     partial_results: list[dict]  # Results gathered before errors
+    memory_context: list[str]  # Compact memory snippets from tool outputs
+    artifact_refs: list["ToolArtifactRef"]  # References to full tool outputs stored externally
 
     # Metadata
     user_id: str | None
@@ -237,6 +239,15 @@ class EntityMention(TypedDict, total=False):
     relevance: float
 
 
+class ToolArtifactRef(TypedDict, total=False):
+    """Reference to a full tool output persisted in artifact storage."""
+
+    artifact_id: str
+    tool_call_id: str | None
+    tool_name: str
+    summary: str
+
+
 def create_agent_state(
     messages: list[AnyMessage],
     media_id: str | None = None,
@@ -301,6 +312,8 @@ def create_agent_state(
         consecutive_errors=0,
         last_error=None,
         partial_results=[],
+        memory_context=[],
+        artifact_refs=[],
         user_id=user_id,
         session_id=session_id,
     )

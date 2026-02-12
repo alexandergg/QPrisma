@@ -1,49 +1,22 @@
 """
 QPrisma Test Configuration
 
-This file contains shared fixtures and configuration for pytest.
+Shared fixtures and configuration for pytest.
+Provides FastAPI TestClient, authentication helpers, and mock services.
 """
 
-import asyncio
 import os
 import sys
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
 
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
-
-# =============================================================================
-# Pytest Configuration
-# =============================================================================
-
-
-def pytest_configure(config):
-    """Configure pytest markers."""
-    config.addinivalue_line("markers", "unit: mark test as unit test")
-    config.addinivalue_line("markers", "integration: mark test as integration test")
-    config.addinivalue_line("markers", "e2e: mark test as end-to-end test")
-    config.addinivalue_line("markers", "slow: mark test as slow running")
-    config.addinivalue_line("markers", "requires_azure: mark test as requiring Azure services")
-    config.addinivalue_line("markers", "requires_redis: mark test as requiring Redis")
-    config.addinivalue_line("markers", "requires_neo4j: mark test as requiring Neo4j")
-    config.addinivalue_line("markers", "requires_postgres: mark test as requiring PostgreSQL")
-
-
-# =============================================================================
-# Event Loop Fixture
-# =============================================================================
-
-
-@pytest.fixture(scope="session")
-def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
-    """Create an event loop for the test session."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 # =============================================================================
@@ -51,40 +24,217 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
 # =============================================================================
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="session", autouse=True)
 def test_env():
-    """Set up test environment variables."""
+    """Set up test environment variables for the entire session."""
     original_env = os.environ.copy()
 
-    # Set test-specific environment variables
     os.environ.setdefault("APP_ENV", "test")
     os.environ.setdefault("LOG_LEVEL", "WARNING")
+    # Prevent production validators from firing
+    os.environ.pop("ENVIRONMENT", None)
 
     yield os.environ
 
-    # Restore original environment
     os.environ.clear()
     os.environ.update(original_env)
 
 
 # =============================================================================
-# API Client Fixtures
+# Settings Fixtures
 # =============================================================================
 
 
 @pytest.fixture
-def api_base_url() -> str:
-    """Get the API base URL for tests."""
-    return os.environ.get("TEST_API_URL", "http://localhost:8000")
+def reset_settings():
+    """Reset the cached settings singleton between tests."""
+    from core.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+# =============================================================================
+# FastAPI App & Client Fixtures
+# =============================================================================
 
 
 @pytest.fixture
-def api_headers() -> dict:
-    """Get default headers for API requests."""
-    return {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+def app(reset_settings):
+    """
+    Create a FastAPI app with dependency overrides for testing.
+
+    Resets all singleton services to prevent test pollution.
+    """
+    import api.dependencies as deps
+
+    # Reset singletons
+    deps._blob_service = None
+    deps._openai_client = None
+    deps._async_openai_client = None
+    deps._video_processor = None
+    deps._auth_service = None
+    deps._graph_search_service = None
+
+    from api.main import app as fastapi_app
+
+    yield fastapi_app
+
+    # Cleanup overrides
+    fastapi_app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(app) -> Generator[TestClient, None, None]:
+    """Sync TestClient for route tests."""
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c
+
+
+@pytest.fixture
+async def async_client(app):
+    """Async httpx client for async route tests."""
+    from httpx import ASGITransport, AsyncClient
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac
+
+
+# =============================================================================
+# Auth Service & Token Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def auth_service():
+    """Create a real AuthService instance for unit tests."""
+    from services.auth_service import AuthService
+
+    return AuthService()
+
+
+@pytest.fixture
+def test_user():
+    """A standard test user."""
+    from models.user import User
+
+    return User(
+        id="user_test123",
+        email="test@example.com",
+        full_name="Test User",
+        is_active=True,
+        is_superuser=False,
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+
+
+@pytest.fixture
+def superuser():
+    """A superuser for admin tests."""
+    from models.user import User
+
+    return User(
+        id="user_admin456",
+        email="admin@example.com",
+        full_name="Admin User",
+        is_active=True,
+        is_superuser=True,
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2024, 1, 1, tzinfo=UTC),
+    )
+
+
+@pytest.fixture
+def auth_token(auth_service, test_user):
+    """Generate a valid JWT access token for test_user."""
+    return auth_service.create_access_token(
+        {"sub": test_user.id, "email": test_user.email}
+    )
+
+
+@pytest.fixture
+def auth_headers(auth_token):
+    """HTTP headers with valid Bearer token."""
+    return {"Authorization": f"Bearer {auth_token}"}
+
+
+@pytest.fixture
+def authenticated_app(app, test_user):
+    """
+    App with get_current_user overridden to return test_user.
+    Use this for route tests that need authentication without real JWT.
+    """
+    from api.dependencies import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: test_user
+    return app
+
+
+@pytest.fixture
+def authenticated_client(authenticated_app) -> Generator[TestClient, None, None]:
+    """TestClient with authentication pre-configured."""
+    with TestClient(authenticated_app, raise_server_exceptions=False) as c:
+        yield c
+
+
+# =============================================================================
+# Mock Service Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def mock_db_service():
+    """Mocked DatabaseService with common methods."""
+    mock = MagicMock()
+    mock.health_check.return_value = {"status": "healthy"}
+    mock.get_user_by_email.return_value = None
+    mock.get_media.return_value = None
+    mock.get_media_by_user.return_value = []
+    mock.get_media_status.return_value = None
+    mock.create_media.return_value = MagicMock(id="media_123")
+    mock.create_user.return_value = MagicMock(id="user_new123", email="new@example.com")
+    mock.get_project.return_value = None
+    mock.get_projects_by_user.return_value = []
+    mock.get_clip.return_value = None
+    mock.get_clips_by_project.return_value = []
+    return mock
+
+
+@pytest.fixture
+def mock_blob_service():
+    """Mocked BlobServiceClient."""
+    mock = MagicMock()
+    mock_blob_client = MagicMock()
+    mock_blob_client.upload_blob.return_value = None
+    mock_blob_client.get_blob_properties.return_value = MagicMock(size=1024)
+    mock.get_blob_client.return_value = mock_blob_client
+    return mock
+
+
+@pytest.fixture
+def mock_openai_client():
+    """Mocked AsyncAzureOpenAI client."""
+    mock = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content="Test response"))]
+    mock.chat.completions.create = AsyncMock(return_value=mock_response)
+    return mock
+
+
+@pytest.fixture
+def mock_graph_search_service():
+    """Mocked GraphSearchService."""
+    mock = AsyncMock()
+    mock.hybrid_search = AsyncMock(
+        return_value=MagicMock(results=[], total_results=0)
+    )
+    mock.graph_service = MagicMock(is_connected=True)
+    return mock
 
 
 # =============================================================================
@@ -108,30 +258,6 @@ def sample_video_path(test_data_dir: Path) -> Path:
 def sample_frame_path(test_data_dir: Path) -> Path:
     """Get path to sample test frame."""
     return test_data_dir / "test_frame.jpg"
-
-
-# =============================================================================
-# Service Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-async def cache_service() -> AsyncGenerator:
-    """Create a CacheService instance for testing."""
-    try:
-        from services.cache_service import CacheConfig, CacheService
-
-        config = CacheConfig(key_prefix="test_qprisma", max_memory_items=100)
-        cache = CacheService(config=config)
-        await cache.connect()
-
-        yield cache
-
-        # Cleanup
-        await cache.clear_all()
-        await cache.disconnect()
-    except ImportError:
-        pytest.skip("CacheService not available")
 
 
 # =============================================================================

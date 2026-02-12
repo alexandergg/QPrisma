@@ -27,6 +27,7 @@ from agent.state.agent_state import (
     RetryableError,
     # Metadata types
     SourceMetadata,
+    ToolArtifactRef,
     VideoContext,
     # Factory
     create_agent_state,
@@ -49,6 +50,7 @@ __all__ = [
     "NavigationAction",
     "ClipSuggestion",
     "EntityMention",
+    "ToolArtifactRef",
     # Factory
     "create_agent_state",
     # Utilities

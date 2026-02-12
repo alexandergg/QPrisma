@@ -14,6 +14,7 @@ Features:
 - Prometheus-style metrics
 """
 
+import json
 import os
 import re
 import time
@@ -50,6 +51,17 @@ EDITOR_WARN_TOOL_ITERATIONS = 6
 
 # Error thresholds for graceful degradation
 MAX_CONSECUTIVE_ERRORS = 3
+
+# Artifact rehydration budget (keeps prompt compact while restoring key details)
+ARTIFACT_REHYDRATION_MAX_ITEMS = 2
+ARTIFACT_REHYDRATION_MAX_TOTAL_CHARS = 3500
+ARTIFACT_REHYDRATION_ITEM_CHARS = 1400
+
+# Hybrid memory retrieval and reranking limits
+HYBRID_MEMORY_MAX_CANDIDATES = 24
+HYBRID_MEMORY_MAX_SNIPPETS = 6
+HYBRID_MEMORY_BASE_BUDGET_CHARS = 1200
+HYBRID_MEMORY_DETAIL_BUDGET_CHARS = 2200
 
 
 # =============================================================================
@@ -116,6 +128,589 @@ def extract_topics_from_messages(messages: list) -> list[str]:
             topics.update(entity_matches)
 
     return list(topics)[:10]  # Keep last 10 topics
+
+
+def _get_latest_human_query(messages: list) -> str:
+    """Extract the most recent human query text."""
+    for msg in reversed(messages):
+        if isinstance(msg, HumanMessage):
+            return msg.content if isinstance(msg.content, str) else str(msg.content)
+    return ""
+
+
+def _format_external_memory(memory: dict) -> str | None:
+    """Format one external memory entry as compact text."""
+    text = (
+        memory.get("memory")
+        or memory.get("text")
+        or memory.get("content")
+        or memory.get("summary")
+    )
+    if not isinstance(text, str) or not text:
+        return None
+
+    metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
+    artifact_id = metadata.get("artifact_id")
+    if artifact_id:
+        return f"{text[:180]} [artifact:{artifact_id}]"
+    return text[:180]
+
+
+def _extract_artifact_id(text: str) -> str | None:
+    """Extract artifact id marker from memory text."""
+    match = re.search(r"\[artifact:([^\]]+)\]", text)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _score_text_overlap(text: str, query_terms: set[str]) -> int:
+    """Score lexical overlap between a text snippet and query terms."""
+    if not query_terms:
+        return 0
+    lowered = text.lower()
+    return sum(1 for term in query_terms if term in lowered)
+
+
+def _memory_budget_chars(query: str) -> int:
+    """Compute dynamic memory injection budget based on query needs."""
+    if _is_detail_query(query):
+        return HYBRID_MEMORY_DETAIL_BUDGET_CHARS
+
+    query_term_count = len(_extract_query_terms(query))
+    if query_term_count >= 8:
+        return HYBRID_MEMORY_BASE_BUDGET_CHARS + 400
+
+    return HYBRID_MEMORY_BASE_BUDGET_CHARS
+
+
+def _agent_type_from_state(state: AgentState) -> str:
+    """Infer agent type label from state for observability metrics."""
+    return "editor" if state.get("project_context") else "video"
+
+
+def _extract_query_terms(query: str) -> set[str]:
+    """Extract lightweight keywords from query for artifact ranking."""
+    stop_words = {
+        "the",
+        "and",
+        "for",
+        "with",
+        "this",
+        "that",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "how",
+        "about",
+        "video",
+        "scene",
+        "please",
+    }
+    return {
+        term
+        for term in re.findall(r"\b[a-z0-9]{3,}\b", query.lower())
+        if term not in stop_words
+    }
+
+
+def _is_detail_query(query: str) -> bool:
+    """Detect if user asks for precision where full artifact detail helps."""
+    detail_hints = (
+        "exact",
+        "specific",
+        "detail",
+        "timestamp",
+        "timecode",
+        "quote",
+        "verbatim",
+        "full",
+        "complete",
+        "all results",
+        "evidence",
+    )
+    lowered = query.lower()
+    return any(hint in lowered for hint in detail_hints)
+
+
+def _score_artifact_ref(ref: dict, query_terms: set[str]) -> int:
+    """Score artifact reference relevance against current query terms."""
+    if not query_terms:
+        return 0
+    haystack = f"{ref.get('tool_name', '')} {ref.get('summary', '')}".lower()
+    return sum(1 for term in query_terms if term in haystack)
+
+
+def _select_artifact_refs_for_query(query: str, artifact_refs: list[dict]) -> list[dict]:
+    """Choose a small set of most relevant artifact refs for rehydration."""
+    recent_refs = list(reversed(artifact_refs[-20:]))
+    if not recent_refs:
+        return []
+
+    query_terms = _extract_query_terms(query)
+    detail_query = _is_detail_query(query)
+    scored = [
+        (_score_artifact_ref(ref, query_terms), index, ref) for index, ref in enumerate(recent_refs)
+    ]
+
+    if not detail_query and (not scored or max(score for score, _, _ in scored) <= 0):
+        return []
+
+    ranked = sorted(scored, key=lambda item: (item[0], -item[1]), reverse=True)
+    selected: list[dict] = []
+    seen_ids: set[str] = set()
+    for _, _, ref in ranked:
+        artifact_id = ref.get("artifact_id")
+        if not isinstance(artifact_id, str) or not artifact_id or artifact_id in seen_ids:
+            continue
+        selected.append(ref)
+        seen_ids.add(artifact_id)
+        if len(selected) >= ARTIFACT_REHYDRATION_MAX_ITEMS:
+            break
+
+    return selected
+
+
+def _format_artifact_payload_preview(payload: dict | list | str | None) -> str:
+    """Format artifact payload into compact text snippet for prompt hydration."""
+    if isinstance(payload, dict):
+        for key in (
+            "results",
+            "occurrences",
+            "highlights",
+            "timeline",
+            "moments",
+            "comparison",
+            "message",
+        ):
+            if key in payload:
+                return f"{key}: {json.dumps(payload[key], ensure_ascii=False)[:ARTIFACT_REHYDRATION_ITEM_CHARS]}"
+        return json.dumps(payload, ensure_ascii=False)[:ARTIFACT_REHYDRATION_ITEM_CHARS]
+
+    if isinstance(payload, list):
+        return json.dumps(payload, ensure_ascii=False)[:ARTIFACT_REHYDRATION_ITEM_CHARS]
+
+    if isinstance(payload, str):
+        return payload[:ARTIFACT_REHYDRATION_ITEM_CHARS]
+
+    if payload is None:
+        return ""
+
+    return str(payload)[:ARTIFACT_REHYDRATION_ITEM_CHARS]
+
+
+async def _search_external_memories(
+    state: AgentState,
+    config: RunnableConfig,
+    *,
+    limit: int = 5,
+) -> list[dict]:
+    """Retrieve raw semantic memory candidates from Mem0."""
+    from core.config import settings
+    retrieval_started = time.time()
+    metric_labels = {"source": "mem0", "agent": _agent_type_from_state(state)}
+
+    if not settings.mem0.enabled:
+        return []
+
+    query = _get_latest_human_query(state.get("messages", []))
+    if not query:
+        return []
+
+    try:
+        from services.mem0_memory_service import get_mem0_memory_service
+
+        service = await get_mem0_memory_service()
+        media_id = state.get("media_id")
+        if not media_id:
+            media_id = (state.get("project_context") or {}).get("source_media_id")
+        memories = await service.search_memories(
+            query=query,
+            user_id=state.get("user_id"),
+            session_id=state.get("session_id") or config.get("configurable", {}).get("thread_id"),
+            media_id=media_id,
+            project_id=state.get("project_id"),
+            limit=limit,
+        )
+    except (TypeError, ValueError, RuntimeError, ImportError) as exc:
+        Metrics.inc_counter(Metrics.MEMORY_RETRIEVAL_ERRORS, metric_labels)
+        logger.warning(f"Failed to retrieve external memories: {exc}")
+        return []
+
+    normalized_memories = [memory for memory in memories if isinstance(memory, dict)]
+    duration_seconds = time.time() - retrieval_started
+    Metrics.observe_histogram(Metrics.MEMORY_RETRIEVAL_DURATION, duration_seconds, metric_labels)
+    Metrics.observe_histogram(Metrics.MEMORY_CANDIDATES, len(normalized_memories), metric_labels)
+    logger.info(
+        "External memory retrieval completed",
+        source="mem0",
+        candidate_count=len(normalized_memories),
+        duration_ms=round(duration_seconds * 1000, 2),
+        limit=limit,
+    )
+
+    return normalized_memories
+
+
+async def _retrieve_external_memories(state: AgentState, config: RunnableConfig) -> list[str]:
+    """Retrieve compact semantic memories from Mem0 for the current query."""
+    memories = await _search_external_memories(state, config, limit=5)
+
+    snippets: list[str] = []
+    for memory in memories:
+        snippet = _format_external_memory(memory)
+        if snippet:
+            snippets.append(snippet)
+
+    return snippets[:5]
+
+
+async def _retrieve_hybrid_memory_context(
+    state: AgentState,
+    config: RunnableConfig,
+) -> tuple[list[str], list[str]]:
+    """Hybrid retrieval + reranking for memory candidates with dynamic context budget."""
+    retrieval_started = time.time()
+    metric_labels = {"source": "hybrid", "agent": _agent_type_from_state(state)}
+    query = _get_latest_human_query(state.get("messages", []))
+    if not query:
+        return [], []
+
+    query_terms = _extract_query_terms(query)
+    detail_query = _is_detail_query(query)
+    budget_chars = _memory_budget_chars(query)
+
+    candidates: list[dict] = []
+
+    local_memory = state.get("memory_context", [])
+    if isinstance(local_memory, list):
+        for index, entry in enumerate(reversed(local_memory[-20:])):
+            if not isinstance(entry, str) or not entry:
+                continue
+
+            lexical_score = _score_text_overlap(entry, query_terms)
+            recency_score = max(0.0, 1.0 - (index / 20))
+            artifact_id = _extract_artifact_id(entry)
+            rank_score = (lexical_score * 2.0) + recency_score
+            if detail_query and artifact_id:
+                rank_score += 0.5
+
+            candidates.append(
+                {
+                    "text": entry[:260],
+                    "artifact_id": artifact_id,
+                    "source": "local",
+                    "lexical_score": lexical_score,
+                    "rank_score": rank_score,
+                    "recency_score": recency_score,
+                }
+            )
+
+    external_memories = await _search_external_memories(state, config, limit=8)
+    for memory in external_memories:
+        snippet = _format_external_memory(memory)
+        if not snippet:
+            continue
+
+        metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
+        artifact_id = metadata.get("artifact_id") if isinstance(metadata.get("artifact_id"), str) else None
+        lexical_score = _score_text_overlap(snippet, query_terms)
+        semantic_score = memory.get("score")
+        semantic_score_value = float(semantic_score) if isinstance(semantic_score, int | float) else 0.0
+        rank_score = (lexical_score * 2.5) + (semantic_score_value * 1.5) + 0.4
+        if detail_query and artifact_id:
+            rank_score += 0.6
+
+        candidates.append(
+            {
+                "text": snippet[:260],
+                "artifact_id": artifact_id,
+                "source": "mem0",
+                "lexical_score": lexical_score,
+                "rank_score": rank_score,
+                "recency_score": 0.25,
+            }
+        )
+
+    artifact_refs = state.get("artifact_refs", [])
+    if isinstance(artifact_refs, list):
+        for index, ref in enumerate(reversed(artifact_refs[-20:])):
+            if not isinstance(ref, dict):
+                continue
+            summary = ref.get("summary")
+            if not isinstance(summary, str) or not summary:
+                continue
+
+            tool_name = ref.get("tool_name") if isinstance(ref.get("tool_name"), str) else "tool"
+            artifact_id = ref.get("artifact_id") if isinstance(ref.get("artifact_id"), str) else None
+            ref_text = summary if summary.lower().startswith(tool_name.lower()) else f"{tool_name}: {summary}"
+            lexical_score = _score_text_overlap(ref_text, query_terms)
+            recency_score = max(0.0, 1.0 - (index / 20))
+            rank_score = (lexical_score * 2.2) + (recency_score * 0.8)
+            if detail_query and artifact_id:
+                rank_score += 0.8
+
+            candidates.append(
+                {
+                    "text": ref_text[:260],
+                    "artifact_id": artifact_id,
+                    "source": "artifact_ref",
+                    "lexical_score": lexical_score,
+                    "rank_score": rank_score,
+                    "recency_score": recency_score,
+                }
+            )
+
+    if not candidates:
+        duration_seconds = time.time() - retrieval_started
+        Metrics.observe_histogram(Metrics.MEMORY_RETRIEVAL_DURATION, duration_seconds, metric_labels)
+        Metrics.observe_histogram(Metrics.MEMORY_CANDIDATES, 0, metric_labels)
+        Metrics.observe_histogram(Metrics.MEMORY_SNIPPETS_INJECTED, 0, metric_labels)
+        Metrics.observe_histogram(
+            Metrics.MEMORY_BUDGET_CHARS,
+            budget_chars,
+            {**metric_labels, "kind": "budget"},
+        )
+        Metrics.observe_histogram(
+            Metrics.MEMORY_BUDGET_CHARS,
+            0,
+            {**metric_labels, "kind": "used"},
+        )
+        logger.info(
+            "Hybrid memory retrieval completed",
+            candidate_count=0,
+            ranked_count=0,
+            snippet_count=0,
+            budget_chars=budget_chars,
+            used_chars=0,
+            prioritized_artifacts=0,
+            detail_query=detail_query,
+            query_terms=len(query_terms),
+            duration_ms=round(duration_seconds * 1000, 2),
+        )
+        return [], []
+
+    ranked = sorted(
+        candidates,
+        key=lambda item: (item["rank_score"], item["recency_score"]),
+        reverse=True,
+    )[:HYBRID_MEMORY_MAX_CANDIDATES]
+
+    snippets: list[str] = []
+    prioritized_artifact_ids: list[str] = []
+    seen_text: set[str] = set()
+    total_chars = 0
+
+    for candidate in ranked:
+        text = candidate.get("text")
+        if not isinstance(text, str) or not text:
+            continue
+
+        source = candidate.get("source")
+        source_label = source if isinstance(source, str) else "memory"
+        snippet = f"[{source_label}] {text}"
+        dedupe_key = snippet.lower()
+        if dedupe_key in seen_text:
+            continue
+
+        projected_chars = total_chars + len(snippet)
+        if snippets and projected_chars > budget_chars:
+            continue
+        if not snippets and len(snippet) > budget_chars:
+            snippet = snippet[:budget_chars]
+            projected_chars = len(snippet)
+
+        snippets.append(snippet)
+        seen_text.add(dedupe_key)
+        total_chars = projected_chars
+
+        artifact_id = candidate.get("artifact_id")
+        lexical_score = candidate.get("lexical_score")
+        if (
+            isinstance(artifact_id, str)
+            and artifact_id
+            and artifact_id not in prioritized_artifact_ids
+            and (detail_query or (isinstance(lexical_score, int | float) and lexical_score > 0))
+        ):
+            prioritized_artifact_ids.append(artifact_id)
+
+        if len(snippets) >= HYBRID_MEMORY_MAX_SNIPPETS or total_chars >= budget_chars:
+            break
+
+    prioritized = prioritized_artifact_ids[:ARTIFACT_REHYDRATION_MAX_ITEMS]
+    duration_seconds = time.time() - retrieval_started
+    Metrics.observe_histogram(Metrics.MEMORY_RETRIEVAL_DURATION, duration_seconds, metric_labels)
+    Metrics.observe_histogram(Metrics.MEMORY_CANDIDATES, len(candidates), metric_labels)
+    Metrics.observe_histogram(Metrics.MEMORY_SNIPPETS_INJECTED, len(snippets), metric_labels)
+    Metrics.observe_histogram(
+        Metrics.MEMORY_BUDGET_CHARS,
+        budget_chars,
+        {**metric_labels, "kind": "budget"},
+    )
+    Metrics.observe_histogram(
+        Metrics.MEMORY_BUDGET_CHARS,
+        total_chars,
+        {**metric_labels, "kind": "used"},
+    )
+    logger.info(
+        "Hybrid memory retrieval completed",
+        candidate_count=len(candidates),
+        ranked_count=len(ranked),
+        snippet_count=len(snippets),
+        budget_chars=budget_chars,
+        used_chars=total_chars,
+        prioritized_artifacts=len(prioritized),
+        detail_query=detail_query,
+        query_terms=len(query_terms),
+        duration_ms=round(duration_seconds * 1000, 2),
+    )
+
+    return snippets, prioritized
+
+
+async def _persist_external_memory_summary(
+    state: AgentState,
+    config: RunnableConfig,
+    *,
+    tool_name: str,
+    summary: str,
+    artifact_id: str | None,
+) -> None:
+    """Persist compact summary to Mem0 when enabled."""
+    from core.config import settings
+
+    if not settings.mem0.enabled:
+        return
+
+    try:
+        from services.mem0_memory_service import get_mem0_memory_service
+
+        service = await get_mem0_memory_service()
+        media_id = state.get("media_id")
+        if not media_id:
+            media_id = (state.get("project_context") or {}).get("source_media_id")
+        await service.add_memory(
+            content=summary,
+            user_id=state.get("user_id"),
+            session_id=state.get("session_id") or config.get("configurable", {}).get("thread_id"),
+            media_id=media_id,
+            project_id=state.get("project_id"),
+            metadata={
+                "source": "langgraph_tool_summary",
+                "tool_name": tool_name,
+                "artifact_id": artifact_id,
+            },
+        )
+    except (TypeError, ValueError, RuntimeError, ImportError) as exc:
+        logger.warning(f"Failed to persist summary to external memory: {exc}")
+
+
+async def _rehydrate_artifact_context(
+    state: AgentState,
+    config: RunnableConfig,
+    *,
+    prioritized_artifact_ids: list[str] | None = None,
+) -> list[str]:
+    """Recover selective detail from persisted tool artifacts for precision turns."""
+    rehydration_started = time.time()
+    metric_labels = {"source": "artifact", "agent": _agent_type_from_state(state)}
+    artifact_refs = state.get("artifact_refs", [])
+    if not artifact_refs:
+        return []
+
+    query = _get_latest_human_query(state.get("messages", []))
+    if not query:
+        return []
+
+    selected_refs: list[dict]
+    if prioritized_artifact_ids:
+        refs_by_id: dict[str, dict] = {}
+        for ref in reversed(artifact_refs[-50:]):
+            if not isinstance(ref, dict):
+                continue
+            artifact_id = ref.get("artifact_id")
+            if isinstance(artifact_id, str) and artifact_id and artifact_id not in refs_by_id:
+                refs_by_id[artifact_id] = ref
+
+        selected_refs = []
+        for artifact_id in prioritized_artifact_ids:
+            ref = refs_by_id.get(artifact_id)
+            if ref is not None:
+                selected_refs.append(ref)
+        selected_refs = selected_refs[:ARTIFACT_REHYDRATION_MAX_ITEMS]
+    else:
+        selected_refs = _select_artifact_refs_for_query(query, artifact_refs)
+
+    if not selected_refs:
+        duration_seconds = time.time() - rehydration_started
+        Metrics.observe_histogram(Metrics.ARTIFACT_REHYDRATION_DURATION, duration_seconds, metric_labels)
+        Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ATTEMPTS, metric_labels, 0)
+        Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_SUCCESSES, metric_labels, 0)
+        return []
+
+    try:
+        from services.tool_artifact_service import get_tool_artifact_service
+
+        artifact_service = await get_tool_artifact_service()
+    except (TypeError, ValueError, RuntimeError, ImportError) as exc:
+        Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ERRORS, metric_labels)
+        logger.warning(f"Failed to initialize artifact service for rehydration: {exc}")
+        return []
+
+    snippets: list[str] = []
+    total_chars = 0
+    attempts = 0
+    successes = 0
+    for ref in selected_refs:
+        artifact_id = ref.get("artifact_id")
+        if not isinstance(artifact_id, str) or not artifact_id:
+            continue
+
+        attempts += 1
+        try:
+            artifact = await artifact_service.get_artifact(artifact_id)
+        except (TypeError, ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
+            Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ERRORS, metric_labels)
+            logger.warning(f"Failed to fetch tool artifact {artifact_id}: {exc}")
+            continue
+
+        if not isinstance(artifact, dict):
+            continue
+
+        tool_name = ref.get("tool_name") or artifact.get("tool_name") or "tool"
+        summary = ref.get("summary") if isinstance(ref.get("summary"), str) else ""
+        payload_preview = _format_artifact_payload_preview(artifact.get("payload"))
+        if not payload_preview:
+            continue
+
+        snippet = (
+            f"[artifact:{artifact_id}] {tool_name}\n"
+            f"summary: {summary[:180]}\n"
+            f"payload: {payload_preview}"
+        )
+        if total_chars + len(snippet) > ARTIFACT_REHYDRATION_MAX_TOTAL_CHARS:
+            break
+
+        snippets.append(snippet)
+        total_chars += len(snippet)
+        successes += 1
+
+    duration_seconds = time.time() - rehydration_started
+    Metrics.observe_histogram(Metrics.ARTIFACT_REHYDRATION_DURATION, duration_seconds, metric_labels)
+    Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ATTEMPTS, metric_labels, attempts)
+    Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_SUCCESSES, metric_labels, successes)
+    logger.info(
+        "Artifact rehydration completed",
+        selected_refs=len(selected_refs),
+        attempts=attempts,
+        successes=successes,
+        snippet_chars=total_chars,
+        duration_ms=round(duration_seconds * 1000, 2),
+    )
+
+    return snippets
 
 
 # =============================================================================
@@ -205,6 +800,43 @@ async def base_call_model(
     # Apply message trimming to prevent context overflow
     trimmed_messages = _message_trimmer.invoke(truncated_messages)
     messages = [system_message] + trimmed_messages
+
+    hybrid_memory_context, prioritized_artifact_ids = await _retrieve_hybrid_memory_context(state, config)
+    if hybrid_memory_context:
+        memory_hint = SystemMessage(
+            content=(
+                "Ranked memory context for this query:\n"
+                + "\n".join(f"- {entry}" for entry in hybrid_memory_context)
+                + "\nUse higher-ranked items first, then request extra detail only when required."
+            )
+        )
+        messages.append(memory_hint)
+        logger.info(
+            "Added hybrid memory context",
+            memory_snippets=len(hybrid_memory_context),
+            memory_chars=sum(len(entry) for entry in hybrid_memory_context),
+            prioritized_artifacts=len(prioritized_artifact_ids),
+        )
+
+    rehydrated_artifacts = await _rehydrate_artifact_context(
+        state,
+        config,
+        prioritized_artifact_ids=prioritized_artifact_ids,
+    )
+    if rehydrated_artifacts:
+        artifact_hint = SystemMessage(
+            content=(
+                "Detailed excerpts rehydrated from full tool artifacts:\n"
+                + "\n\n".join(rehydrated_artifacts)
+                + "\nUse this evidence for precise answers."
+            )
+        )
+        messages.append(artifact_hint)
+        logger.info(
+            "Added rehydrated artifact context",
+            artifact_snippets=len(rehydrated_artifacts),
+            artifact_chars=sum(len(entry) for entry in rehydrated_artifacts),
+        )
 
     # If approaching limit or had errors, add a hint to summarize
     if approaching_limit or consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
@@ -341,6 +973,82 @@ def base_should_continue(
     return END
 
 
+def _parse_tool_payload(content: str) -> dict | list | str:
+    """Parse tool message content preserving non-JSON payloads."""
+    stripped = content.strip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        return json.loads(stripped)
+    return content
+
+
+def _build_tool_memory_summary(tool_name: str, payload: dict | list | str) -> str:
+    """Build a compact memory summary from tool payload."""
+    if isinstance(payload, dict):
+        if payload.get("error"):
+            return f"{tool_name}: error - {str(payload.get('error'))[:140]}"
+
+        count = payload.get("count")
+        if isinstance(count, int):
+            return f"{tool_name}: retrieved {count} result(s)"
+
+        for key in ("results", "occurrences", "highlights", "timeline", "moments", "comparison"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return f"{tool_name}: returned {len(value)} {key}"
+
+        message = payload.get("message")
+        if isinstance(message, str) and message:
+            return f"{tool_name}: {message[:160]}"
+
+        return f"{tool_name}: returned keys {', '.join(list(payload.keys())[:4])}"
+
+    if isinstance(payload, list):
+        return f"{tool_name}: returned list with {len(payload)} item(s)"
+
+    text = payload if isinstance(payload, str) else str(payload)
+    return f"{tool_name}: {text[:160]}"
+
+
+async def _persist_tool_artifact(
+    state: AgentState,
+    config: RunnableConfig,
+    *,
+    tool_call_id: str | None,
+    tool_name: str,
+    payload: dict | list | str,
+    summary: str,
+) -> str | None:
+    """Persist full tool payload as artifact and return artifact id."""
+    session_id = state.get("session_id") or config.get("configurable", {}).get("thread_id")
+    if not session_id:
+        return None
+
+    from core.config import settings
+
+    if not settings.azure.storage_connection_string:
+        return None
+
+    from services.tool_artifact_service import get_tool_artifact_service
+
+    media_id = state.get("media_id")
+    if not media_id:
+        media_id = (state.get("project_context") or {}).get("source_media_id")
+
+    artifact_service = await get_tool_artifact_service()
+    artifact = await artifact_service.save_artifact(
+        tool_call_id=tool_call_id or f"{tool_name}_{session_id}",
+        tool_name=tool_name,
+        session_id=session_id,
+        thread_id=config.get("configurable", {}).get("thread_id"),
+        user_id=state.get("user_id"),
+        media_id=media_id,
+        project_id=state.get("project_id"),
+        payload=payload,
+        metadata={"summary": summary, "source": "langgraph_tool"},
+    )
+    return artifact.get("id")
+
+
 async def update_context_node(state: AgentState, config: RunnableConfig) -> dict:
     """
     Update conversation context after tool execution.
@@ -359,37 +1067,73 @@ async def update_context_node(state: AgentState, config: RunnableConfig) -> dict
     new_topics = extract_topics_from_messages(messages[-2:])
     updated_context = list(set(current_context + new_topics))[-10:]
 
-    # Track successful tool results for error recovery
+    # Track successful tool results for error recovery + compact memory
     partial_results = state.get("partial_results", [])
+    memory_context = state.get("memory_context", [])
+    artifact_refs = state.get("artifact_refs", [])
 
     # Check last message for tool results
     if messages:
         last_msg = messages[-1]
         if isinstance(last_msg, ToolMessage):
             try:
-                import json
-
                 content = (
                     last_msg.content if isinstance(last_msg.content, str) else str(last_msg.content)
                 )
-                result = json.loads(content) if content.startswith("{") else {"raw": content}
+                result = _parse_tool_payload(content)
+                result_dict = result if isinstance(result, dict) else {"raw": result}
+                tool_name = getattr(last_msg, "name", "unknown") or "unknown"
+                summary = _build_tool_memory_summary(tool_name, result)
+                artifact_id = await _persist_tool_artifact(
+                    state,
+                    config,
+                    tool_call_id=getattr(last_msg, "tool_call_id", None),
+                    tool_name=tool_name,
+                    payload=result,
+                    summary=summary,
+                )
 
                 # Only track successful results
-                if not result.get("error"):
+                if not result_dict.get("error"):
+                    memory_entry = summary
+                    if artifact_id:
+                        memory_entry = f"{summary} [artifact:{artifact_id}]"
+                        artifact_refs.append(
+                            {
+                                "artifact_id": artifact_id,
+                                "tool_call_id": getattr(last_msg, "tool_call_id", None),
+                                "tool_name": tool_name,
+                                "summary": summary,
+                            }
+                        )
+
+                    memory_context.append(memory_entry)
                     partial_results.append(
                         {
-                            "tool": getattr(last_msg, "name", "unknown"),
-                            "summary": content[:200],
+                            "tool": tool_name,
+                            "summary": summary[:200],
+                            "artifact_id": artifact_id,
                         }
+                    )
+                    await _persist_external_memory_summary(
+                        state,
+                        config,
+                        tool_name=tool_name,
+                        summary=summary,
+                        artifact_id=artifact_id,
                     )
                     # Keep last 10 partial results
                     partial_results = partial_results[-10:]
-            except (json.JSONDecodeError, TypeError):
-                pass
+                    memory_context = memory_context[-20:]
+                    artifact_refs = artifact_refs[-50:]
+            except (json.JSONDecodeError, TypeError, ValueError, OSError) as exc:
+                logger.warning(f"Failed to update tool memory context: {exc}")
 
     return {
         "conversation_context": updated_context,
         "partial_results": partial_results,
+        "memory_context": memory_context,
+        "artifact_refs": artifact_refs,
     }
 
 

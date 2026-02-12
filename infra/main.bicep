@@ -37,6 +37,25 @@ param frontendImageName string = 'mcr.microsoft.com/azuredocs/containerapps-hell
 @description('Worker container image')
 param workerImageName string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
+@description('Enable Mem0 semantic memory integration')
+param mem0Enabled bool = false
+
+@description('Mem0 retrieval top-k')
+param mem0TopK int = 5
+
+@description('Mem0 API key (required for Mem0 cloud mode)')
+@secure()
+param mem0ApiKey string = ''
+
+@description('Artifact cache TTL in seconds')
+param artifactCacheTtlSeconds int = 21600
+
+@description('Artifact cache key prefix')
+param artifactCacheKeyPrefix string = 'tool_artifact'
+
+@description('Artifact blob prefix')
+param artifactBlobPrefix string = 'tool-artifacts'
+
 // =====================================================================
 // Tags & Naming
 // =====================================================================
@@ -185,6 +204,7 @@ var appSecrets = [
   { name: 'jwt-secret-key', value: jwtSecretKey }
   { name: 'database-url', value: pgConnectionString }
   { name: 'redis-url', value: redisConnectionString }
+  { name: 'mem0-api-key', value: mem0ApiKey }
 ]
 
 // Construct frontend FQDN from naming convention + environment domain (avoids circular dependency)
@@ -202,6 +222,11 @@ var appEnvVars = [
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_BATCH', value: 'gpt-4o-batch' }
   { name: 'ENVIRONMENT', value: environment }
   { name: 'ALLOWED_ORIGINS', value: 'https://${frontendFqdn}' }
+  { name: 'MEM0_ENABLED', value: string(mem0Enabled) }
+  { name: 'MEM0_TOP_K', value: string(mem0TopK) }
+  { name: 'ARTIFACT_CACHE_TTL_SECONDS', value: string(artifactCacheTtlSeconds) }
+  { name: 'ARTIFACT_CACHE_KEY_PREFIX', value: artifactCacheKeyPrefix }
+  { name: 'ARTIFACT_BLOB_PREFIX', value: artifactBlobPrefix }
 ]
 
 // Env vars that reference secrets by name
@@ -212,6 +237,7 @@ var appSecretEnvVars = [
   { name: 'AZURE_OPENAI_API_KEY', secretRef: 'openai-api-key' }
   { name: 'AZURE_STORAGE_CONNECTION_STRING', secretRef: 'storage-connection-string' }
   { name: 'JWT_SECRET_KEY', secretRef: 'jwt-secret-key' }
+  { name: 'MEM0_API_KEY', secretRef: 'mem0-api-key' }
 ]
 
 // =====================================================================

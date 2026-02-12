@@ -191,6 +191,11 @@ Ensure you have the following Azure resources provisioned:
     cp frontend/.env.local.example frontend/.env.local
     ```
     > **Note**: Edit `backend/.env` to include your Azure OpenAI API keys and endpoints.
+    >
+    > **Optional (semantic long-term memory with Mem0)**:
+    > - `MEM0_ENABLED=true` to turn it on
+    > - `MEM0_API_KEY=...` only if using Mem0 Cloud (not required for local/self-hosted)
+    > - `MEM0_TOP_K=5` to control retrieved memories per turn
 
 4.  **Launch Backend**
     ```bash
@@ -283,6 +288,12 @@ docker-compose logs redis
   - `text-embedding-3-large`
   - `whisper`
 - Check that `AZURE_OPENAI_API_VERSION` matches your deployment (e.g., `2024-08-01-preview`)
+
+**Problem: Mem0 memory not being used**
+- Verify `MEM0_ENABLED=true` in `backend/.env`
+- For Mem0 Cloud, verify `MEM0_API_KEY` is valid
+- For local/self-hosted Mem0, `MEM0_API_KEY` can be empty
+- If Mem0 SDK is missing, the agent falls back gracefully to local compact memory + artifact refs
 
 **Problem: FFmpeg not found**
 ```bash

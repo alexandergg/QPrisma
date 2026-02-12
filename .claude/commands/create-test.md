@@ -1,3 +1,7 @@
+---
+description: Generate tests following QPrisma testing patterns
+---
+
 # Create Tests
 
 Generate tests following QPrisma testing patterns.

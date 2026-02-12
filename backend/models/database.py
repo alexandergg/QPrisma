@@ -399,3 +399,59 @@ class BatchJobModel(Base):
                 1,
             ),
         }
+
+class ToolArtifactModel(Base):
+    """Metadata index for full tool output artifacts."""
+
+    __tablename__ = "tool_artifacts"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    tool_call_id = Column(String(128), nullable=False, index=True)
+    tool_name = Column(String(128), nullable=False, index=True)
+
+    # Scope / ownership
+    session_id = Column(String(128), nullable=False, index=True)
+    thread_id = Column(String(128), nullable=True, index=True)
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=True, index=True)
+    media_id = Column(String(64), ForeignKey("media.id"), nullable=True, index=True)
+    project_id = Column(String(64), ForeignKey("editor_projects.id"), nullable=True, index=True)
+
+    # Durable payload reference
+    blob_name = Column(String(512), nullable=False, unique=True)
+    content_type = Column(String(128), nullable=False, default="application/json")
+    content_encoding = Column(String(32), nullable=False, default="gzip")
+
+    # Size and integrity
+    size_bytes = Column(Integer, nullable=False)
+    compressed_size_bytes = Column(Integer, nullable=False)
+    checksum_sha256 = Column(String(64), nullable=False, index=True)
+
+    # Arbitrary metadata for debugging/traceability
+    artifact_metadata = Column(JSON, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_accessed_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "tool_call_id": self.tool_call_id,
+            "tool_name": self.tool_name,
+            "session_id": self.session_id,
+            "thread_id": self.thread_id,
+            "user_id": self.user_id,
+            "media_id": self.media_id,
+            "project_id": self.project_id,
+            "blob_name": self.blob_name,
+            "content_type": self.content_type,
+            "content_encoding": self.content_encoding,
+            "size_bytes": self.size_bytes,
+            "compressed_size_bytes": self.compressed_size_bytes,
+            "checksum_sha256": self.checksum_sha256,
+            "artifact_metadata": self.artifact_metadata,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
+        }

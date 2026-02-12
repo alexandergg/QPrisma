@@ -8,6 +8,7 @@ Extends the video agent with editor-specific tools and context.
 Features:
 - Human-in-the-loop: Uses interrupt() for granular confirmation of destructive tools
 - Input/Output schema separation for clean API boundaries
+- Context update node for compact memory tracking after tools
 - Error handler node for graceful degradation
 - tools_condition: Modern LangGraph conditional routing
 - handle_tool_errors: Graceful error handling for tools
@@ -27,7 +28,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from agent.graphs.video import create_smart_retry_policy
-from agent.nodes.base import error_handler_node
+from agent.nodes.base import error_handler_node, update_context_node
 from agent.nodes.editor_nodes import call_editor_model, get_project_context, should_continue_editor
 from agent.state.agent_state import (
     AgentInputState,
@@ -151,6 +152,11 @@ async def tools_with_interrupt(state: AgentState, config: RunnableConfig) -> dic
     return await tool_node.ainvoke(state, config)
 
 
+async def update_context(state: AgentState, config: RunnableConfig) -> dict:
+    """Update compact context after tool execution."""
+    return await update_context_node(state, config)
+
+
 # =============================================================================
 # Graph Builder
 # =============================================================================
@@ -173,7 +179,7 @@ def create_editor_agent_graph(
     Architecture:
         START → call_model → should_continue?
                     ↓ tools          ↓ end
-                  tools → call_model
+                  tools → update_context → call_model
                     ↓ error_handler
               error_handler → END
 
@@ -207,6 +213,7 @@ def create_editor_agent_graph(
             retry_policy=create_smart_retry_policy(max_attempts=2),
         )
 
+    workflow.add_node("update_context", update_context)
     workflow.add_node("error_handler", error_handler_node)
 
     workflow.add_edge(START, "call_model")
@@ -222,7 +229,8 @@ def create_editor_agent_graph(
         },
     )
 
-    workflow.add_edge("tools", "call_model")
+    workflow.add_edge("tools", "update_context")
+    workflow.add_edge("update_context", "call_model")
     workflow.add_edge("error_handler", END)
 
     if checkpointer is None:

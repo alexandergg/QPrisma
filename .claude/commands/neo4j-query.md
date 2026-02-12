@@ -1,3 +1,7 @@
+---
+description: Generate and execute Neo4j Cypher queries for the QPrisma Knowledge Graph
+---
+
 # Neo4j Query Helper
 
 Generate and execute Neo4j Cypher queries for the QPrisma Knowledge Graph.

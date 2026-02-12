@@ -32,6 +32,7 @@ dependencies = [
     "langchain-core>=1.2.8",
     "langchain-openai>=1.1.7",
     "langgraph-checkpoint-redis>=0.3.3",
+    "mem0ai>=1.0.3",
     # A2A (Agent-to-Agent) Protocol
     "a2a-sdk[http-server]>=0.3.22",
     # Async I/O
@@ -57,6 +58,14 @@ packages = ["api", "agent", "core", "models", "services", "tasks", "evaluation"]
 dev-dependencies = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.5.0",
+    "respx>=0.22.0",
+    "factory-boy>=3.3.0",
+    "faker>=33.0.0",
+    "freezegun>=1.4.0",
+    "hypothesis>=6.120.0",
+    "mutmut>=3.2.0",
     "black>=24.0.0",
     "ruff>=0.8.0",
 ]
@@ -124,3 +133,44 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
+addopts = "--strict-markers -ra"
+markers = [
+    "unit: mark test as unit test",
+    "integration: mark test as integration test",
+    "e2e: mark test as end-to-end test",
+    "slow: mark test as slow running",
+    "requires_azure: mark test as requiring Azure services",
+    "requires_redis: mark test as requiring Redis",
+    "requires_neo4j: mark test as requiring Neo4j",
+    "requires_postgres: mark test as requiring PostgreSQL",
+]
+
+# =============================================================================
+# Coverage Configuration
+# =============================================================================
+[tool.coverage.run]
+source = ["api", "services", "models", "core", "agent", "tasks"]
+branch = true
+omit = [
+    "tests/*",
+    "evaluation/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+fail_under = 35
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+    "pass",
+]
+
+# =============================================================================
+# Mutation Testing Configuration
+# =============================================================================
+[tool.mutmut]
+paths_to_mutate = "core/,services/auth_service.py,api/dependencies.py,models/user.py,agent/utils/"
+tests_dir = "tests/"
+runner = "python -m pytest tests/ -x -q --tb=no"

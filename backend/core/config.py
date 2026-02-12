@@ -138,6 +138,26 @@ class RedisSettings(BaseSettings):
         return bool(self.url)
 
 
+class ArtifactSettings(BaseSettings):
+    """Tool artifact storage configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="ARTIFACT_", extra="ignore")
+
+    cache_ttl_seconds: int = Field(default=21600)
+    cache_key_prefix: str = Field(default="tool_artifact")
+    blob_prefix: str = Field(default="tool-artifacts")
+
+
+class Mem0Settings(BaseSettings):
+    """Mem0 semantic memory configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="MEM0_", extra="ignore")
+
+    enabled: bool = Field(default=False)
+    api_key: str | None = Field(default=None)
+    top_k: int = Field(default=5)
+
+
 class AuthSettings(BaseSettings):
     """Authentication configuration."""
 
@@ -219,6 +239,8 @@ class Settings(BaseSettings):
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
+    artifacts: ArtifactSettings = Field(default_factory=ArtifactSettings)
+    mem0: Mem0Settings = Field(default_factory=Mem0Settings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
 
     def apply_env_overrides(self) -> None:

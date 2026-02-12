@@ -1,3 +1,7 @@
+---
+description: Create a new FastAPI route module following QPrisma patterns
+---
+
 # Create FastAPI Route
 
 Create a new FastAPI route module following QPrisma patterns.

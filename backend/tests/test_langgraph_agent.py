@@ -733,6 +733,8 @@ class TestInputOutputSchemaSeparation:
         assert "tool_calls_count" not in input_fields
         assert "consecutive_errors" not in input_fields
         assert "partial_results" not in input_fields
+        assert "memory_context" not in input_fields
+        assert "artifact_refs" not in input_fields
 
     def test_output_state_excludes_internal_fields(self):
         """Test that AgentOutputState doesn't expose internal bookkeeping."""
@@ -748,6 +750,8 @@ class TestInputOutputSchemaSeparation:
         assert "tool_calls_count" not in output_fields
         assert "consecutive_errors" not in output_fields
         assert "conversation_context" not in output_fields
+        assert "memory_context" not in output_fields
+        assert "artifact_refs" not in output_fields
 
     def test_internal_state_has_all_fields(self):
         """Test that AgentState has all fields including internal ones."""
@@ -761,6 +765,8 @@ class TestInputOutputSchemaSeparation:
         assert "consecutive_errors" in state_fields
         assert "partial_results" in state_fields
         assert "conversation_context" in state_fields
+        assert "memory_context" in state_fields
+        assert "artifact_refs" in state_fields
 
 
 class TestDynamicToolBinding:
@@ -1088,6 +1094,8 @@ class TestStateValidation:
         assert state["consecutive_errors"] == 0
         assert state["partial_results"] == []
         assert state["conversation_context"] == []
+        assert state["memory_context"] == []
+        assert state["artifact_refs"] == []
         assert state["sources"] == []
 
     def test_state_types_correct(self):
@@ -1105,6 +1113,8 @@ class TestStateValidation:
         assert "tool_calls_count" in state_annotations
         assert "consecutive_errors" in state_annotations
         assert "partial_results" in state_annotations
+        assert "memory_context" in state_annotations
+        assert "artifact_refs" in state_annotations
 
         # Check Input/Output schemas are subsets
         input_annotations = AgentInputState.__annotations__

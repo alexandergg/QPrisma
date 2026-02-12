@@ -1,52 +1,55 @@
 """
-Script para probar la API de QPrisma
+Tests for api/main.py core endpoints.
+
+Covers root health check, detailed health, and config endpoints.
 """
 
-import json
+from unittest.mock import MagicMock, patch
 
-import requests
-
-BASE_URL = "http://localhost:8000"
-
-
-def test_health():
-    """Test health endpoint"""
-    print("🔍 Testing health endpoint...")
-    response = requests.get(f"{BASE_URL}/")
-    print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2)}")
-    print()
+import pytest
+from fastapi.testclient import TestClient
 
 
-def test_detailed_health():
-    """Test detailed health endpoint"""
-    print("🔍 Testing detailed health endpoint...")
-    response = requests.get(f"{BASE_URL}/health")
-    print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2)}")
-    print()
+@pytest.mark.unit
+class TestRootEndpoint:
+    def test_returns_healthy(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "healthy"
+        assert "version" in body
+
+    def test_azure_configured_field(self, client):
+        resp = client.get("/")
+        body = resp.json()
+        assert "azure_configured" in body
+        assert isinstance(body["azure_configured"], bool)
 
 
-def test_config():
-    """Test configuration endpoint"""
-    print("🔍 Testing configuration endpoint...")
-    response = requests.get(f"{BASE_URL}/config")
-    print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2)}")
-    print()
+@pytest.mark.unit
+class TestHealthEndpoint:
+    def test_returns_services_status(self, client):
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "healthy"
+        assert "services" in body
+        assert "timestamp" in body
+        services = body["services"]
+        assert "api" in services
+        assert services["api"] == "healthy"
 
 
-if __name__ == "__main__":
-    print("=" * 50)
-    print("QPrisma API Test Suite")
-    print("=" * 50)
-    print()
-
-    try:
-        test_health()
-        test_detailed_health()
-        test_config()
-
-        print("✅ All tests passed!")
-    except Exception as e:
-        print(f"❌ Error: {e}")
+@pytest.mark.unit
+class TestConfigEndpoint:
+    def test_returns_config_status(self, client):
+        resp = client.get("/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "azure_openai_configured" in body
+        assert "azure_storage_configured" in body
+        assert "postgresql_configured" in body
+        assert "knowledge_graph_configured" in body
+        assert "redis_configured" in body
+        assert "environment" in body
+        assert isinstance(body["azure_openai_configured"], bool)

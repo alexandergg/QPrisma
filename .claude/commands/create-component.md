@@ -1,3 +1,7 @@
+---
+description: Create a new React component following QPrisma frontend patterns
+---
+
 # Create React Component
 
 Create a new React component following QPrisma frontend patterns.

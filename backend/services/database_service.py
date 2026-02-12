@@ -23,6 +23,7 @@ from models.database import (
     EditorProjectModel,
     JobModel,
     MediaModel,
+    ToolArtifactModel,
     UserModel,
 )
 
@@ -404,6 +405,40 @@ class DatabaseService:
                 "savings_percentage": 50.0,  # Batch API is always 50% cheaper
             }
 
+    # =========================================================================
+    # Tool Artifact Operations
+    # =========================================================================
+
+    def create_tool_artifact(self, artifact_data: dict[str, Any]) -> ToolArtifactModel:
+        """Create a new tool artifact metadata record."""
+        with self.get_session() as session:
+            artifact = ToolArtifactModel(**artifact_data)
+            session.add(artifact)
+            session.flush()
+            session.refresh(artifact)
+            session.expunge(artifact)
+            return artifact
+
+    def get_tool_artifact(self, artifact_id: str) -> ToolArtifactModel | None:
+        """Get tool artifact metadata by ID."""
+        with self.get_session() as session:
+            artifact = session.query(ToolArtifactModel).filter(ToolArtifactModel.id == artifact_id).first()
+            if artifact:
+                session.expunge(artifact)
+            return artifact
+
+    def update_tool_artifact_accessed_at(self, artifact_id: str) -> ToolArtifactModel | None:
+        """Update last accessed timestamp for a tool artifact."""
+        with self.get_session() as session:
+            artifact = session.query(ToolArtifactModel).filter(ToolArtifactModel.id == artifact_id).first()
+            if not artifact:
+                return None
+
+            artifact.last_accessed_at = datetime.now(UTC)
+            session.flush()
+            session.refresh(artifact)
+            session.expunge(artifact)
+            return artifact
     # =========================================================================
     # Editor Project Operations
     # =========================================================================

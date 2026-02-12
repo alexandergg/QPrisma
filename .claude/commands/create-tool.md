@@ -1,3 +1,7 @@
+---
+description: Create a new tool for the LangGraph video agent following QPrisma patterns
+---
+
 # Create Agent Tool
 
 Create a new tool for the LangGraph video agent following QPrisma patterns.

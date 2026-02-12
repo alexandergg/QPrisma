@@ -22,10 +22,12 @@ from .hierarchical_context_service import (
 )
 from .hierarchical_summarizer import HierarchicalSummarizer, SceneEmbeddingGenerator
 from .knowledge_graph import KnowledgeGraphService, get_knowledge_graph_service
+from .mem0_memory_service import Mem0MemoryService, get_mem0_memory_service
 from .relation_builder import RelationBuilder, get_relation_builder
 from .scene_analyzer import SceneAnalyzer
 from .storage_tiering_service import StorageTieringService, get_storage_tiering_service
 from .subtitle_service import SubtitleService, get_subtitle_service
+from .tool_artifact_service import ToolArtifactService, get_tool_artifact_service
 from .video_processor import VideoProcessor
 from .viral_score_service import ViralScoreService, get_viral_score_service
 
@@ -55,6 +57,8 @@ __all__ = [
     "get_relation_builder",
     "HierarchicalContextService",
     "get_hierarchical_context_service",
+    "Mem0MemoryService",
+    "get_mem0_memory_service",
     # Export Services
     "ExportService",
     "get_export_service",
@@ -69,6 +73,8 @@ __all__ = [
     "get_database_service",
     "StorageTieringService",
     "get_storage_tiering_service",
+    "ToolArtifactService",
+    "get_tool_artifact_service",
     # Auth
     "AuthService",
     "get_auth_service",
