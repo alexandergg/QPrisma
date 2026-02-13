@@ -7,17 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **README Branding**: Added QPrisma logo to README header.
+
 ## [1.0.0] - 2026-02-13
 
 ### Added
+- **Knowledge Graph Visualization**: Interactive graph explorer for exploring video knowledge graphs in the browser.
+  - `graph_routes.py`: `/graph/video/{id}/visualization` endpoint with per-label balanced node sampling (Video, Chapter, Scene, Frame, AudioSegment, Entity, Topic) and `/graph/expand-subgraph` endpoint for progressive lazy-load expansion.
+  - `knowledge_graph.py`: `get_video_graph_visualization()` with uniform temporal sampling for Frame/AudioSegment nodes, visual property mapping per node type, and f-string depth interpolation for variable-length Cypher patterns.
+  - `graph_route_schemas.py`: Pydantic schemas for graph visualization responses (`GraphVisualizationResponse`, `ExpandSubgraphRequest`).
+  - `serializers.py`: Extended with Neo4j temporal type handling (DateTime, Date, Time, Duration).
+  - `KnowledgeGraphViewer.tsx`: Full-featured React component using Neo4j NVL with click-to-select, double-click-to-expand, drag, hover highlight, and fullscreen support.
+  - `GraphControls.tsx`: Depth slider, layout toggle (force-directed/hierarchical), and zoom reset controls.
+  - `GraphLegend.tsx`: Color-coded legend for all node types.
+  - `DynamicKnowledgeGraphViewer`: SSR-disabled wrapper for code splitting.
+  - Graph tab integrated into `VideoPanel` — replaces deprecated `/video/[id]` page route.
+  - Frontend graph API methods: `getVideoVisualization()`, `expandGraphNode()`, `getGraphStats()`.
+  - Added `@neo4j-nvl/react` and `@neo4j-nvl/base` dependencies.
 - **Hybrid memory architecture for LangGraph agents**:
   - Durable full tool-output artifacts via `ToolArtifactService` (Redis cache + Azure Blob + PostgreSQL metadata).
   - Mem0 integration via `Mem0MemoryService` for semantic summary add/search (feature-flagged with graceful fallback).
   - Agent state extensions: compact `memory_context` plus `artifact_refs` for precise evidence recovery.
 - **Memory-focused test coverage**:
   - Added targeted tests for artifact persistence/retrieval, Mem0 service behavior, and agent memory context/rehydration flow.
+- **Release & Version-Bump Workflows**:
+  - `release.yml`: Automatically creates GitHub Releases from `v*` tags with CHANGELOG section extraction.
+  - `version-bump.yml`: Manual workflow to bump version across `pyproject.toml`, `package.json`, and `CITATION.cff`, then tag and push.
+  - `ci.yml`: Added `workflow_call` trigger for reuse from release workflow.
+- **Architecture Diagram**: Generated architecture diagram (`docs/assets/qprisma_architecture.png`) via `docs/architecture_diagram.py`.
 
 ### Changed
+- **Pre-commit Enforcement**: Backend pre-commit hooks (ruff, black) enforced in both local development and CI, scoped to changed backend files only.
+- **Code Quality**: Backend services and tests updated for improved readability and maintainability across 23 files.
+- **Frontend Navigation**: `VideoProcessingStudio` now navigates to `/chat/new?videoId=` instead of `/video/{id}`.
 - **Prompt context pipeline upgraded for long conversations**:
   - Hybrid candidate retrieval (local memory + Mem0 + artifact refs) with reranking (lexical overlap + semantic score + recency).
   - Dynamic memory context budget per query and selective artifact rehydration for detail-heavy prompts.
@@ -25,8 +48,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Infrastructure runtime wiring**:
   - `infra/main.bicep` now injects `MEM0_*` and `ARTIFACT_*` environment variables into API/Worker Container Apps.
   - `MEM0_API_KEY` added as secure Container Apps secret reference (`mem0-api-key`).
-
-### Changed
 - **Blob Transfer Performance Optimization**: Overhauled all Azure Blob Storage upload/download paths for 3-5x faster transfers on large videos with ~60% less RAM usage.
   - `dependencies.py`: `BlobServiceClient` now configured with `max_single_put_size=256MB`, `max_block_size=100MB`, `max_concurrency=8` — all blob operations parallelized automatically.
   - `media_routes.py`: `/upload` and `/upload/optimized` now stream file data directly via `upload_blob(file.file)` instead of loading the entire video into memory with `await file.read()`.
@@ -34,13 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `video_tasks.py`: Celery download task uses streaming `chunks()` instead of `readall()`.
   - `export_service.py`: Export download uses streaming `chunks()` instead of `readall()`.
 - **Frontend Chunked Upload**: Adaptive block sizes (16MB <1GB, 32MB 1-5GB, 64MB >5GB) and increased default concurrency from 4→6. Fixed `Promise.race` concurrency bug with clean worker pool pattern. (`chunked-upload.ts`)
-
-### Removed
-- **Dead `generate_block_sas_url()` function**: Defined in `chunked_upload_routes.py` but never called — removed.
-- **Duplicate SAS credential parsing**: Consolidated 3 identical `AccountName`/`AccountKey` regex extractions into single `get_storage_account_info()` in `dependencies.py`. Removed `get_account_info()` from `chunked_upload_routes.py`.
-- **Unused imports**: Removed `aiofiles` from `video_processor.py`, `re`/`settings` from `media_routes.py` and `chunked_upload_routes.py`, `json` from `chunked_upload_routes.py`.
-
-### Changed
 - **Neo4j UNWIND Batch Operations**: Replaced one-by-one Cypher transactions with batched UNWIND for relation, chapter, scene, and embedding creation. Reduces Neo4j round-trips by 10-50x during video indexing.
   - `relation_builder.py`: `persist_relations()` now calls `create_relations_batch()` with grouped UNWIND by relation type.
   - `hierarchical_context_service.py`: `_store_hierarchy_in_graph()` uses `_create_chapters_batch()`, `_create_scenes_batch()`, `_create_relationships_batch()`, and `_store_embeddings_batch()`.
@@ -52,7 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `batch_processor.py`: `prepare_batch_requests()` uses per-frame `max_tokens` instead of hardcoded 900.
   - `analyze_frame_with_gpt4v()` accepts `max_tokens` parameter for direct (non-batch) analysis.
 
-### Added
+### Removed
+- **Deprecated `/video/[id]` page route**: Functionality moved into the chat VideoPanel with integrated Graph tab.
+- **Dead `generate_block_sas_url()` function**: Defined in `chunked_upload_routes.py` but never called — removed.
+- **Duplicate SAS credential parsing**: Consolidated 3 identical `AccountName`/`AccountKey` regex extractions into single `get_storage_account_info()` in `dependencies.py`. Removed `get_account_info()` from `chunked_upload_routes.py`.
+- **Unused imports**: Removed `aiofiles` from `video_processor.py`, `re`/`settings` from `media_routes.py` and `chunked_upload_routes.py`, `json` from `chunked_upload_routes.py`.
+
+### Added (New Functions & Methods)
 - `create_relations_batch()`: Batched UNWIND relation creation grouped by type in `knowledge_graph.py`.
 - `_create_chapters_batch()`, `_create_scenes_batch()`, `_create_relationships_batch()`, `_store_embeddings_batch()`: UNWIND batch helpers in `hierarchical_context_service.py`.
 - `_detect_silence_boundaries()`: FFmpeg-based silence detection using `silencedetect` filter in `audio_processor.py`.
