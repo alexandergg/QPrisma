@@ -8,6 +8,21 @@ on:
         required: false
         default: 'latest'
         type: string
+      deploy_api:
+        description: 'Deploy API container'
+        required: false
+        default: true
+        type: boolean
+      deploy_worker:
+        description: 'Deploy Worker container'
+        required: false
+        default: true
+        type: boolean
+      deploy_frontend:
+        description: 'Deploy Frontend container'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   id-token: write
@@ -15,6 +30,7 @@ permissions:
 
 jobs:
   deploy-api:
+    if: ${{ github.event.inputs.deploy_api == 'true' }}
     runs-on: ubuntu-latest
     environment: dev
     outputs:
@@ -100,6 +116,7 @@ jobs:
             --revision ${{ steps.get-revision.outputs.revision }}
 
   deploy-worker:
+    if: ${{ github.event.inputs.deploy_worker == 'true' }}
     runs-on: ubuntu-latest
     environment: dev
     steps:
@@ -140,7 +157,7 @@ jobs:
           done
 
   deploy-frontend:
-    needs: deploy-api
+    if: ${{ github.event.inputs.deploy_frontend == 'true' }}
     runs-on: ubuntu-latest
     environment: dev
     outputs:
@@ -224,6 +241,7 @@ jobs:
 
   smoke-test:
     needs: [deploy-api, deploy-worker, deploy-frontend]
+    if: ${{ always() && (github.event.inputs.deploy_api == 'true' || github.event.inputs.deploy_worker == 'true' || github.event.inputs.deploy_frontend == 'true') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
     environment: dev
     steps:

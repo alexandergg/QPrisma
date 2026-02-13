@@ -148,6 +148,10 @@ jobs:
     needs: [build-api, build-worker, build-frontend]
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_API: ${{ needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch' }}
+      DEPLOY_WORKER: ${{ needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch' }}
+      DEPLOY_FRONTEND: ${{ needs.detect-changes.outputs.frontend_changed == 'true' || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Trigger deployment workflow
         uses: actions/github-script@v7
@@ -159,7 +163,10 @@ jobs:
               workflow_id: 'deploy-app.yml',
               ref: 'main',
               inputs: {
-                image_tag: '${{ github.sha }}'
+                image_tag: '${{ github.sha }}',
+                deploy_api: process.env.DEPLOY_API,
+                deploy_worker: process.env.DEPLOY_WORKER,
+                deploy_frontend: process.env.DEPLOY_FRONTEND
               }
             });
-            console.log('Triggered deploy-app.yml with image_tag: ${{ github.sha }}');
+            console.log(`Triggered deploy-app.yml with image_tag: ${{ github.sha }} (api=${process.env.DEPLOY_API}, worker=${process.env.DEPLOY_WORKER}, frontend=${process.env.DEPLOY_FRONTEND})`);
