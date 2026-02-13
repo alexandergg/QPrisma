@@ -204,6 +204,7 @@ python -m evaluation.run_evaluation --config evaluation/configs/default.yaml
 
 - [API Documentation](./API_DOCUMENTATION.md)
 - [Architecture Deep Dive](./docs/ARCHITECTURE.md)
+- [Backend Technical Architecture](./docs/BACKEND_ARCHITECTURE.md)
 - [Infrastructure Guide](./docs/INFRASTRUCTURE.md)
 - [Testing Guide](./TESTING.md)
 - [Contributing Guide](./CONTRIBUTING.md)
