@@ -1,0 +1,118 @@
+name: Version Bump
+
+# ──────────────────────────────────────────────────────────────────────
+# Manual workflow to bump the version across all project files,
+# commit the change, and create a git tag that triggers the Release
+# workflow automatically.
+#
+# Usage: Actions → Version Bump → Run workflow → pick bump type
+# ──────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch      # 0.19.0 → 0.19.1
+          - minor      # 0.19.0 → 0.20.0
+          - major      # 0.19.0 → 1.0.0
+        default: minor
+      prerelease:
+        description: 'Pre-release label (leave empty for stable release)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Calculate new version
+        id: calc
+        run: |
+          # Read current version from pyproject.toml (source of truth)
+          CURRENT=$(grep -oP '(?<=^version = ")[^"]+' backend/pyproject.toml)
+          echo "Current version: $CURRENT"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case "${{ inputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+          # Append pre-release label if provided
+          PRERELEASE="${{ inputs.prerelease }}"
+          if [ -n "$PRERELEASE" ]; then
+            TAG_VERSION="${NEW_VERSION}-${PRERELEASE}"
+          else
+            TAG_VERSION="${NEW_VERSION}"
+          fi
+
+          echo "new_version=$NEW_VERSION"  >> "$GITHUB_OUTPUT"
+          echo "tag=v${TAG_VERSION}"       >> "$GITHUB_OUTPUT"
+          echo "tag_version=$TAG_VERSION"  >> "$GITHUB_OUTPUT"
+          echo "New version: $NEW_VERSION (tag: v${TAG_VERSION})"
+
+      - name: Update backend/pyproject.toml
+        run: |
+          sed -i "s/^version = \".*\"/version = \"${{ steps.calc.outputs.new_version }}\"/" backend/pyproject.toml
+
+      - name: Update frontend/package.json
+        run: |
+          jq --arg v "${{ steps.calc.outputs.new_version }}" '.version = $v' frontend/package.json > tmp.json
+          mv tmp.json frontend/package.json
+
+      - name: Update CITATION.cff
+        run: |
+          sed -i "s/^version: .*/version: ${{ steps.calc.outputs.new_version }}/" CITATION.cff
+          sed -i "s/^date-released: .*/date-released: $(date +%Y-%m-%d)/" CITATION.cff
+
+      - name: Update CHANGELOG.md Unreleased section
+        run: |
+          VERSION="${{ steps.calc.outputs.new_version }}"
+          DATE=$(date +%Y-%m-%d)
+          # Replace [Unreleased] with versioned header + new Unreleased
+          sed -i "s/^## \[Unreleased\]/## [Unreleased]\n\n## [$VERSION] - $DATE/" CHANGELOG.md
+
+      - name: Commit version bump
+        run: |
+          git add backend/pyproject.toml frontend/package.json CITATION.cff CHANGELOG.md
+          git commit -m "chore: bump version to ${{ steps.calc.outputs.tag }}"
+
+      - name: Create and push tag
+        run: |
+          git tag -a "${{ steps.calc.outputs.tag }}" -m "Release ${{ steps.calc.outputs.tag }}"
+          git push origin HEAD:main --follow-tags
+
+      - name: Summary
+        run: |
+          echo "### ✅ Version Bumped" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **New Version** | \`${{ steps.calc.outputs.new_version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Git Tag** | \`${{ steps.calc.outputs.tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Bump Type** | ${{ inputs.bump }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The **Release** workflow will trigger automatically from the new tag." >> $GITHUB_STEP_SUMMARY

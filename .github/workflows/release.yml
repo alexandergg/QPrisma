@@ -1,0 +1,119 @@
+name: Release
+
+# ──────────────────────────────────────────────────────────────────────
+# Triggered when a semantic version tag (v*.*.*) is pushed.
+# 1. Runs full CI checks (lint + test)
+# 2. Extracts the matching CHANGELOG.md section
+# 3. Creates a GitHub Release with changelog body
+# 4. Optionally triggers the existing build-and-push workflow
+# ──────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'        # v0.20.0, v1.0.0, etc.
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'      # v0.20.0-beta.1 (pre-releases)
+
+permissions:
+  contents: write          # Create releases
+  id-token: write          # OIDC (reused by called workflows)
+  actions: write           # Trigger downstream workflows
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+
+  # ── 1. Run full CI suite before releasing ──────────────────────────
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  # ── 2. Create GitHub Release ───────────────────────────────────────
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # Full history for tag comparisons
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Detect pre-release (contains hyphen: v1.0.0-beta.1)
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Extract the section between ## [VERSION] and the next ## [
+          NOTES=$(awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]")) found=1
+              next
+            }
+            found { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$NOTES" ]; then
+            echo "⚠️  No CHANGELOG.md entry found for version $VERSION"
+            NOTES="Release $VERSION — see [CHANGELOG.md](CHANGELOG.md) for details."
+          fi
+
+          # Write multiline output
+          {
+            echo "notes<<CHANGELOG_EOF"
+            echo "$NOTES"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify version consistency
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Strip pre-release suffix for file checks (v1.0.0-beta.1 → 1.0.0)
+          BASE_VERSION="${VERSION%%-*}"
+
+          BACKEND_VER=$(grep -oP '(?<=^version = ")[^"]+' backend/pyproject.toml)
+          FRONTEND_VER=$(jq -r '.version' frontend/package.json)
+
+          echo "Tag version:      $BASE_VERSION"
+          echo "Backend version:  $BACKEND_VER"
+          echo "Frontend version: $FRONTEND_VER"
+
+          MISMATCH=0
+          if [ "$BACKEND_VER" != "$BASE_VERSION" ]; then
+            echo "::warning::Backend version ($BACKEND_VER) does not match tag ($BASE_VERSION)"
+            MISMATCH=1
+          fi
+          if [ "$FRONTEND_VER" != "$BASE_VERSION" ]; then
+            echo "::warning::Frontend version ($FRONTEND_VER) does not match tag ($BASE_VERSION)"
+            MISMATCH=1
+          fi
+
+          if [ "$MISMATCH" -eq 1 ]; then
+            echo "::notice::Version mismatch detected. Consider using the version-bump workflow before tagging."
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "QPrisma ${{ steps.version.outputs.tag }}"
+          body: ${{ steps.changelog.outputs.notes }}
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          generate_release_notes: false    # Use our CHANGELOG instead
+          make_latest: ${{ steps.version.outputs.prerelease == 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
