@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-02-13
+
 ### Added
 - **Hybrid memory architecture for LangGraph agents**:
   - Durable full tool-output artifacts via `ToolArtifactService` (Redis cache + Azure Blob + PostgreSQL metadata).
