@@ -21,16 +21,16 @@ logger = logging.getLogger(__name__)
 
 class BatchProcessor:
     """
-    Procesa análisis de frames usando Azure OpenAI Global Batch API.
+    Process frame analysis using Azure OpenAI Global Batch API.
 
-    Beneficios:
-    - 50% más barato que API regular
-    - Sin rate limits restrictivos
-    - Ideal para procesamiento de video
+    Benefits:
+    - 50% cheaper than regular API
+    - No restrictive rate limits
+    - Ideal for video processing
 
-    Requiere:
-    - Un deployment tipo "Global Batch" en Azure OpenAI Studio
-    - Variable AZURE_OPENAI_DEPLOYMENT_GPT_BATCH configurada
+    Requires:
+    - A "Global Batch" deployment in Azure OpenAI Studio
+    - AZURE_OPENAI_DEPLOYMENT_GPT_BATCH environment variable configured
     """
 
     # Pricing (batch = 50% of regular)
@@ -147,17 +147,17 @@ class BatchProcessor:
         self, frames_data: list[dict], custom_prompt: str | None = None
     ) -> list[dict]:
         """
-        Crea requests en formato JSONL para batch processing.
+        Create requests in JSONL format for batch processing.
 
         Uses structured JSON output (response_format) for reliable parsing,
         lower token usage, and direct mapping to Knowledge Graph entities.
 
         Args:
-            frames_data: Lista de frames con image_base64
-            custom_prompt: Prompt personalizado (disables structured output)
+            frames_data: List of frames with image_base64.
+            custom_prompt: Custom prompt (disables structured output).
 
         Returns:
-            Lista de requests en formato batch API
+            List of requests in batch API format.
         """
         default_prompt = """You are analyzing frame #{frame_number} at timestamp {timestamp}s of a video. Provide a comprehensive analysis optimized for semantic search and RAG retrieval.
 
@@ -220,18 +220,18 @@ Be thorough but factual. Prioritize information that would help users find this 
         self, requests: list[dict[str, Any]], description: str = "Video frame analysis"
     ) -> str:
         """
-        Envía un batch job a Azure OpenAI.
+        Submit a batch job to Azure OpenAI.
 
         Args:
-            requests: Lista de requests en formato batch API.
-            description: Descripción del batch job.
+            requests: List of requests in batch API format.
+            description: Batch job description.
 
         Returns:
-            batch_id del job creado.
+            batch_id of the created job.
 
         Raises:
-            APIError: Si hay un error de API.
-            OSError: Si hay error escribiendo el archivo temporal.
+            APIError: If there is an API error.
+            OSError: If there is an error writing the temporary file.
         """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
             for request in requests:
@@ -267,13 +267,13 @@ Be thorough but factual. Prioritize information that would help users find this 
 
     async def check_batch_status(self, batch_id: str) -> dict[str, Any]:
         """
-        Verifica el estado de un batch job.
+        Check the status of a batch job.
 
         Args:
-            batch_id: ID del batch job.
+            batch_id: Batch job ID.
 
         Returns:
-            Diccionario con estado del batch.
+            Dictionary with batch status.
         """
         batch = await self.client.batches.retrieve(batch_id)
 
@@ -293,15 +293,15 @@ Be thorough but factual. Prioritize information that would help users find this 
         self, batch_id: str, check_interval: int = 10, max_wait_time: int = 3600
     ) -> bool:
         """
-        Espera a que un batch job complete con exponential backoff.
+        Wait for a batch job to complete with exponential backoff.
 
         Args:
-            batch_id: ID del batch job.
-            check_interval: Intervalo inicial de verificación en segundos.
-            max_wait_time: Tiempo máximo de espera en segundos.
+            batch_id: Batch job ID.
+            check_interval: Initial check interval in seconds.
+            max_wait_time: Maximum wait time in seconds.
 
         Returns:
-            True si completó exitosamente, False si falló o timeout.
+            True if completed successfully, False if failed or timed out.
         """
         logger.info(f"Waiting for batch {batch_id} to complete")
         start_time = time.time()
@@ -345,16 +345,16 @@ Be thorough but factual. Prioritize information that would help users find this 
 
     async def get_batch_results(self, batch_id: str) -> list[dict[str, Any]]:
         """
-        Obtiene los resultados de un batch job completado.
+        Get results from a completed batch job.
 
         Args:
-            batch_id: ID del batch job.
+            batch_id: Batch job ID.
 
         Returns:
-            Lista de resultados del batch.
+            List of batch results.
 
         Raises:
-            ValueError: Si el batch no está completado o no hay archivo de salida.
+            ValueError: If the batch is not completed or there is no output file.
         """
         batch = await self.client.batches.retrieve(batch_id)
 
@@ -377,17 +377,17 @@ Be thorough but factual. Prioritize information that would help users find this 
 
     def parse_vision_results(self, results: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         """
-        Parsea resultados de análisis de visión.
+        Parse vision analysis results.
 
         Handles both structured JSON output (response_format) and plain text
         responses (custom prompts). For JSON responses, the analysis field
         contains both the parsed dict and a flattened text version for embeddings.
 
         Args:
-            results: Lista de resultados del batch API.
+            results: List of batch API results.
 
         Returns:
-            Diccionario mapeando custom_id a resultados parseados.
+            Dictionary mapping custom_id to parsed results.
         """
         parsed: dict[str, dict[str, Any]] = {}
 
@@ -481,6 +481,6 @@ Be thorough but factual. Prioritize information that would help users find this 
         return " ".join(parts)
 
     async def cancel_batch(self, batch_id: str):
-        """Cancela un batch job en progreso."""
+        """Cancel a batch job in progress."""
         await self.client.batches.cancel(batch_id)
         logger.info(f"Batch {batch_id} cancelled")

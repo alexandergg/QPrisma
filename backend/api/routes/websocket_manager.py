@@ -1,16 +1,16 @@
 """
-WebSocket Manager para QPrisma
-Gestiona conexiones WebSocket para actualizaciones en tiempo real.
+WebSocket Manager for QPrisma
+Manages WebSocket connections for real-time updates.
 
-Características:
-- Conexiones por job_id (seguir un job específico)
-- Conexiones por user_id (todos los jobs de un usuario)
-- Broadcast a todos los clientes
-- Heartbeat para mantener conexiones vivas
-- Reconexión automática en cliente
+Features:
+- Connections by job_id (follow a specific job)
+- Connections by user_id (all jobs for a user)
+- Broadcast to all clients
+- Heartbeat to keep connections alive
+- Automatic reconnection on the client side
 
-Uso:
-    # En el servidor
+Usage:
+    # On the server
     manager = WebSocketManager()
 
     @app.websocket("/ws/jobs/{job_id}")
@@ -19,11 +19,11 @@ Uso:
         try:
             while True:
                 data = await websocket.receive_text()
-                # Procesar mensajes del cliente si es necesario
+                # Process client messages if necessary
         except WebSocketDisconnect:
             manager.disconnect(websocket, job_id)
 
-    # Desde Celery task
+    # From a Celery task
     await manager.send_job_update(job_id, {
         "progress": 50,
         "stage": "analyzing"
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 class MessageType(str, Enum):
-    """Tipos de mensajes WebSocket"""
+    """WebSocket message types"""
 
     # Server -> Client
     JOB_PROGRESS = "job_progress"
@@ -63,7 +63,7 @@ class MessageType(str, Enum):
 
 @dataclass
 class WebSocketMessage:
-    """Estructura de mensaje WebSocket"""
+    """WebSocket message structure"""
 
     type: MessageType
     payload: dict[str, Any]
@@ -93,12 +93,12 @@ class WebSocketMessage:
 
 class ConnectionManager:
     """
-    Gestor de conexiones WebSocket.
+    WebSocket connection manager.
 
-    Mantiene un registro de conexiones activas organizadas por:
-    - job_id: Para seguir un job específico
-    - user_id: Para recibir updates de todos los jobs del usuario
-    - broadcast: Para mensajes globales
+    Maintains a registry of active connections organized by:
+    - job_id: To follow a specific job
+    - user_id: To receive updates for all jobs of a user
+    - broadcast: For global messages
     """
 
     def __init__(self):
@@ -108,28 +108,28 @@ class ConnectionManager:
         # user_id -> set of websockets
         self._user_connections: dict[str, set[WebSocket]] = {}
 
-        # Todas las conexiones activas
+        # All active connections
         self._active_connections: set[WebSocket] = set()
 
         # WebSocket -> metadata
         self._connection_metadata: dict[WebSocket, dict[str, Any]] = {}
 
-        # Lock para operaciones thread-safe
+        # Lock for thread-safe operations
         self._lock = asyncio.Lock()
 
     async def connect(
         self, websocket: WebSocket, job_id: str | None = None, user_id: str | None = None
     ) -> bool:
         """
-        Acepta una nueva conexión WebSocket.
+        Accepts a new WebSocket connection.
 
         Args:
-            websocket: La conexión WebSocket
-            job_id: ID del job a seguir (opcional)
-            user_id: ID del usuario (opcional)
+            websocket: The WebSocket connection
+            job_id: ID of the job to follow (optional)
+            user_id: ID of the user (optional)
 
         Returns:
-            True si la conexión fue aceptada
+            True if the connection was accepted
         """
         try:
             await websocket.accept()
@@ -137,32 +137,32 @@ class ConnectionManager:
             async with self._lock:
                 self._active_connections.add(websocket)
 
-                # Guardar metadata
+                # Store metadata
                 self._connection_metadata[websocket] = {
                     "job_id": job_id,
                     "user_id": user_id,
                     "connected_at": datetime.now(UTC).isoformat(),
                 }
 
-                # Registrar en job_connections
+                # Register in job_connections
                 if job_id:
                     if job_id not in self._job_connections:
                         self._job_connections[job_id] = set()
                     self._job_connections[job_id].add(websocket)
 
-                # Registrar en user_connections
+                # Register in user_connections
                 if user_id:
                     if user_id not in self._user_connections:
                         self._user_connections[user_id] = set()
                     self._user_connections[user_id].add(websocket)
 
-            # Enviar confirmación
+            # Send confirmation
             await self._send_message(
                 websocket,
                 WebSocketMessage(
                     type=MessageType.CONNECTED,
                     payload={
-                        "message": "Conectado correctamente",
+                        "message": "Connected successfully",
                         "job_id": job_id,
                         "user_id": user_id,
                     },
@@ -178,23 +178,23 @@ class ConnectionManager:
             return False
 
     async def disconnect(self, websocket: WebSocket):
-        """Desconecta un WebSocket y limpia registros"""
+        """Disconnects a WebSocket and cleans up its registry entries"""
         async with self._lock:
-            # Obtener metadata
+            # Get metadata
             metadata = self._connection_metadata.pop(websocket, {})
             job_id = metadata.get("job_id")
             user_id = metadata.get("user_id")
 
-            # Remover de active_connections
+            # Remove from active_connections
             self._active_connections.discard(websocket)
 
-            # Remover de job_connections
+            # Remove from job_connections
             if job_id and job_id in self._job_connections:
                 self._job_connections[job_id].discard(websocket)
                 if not self._job_connections[job_id]:
                     del self._job_connections[job_id]
 
-            # Remover de user_connections
+            # Remove from user_connections
             if user_id and user_id in self._user_connections:
                 self._user_connections[user_id].discard(websocket)
                 if not self._user_connections[user_id]:
@@ -203,26 +203,26 @@ class ConnectionManager:
         logger.info(f"WebSocket disconnected: job={job_id}, user={user_id}")
 
     async def subscribe_to_job(self, websocket: WebSocket, job_id: str):
-        """Suscribe un WebSocket a un job específico"""
+        """Subscribes a WebSocket to a specific job"""
         async with self._lock:
             if job_id not in self._job_connections:
                 self._job_connections[job_id] = set()
             self._job_connections[job_id].add(websocket)
 
-            # Actualizar metadata
+            # Update metadata
             if websocket in self._connection_metadata:
                 self._connection_metadata[websocket]["job_id"] = job_id
 
         logger.debug(f"WebSocket subscribed to job {job_id}")
 
     async def unsubscribe_from_job(self, websocket: WebSocket, job_id: str):
-        """Desuscribe un WebSocket de un job"""
+        """Unsubscribes a WebSocket from a job"""
         async with self._lock:
             if job_id in self._job_connections:
                 self._job_connections[job_id].discard(websocket)
 
     async def _send_message(self, websocket: WebSocket, message: WebSocketMessage):
-        """Envía un mensaje a un WebSocket específico"""
+        """Sends a message to a specific WebSocket"""
         try:
             await websocket.send_text(message.to_json())
         except Exception as e:
@@ -231,11 +231,11 @@ class ConnectionManager:
 
     async def send_to_job(self, job_id: str, message: WebSocketMessage):
         """
-        Envía un mensaje a todos los clientes suscritos a un job.
+        Sends a message to all clients subscribed to a job.
 
         Args:
-            job_id: ID del job
-            message: Mensaje a enviar
+            job_id: ID of the job
+            message: Message to send
         """
         message.job_id = job_id
 
@@ -244,7 +244,7 @@ class ConnectionManager:
             logger.debug(f"No WebSocket connections for job {job_id}")
             return
 
-        # Enviar a todas las conexiones
+        # Send to all connections
         disconnected = []
         for websocket in connections:
             try:
@@ -253,7 +253,7 @@ class ConnectionManager:
                 logger.warning(f"Failed to send to websocket: {e}")
                 disconnected.append(websocket)
 
-        # Limpiar conexiones muertas
+        # Clean up dead connections
         for ws in disconnected:
             await self.disconnect(ws)
 
@@ -262,7 +262,7 @@ class ConnectionManager:
         )
 
     async def send_to_user(self, user_id: str, message: WebSocketMessage):
-        """Envía un mensaje a todos los WebSockets de un usuario"""
+        """Sends a message to all WebSockets for a user"""
         connections = self._user_connections.get(user_id, set()).copy()
 
         disconnected = []
@@ -276,7 +276,7 @@ class ConnectionManager:
             await self.disconnect(ws)
 
     async def broadcast(self, message: WebSocketMessage):
-        """Envía un mensaje a todas las conexiones activas"""
+        """Sends a message to all active connections"""
         connections = self._active_connections.copy()
 
         disconnected = []
@@ -292,7 +292,7 @@ class ConnectionManager:
         logger.debug(f"Broadcast sent to {len(connections) - len(disconnected)} clients")
 
     # =========================================================================
-    # Métodos de conveniencia para eventos comunes
+    # Convenience methods for common events
     # =========================================================================
 
     async def send_job_progress(
@@ -303,11 +303,11 @@ class ConnectionManager:
         message: str | None = None,
         data: dict | None = None,
     ):
-        """Envía actualización de progreso de un job"""
+        """Sends a progress update for a job"""
         payload = {
             "progress": progress,
             "stage": stage,
-            "message": message or f"Procesando: {stage}",
+            "message": message or f"Processing: {stage}",
         }
         if data:
             payload["data"] = data
@@ -317,29 +317,29 @@ class ConnectionManager:
         )
 
     async def send_job_completed(self, job_id: str, result: dict | None = None):
-        """Notifica que un job se completó"""
+        """Notifies that a job has completed"""
         await self.send_to_job(
             job_id,
             WebSocketMessage(
                 type=MessageType.JOB_COMPLETED,
-                payload={"message": "Procesamiento completado", "result": result},
+                payload={"message": "Processing completed", "result": result},
                 job_id=job_id,
             ),
         )
 
     async def send_job_failed(self, job_id: str, error: str):
-        """Notifica que un job falló"""
+        """Notifies that a job has failed"""
         await self.send_to_job(
             job_id,
             WebSocketMessage(
                 type=MessageType.JOB_FAILED,
-                payload={"message": "Procesamiento fallido", "error": error},
+                payload={"message": "Processing failed", "error": error},
                 job_id=job_id,
             ),
         )
 
     async def send_heartbeat(self, websocket: WebSocket):
-        """Envía heartbeat a un cliente"""
+        """Sends a heartbeat to a client"""
         await self._send_message(
             websocket,
             WebSocketMessage(
@@ -348,11 +348,11 @@ class ConnectionManager:
         )
 
     # =========================================================================
-    # Estadísticas
+    # Statistics
     # =========================================================================
 
     def get_stats(self) -> dict[str, Any]:
-        """Retorna estadísticas de conexiones"""
+        """Returns connection statistics"""
         return {
             "total_connections": len(self._active_connections),
             "jobs_with_connections": len(self._job_connections),
@@ -364,14 +364,14 @@ class ConnectionManager:
 
 
 # =============================================================================
-# Singleton global
+# Global singleton
 # =============================================================================
 
 _manager: ConnectionManager | None = None
 
 
 def get_websocket_manager() -> ConnectionManager:
-    """Obtiene la instancia singleton del WebSocket manager"""
+    """Gets the singleton instance of the WebSocket manager"""
     global _manager
     if _manager is None:
         _manager = ConnectionManager()
@@ -379,18 +379,18 @@ def get_websocket_manager() -> ConnectionManager:
 
 
 # =============================================================================
-# Integración con Redis Pub/Sub (para múltiples instancias de API)
+# Redis Pub/Sub integration (for multiple API instances)
 # =============================================================================
 
 
 class RedisPubSubManager:
     """
-    Manager que usa Redis Pub/Sub para sincronizar WebSockets
-    entre múltiples instancias del API.
+    Manager that uses Redis Pub/Sub to synchronize WebSockets
+    across multiple API instances.
 
-    Útil cuando hay múltiples réplicas del backend y un cliente
-    puede estar conectado a una instancia diferente de donde
-    se ejecuta el Celery task.
+    Useful when there are multiple backend replicas and a client
+    may be connected to a different instance than the one where
+    the Celery task is running.
     """
 
     def __init__(self, redis_url: str):
@@ -400,7 +400,7 @@ class RedisPubSubManager:
         self._running = False
 
     async def connect(self):
-        """Conecta al Redis Pub/Sub"""
+        """Connects to Redis Pub/Sub"""
         try:
             import redis.asyncio as aioredis
 
@@ -413,7 +413,7 @@ class RedisPubSubManager:
             logger.warning(f"Redis Pub/Sub not available: {e}")
 
     async def disconnect(self):
-        """Desconecta del Redis Pub/Sub"""
+        """Disconnects from Redis Pub/Sub"""
         self._running = False
         if self._pubsub:
             await self._pubsub.unsubscribe()
@@ -422,9 +422,9 @@ class RedisPubSubManager:
             await self._redis.close()
 
     async def publish_event(self, event_type: str, job_id: str, data: dict):
-        """Publica un evento a Redis para que otras instancias lo reciban"""
+        """Publishes an event to Redis for other instances to receive"""
         if not hasattr(self, "_redis"):
-            # Fallback a local manager
+            # Fallback to local manager
             await self._handle_event(event_type, job_id, data)
             return
 
@@ -433,11 +433,11 @@ class RedisPubSubManager:
             await self._redis.publish("qprisma:websocket:events", message)
         except Exception as e:
             logger.error(f"Failed to publish event: {e}")
-            # Fallback a local
+            # Fallback to local
             await self._handle_event(event_type, job_id, data)
 
     async def _handle_event(self, event_type: str, job_id: str, data: dict):
-        """Maneja un evento (local o recibido de Redis)"""
+        """Handles an event (local or received from Redis)"""
         if event_type == "progress":
             await self._local_manager.send_job_progress(
                 job_id, data.get("progress", 0), data.get("stage", "unknown"), data.get("message")
@@ -448,7 +448,7 @@ class RedisPubSubManager:
             await self._local_manager.send_job_failed(job_id, data.get("error", "Unknown error"))
 
     async def listen(self):
-        """Escucha eventos de Redis y los propaga a WebSockets locales"""
+        """Listens for Redis events and propagates them to local WebSockets"""
         if not self._pubsub:
             return
 
@@ -467,12 +467,12 @@ class RedisPubSubManager:
                 await asyncio.sleep(1)
 
 
-# Singleton para Redis Pub/Sub
+# Singleton for Redis Pub/Sub
 _pubsub_manager: RedisPubSubManager | None = None
 
 
 async def get_pubsub_manager() -> RedisPubSubManager:
-    """Obtiene el manager de Redis Pub/Sub"""
+    """Gets the Redis Pub/Sub manager"""
     global _pubsub_manager
     if _pubsub_manager is None:
         import os

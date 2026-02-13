@@ -1,10 +1,10 @@
 """
-Modelos Pydantic para el sistema de caching de QPrisma.
+Pydantic models for the QPrisma caching system.
 
-Estos modelos se usan para:
-- Configuración del cache
-- Respuestas de métricas
-- Request/Response de endpoints de cache
+These models are used for:
+- Cache configuration
+- Metrics responses
+- Cache endpoint request/response
 """
 
 from datetime import datetime
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 
 class CacheBackend(str, Enum):
-    """Backend de cache activo"""
+    """Active cache backend"""
 
     REDIS = "redis"
     MEMORY = "memory"
@@ -23,7 +23,7 @@ class CacheBackend(str, Enum):
 
 
 class CacheTypeEnum(str, Enum):
-    """Tipos de datos cacheados"""
+    """Types of cached data"""
 
     EMBEDDING = "embedding"
     FRAME_ANALYSIS = "frame_analysis"
@@ -34,39 +34,35 @@ class CacheTypeEnum(str, Enum):
 
 
 # =============================================================================
-# Configuración
+# Configuration
 # =============================================================================
 
 
 class CacheTTLConfig(BaseModel):
-    """Configuración de TTL por tipo de cache"""
+    """TTL configuration per cache type"""
 
-    embedding_ttl: int = Field(default=604800, description="TTL para embeddings (7 días)")
-    frame_analysis_ttl: int = Field(
-        default=259200, description="TTL para análisis de frames (3 días)"
-    )
-    frame_hash_ttl: int = Field(default=604800, description="TTL para hash perceptuales (7 días)")
-    video_metadata_ttl: int = Field(default=3600, description="TTL para metadata de video (1 hora)")
-    search_result_ttl: int = Field(
-        default=300, description="TTL para resultados de búsqueda (5 min)"
-    )
-    job_status_ttl: int = Field(default=3600, description="TTL para estado de jobs (1 hora)")
+    embedding_ttl: int = Field(default=604800, description="TTL for embeddings (7 days)")
+    frame_analysis_ttl: int = Field(default=259200, description="TTL for frame analysis (3 days)")
+    frame_hash_ttl: int = Field(default=604800, description="TTL for perceptual hashes (7 days)")
+    video_metadata_ttl: int = Field(default=3600, description="TTL for video metadata (1 hour)")
+    search_result_ttl: int = Field(default=300, description="TTL for search results (5 min)")
+    job_status_ttl: int = Field(default=3600, description="TTL for job status (1 hour)")
 
 
 class CacheSettings(BaseModel):
-    """Configuración general del sistema de cache"""
+    """General cache system configuration"""
 
-    enabled: bool = Field(default=True, description="Si el cache está habilitado")
-    redis_url: str | None = Field(default=None, description="URL de Redis")
-    key_prefix: str = Field(default="qprisma", description="Prefijo para keys")
+    enabled: bool = Field(default=True, description="Whether the cache is enabled")
+    redis_url: str | None = Field(default=None, description="Redis URL")
+    key_prefix: str = Field(default="qprisma", description="Key prefix")
     similarity_threshold: int = Field(
         default=8,
         ge=0,
         le=64,
-        description="Threshold para similitud de frames (0-64, menor = más estricto)",
+        description="Frame similarity threshold (0-64, lower = more strict)",
     )
     max_memory_items: int = Field(
-        default=1000, ge=100, description="Max items en cache de memoria (fallback)"
+        default=1000, ge=100, description="Max items in memory cache (fallback)"
     )
     ttl: CacheTTLConfig = Field(default_factory=CacheTTLConfig)
 
@@ -85,22 +81,22 @@ class CacheSettings(BaseModel):
 
 
 # =============================================================================
-# Métricas
+# Metrics
 # =============================================================================
 
 
 class CacheMetricsResponse(BaseModel):
-    """Respuesta del endpoint de métricas de cache"""
+    """Cache metrics endpoint response"""
 
-    connected: bool = Field(description="Si hay conexión activa")
-    backend: CacheBackend = Field(description="Backend activo (redis/memory)")
-    hits: int = Field(default=0, description="Número de cache hits")
-    misses: int = Field(default=0, description="Número de cache misses")
-    errors: int = Field(default=0, description="Número de errores")
-    hit_rate: str = Field(description="Tasa de aciertos (porcentaje)")
-    bytes_saved: int = Field(default=0, description="Bytes ahorrados estimados")
-    api_calls_saved: int = Field(default=0, description="Llamadas a API evitadas")
-    estimated_cost_saved: str = Field(description="Costo estimado ahorrado (USD)")
+    connected: bool = Field(description="Whether there is an active connection")
+    backend: CacheBackend = Field(description="Active backend (redis/memory)")
+    hits: int = Field(default=0, description="Number of cache hits")
+    misses: int = Field(default=0, description="Number of cache misses")
+    errors: int = Field(default=0, description="Number of errors")
+    hit_rate: str = Field(description="Hit rate (percentage)")
+    bytes_saved: int = Field(default=0, description="Estimated bytes saved")
+    api_calls_saved: int = Field(default=0, description="API calls avoided")
+    estimated_cost_saved: str = Field(description="Estimated cost saved (USD)")
 
     model_config = {
         "json_schema_extra": {
@@ -120,21 +116,21 @@ class CacheMetricsResponse(BaseModel):
 
 
 class CacheStatsPerType(BaseModel):
-    """Estadísticas detalladas por tipo de cache"""
+    """Detailed statistics per cache type"""
 
     type: CacheTypeEnum
-    keys_count: int = Field(description="Número de keys de este tipo")
-    memory_usage_bytes: int = Field(description="Uso de memoria estimado")
-    avg_ttl_remaining: int | None = Field(description="TTL promedio restante en segundos")
+    keys_count: int = Field(description="Number of keys of this type")
+    memory_usage_bytes: int = Field(description="Estimated memory usage")
+    avg_ttl_remaining: int | None = Field(description="Average remaining TTL in seconds")
 
 
 class CacheDetailedStats(BaseModel):
-    """Estadísticas detalladas del cache"""
+    """Detailed cache statistics"""
 
     metrics: CacheMetricsResponse
     stats_per_type: list[CacheStatsPerType]
     redis_info: dict[str, Any] | None = Field(
-        default=None, description="Info de Redis (solo si backend es redis)"
+        default=None, description="Redis info (only if backend is redis)"
     )
 
 
@@ -144,18 +140,16 @@ class CacheDetailedStats(BaseModel):
 
 
 class CacheInvalidateRequest(BaseModel):
-    """Request para invalidar cache"""
+    """Request to invalidate cache"""
 
     pattern: str | None = Field(
-        default=None, description="Patrón glob para invalidar (ej: 'qprisma:embedding:*')"
+        default=None, description="Glob pattern to invalidate (e.g.: 'qprisma:embedding:*')"
     )
-    video_id: str | None = Field(
-        default=None, description="ID de video para invalidar todo su cache"
-    )
+    video_id: str | None = Field(default=None, description="Video ID to invalidate all its cache")
     cache_type: CacheTypeEnum | None = Field(
-        default=None, description="Tipo de cache a invalidar completamente"
+        default=None, description="Cache type to invalidate completely"
     )
-    clear_all: bool = Field(default=False, description="Si true, limpia TODO el cache (peligroso)")
+    clear_all: bool = Field(default=False, description="If true, clears ALL cache (dangerous)")
 
     model_config = {
         "json_schema_extra": {
@@ -165,7 +159,7 @@ class CacheInvalidateRequest(BaseModel):
 
 
 class CacheInvalidateResponse(BaseModel):
-    """Respuesta de invalidación de cache"""
+    """Cache invalidation response"""
 
     success: bool
     keys_deleted: int
@@ -173,12 +167,12 @@ class CacheInvalidateResponse(BaseModel):
 
 
 # =============================================================================
-# Estado de Jobs (para WebSocket/polling)
+# Job Status (for WebSocket/polling)
 # =============================================================================
 
 
 class ProcessingStage(str, Enum):
-    """Etapas del pipeline de procesamiento"""
+    """Processing pipeline stages"""
 
     QUEUED = "queued"
     DOWNLOADING = "downloading"
@@ -192,12 +186,12 @@ class ProcessingStage(str, Enum):
 
 
 class JobStatusCache(BaseModel):
-    """Estado de job almacenado en cache"""
+    """Job status stored in cache"""
 
     job_id: str
     video_id: str
     status: ProcessingStage
-    progress: int = Field(ge=0, le=100, description="Progreso 0-100")
+    progress: int = Field(ge=0, le=100, description="Progress 0-100")
     current_stage: str
     message: str | None = None
     started_at: datetime
@@ -207,7 +201,7 @@ class JobStatusCache(BaseModel):
     frames_processed: int = 0
     frames_total: int = 0
     estimated_time_remaining: int | None = Field(
-        default=None, description="Segundos estimados restantes"
+        default=None, description="Estimated remaining seconds"
     )
 
     model_config = {
@@ -217,8 +211,8 @@ class JobStatusCache(BaseModel):
                 "video_id": "video_xyz789",
                 "status": "analyzing_frames",
                 "progress": 45,
-                "current_stage": "Analizando frames con GPT-4V",
-                "message": "Procesando frame 45 de 100",
+                "current_stage": "Analyzing frames with GPT-4V",
+                "message": "Processing frame 45 of 100",
                 "started_at": "2026-01-08T10:00:00Z",
                 "updated_at": "2026-01-08T10:05:30Z",
                 "frames_processed": 45,
@@ -230,20 +224,20 @@ class JobStatusCache(BaseModel):
 
 
 # =============================================================================
-# Embeddings cacheados
+# Cached Embeddings
 # =============================================================================
 
 
 class CachedEmbedding(BaseModel):
-    """Embedding almacenado en cache con metadata"""
+    """Embedding stored in cache with metadata"""
 
-    content_hash: str = Field(description="Hash SHA256 del contenido")
-    embedding: list[float] = Field(description="Vector de embedding")
+    content_hash: str = Field(description="SHA256 hash of the content")
+    embedding: list[float] = Field(description="Embedding vector")
     model: str = Field(default="text-embedding-3-large")
-    dimensions: int = Field(description="Dimensiones del vector")
+    dimensions: int = Field(description="Vector dimensions")
     cached_at: datetime
     expires_at: datetime
-    source_type: str = Field(description="Tipo de fuente (text, frame, audio)")
+    source_type: str = Field(description="Source type (text, frame, audio)")
 
     model_config = {
         "json_schema_extra": {
@@ -261,15 +255,17 @@ class CachedEmbedding(BaseModel):
 
 
 class CachedFrameAnalysis(BaseModel):
-    """Análisis de frame almacenado en cache"""
+    """Frame analysis stored in cache"""
 
-    frame_hash: str = Field(description="Hash del frame (contenido)")
-    perceptual_hash: str | None = Field(description="Hash perceptual (similitud)")
-    analysis: dict[str, Any] = Field(description="Resultado del análisis GPT-4V")
+    frame_hash: str = Field(description="Frame hash (content)")
+    perceptual_hash: str | None = Field(description="Perceptual hash (similarity)")
+    analysis: dict[str, Any] = Field(description="GPT-4V analysis result")
     model: str = Field(default="gpt-4o")
     cached_at: datetime
     expires_at: datetime
-    was_deduplicated: bool = Field(default=False, description="Si se reutilizó de un frame similar")
+    was_deduplicated: bool = Field(
+        default=False, description="Whether it was reused from a similar frame"
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -277,8 +273,8 @@ class CachedFrameAnalysis(BaseModel):
                 "frame_hash": "abc123...",
                 "perceptual_hash": "f0e1d2c3b4a5...",
                 "analysis": {
-                    "description": "Una persona hablando en una presentación",
-                    "objects": ["persona", "micrófono", "pantalla"],
+                    "description": "A person speaking at a presentation",
+                    "objects": ["person", "microphone", "screen"],
                     "scene_type": "conference",
                 },
                 "model": "gpt-4o",
@@ -291,20 +287,20 @@ class CachedFrameAnalysis(BaseModel):
 
 
 # =============================================================================
-# Warm-up de cache
+# Cache Warm-up
 # =============================================================================
 
 
 class CacheWarmupRequest(BaseModel):
-    """Request para pre-calentar cache"""
+    """Request to pre-warm the cache"""
 
-    video_ids: list[str] = Field(description="IDs de videos a pre-cargar")
+    video_ids: list[str] = Field(description="Video IDs to pre-load")
     include_embeddings: bool = Field(default=True)
     include_analysis: bool = Field(default=True)
 
 
 class CacheWarmupResponse(BaseModel):
-    """Respuesta de warm-up de cache"""
+    """Cache warm-up response"""
 
     success: bool
     videos_processed: int

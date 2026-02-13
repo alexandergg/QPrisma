@@ -48,47 +48,50 @@ async def lifespan(app: FastAPI):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     # Startup
-    print("=" * 50)
-    print("QPrisma API v0.3.0")
-    print("=" * 50)
-    print(f"📍 Environment: {settings.app.environment}")
+    logger.info("=" * 50)
+    logger.info("QPrisma API v0.3.0")
+    logger.info("=" * 50)
+    logger.info("Environment: %s", settings.app.environment)
     disable_startup_checks = os.getenv("DISABLE_STARTUP_HEALTHCHECKS", "").lower() in {
         "1",
         "true",
         "yes",
     }
     if disable_startup_checks:
-        print("📊 Azure OpenAI: skipped (startup checks disabled)")
-        print("💾 Azure Storage: skipped (startup checks disabled)")
-        print("🗄️  PostgreSQL: skipped (startup checks disabled)")
+        logger.info("Azure OpenAI: skipped (startup checks disabled)")
+        logger.info("Azure Storage: skipped (startup checks disabled)")
+        logger.info("PostgreSQL: skipped (startup checks disabled)")
     else:
-        print(f"📊 Azure OpenAI: {'✓' if get_openai_client() else '✗'}")
-        print(f"💾 Azure Storage: {'✓' if get_blob_service() else '✗'}")
+        logger.info("Azure OpenAI: %s", "ok" if get_openai_client() else "not configured")
+        logger.info("Azure Storage: %s", "ok" if get_blob_service() else "not configured")
         db = get_database_service()
         db_health = db.health_check() if db else {"status": "not_configured"}
-        print(f"🗄️  PostgreSQL: {'✓' if db_health.get('status') == 'healthy' else '✗'}")
+        logger.info(
+            "PostgreSQL: %s",
+            "ok" if db_health.get("status") == "healthy" else "not configured",
+        )
 
     # Initialize Redis Pub/Sub listener for WebSocket events from Celery
     pubsub_task = None
     disable_pubsub = os.getenv("DISABLE_REDIS_PUBSUB", "").lower() in {"1", "true", "yes"}
     if disable_pubsub:
-        print("📡 Redis Pub/Sub: skipped (disabled by env)")
+        logger.info("Redis Pub/Sub: skipped (disabled by env)")
     else:
         try:
             from api.routes.websocket_manager import get_pubsub_manager
 
             pubsub_manager = await get_pubsub_manager()
             pubsub_task = asyncio.create_task(pubsub_manager.listen())
-            print("📡 Redis Pub/Sub: ✓ (WebSocket sync enabled)")
+            logger.info("Redis Pub/Sub: ok (WebSocket sync enabled)")
         except Exception as e:
-            print(f"📡 Redis Pub/Sub: ✗ ({e})")
+            logger.warning("Redis Pub/Sub: failed (%s)", e)
 
-    print("=" * 50)
+    logger.info("=" * 50)
 
     yield  # Application runs here
 
     # Shutdown (cleanup if needed)
-    print("👋 QPrisma API shutting down...")
+    logger.info("QPrisma API shutting down...")
 
     # Stop Redis Pub/Sub listener
     if pubsub_task:

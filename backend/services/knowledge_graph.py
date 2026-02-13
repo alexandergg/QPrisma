@@ -1,10 +1,10 @@
 """
 Knowledge Graph Service for QPrisma
 
-Servicio principal para gestionar el Knowledge Graph multimodal en Neo4j.
-Proporciona operaciones CRUD, búsqueda híbrida y graph expansion para RAG.
+Primary service for managing the multimodal Knowledge Graph in Neo4j.
+Provides CRUD operations, hybrid search, and graph expansion for RAG.
 
-Requiere Neo4j 5.x con plugin APOC.
+Requires Neo4j 5.x with the APOC plugin.
 """
 
 import logging
@@ -30,14 +30,14 @@ logger = logging.getLogger(__name__)
 
 class KnowledgeGraphService:
     """
-    Servicio para gestionar el Knowledge Graph de QPrisma en Neo4j.
+    Service for managing the QPrisma Knowledge Graph in Neo4j.
 
-    Características:
-    - Conexión con pool de conexiones
-    - CRUD de nodos jerárquicos (Video → Scene → Frame → Entity)
-    - Relaciones temporales y semánticas
-    - Búsqueda híbrida (vector + graph traversal)
-    - Graph expansion para contexto RAG
+    Features:
+    - Connection pooling
+    - CRUD for hierarchical nodes (Video -> Scene -> Frame -> Entity)
+    - Temporal and semantic relations
+    - Hybrid search (vector + graph traversal)
+    - Graph expansion for RAG context
     """
 
     def __init__(
@@ -48,13 +48,13 @@ class KnowledgeGraphService:
         database: str = "neo4j",
     ):
         """
-        Inicializa la conexión a Neo4j.
+        Initialize the connection to Neo4j.
 
         Args:
-            uri: URI de conexión (default from settings)
-            user: Usuario (default from settings)
-            password: Contraseña (default from settings)
-            database: Base de datos a usar (default from settings)
+            uri: Connection URI (default from settings)
+            user: Username (default from settings)
+            password: Password (default from settings)
+            database: Database to use (default from settings)
         """
         self.uri = uri or settings.neo4j.uri
         self.user = user or settings.neo4j.user
@@ -72,7 +72,7 @@ class KnowledgeGraphService:
     # =========================================================================
 
     def connect(self) -> bool:
-        """Establece conexión con Neo4j."""
+        """Establish a connection to Neo4j."""
         try:
             self._driver = GraphDatabase.driver(
                 self.uri,
@@ -81,7 +81,7 @@ class KnowledgeGraphService:
                 max_connection_pool_size=50,
                 connection_acquisition_timeout=60,
             )
-            # Verificar conexión
+            # Verify connection
             self._driver.verify_connectivity()
             self._connected = True
             logger.info(f"Connected to Neo4j at {self.uri}")
@@ -123,12 +123,12 @@ class KnowledgeGraphService:
 
     @property
     def is_connected(self) -> bool:
-        """Verifica si hay conexión activa."""
+        """Check whether an active connection exists."""
         return self._connected and self._driver is not None
 
     @contextmanager
     def get_session(self) -> Session:
-        """Context manager para obtener una sesión de Neo4j."""
+        """Context manager for obtaining a Neo4j session."""
         if not self.is_connected:
             self.connect()
 
@@ -179,7 +179,7 @@ class KnowledgeGraphService:
     # =========================================================================
 
     async def async_connect(self) -> bool:
-        """Establece conexión async con Neo4j."""
+        """Establish an async connection to Neo4j."""
         try:
             self._async_driver = AsyncGraphDatabase.driver(
                 self.uri,
@@ -202,7 +202,7 @@ class KnowledgeGraphService:
             return False
 
     async def async_disconnect(self):
-        """Cierra la conexión async con Neo4j."""
+        """Close the async connection to Neo4j."""
         if self._async_driver:
             await self._async_driver.close()
             self._async_driver = None
@@ -211,12 +211,12 @@ class KnowledgeGraphService:
 
     @property
     def is_async_connected(self) -> bool:
-        """Verifica si hay conexión async activa."""
+        """Check whether an active async connection exists."""
         return self._async_connected and self._async_driver is not None
 
     @asynccontextmanager
     async def get_async_session(self) -> AsyncSession:
-        """Async context manager para obtener una sesión de Neo4j."""
+        """Async context manager for obtaining a Neo4j session."""
         if not self.is_async_connected:
             await self.async_connect()
 
@@ -269,7 +269,7 @@ class KnowledgeGraphService:
     def initialize_schema(self) -> None:
         """Create required indexes and constraints in Neo4j."""
         with self.get_session() as session:
-            # Constraints de unicidad
+            # Uniqueness constraints
             constraints = [
                 "CREATE CONSTRAINT video_id IF NOT EXISTS FOR (v:Video) REQUIRE v.id IS UNIQUE",
                 "CREATE CONSTRAINT chapter_id IF NOT EXISTS FOR (c:Chapter) REQUIRE c.id IS UNIQUE",
@@ -280,22 +280,22 @@ class KnowledgeGraphService:
                 "CREATE CONSTRAINT audio_id IF NOT EXISTS FOR (a:AudioSegment) REQUIRE a.id IS UNIQUE",
             ]
 
-            # Índices para búsqueda
+            # Indexes for search
             indexes = [
-                # Índices por video_id para filtrado rápido
+                # Indexes by video_id for fast filtering
                 "CREATE INDEX video_video_id IF NOT EXISTS FOR (v:Video) ON (v.video_id)",
                 "CREATE INDEX scene_video_id IF NOT EXISTS FOR (s:Scene) ON (s.video_id)",
                 "CREATE INDEX frame_video_id IF NOT EXISTS FOR (f:Frame) ON (f.video_id)",
                 "CREATE INDEX entity_video_id IF NOT EXISTS FOR (e:Entity) ON (e.video_id)",
                 "CREATE INDEX audio_video_id IF NOT EXISTS FOR (a:AudioSegment) ON (a.video_id)",
-                # Índices por timestamp para queries temporales
+                # Indexes by timestamp for temporal queries
                 "CREATE INDEX frame_timestamp IF NOT EXISTS FOR (f:Frame) ON (f.timestamp)",
                 "CREATE INDEX scene_start_time IF NOT EXISTS FOR (s:Scene) ON (s.start_time)",
                 "CREATE INDEX audio_start_time IF NOT EXISTS FOR (a:AudioSegment) ON (a.start_time)",
-                # Índices por tipo de entidad
+                # Indexes by entity type
                 "CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.entity_type)",
                 "CREATE INDEX entity_name IF NOT EXISTS FOR (e:Entity) ON (e.normalized_name)",
-                # Índice full-text para búsqueda de texto
+                # Full-text indexes for text search
                 "CREATE FULLTEXT INDEX entity_search IF NOT EXISTS FOR (e:Entity) ON EACH [e.name, e.description]",
                 "CREATE FULLTEXT INDEX frame_search IF NOT EXISTS FOR (f:Frame) ON EACH [f.description]",
                 "CREATE FULLTEXT INDEX topic_search IF NOT EXISTS FOR (t:Topic) ON EACH [t.name, t.description]",
@@ -321,7 +321,7 @@ class KnowledgeGraphService:
     # =========================================================================
 
     def create_video_node(self, video: VideoNode) -> str:
-        """Crea un nodo Video en el grafo."""
+        """Create a Video node in the graph."""
         query = """
         CREATE (v:Video {
             id: $id,
@@ -371,7 +371,7 @@ class KnowledgeGraphService:
             return record["id"]
 
     def get_video_node(self, video_id: str) -> dict | None:
-        """Obtiene un nodo Video por su video_id (o id legacy)."""
+        """Retrieve a Video node by its video_id (or legacy id)."""
         query = """
         MATCH (v:Video)
         WHERE v.video_id = $video_id OR v.id = $video_id
@@ -380,7 +380,7 @@ class KnowledgeGraphService:
         return self._execute_query(query, {"video_id": video_id}, single=True, unpack_key="v")
 
     def update_video_summary(self, video_id: str, summary: str, topics: list[str]):
-        """Actualiza el resumen y topics de un video."""
+        """Update the AI summary and topics for a video."""
         query = """
         MATCH (v:Video {video_id: $video_id})
         SET v.ai_summary = $summary,
@@ -395,7 +395,7 @@ class KnowledgeGraphService:
     # =========================================================================
 
     def create_scene_node(self, scene: SceneNode) -> str:
-        """Crea un nodo Scene y lo conecta al Video."""
+        """Create a Scene node and connect it to its Video."""
         query = """
         MATCH (v:Video {video_id: $video_id})
         CREATE (s:Scene {
@@ -434,7 +434,7 @@ class KnowledgeGraphService:
             return record["id"]
 
     def get_video_scenes(self, video_id: str) -> list[dict]:
-        """Obtiene todas las escenas de un video ordenadas por tiempo."""
+        """Retrieve all scenes for a video, ordered by start time."""
         query = """
         MATCH (v:Video)-[:CONTAINS]->(s:Scene)
         WHERE v.video_id = $video_id OR v.id = $video_id
@@ -444,7 +444,7 @@ class KnowledgeGraphService:
         return self._execute_query(query, {"video_id": video_id}, unpack_key="s")
 
     def get_scene_frames(self, scene_id: str) -> list[dict]:
-        """Obtiene todos los frames de una escena ordenados por timestamp."""
+        """Retrieve all frames for a scene, ordered by timestamp."""
         query = """
         MATCH (s:Scene {id: $scene_id})-[:CONTAINS]->(f:Frame)
         RETURN f.id as id, f.timestamp as timestamp, f.description as description
@@ -453,7 +453,7 @@ class KnowledgeGraphService:
         return self._execute_query(query, {"scene_id": scene_id})
 
     def get_video_frames(self, video_id: str) -> list[dict]:
-        """Obtiene todos los frames de un video con sus descripciones."""
+        """Retrieve all frames for a video together with their descriptions."""
         query = """
         MATCH (v:Video)-[:CONTAINS*1..2]->(f:Frame)
         WHERE v.video_id = $video_id OR v.id = $video_id
@@ -468,7 +468,7 @@ class KnowledgeGraphService:
     # =========================================================================
 
     def create_frame_node(self, frame: FrameNode) -> str:
-        """Crea un nodo Frame y lo conecta a su Scene (si existe) o Video."""
+        """Create a Frame node and connect it to its Scene (if present) or Video."""
         if frame.scene_id:
             query = """
             MATCH (s:Scene {id: $scene_id})
@@ -532,7 +532,7 @@ class KnowledgeGraphService:
             return record["id"]
 
     def create_frames_batch(self, frames: list[FrameNode]) -> int:
-        """Crea múltiples frames en batch para mejor rendimiento."""
+        """Create multiple Frame nodes in a single batch for better performance."""
         query = """
         UNWIND $frames as frame
         MATCH (v:Video {video_id: frame.video_id})
@@ -578,7 +578,7 @@ class KnowledgeGraphService:
     # =========================================================================
 
     def create_entity_node(self, entity: EntityNode, frame_id: str) -> str:
-        """Crea un nodo Entity y lo conecta al Frame donde fue detectado."""
+        """Create an Entity node and connect it to the Frame where it was detected."""
         query = """
         MATCH (f:Frame {id: $frame_id})
         MERGE (e:Entity {normalized_name: $normalized_name, entity_type: $entity_type})
@@ -609,7 +609,7 @@ class KnowledgeGraphService:
                 normalized_name=entity.normalized_name,
                 entity_type=entity.entity_type.value,
                 description=entity.description,
-                attributes=str(entity.attributes),  # Neo4j no soporta maps anidados directamente
+                attributes=str(entity.attributes),  # Neo4j does not support nested maps directly
                 confidence=entity.confidence,
                 bounding_box=str(entity.bounding_box) if entity.bounding_box else None,
                 created_at=entity.created_at.isoformat(),
@@ -619,10 +619,10 @@ class KnowledgeGraphService:
 
     def create_entities_batch(self, entities: list[tuple[EntityNode, str]]) -> int:
         """
-        Crea múltiples entidades en batch.
+        Create multiple Entity nodes in a single batch.
 
         Args:
-            entities: Lista de tuplas (EntityNode, frame_id)
+            entities: List of (EntityNode, frame_id) tuples
         """
         query = """
         UNWIND $entities as entity
@@ -663,7 +663,7 @@ class KnowledgeGraphService:
             return record["created"]
 
     def get_entity_by_name(self, name: str, entity_type: EntityType | None = None) -> dict | None:
-        """Busca una entidad por nombre normalizado."""
+        """Look up an entity by its normalized name."""
         normalized = name.lower().strip()
 
         if entity_type:
@@ -686,7 +686,7 @@ class KnowledgeGraphService:
     # =========================================================================
 
     def create_audio_segment(self, segment: AudioSegmentNode) -> str:
-        """Crea un nodo AudioSegment (transcripción) y lo conecta al Video."""
+        """Create an AudioSegment (transcript) node and connect it to its Video."""
         query = """
         MATCH (v:Video)
         WHERE v.video_id = $video_id OR v.id = $video_id
@@ -729,19 +729,19 @@ class KnowledgeGraphService:
         self, segments: list[AudioSegmentNode], batch_size: int = 100
     ) -> int:
         """
-        Crea múltiples segmentos de audio en batches.
+        Create multiple AudioSegment nodes in batches.
 
         Args:
-            segments: Lista de AudioSegmentNode a crear
-            batch_size: Tamaño de cada batch para evitar timeouts
+            segments: List of AudioSegmentNode instances to create
+            batch_size: Number of nodes per batch to avoid timeouts
 
         Returns:
-            Número total de segmentos creados
+            Total number of segments created
         """
         if not segments:
             return 0
 
-        # Usar MERGE para evitar errores de duplicados
+        # Use MERGE to avoid duplicate errors
         query = """
         UNWIND $segments as seg
         MERGE (a:AudioSegment {id: seg.id})
@@ -763,7 +763,7 @@ class KnowledgeGraphService:
 
         total_created = 0
 
-        # Procesar en batches para evitar timeouts con grandes volúmenes
+        # Process in batches to avoid timeouts on large volumes
         for i in range(0, len(segments), batch_size):
             batch = segments[i : i + batch_size]
             segments_data = [
@@ -788,7 +788,7 @@ class KnowledgeGraphService:
                     total_created += count
             except Exception as e:
                 logger.error(f"Failed to create batch {i//batch_size + 1}: {e}")
-                # Continuar con el siguiente batch en lugar de fallar completamente
+                # Continue with the next batch rather than failing completely
                 continue
 
         logger.info(
@@ -797,7 +797,7 @@ class KnowledgeGraphService:
         return total_created
 
     def get_video_transcripts(self, video_id: str) -> list[dict]:
-        """Obtiene todos los segmentos de transcripción de un video."""
+        """Retrieve all transcript segments for a video."""
         query = """
         MATCH (v:Video)-[:HAS_TRANSCRIPT]->(a:AudioSegment)
         WHERE v.video_id = $video_id OR v.id = $video_id
@@ -811,15 +811,15 @@ class KnowledgeGraphService:
         self, query_text: str, video_id: str | None = None, limit: int = 20
     ) -> list[dict]:
         """
-        Busca en las transcripciones de audio.
+        Search audio transcripts for a given text.
 
         Args:
-            query_text: Texto a buscar
-            video_id: Filtrar por video específico (opcional)
-            limit: Número máximo de resultados
+            query_text: Text to search for
+            video_id: Filter to a specific video (optional)
+            limit: Maximum number of results to return
 
         Returns:
-            Lista de segmentos que contienen el texto
+            List of transcript segments that contain the text
         """
         if video_id:
             query = """
@@ -850,8 +850,8 @@ class KnowledgeGraphService:
             return [dict(record) for record in result]
 
     def delete_video_transcripts(self, video_id: str) -> int:
-        """Elimina todos los segmentos de transcripción de un video."""
-        # Primero contar, luego eliminar
+        """Delete all transcript segments for a video."""
+        # Count first, then delete
         count_query = """
         MATCH (a:AudioSegment)
         WHERE a.video_id = $video_id
@@ -865,12 +865,12 @@ class KnowledgeGraphService:
         """
 
         try:
-            # Contar antes de eliminar
+            # Count before deleting
             result = self._execute_query(count_query, {"video_id": video_id}, single=True)
             count = result["count"] if result else 0
 
             if count > 0:
-                # Eliminar en batches para evitar memory issues
+                # Delete in batches to avoid memory issues
                 self._execute_query(delete_query, {"video_id": video_id})
                 logger.info(f"Deleted {count} AudioSegment nodes for video {video_id}")
 
@@ -890,7 +890,7 @@ class KnowledgeGraphService:
         relation_type: RelationType,
         properties: dict | None = None,
     ) -> bool:
-        """Crea una relación entre dos nodos."""
+        """Create a relation between two nodes."""
         props = properties or {}
         props_string = ", ".join([f"{k}: ${k}" for k in props])
 
@@ -966,7 +966,7 @@ class KnowledgeGraphService:
         relation_type: RelationType,
         time_gap: float | None = None,
     ):
-        """Crea una relación temporal entre nodos."""
+        """Create a temporal relation between two nodes."""
         query = f"""
         MATCH (a {{id: $source_id}})
         MATCH (b {{id: $target_id}})
@@ -979,7 +979,7 @@ class KnowledgeGraphService:
 
     def create_entity_cooccurrence(self, frame_id: str):
         """
-        Crea relaciones APPEARS_WITH entre entidades que aparecen en el mismo frame.
+        Create APPEARS_WITH relations between entities that appear in the same frame.
         """
         query = """
         MATCH (f:Frame {id: $frame_id})-[:CONTAINS]->(e1:Entity)
@@ -1007,7 +1007,7 @@ class KnowledgeGraphService:
         video_id: str | None = None,
         limit: int = 20,
     ) -> list[dict]:
-        """Búsqueda full-text de entidades."""
+        """Full-text search for entities."""
         type_filter = ""
         video_filter = ""
 
@@ -1049,7 +1049,7 @@ class KnowledgeGraphService:
         time_range: tuple[float, float] | None = None,
         limit: int = 20,
     ) -> list[dict]:
-        """Búsqueda full-text en descripciones de frames."""
+        """Full-text search across frame descriptions."""
         filters = []
         params = {"query": query_text, "limit": limit}
 
@@ -1089,9 +1089,9 @@ class KnowledgeGraphService:
         max_nodes: int = 50,
     ) -> dict:
         """
-        Expande el contexto de un nodo para RAG.
+        Expand the context of a node for RAG.
 
-        Devuelve nodos relacionados hasta N hops de distancia.
+        Returns related nodes up to N hops away.
         """
         rel_filter = ""
         if relation_types:
@@ -1141,7 +1141,7 @@ class KnowledgeGraphService:
 
     def get_entity_timeline(self, entity_name: str, video_id: str) -> list[dict]:
         """
-        Obtiene la línea temporal de apariciones de una entidad en un video.
+        Retrieve the appearance timeline of an entity within a video.
         """
         cypher = """
         MATCH (v:Video {video_id: $video_id})-[:CONTAINS*..2]->(f:Frame)-[:CONTAINS]->(e:Entity)
@@ -1162,7 +1162,7 @@ class KnowledgeGraphService:
         relation_types: list[RelationType] | None = None,
         limit: int = 20,
     ) -> list[dict]:
-        """Obtiene entidades relacionadas a una entidad dada."""
+        """Retrieve entities related to a given entity."""
         if relation_types:
             rel_types = "|".join([r.value for r in relation_types])
             rel_filter = f"[r:{rel_types}]"
@@ -1248,7 +1248,7 @@ class KnowledgeGraphService:
     # =========================================================================
 
     def get_stats(self) -> GraphStats:
-        """Obtiene estadísticas del Knowledge Graph."""
+        """Retrieve statistics for the Knowledge Graph."""
         cypher = """
         CALL {
             MATCH (n) RETURN count(n) as total_nodes
@@ -1279,15 +1279,15 @@ class KnowledgeGraphService:
         """
 
         with self.get_session() as session:
-            # Estadísticas generales
+            # General statistics
             result = session.run(cypher)
             record = result.single()
 
-            # Nodos por tipo
+            # Nodes by type
             nodes_result = session.run(nodes_by_type_cypher)
             nodes_by_type = {r["label"]: r["count"] for r in nodes_result}
 
-            # Relaciones por tipo
+            # Relations by type
             rels_result = session.run(relations_by_type_cypher)
             relations_by_type = {r["type"]: r["count"] for r in rels_result}
 
@@ -1318,17 +1318,17 @@ class KnowledgeGraphService:
         limit: int = 20,
     ) -> dict:
         """
-        Búsqueda combinada en contenido visual (frames) y audio (transcripciones).
+        Combined search across visual content (frames) and audio (transcripts).
 
         Args:
-            query_text: Texto a buscar
-            video_id: Filtrar por video específico (opcional)
-            include_visual: Incluir resultados de descripción visual
-            include_audio: Incluir resultados de transcripción
-            limit: Número máximo de resultados por tipo
+            query_text: Text to search for
+            video_id: Filter to a specific video (optional)
+            include_visual: Include results from visual frame descriptions
+            include_audio: Include results from audio transcripts
+            limit: Maximum number of results per content type
 
         Returns:
-            Dict con resultados visuales y de audio combinados
+            Dict with combined visual and audio results
         """
         results = {
             "query": query_text,
@@ -1344,7 +1344,7 @@ class KnowledgeGraphService:
         # Split query into keywords for better matching (used by both visual and audio)
         keywords = [w.strip() for w in query_text.split() if len(w.strip()) > 2]
 
-        # Buscar en descripciones visuales (frames)
+        # Search visual frame descriptions
         if include_visual:
             if keywords:
                 keyword_conditions = " OR ".join(
@@ -1371,7 +1371,7 @@ class KnowledgeGraphService:
                 )
                 results["visual_results"] = [dict(r) for r in result]
 
-        # Buscar en transcripciones
+        # Search audio transcripts
         if include_audio:
             # Split query into keywords for better matching
             keywords = [w.strip() for w in query_text.split() if len(w.strip()) > 2]
@@ -1401,7 +1401,7 @@ class KnowledgeGraphService:
                 )
                 results["audio_results"] = [dict(r) for r in result]
 
-        # Combinar y ordenar por timestamp
+        # Merge and sort by timestamp
         combined = []
         for r in results["visual_results"]:
             combined.append(
@@ -1437,7 +1437,7 @@ class KnowledgeGraphService:
     # =========================================================================
 
     def delete_video_graph(self, video_id: str) -> int:
-        """Elimina todo el subgrafo asociado a un video (scenes, frames, transcripts, entities)."""
+        """Delete the entire subgraph for a video (scenes, frames, transcripts, entities)."""
         cypher = """
         MATCH (v:Video)
         WHERE v.video_id = $video_id OR v.id = $video_id
@@ -1457,14 +1457,14 @@ class KnowledgeGraphService:
 
 
 # =============================================================================
-# Singleton para uso global
+# Singleton for global use
 # =============================================================================
 
 _knowledge_graph_service: KnowledgeGraphService | None = None
 
 
 def get_knowledge_graph_service() -> KnowledgeGraphService:
-    """Obtiene la instancia singleton del KnowledgeGraphService."""
+    """Return the singleton instance of KnowledgeGraphService."""
     global _knowledge_graph_service
     if _knowledge_graph_service is None:
         _knowledge_graph_service = KnowledgeGraphService()

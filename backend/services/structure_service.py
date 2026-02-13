@@ -36,10 +36,11 @@ class StructureService:
         clean_desc = re.sub(r"^\d+\.\s*\*?\*?", "", first_desc)
         clean_desc = clean_desc.replace("**", "")
         for skip in [
-            "Descripción general de la escena:",
-            "Descripción general:",
+            "General scene description:",
             "General description:",
             "Scene description:",
+            "Descripción general de la escena:",
+            "Descripción general:",
         ]:
             clean_desc = clean_desc.replace(skip, "")
         clean_desc = clean_desc.strip()
@@ -102,12 +103,13 @@ class StructureService:
             return False
         desc_lower = desc.lower()
         skip_phrases = [
-            "imagen negra",
-            "completamente negra",
-            "no contiene elementos",
             "black screen",
             "completely black",
             "no visible",
+            "no information",
+            "imagen negra",
+            "completamente negra",
+            "no contiene elementos",
             "no hay información",
         ]
         return not any(phrase in desc_lower for phrase in skip_phrases)
@@ -131,7 +133,12 @@ class StructureService:
             desc = f.get("description", "")
             clean = re.sub(r"^\d+\.\s*\*?\*?", "", desc)
             clean = clean.replace("**", "").replace("\n", " ")
-            for prefix in ["Descripción general de la escena:", "La imagen muestra"]:
+            for prefix in [
+                "General scene description:",
+                "The image shows",
+                "Descripción general de la escena:",
+                "La imagen muestra",
+            ]:
                 if clean.startswith(prefix):
                     clean = clean[len(prefix) :].strip()
             if clean:

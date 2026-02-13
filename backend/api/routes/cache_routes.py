@@ -1,8 +1,8 @@
 """
-Cache API Routes para QPrisma
-Endpoints para gestión y monitoreo del sistema de caching.
+Cache API Routes for QPrisma
+Endpoints for cache system management and monitoring.
 
-Uso:
+Usage:
     from api.routes import cache_router
     app.include_router(cache_router, prefix="/cache", tags=["Cache"])
 """
@@ -26,33 +26,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # =============================================================================
-# Dependencia del Cache Service
+# Cache Service Dependency
 # =============================================================================
 
 
 async def get_cache() -> CacheService:
-    """Dependency para obtener el CacheService singleton"""
+    """Dependency to obtain the CacheService singleton"""
     return await get_cache_service()
 
 
 # =============================================================================
-# Endpoints de Métricas
+# Metrics Endpoints
 # =============================================================================
 
 
 @router.get(
     "/metrics",
     response_model=CacheMetricsResponse,
-    summary="Obtener métricas del cache",
+    summary="Get cache metrics",
     description="""
-    Retorna métricas de rendimiento del sistema de cache:
-    - Hits/Misses y hit rate
-    - Llamadas a API ahorradas
-    - Estimación de costos ahorrados
+    Returns performance metrics for the cache system:
+    - Hits/Misses and hit rate
+    - API calls saved
+    - Estimated cost savings
     """,
 )
 async def get_cache_metrics(cache: CacheService = Depends(get_cache)):
-    """Obtiene métricas actuales del cache"""
+    """Gets current cache metrics"""
     metrics = cache.get_metrics()
 
     return CacheMetricsResponse(
@@ -70,22 +70,22 @@ async def get_cache_metrics(cache: CacheService = Depends(get_cache)):
 
 @router.post(
     "/metrics/reset",
-    summary="Resetear métricas del cache",
-    description="Resetea los contadores de hits, misses y ahorros a cero.",
+    summary="Reset cache metrics",
+    description="Resets the hits, misses, and savings counters to zero.",
 )
 async def reset_cache_metrics(cache: CacheService = Depends(get_cache)):
-    """Resetea las métricas del cache"""
+    """Resets cache metrics"""
     cache.reset_metrics()
     return {"message": "Metrics reset successfully"}
 
 
 @router.get(
     "/health",
-    summary="Health check del cache",
-    description="Verifica el estado de conexión del cache.",
+    summary="Cache health check",
+    description="Verifies the connection status of the cache.",
 )
 async def cache_health(cache: CacheService = Depends(get_cache)):
-    """Health check del sistema de cache"""
+    """Health check for the cache system"""
     metrics = cache.get_metrics()
 
     return {
@@ -99,31 +99,31 @@ async def cache_health(cache: CacheService = Depends(get_cache)):
 
 
 # =============================================================================
-# Endpoints de Invalidación
+# Invalidation Endpoints
 # =============================================================================
 
 
 @router.post(
     "/invalidate",
     response_model=CacheInvalidateResponse,
-    summary="Invalidar cache",
+    summary="Invalidate cache",
     description="""
-    Invalida (elimina) entradas del cache según el criterio especificado:
-    - Por patrón glob
-    - Por video_id
-    - Por tipo de cache
-    - Todo el cache (clear_all=true)
+    Invalidates (removes) cache entries according to the specified criteria:
+    - By glob pattern
+    - By video_id
+    - By cache type
+    - Entire cache (clear_all=true)
     """,
 )
 async def invalidate_cache(
     request: CacheInvalidateRequest, cache: CacheService = Depends(get_cache)
 ):
-    """Invalida cache según criterios"""
+    """Invalidates cache according to criteria"""
     keys_deleted = 0
 
     try:
         if request.clear_all:
-            # Limpiar todo (peligroso)
+            # Clear everything (dangerous)
             logger.warning("Clearing ALL cache - requested by user")
             success = await cache.clear_all()
             return CacheInvalidateResponse(
@@ -133,7 +133,7 @@ async def invalidate_cache(
             )
 
         if request.video_id:
-            # Invalidar por video
+            # Invalidate by video
             keys_deleted = await cache.invalidate_video(request.video_id)
             return CacheInvalidateResponse(
                 success=True,
@@ -142,7 +142,7 @@ async def invalidate_cache(
             )
 
         if request.pattern:
-            # Invalidar por patrón
+            # Invalidate by pattern
             keys_deleted = await cache.invalidate_by_pattern(request.pattern)
             return CacheInvalidateResponse(
                 success=True,
@@ -151,7 +151,7 @@ async def invalidate_cache(
             )
 
         if request.cache_type:
-            # Invalidar por tipo
+            # Invalidate by type
             pattern = f"{cache.config.key_prefix}:{request.cache_type.value}:*"
             keys_deleted = await cache.invalidate_by_pattern(pattern)
             return CacheInvalidateResponse(
@@ -172,11 +172,11 @@ async def invalidate_cache(
 @router.delete(
     "/video/{video_id}",
     response_model=CacheInvalidateResponse,
-    summary="Invalidar cache de un video",
-    description="Elimina todas las entradas de cache relacionadas con un video específico.",
+    summary="Invalidate cache for a video",
+    description="Removes all cache entries related to a specific video.",
 )
 async def invalidate_video_cache(video_id: str, cache: CacheService = Depends(get_cache)):
-    """Invalida cache de un video específico"""
+    """Invalidates cache for a specific video"""
     keys_deleted = await cache.invalidate_video(video_id)
 
     return CacheInvalidateResponse(
@@ -187,18 +187,18 @@ async def invalidate_video_cache(video_id: str, cache: CacheService = Depends(ge
 
 
 # =============================================================================
-# Endpoints de Estado de Jobs
+# Job Status Endpoints
 # =============================================================================
 
 
 @router.get(
     "/job/{job_id}",
     response_model=JobStatusCache | None,
-    summary="Obtener estado de job desde cache",
-    description="Recupera el estado de un job de procesamiento desde el cache.",
+    summary="Get job status from cache",
+    description="Retrieves the status of a processing job from the cache.",
 )
 async def get_job_status(job_id: str, cache: CacheService = Depends(get_cache)):
-    """Obtiene estado de job desde cache"""
+    """Gets job status from cache"""
     status = await cache.get_job_status(job_id)
 
     if not status:
@@ -209,8 +209,8 @@ async def get_job_status(job_id: str, cache: CacheService = Depends(get_cache)):
 
 @router.put(
     "/job/{job_id}",
-    summary="Actualizar estado de job en cache",
-    description="Actualiza el estado de un job de procesamiento en el cache.",
+    summary="Update job status in cache",
+    description="Updates the status of a processing job in the cache.",
 )
 async def update_job_status(
     job_id: str,
@@ -219,7 +219,7 @@ async def update_job_status(
     message: str | None = None,
     cache: CacheService = Depends(get_cache),
 ):
-    """Actualiza estado de job en cache"""
+    """Updates job status in cache"""
     success = await cache.update_job_progress(
         job_id=job_id, progress=progress, stage=stage, message=message
     )
@@ -231,18 +231,18 @@ async def update_job_status(
 
 
 # =============================================================================
-# Configuración
+# Configuration
 # =============================================================================
 
 
 @router.get(
     "/config",
     response_model=CacheSettings,
-    summary="Obtener configuración del cache",
-    description="Retorna la configuración actual del sistema de cache.",
+    summary="Get cache configuration",
+    description="Returns the current configuration of the cache system.",
 )
 async def get_cache_config(cache: CacheService = Depends(get_cache)):
-    """Obtiene configuración actual del cache"""
+    """Gets current cache configuration"""
     return CacheSettings(
         enabled=True,
         redis_url=cache.redis_url,

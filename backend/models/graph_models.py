@@ -1,10 +1,10 @@
 """
 Knowledge Graph Models for QPrisma
 
-Este módulo define los modelos Pydantic para el Knowledge Graph multimodal.
-Estructura jerárquica: Video → Chapter → Scene → Frame → Entity
+This module defines the Pydantic models for the multimodal Knowledge Graph.
+Hierarchical structure: Video -> Chapter -> Scene -> Frame -> Entity
 
-Inspirado en VideoRAG (HKUDS) para indexación semántica de video.
+Inspired by VideoRAG (HKUDS) for semantic video indexing.
 """
 
 from datetime import datetime
@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 
 class EntityType(str, Enum):
-    """Tipos de entidades que pueden ser extraídas de frames."""
+    """Types of entities that can be extracted from frames."""
 
     PERSON = "person"
     OBJECT = "object"
@@ -32,13 +32,13 @@ class EntityType(str, Enum):
 
 
 class RelationType(str, Enum):
-    """Tipos de relaciones entre nodos del grafo."""
+    """Types of relationships between graph nodes."""
 
-    # Jerárquicas
+    # Hierarchical
     CONTAINS = "CONTAINS"
     BELONGS_TO = "BELONGS_TO"
 
-    # Temporales
+    # Temporal
     BEFORE = "BEFORE"
     AFTER = "AFTER"
     DURING = "DURING"
@@ -46,7 +46,7 @@ class RelationType(str, Enum):
     ENDS_WITH = "ENDS_WITH"
     SIMULTANEOUS = "SIMULTANEOUS"
 
-    # Semánticas
+    # Semantic
     RELATES_TO = "RELATES_TO"
     SIMILAR_TO = "SIMILAR_TO"
     CAUSES = "CAUSES"
@@ -56,12 +56,12 @@ class RelationType(str, Enum):
     MENTIONED_IN = "MENTIONED_IN"
 
     # Cross-video
-    SAME_ENTITY = "SAME_ENTITY"  # Misma entidad en diferentes videos
+    SAME_ENTITY = "SAME_ENTITY"  # Same entity in different videos
     TOPIC_OVERLAP = "TOPIC_OVERLAP"
 
 
 class NodeType(str, Enum):
-    """Tipos de nodos en el grafo."""
+    """Node types in the graph."""
 
     VIDEO = "Video"
     CHAPTER = "Chapter"
@@ -78,23 +78,23 @@ class NodeType(str, Enum):
 
 
 class GraphNodeBase(BaseModel):
-    """Modelo base para todos los nodos del grafo."""
+    """Base model for all graph nodes."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     node_type: NodeType
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Embeddings para búsqueda vectorial
+    # Embeddings for vector search
     embedding: list[float] | None = None
     embedding_model: str | None = None
 
-    # Metadata flexible
+    # Flexible metadata
     metadata: dict = Field(default_factory=dict)
 
 
 class GraphRelationBase(BaseModel):
-    """Modelo base para relaciones entre nodos."""
+    """Base model for relationships between nodes."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     source_id: str
@@ -103,7 +103,7 @@ class GraphRelationBase(BaseModel):
     weight: float = Field(default=1.0, ge=0.0, le=1.0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # Propiedades adicionales de la relación
+    # Additional relationship properties
     properties: dict = Field(default_factory=dict)
 
 
@@ -113,28 +113,28 @@ class GraphRelationBase(BaseModel):
 
 
 class VideoNode(GraphNodeBase):
-    """Nodo raíz que representa un video completo."""
+    """Root node representing a complete video."""
 
     node_type: NodeType = NodeType.VIDEO
 
-    # Identificación
-    video_id: str  # ID en Cosmos DB / Blob Storage
+    # Identification
+    video_id: str  # ID in Cosmos DB / Blob Storage
     title: str
     description: str | None = None
 
-    # Metadata del video
+    # Video metadata
     duration_seconds: float
     fps: float
     resolution: tuple[int, int]  # (width, height)
     file_size_bytes: int
     format: str  # mp4, avi, etc.
 
-    # Procesamiento
+    # Processing
     total_frames: int
     extracted_frames: int
     processing_config: dict = Field(default_factory=dict)
 
-    # Summary generado por IA
+    # AI-generated summary
     ai_summary: str | None = None
     topics: list[str] = Field(default_factory=list)
 
@@ -144,68 +144,68 @@ class VideoNode(GraphNodeBase):
 
 
 class ChapterNode(GraphNodeBase):
-    """Nodo que representa un capítulo o segmento lógico del video."""
+    """Node representing a chapter or logical segment of the video."""
 
     node_type: NodeType = NodeType.CHAPTER
 
-    # Referencia al video padre
+    # Reference to parent video
     video_id: str
 
-    # Posición temporal
-    start_time: float  # segundos
+    # Temporal position
+    start_time: float  # seconds
     end_time: float
     chapter_index: int
 
-    # Contenido
+    # Content
     title: str | None = None
     summary: str | None = None
     topics: list[str] = Field(default_factory=list)
 
-    # Detectado automáticamente o manual
+    # Detected automatically or manually
     detection_method: str = "auto"  # auto, manual, scene_change
 
 
 class SceneNode(GraphNodeBase):
-    """Nodo que representa una escena (cambio visual significativo)."""
+    """Node representing a scene (significant visual change)."""
 
     node_type: NodeType = NodeType.SCENE
 
-    # Referencias
+    # References
     video_id: str
     chapter_id: str | None = None
 
-    # Posición temporal
+    # Temporal position
     start_time: float
     end_time: float
     scene_index: int
 
-    # Análisis de escena
+    # Scene analysis
     description: str | None = None
     dominant_colors: list[str] = Field(default_factory=list)
     scene_type: str | None = None  # indoor, outdoor, closeup, etc.
 
-    # Métricas de cambio de escena
+    # Scene change metrics
     transition_type: str | None = None  # cut, fade, dissolve
     visual_change_score: float = 0.0
 
 
 class FrameNode(GraphNodeBase):
-    """Nodo que representa un frame individual (keyframe)."""
+    """Node representing an individual frame (keyframe)."""
 
     node_type: NodeType = NodeType.FRAME
 
-    # Referencias
+    # References
     video_id: str
     scene_id: str | None = None
 
-    # Posición
-    timestamp: float  # segundos
+    # Position
+    timestamp: float  # seconds
     frame_number: int
 
-    # Análisis del frame
-    description: str | None = None  # Descripción de GPT-4V
+    # Frame analysis
+    description: str | None = None  # GPT-4V description
 
-    # Hashes para deduplicación
+    # Hashes for deduplication
     perceptual_hash: str | None = None
     content_hash: str | None = None
 
@@ -213,30 +213,30 @@ class FrameNode(GraphNodeBase):
     image_url: str | None = None
     thumbnail_url: str | None = None
 
-    # Calidad
+    # Quality
     blur_score: float = 0.0
     brightness: float = 0.0
     is_keyframe: bool = True
 
 
 class AudioSegmentNode(GraphNodeBase):
-    """Nodo que representa un segmento de audio transcrito."""
+    """Node representing a transcribed audio segment."""
 
     node_type: NodeType = NodeType.AUDIO_SEGMENT
 
-    # Referencias
+    # References
     video_id: str
 
-    # Posición temporal
+    # Temporal position
     start_time: float
     end_time: float
 
-    # Transcripción
+    # Transcription
     text: str
     language: str = "es"
     confidence: float = 0.0
 
-    # Speaker diarization (si está disponible)
+    # Speaker diarization (if available)
     speaker_id: str | None = None
     speaker_label: str | None = None
 
@@ -247,61 +247,61 @@ class AudioSegmentNode(GraphNodeBase):
 
 
 class EntityNode(GraphNodeBase):
-    """Nodo que representa una entidad extraída (persona, objeto, etc.)."""
+    """Node representing an extracted entity (person, object, etc.)."""
 
     node_type: NodeType = NodeType.ENTITY
 
-    # Tipo de entidad
+    # Entity type
     entity_type: EntityType
 
-    # Identificación
+    # Identification
     name: str
-    normalized_name: str  # Nombre normalizado para matching
+    normalized_name: str  # Normalized name for matching
     aliases: list[str] = Field(default_factory=list)
 
-    # Descripción
+    # Description
     description: str | None = None
 
-    # Atributos específicos del tipo
+    # Type-specific attributes
     attributes: dict = Field(default_factory=dict)
-    # Ejemplo para PERSON: {"age_estimate": "adult", "gender": "male"}
-    # Ejemplo para OBJECT: {"color": "red", "size": "large"}
+    # Example for PERSON: {"age_estimate": "adult", "gender": "male"}
+    # Example for OBJECT: {"color": "red", "size": "large"}
 
-    # Confianza de detección
+    # Detection confidence
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
-    # Bounding box (si aplica)
+    # Bounding box (if applicable)
     bounding_box: dict | None = None  # {"x": 0, "y": 0, "width": 100, "height": 100}
 
-    # Referencias cruzadas
+    # Cross-references
     external_ids: dict = Field(default_factory=dict)  # {"wikidata": "Q123", ...}
 
-    # Frecuencia de aparición
+    # Occurrence frequency
     occurrence_count: int = 1
     first_seen_time: float | None = None
     last_seen_time: float | None = None
 
 
 class TopicNode(GraphNodeBase):
-    """Nodo que representa un tema o concepto abstracto."""
+    """Node representing an abstract topic or concept."""
 
     node_type: NodeType = NodeType.TOPIC
 
-    # Identificación
+    # Identification
     name: str
     normalized_name: str
 
-    # Descripción
+    # Description
     description: str | None = None
 
-    # Jerarquía de temas
+    # Topic hierarchy
     parent_topic: str | None = None
     subtopics: list[str] = Field(default_factory=list)
 
-    # Keywords asociados
+    # Associated keywords
     keywords: list[str] = Field(default_factory=list)
 
-    # Relevancia
+    # Relevance
     relevance_score: float = 1.0
 
 
@@ -311,30 +311,30 @@ class TopicNode(GraphNodeBase):
 
 
 class TemporalRelation(GraphRelationBase):
-    """Relación temporal entre dos nodos."""
+    """Temporal relationship between two nodes."""
 
-    # Propiedades temporales específicas
-    time_gap_seconds: float | None = None  # Diferencia de tiempo
+    # Temporal-specific properties
+    time_gap_seconds: float | None = None  # Time difference
 
 
 class SemanticRelation(GraphRelationBase):
-    """Relación semántica entre entidades."""
+    """Semantic relationship between entities."""
 
-    # Descripción de la relación
+    # Relationship description
     description: str | None = None
 
-    # Contexto donde se detectó
+    # Context where it was detected
     context_frame_id: str | None = None
     context_text: str | None = None
 
 
 class CrossVideoRelation(GraphRelationBase):
-    """Relación entre entidades de diferentes videos."""
+    """Relationship between entities from different videos."""
 
     source_video_id: str
     target_video_id: str
 
-    # Similitud
+    # Similarity
     similarity_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
@@ -344,31 +344,31 @@ class CrossVideoRelation(GraphRelationBase):
 
 
 class GraphSearchQuery(BaseModel):
-    """Query para búsqueda en el Knowledge Graph."""
+    """Query for searching the Knowledge Graph."""
 
-    # Texto de búsqueda
+    # Search text
     query: str
 
-    # Filtros
+    # Filters
     video_ids: list[str] | None = None
     entity_types: list[EntityType] | None = None
     node_types: list[NodeType] | None = None
-    time_range: tuple[float, float] | None = None  # (start, end) en segundos
+    time_range: tuple[float, float] | None = None  # (start, end) in seconds
 
-    # Configuración de búsqueda
+    # Search configuration
     use_vector_search: bool = True
     use_graph_expansion: bool = True
     expansion_hops: int = Field(default=2, ge=1, le=4)
 
-    # Paginación
+    # Pagination
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
 
 
 class GraphSearchResult(BaseModel):
-    """Resultado de búsqueda en el Knowledge Graph."""
+    """Search result from the Knowledge Graph."""
 
-    # Nodo encontrado
+    # Found node
     node_id: str
     node_type: NodeType
 
@@ -377,10 +377,10 @@ class GraphSearchResult(BaseModel):
     graph_score: float = 0.0
     combined_score: float = 0.0
 
-    # Contenido
-    content: dict  # Datos del nodo
+    # Content
+    content: dict  # Node data
 
-    # Contexto del grafo
+    # Graph context
     related_nodes: list[dict] = Field(default_factory=list)
     path_to_root: list[str] = Field(default_factory=list)
 
@@ -389,18 +389,18 @@ class GraphSearchResult(BaseModel):
 
 
 class GraphSearchResponse(BaseModel):
-    """Respuesta completa de búsqueda."""
+    """Complete search response."""
 
     query: str
     total_results: int
     results: list[GraphSearchResult]
 
-    # Métricas
+    # Metrics
     search_time_ms: float
     vector_search_time_ms: float
     graph_expansion_time_ms: float
 
-    # Facets para filtrado
+    # Facets for filtering
     facets: dict = Field(default_factory=dict)
 
 
@@ -410,13 +410,13 @@ class GraphSearchResponse(BaseModel):
 
 
 class GraphStats(BaseModel):
-    """Estadísticas del Knowledge Graph."""
+    """Knowledge Graph statistics."""
 
-    # Conteos de nodos
+    # Node counts
     total_nodes: int = 0
     nodes_by_type: dict[str, int] = Field(default_factory=dict)
 
-    # Conteos de relaciones
+    # Relationship counts
     total_relations: int = 0
     relations_by_type: dict[str, int] = Field(default_factory=dict)
 
@@ -425,14 +425,14 @@ class GraphStats(BaseModel):
     total_frames_indexed: int = 0
     total_entities_extracted: int = 0
 
-    # Métricas del grafo
+    # Graph metrics
     avg_relations_per_node: float = 0.0
     max_depth: int = 0
 
-    # Almacenamiento
+    # Storage
     database_size_mb: float = 0.0
 
-    # Tiempo
+    # Time
     last_updated: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -442,7 +442,7 @@ class GraphStats(BaseModel):
 
 
 class ExtractedEntity(BaseModel):
-    """Entidad extraída por GPT-4V de un frame."""
+    """Entity extracted by GPT-4V from a frame."""
 
     entity_type: EntityType
     name: str
@@ -453,56 +453,56 @@ class ExtractedEntity(BaseModel):
 
 
 class FrameAnalysisResult(BaseModel):
-    """Resultado del análisis de un frame."""
+    """Result of a frame analysis."""
 
     frame_id: str
     timestamp: float
 
-    # Descripción general
+    # General description
     description: str
 
-    # Entidades detectadas
+    # Detected entities
     entities: list[ExtractedEntity]
 
-    # Relaciones detectadas entre entidades
+    # Detected relationships between entities
     relations: list[dict]  # [{"source": "entity1", "target": "entity2", "type": "INTERACTS_WITH"}]
 
-    # Temas/conceptos
+    # Topics/concepts
     topics: list[str]
 
-    # Actividades/acciones
+    # Activities/actions
     actions: list[str]
 
-    # Texto detectado (OCR)
+    # Detected text (OCR)
     detected_text: list[str] = Field(default_factory=list)
 
-    # Metadata del análisis
+    # Analysis metadata
     model_used: str = "gpt-4o"
     analysis_time_ms: float = 0.0
 
 
 class VideoGraphSummary(BaseModel):
-    """Resumen del grafo de un video específico."""
+    """Summary of the graph for a specific video."""
 
     video_id: str
     video_title: str
 
-    # Conteos
+    # Counts
     total_scenes: int
     total_frames: int
     total_entities: int
     unique_entities: int
 
-    # Entidades más frecuentes por tipo
+    # Most frequent entities by type
     top_persons: list[dict] = Field(default_factory=list)
     top_objects: list[dict] = Field(default_factory=list)
     top_locations: list[dict] = Field(default_factory=list)
 
-    # Temas principales
+    # Main topics
     main_topics: list[str] = Field(default_factory=list)
 
-    # Timeline de entidades
+    # Entity timeline
     entity_timeline: list[dict] = Field(default_factory=list)
 
-    # Relaciones más comunes
+    # Most common relationships
     top_relations: list[dict] = Field(default_factory=list)

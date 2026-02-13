@@ -1,13 +1,13 @@
 """
-WebSocket Routes para QPrisma
-Endpoints WebSocket para actualizaciones en tiempo real.
+WebSocket Routes for QPrisma
+WebSocket endpoints for real-time updates.
 
 Endpoints:
-    /ws/jobs/{job_id}  - Seguir un job específico
-    /ws/user/{user_id} - Recibir updates de todos los jobs del usuario
-    /ws/all            - Recibir todos los updates (admin/debug)
+    /ws/jobs/{job_id}  - Follow a specific job
+    /ws/user/{user_id} - Receive updates for all jobs of a user
+    /ws/all            - Receive all updates (admin/debug)
 
-Protocolo de mensajes:
+Message protocol:
     Client -> Server:
         {"type": "ping"}
         {"type": "subscribe", "payload": {"job_id": "xxx"}}
@@ -20,7 +20,7 @@ Protocolo de mensajes:
         {"type": "job_failed", "job_id": "xxx", "payload": {"error": "..."}}
         {"type": "heartbeat", "payload": {"timestamp": "..."}}
 
-Uso en frontend:
+Frontend usage:
     const ws = new WebSocket('ws://localhost:8000/ws/jobs/my-job-id');
 
     ws.onmessage = (event) => {
@@ -57,35 +57,35 @@ router = APIRouter()
 @router.websocket("/jobs/{job_id}")
 async def websocket_job_endpoint(websocket: WebSocket, job_id: str):
     """
-    WebSocket para seguir un job específico.
+    WebSocket for following a specific job.
 
-    Recibe actualizaciones de progreso en tiempo real para el job indicado.
+    Receives real-time progress updates for the specified job.
 
-    Ejemplo de conexión:
+    Connection example:
         ws://localhost:8000/ws/jobs/abc123
     """
     manager = get_websocket_manager()
 
-    # Conectar
+    # Connect
     connected = await manager.connect(websocket, job_id=job_id)
     if not connected:
         return
 
     try:
-        # Enviar estado actual del job si existe
+        # Send current job status if it exists
         await _send_current_job_status(websocket, job_id)
 
-        # Loop principal
+        # Main loop
         while True:
             try:
-                # Esperar mensajes del cliente (con timeout para heartbeat)
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)  # 30 segundos
+                # Wait for client messages (with timeout for heartbeat)
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)  # 30 seconds
 
-                # Procesar mensaje
+                # Process message
                 await _handle_client_message(websocket, data, manager)
 
             except TimeoutError:
-                # Enviar heartbeat
+                # Send heartbeat
                 await manager.send_heartbeat(websocket)
 
     except WebSocketDisconnect:
@@ -99,9 +99,9 @@ async def websocket_job_endpoint(websocket: WebSocket, job_id: str):
 @router.websocket("/user/{user_id}")
 async def websocket_user_endpoint(websocket: WebSocket, user_id: str):
     """
-    WebSocket para recibir updates de todos los jobs de un usuario.
+    WebSocket for receiving updates for all jobs of a user.
 
-    Ejemplo:
+    Example:
         ws://localhost:8000/ws/user/user123
     """
     manager = get_websocket_manager()
@@ -130,10 +130,10 @@ async def websocket_user_endpoint(websocket: WebSocket, user_id: str):
 @router.websocket("/all")
 async def websocket_all_endpoint(websocket: WebSocket, token: str | None = Query(None)):
     """
-    WebSocket para recibir todos los updates (admin/debug).
+    WebSocket for receiving all updates (admin/debug).
 
-    Requiere token de autenticación en query param.
-    Ejemplo:
+    Requires authentication token as a query parameter.
+    Example:
         ws://localhost:8000/ws/all?token=admin-token
     """
     # Admin token validation is deferred (see P0 auth task for endpoint auth)
@@ -168,20 +168,20 @@ async def websocket_all_endpoint(websocket: WebSocket, token: str | None = Query
 
 
 async def _handle_client_message(websocket: WebSocket, data: str, manager: ConnectionManager):
-    """Procesa mensajes recibidos del cliente"""
+    """Processes messages received from the client"""
     try:
         message = json.loads(data)
         msg_type = message.get("type", "")
         payload = message.get("payload", {})
 
         if msg_type == "ping":
-            # Responder con pong
+            # Respond with pong
             await websocket.send_text(
                 json.dumps({"type": "pong", "timestamp": asyncio.get_event_loop().time()})
             )
 
         elif msg_type == "subscribe":
-            # Suscribirse a un job adicional
+            # Subscribe to an additional job
             job_id = payload.get("job_id")
             if job_id:
                 await manager.subscribe_to_job(websocket, job_id)
@@ -190,7 +190,7 @@ async def _handle_client_message(websocket: WebSocket, data: str, manager: Conne
                 )
 
         elif msg_type == "unsubscribe":
-            # Desuscribirse de un job
+            # Unsubscribe from a job
             job_id = payload.get("job_id")
             if job_id:
                 await manager.unsubscribe_from_job(websocket, job_id)
@@ -208,7 +208,7 @@ async def _handle_client_message(websocket: WebSocket, data: str, manager: Conne
 
 
 async def _send_current_job_status(websocket: WebSocket, job_id: str):
-    """Envía el estado actual del job al conectarse"""
+    """Sends the current job status upon connection"""
     try:
         import os
 
@@ -243,13 +243,13 @@ async def _send_current_job_status(websocket: WebSocket, job_id: str):
 
 
 # =============================================================================
-# REST Endpoints para estadísticas de WebSocket
+# REST Endpoints for WebSocket statistics
 # =============================================================================
 
 
 @router.get("/stats")
 async def get_websocket_stats():
-    """Obtiene estadísticas de conexiones WebSocket"""
+    """Gets WebSocket connection statistics"""
     manager = get_websocket_manager()
     return manager.get_stats()
 
@@ -257,14 +257,14 @@ async def get_websocket_stats():
 @router.post("/broadcast")
 async def broadcast_message(message: str, msg_type: str = "info"):
     """
-    Envía un mensaje a todos los clientes conectados.
-    Solo para administración/debug.
+    Sends a message to all connected clients.
+    For administration/debug use only.
     """
     manager = get_websocket_manager()
 
     await manager.broadcast(
         WebSocketMessage(
-            type=MessageType.JOB_PROGRESS,  # Usar tipo genérico
+            type=MessageType.JOB_PROGRESS,  # Use generic type
             payload={"message": message, "type": msg_type},
         )
     )
@@ -274,31 +274,31 @@ async def broadcast_message(message: str, msg_type: str = "info"):
 
 
 # =============================================================================
-# Función para notificar desde Celery tasks
+# Helper functions for notifying from Celery tasks
 # =============================================================================
 
 
 async def notify_job_progress(job_id: str, progress: int, stage: str, message: str | None = None):
     """
-    Función helper para notificar progreso desde cualquier parte del código.
+    Helper function to notify progress from anywhere in the codebase.
 
-    Uso desde Celery task:
+    Usage from a Celery task:
         import asyncio
         from api.routes.websocket_routes import notify_job_progress
 
-        asyncio.run(notify_job_progress(job_id, 50, "analyzing", "Procesando frames"))
+        asyncio.run(notify_job_progress(job_id, 50, "analyzing", "Processing frames"))
     """
     manager = get_websocket_manager()
     await manager.send_job_progress(job_id, progress, stage, message)
 
 
 async def notify_job_completed(job_id: str, result: dict | None = None):
-    """Notifica que un job se completó"""
+    """Notifies that a job has completed"""
     manager = get_websocket_manager()
     await manager.send_job_completed(job_id, result)
 
 
 async def notify_job_failed(job_id: str, error: str):
-    """Notifica que un job falló"""
+    """Notifies that a job has failed"""
     manager = get_websocket_manager()
     await manager.send_job_failed(job_id, error)

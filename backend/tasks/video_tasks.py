@@ -1,37 +1,37 @@
 """
-Video Processing Tasks para Celery
+Video Processing Tasks for Celery
 
-Tareas asíncronas para procesamiento de video en QPrisma.
+Asynchronous tasks for video processing in QPrisma.
 
-Flujo del Pipeline:
-    1. process_video_pipeline (orquestador)
+Pipeline Flow:
+    1. process_video_pipeline (orchestrator)
        ├── download_video_task
        ├── extract_frames_task
-       ├── analyze_frames_task (paralelo)
+       ├── analyze_frames_task (parallel)
        ├── generate_embeddings_task (batch)
        ├── transcribe_audio_task
        ├── index_to_neo4j (Knowledge Graph)
        ├── index_transcription_to_graph
        └── cleanup_task
 
-Uso:
+Usage:
     from tasks.video_tasks import process_video_pipeline
 
-    # Iniciar procesamiento
+    # Start processing
     result = process_video_pipeline.delay(
         video_id="abc123",
-        blob_name="videos/mi_video.mp4",
+        blob_name="videos/my_video.mp4",
         config={"max_frames": 20}
     )
 
-    # Obtener task_id para tracking
+    # Get task_id for tracking
     task_id = result.id
 
-    # Verificar estado
+    # Check status
     from tasks.celery_app import celery_app
     status = celery_app.AsyncResult(task_id)
-    print(status.state)  # PENDING, STARTED, SUCCESS, FAILURE
-    print(status.info)   # Metadata del progreso
+    status.state  # PENDING, STARTED, SUCCESS, FAILURE
+    status.info   # Progress metadata
 """
 
 import asyncio
@@ -42,7 +42,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-# Asegurar path
+# Ensure path
 backend_path = str(Path(__file__).parent.parent)
 if backend_path not in sys.path:
     sys.path.insert(0, backend_path)
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Lazy Loading de Servicios (evitar imports pesados al cargar módulo)
+# Lazy Loading of Services (avoid heavy imports at module load time)
 # =============================================================================
 
 _services_initialized = False
@@ -70,7 +70,7 @@ _db_service = None
 
 
 def _initialize_services():
-    """Inicializa servicios de Azure (lazy loading)"""
+    """Initialize Azure services (lazy loading)."""
     global _services_initialized, _blob_service, _openai_client
     global _video_processor, _cache_service, _db_service
 
@@ -86,7 +86,7 @@ def _initialize_services():
 
     from core.config import settings
 
-    # Azure Blob Storage
+    # Azure Blob storage
     if settings.azure.storage_connection_string:
         _blob_service = BlobServiceClient.from_connection_string(
             settings.azure.storage_connection_string
@@ -120,7 +120,7 @@ def _initialize_services():
 
 
 async def _get_cache_service():
-    """Obtiene el servicio de cache (async)"""
+    """Get the cache service (async)."""
     global _cache_service
     if _cache_service is None:
         from services.cache_service import CacheService
@@ -131,7 +131,7 @@ async def _get_cache_service():
 
 
 # =============================================================================
-# Tasks de Bajo Nivel
+# Low-Level Tasks
 # =============================================================================
 
 
@@ -149,10 +149,10 @@ def update_job_status(
     result_data: dict | None = None,
 ):
     """
-    Actualiza el estado de un job en cache y notifica via Redis Pub/Sub.
-    Esta task se usa para notificar progreso a los clientes en tiempo real.
+    Update job status in cache and notify via Redis Pub/Sub.
+    This task is used to notify progress to clients in real time.
 
-    Usa Redis síncrono para evitar problemas con event loops en Celery.
+    Uses synchronous Redis to avoid event loop issues in Celery.
     """
     import json
 
@@ -163,7 +163,7 @@ def update_job_status(
     try:
         redis_client = redis.from_url(settings.redis.url)
 
-        # 1. Guardar estado del job en Redis (cache)
+        # 1. Save job status in Redis (cache)
         status_data = {
             "job_id": job_id,
             "status": status,
@@ -177,13 +177,13 @@ def update_job_status(
         if result_data:
             status_data["result"] = result_data
 
-        # Guardar en Redis con TTL de 1 hora
+        # Save in Redis with 1 hour TTL
         cache_key = f"job_status:{job_id}"
         redis_client.setex(cache_key, 3600, json.dumps(status_data))
 
         logger.info(f"Job {job_id}: {status} ({progress}%) - {stage}")
 
-        # 2. Publicar evento a Redis Pub/Sub para WebSockets
+        # 2. Publish event to Redis Pub/Sub for WebSockets
         if status == "completed":
             event_type = "completed"
             event_data = {"result": result_data}
@@ -203,7 +203,7 @@ def update_job_status(
 
     except Exception as e:
         logger.error(f"Failed to update job status: {e}")
-        # No fallar la task, solo logear
+        # Don't fail the task, just log
 
     return {"job_id": job_id, "status": status}
 
@@ -213,22 +213,22 @@ def update_job_status(
 )
 def download_video_task(self, blob_name: str, job_id: str) -> dict:
     """
-    Descarga un video de Azure Blob Storage a un archivo temporal.
+    Download a video from Azure Blob Storage to a temporary file.
 
     Returns:
-        Dict con temp_path del archivo descargado
+        Dict with temp_path of the downloaded file.
     """
     _initialize_services()
 
     try:
-        update_job_status.delay(job_id, "processing", 5, "downloading", "Descargando video...")
+        update_job_status.delay(job_id, "processing", 5, "downloading", "Downloading video...")
 
-        # Crear archivo temporal
+        # Create temporary file
         suffix = Path(blob_name).suffix or ".mp4"
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp_file:
             tmp_path = tmp_file.name
 
-        # Descargar
+        # Download
         from core.config import settings
 
         blob_client = _blob_service.get_blob_client(
@@ -254,22 +254,22 @@ def download_video_task(self, blob_name: str, job_id: str) -> dict:
 @celery_app.task(bind=True, name="tasks.video_tasks.extract_frames_task", max_retries=2)
 def extract_frames_task(self, download_result: dict, job_id: str, max_frames: int = 20) -> dict:
     """
-    Extrae frames de un video usando FFmpeg.
+    Extract frames from a video using FFmpeg.
 
     Returns:
-        Dict con lista de frames (bytes) y metadata
+        Dict with list of frames (bytes) and metadata.
     """
     _initialize_services()
     import cv2
 
     try:
         update_job_status.delay(
-            job_id, "processing", 15, "extracting", f"Extrayendo {max_frames} frames..."
+            job_id, "processing", 15, "extracting", f"Extracting {max_frames} frames..."
         )
 
         temp_path = download_result["temp_path"]
 
-        # Obtener metadata del video
+        # Get video metadata
         cap = cv2.VideoCapture(temp_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -290,7 +290,7 @@ def extract_frames_task(self, download_result: dict, job_id: str, max_frames: in
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             return float(gray.mean() / 255.0)
 
-        # Extraer frames distribuidos uniformemente
+        # Extract frames distributed evenly
         frames_data = []
         if total_frames > 0:
             step = max(1, total_frames // max_frames)
@@ -305,7 +305,7 @@ def extract_frames_task(self, download_result: dict, job_id: str, max_frames: in
                     blur_score = calculate_blur_score(frame)
                     brightness = calculate_brightness(frame)
 
-                    # Codificar como JPEG
+                    # Encode as JPEG
                     _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                     frame_bytes = buffer.tobytes()
 
@@ -315,7 +315,7 @@ def extract_frames_task(self, download_result: dict, job_id: str, max_frames: in
                             "index": idx,
                             "frame_number": pos,
                             "timestamp": round(timestamp, 2),
-                            "image_bytes": frame_bytes,  # Nota: bytes se serializan en base64
+                            "image_bytes": frame_bytes,  # Note: bytes are serialized as base64
                             "blur_score": round(blur_score, 4),
                             "brightness": round(brightness, 4),
                         }
@@ -349,14 +349,14 @@ def extract_frames_task(self, download_result: dict, job_id: str, max_frames: in
     name="tasks.video_tasks.analyze_frame_task",
     max_retries=3,
     default_retry_delay=60,
-    rate_limit="30/m",  # Max 30 por minuto (proteger Azure OpenAI)
+    rate_limit="30/m",  # Max 30 per minute (protect Azure OpenAI)
 )
 def analyze_frame_task(
     self, frame_data: dict, job_id: str, custom_prompt: str | None = None
 ) -> dict:
     """
-    Analiza un frame individual con GPT-4V.
-    Rate limited para proteger cuota de Azure OpenAI.
+    Analyze an individual frame with GPT-4V.
+    Rate limited to protect Azure OpenAI quota.
     """
     _initialize_services()
     import base64
@@ -365,7 +365,7 @@ def analyze_frame_task(
     import numpy as np
 
     try:
-        # Decodificar frame
+        # Decode frame
         frame_bytes = (
             base64.b64decode(frame_data["image_bytes"])
             if isinstance(frame_data["image_bytes"], str)
@@ -375,7 +375,7 @@ def analyze_frame_task(
         nparr = np.frombuffer(frame_bytes, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # Analizar con GPT-4V
+        # Analyze with GPT-4V
         analysis = asyncio.run(
             _video_processor.analyze_frame_with_gpt4v(
                 frame,
@@ -409,7 +409,7 @@ def analyze_frame_task(
     bind=True, name="tasks.video_tasks.generate_embedding_task", max_retries=3, rate_limit="60/m"
 )
 def generate_embedding_task(self, text: str) -> list[float]:
-    """Genera embedding para un texto"""
+    """Generate embedding for a text."""
     _initialize_services()
 
     if not text or not text.strip():
@@ -426,12 +426,12 @@ def generate_embedding_task(self, text: str) -> list[float]:
 
 @celery_app.task(bind=True, name="tasks.video_tasks.generate_embeddings_batch_task", max_retries=2)
 def generate_embeddings_batch_task(self, texts: list[str], job_id: str) -> list[list[float]]:
-    """Genera embeddings en batch"""
+    """Generate embeddings in batch."""
     _initialize_services()
 
     try:
         update_job_status.delay(
-            job_id, "processing", 75, "embeddings", f"Generando {len(texts)} embeddings..."
+            job_id, "processing", 75, "embeddings", f"Generating {len(texts)} embeddings..."
         )
 
         valid_texts = [t for t in texts if t and t.strip()]
@@ -452,11 +452,11 @@ def generate_embeddings_batch_task(self, texts: list[str], job_id: str) -> list[
 
 @celery_app.task(bind=True, name="tasks.video_tasks.transcribe_audio_task", max_retries=2)
 def transcribe_audio_task(self, temp_path: str, job_id: str) -> dict:
-    """Transcribe el audio del video con Whisper"""
+    """Transcribe video audio with Whisper."""
     _initialize_services()
 
     try:
-        update_job_status.delay(job_id, "processing", 60, "transcribing", "Transcribiendo audio...")
+        update_job_status.delay(job_id, "processing", 60, "transcribing", "Transcribing audio...")
 
         if _video_processor and _video_processor.audio_processor:
             # process_video_audio is async — must run in event loop
@@ -478,7 +478,7 @@ def transcribe_audio_task(self, temp_path: str, job_id: str) -> dict:
 
 @celery_app.task(bind=True, name="tasks.video_tasks.cleanup_task")
 def cleanup_task(self, temp_path: str):
-    """Limpia archivos temporales"""
+    """Clean up temporary files."""
     try:
         if temp_path and os.path.exists(temp_path):
             os.unlink(temp_path)
@@ -492,15 +492,15 @@ def index_transcription_to_graph(
     self, video_id: str, transcription_data: dict, job_id: str
 ) -> dict:
     """
-    Indexa los segmentos de transcripción a Neo4j Knowledge Graph.
+    Index transcription segments to Neo4j Knowledge Graph.
 
     Args:
-        video_id: ID del video
-        transcription_data: Datos de transcripción con segmentos
-        job_id: ID del job para actualizar estado
+        video_id: Video ID.
+        transcription_data: Transcription data with segments.
+        job_id: Job ID for status updates.
 
     Returns:
-        Dict con estadísticas de indexación
+        Dict with indexing statistics.
     """
     _initialize_services()
 
@@ -510,11 +510,11 @@ def index_transcription_to_graph(
 
         graph = get_knowledge_graph_service()
 
-        # Asegurar conexión a Neo4j
+        # Ensure Neo4j connection
         if not graph.is_connected:
             graph.connect()
 
-        # Obtener segmentos de la transcripción
+        # Get transcription segments
         segments = transcription_data.get("segments", [])
         if not segments:
             logger.info(f"No transcript segments to index for video {video_id}")
@@ -522,7 +522,7 @@ def index_transcription_to_graph(
 
         logger.info(f"Starting transcript indexing: {len(segments)} segments for video {video_id}")
 
-        # Eliminar transcripciones existentes para este video
+        # Delete existing transcriptions for this video
         try:
             deleted = graph.delete_video_transcripts(video_id)
             if deleted > 0:
@@ -530,13 +530,13 @@ def index_transcription_to_graph(
         except Exception as e:
             logger.warning(f"Could not delete existing transcripts: {e}")
 
-        # Crear nodos AudioSegment
+        # Create AudioSegment nodes
         language = transcription_data.get("language", "unknown")
         audio_segments = []
 
         for idx, segment in enumerate(segments):
             segment_node = AudioSegmentNode(
-                id=f"{video_id}_audio_{idx}",  # Usar índice para evitar IDs duplicados
+                id=f"{video_id}_audio_{idx}",  # Use index to avoid duplicate IDs
                 video_id=video_id,
                 start_time=segment.get("start", 0),
                 end_time=segment.get("end", 0),
@@ -546,12 +546,12 @@ def index_transcription_to_graph(
             )
             audio_segments.append(segment_node)
 
-        # Indexar en batch (con manejo de batches internos)
+        # Index in batch (with internal batch handling)
         created = graph.create_audio_segments_batch(audio_segments)
 
         success = created > 0 or len(segments) == 0
 
-        if created < len(segments) * 0.5:  # Menos del 50% indexado
+        if created < len(segments) * 0.5:  # Less than 50% indexed
             logger.error(
                 f"Transcript indexing partial failure: only {created}/{len(segments)} segments indexed"
             )
@@ -570,35 +570,35 @@ def index_transcription_to_graph(
         error_msg = f"Failed to index transcription for video {video_id}: {e}"
         logger.error(error_msg, exc_info=True)
 
-        # Reintentar si es un error de conexión
+        # Retry if it's a connection error
         if "connection" in str(e).lower() or "timeout" in str(e).lower():
             try:
                 self.retry(countdown=5, exc=e)
             except Exception:
-                pass  # Max retries alcanzados
+                pass  # Max retries reached
 
         return {"indexed": 0, "success": False, "error": str(e)}
 
 
 # =============================================================================
-# Pipeline Principal
+# Main Pipeline
 # =============================================================================
 
 
 @celery_app.task(bind=True, name="tasks.video_tasks.process_video_pipeline", max_retries=1)
 def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | None = None) -> dict:
     """
-    Pipeline completo de procesamiento de video.
+    Complete video processing pipeline.
 
-    Este es el orquestador principal que coordina todas las sub-tareas.
+    This is the main orchestrator that coordinates all sub-tasks.
 
     Args:
-        video_id: ID único del video
-        blob_name: Nombre del blob en Azure Storage
-        config: Configuración opcional (max_frames, custom_prompt, etc.)
+        video_id: Unique video ID.
+        blob_name: Blob name in Azure Storage.
+        config: Optional configuration (max_frames, custom_prompt, etc.).
 
     Returns:
-        Dict con resultados completos del procesamiento
+        Dict with complete processing results.
     """
     _initialize_services()
 
@@ -610,39 +610,37 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
     start_time = time.time()
 
     try:
-        # 1. Iniciar job
-        update_job_status(
-            job_id, "processing", 0, "started", f"Iniciando procesamiento de {blob_name}"
-        )
+        # 1. Start job
+        update_job_status(job_id, "processing", 0, "started", f"Starting processing of {blob_name}")
 
-        # 2. Descargar video
+        # 2. Download video
         download_result = download_video_task(blob_name, job_id)
         temp_path = download_result["temp_path"]
 
-        # 3. Extraer frames
+        # 3. Extract frames
         extraction_result = extract_frames_task(download_result, job_id, max_frames)
         frames = extraction_result["frames"]
         metadata = extraction_result["metadata"]
 
-        # 4. Analizar frames con Batch API (50% más barato)
+        # 4. Analyze frames with Batch API (50% cheaper)
         update_job_status(
             job_id,
             "processing",
             25,
             "analyzing",
-            f"Analizando {len(frames)} frames con Batch API...",
+            f"Analyzing {len(frames)} frames with Batch API...",
         )
 
         frame_analyses = []
         try:
-            # Usar Batch API para análisis de frames (50% ahorro)
+            # Use Batch API for frame analysis (50% savings)
             import base64
 
             from services.batch_processor import BatchProcessor
 
             batch_proc = BatchProcessor(_video_processor.openai_client)
 
-            # Preparar frames para Batch API
+            # Prepare frames for Batch API
             frames_for_batch = []
             for frame_data in frames:
                 image_bytes = frame_data.get("image_bytes", b"")
@@ -659,13 +657,13 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     }
                 )
 
-            # Enviar batch job
+            # Submit batch job
             update_job_status(
                 job_id,
                 "processing",
                 30,
                 "batch_submit",
-                f"Enviando {len(frames)} frames a Batch API...",
+                f"Submitting {len(frames)} frames to Batch API...",
             )
             vision_requests = batch_proc.create_vision_batch_requests(
                 frames_for_batch, custom_prompt
@@ -677,13 +675,13 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             )
             logger.info(f"Batch job created: {vision_batch_id}")
 
-            # Esperar completación
+            # Wait for completion
             update_job_status(
                 job_id,
                 "processing",
                 35,
                 "batch_wait",
-                "Esperando Batch API (típicamente 3-5 min)...",
+                "Waiting for Batch API (typically 3-5 min)...",
             )
             success = asyncio.run(
                 batch_proc.wait_for_batch_completion(
@@ -694,14 +692,14 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             if not success:
                 raise Exception(f"Batch job timeout or failed: {vision_batch_id}")
 
-            # Obtener resultados
+            # Get results
             update_job_status(
-                job_id, "processing", 55, "batch_results", "Procesando resultados de Batch API..."
+                job_id, "processing", 55, "batch_results", "Processing Batch API results..."
             )
             vision_results = asyncio.run(batch_proc.get_batch_results(vision_batch_id))
             parsed_analyses = batch_proc.parse_vision_results(vision_results)
 
-            # Convertir a formato esperado
+            # Convert to expected format
             for i, frame_data in enumerate(frames):
                 frame_id = f"frame_{frame_data.get('frame_number', i)}"
                 analysis_text = parsed_analyses.get(frame_id, {}).get("analysis", "")
@@ -721,7 +719,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
         except Exception as batch_error:
             logger.warning(f"Batch API failed, falling back to individual calls: {batch_error}")
-            # Fallback: análisis secuencial (más caro pero funciona)
+            # Fallback: sequential analysis (more expensive but works)
             import base64
 
             for i, frame_data in enumerate(frames):
@@ -731,7 +729,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     "processing",
                     progress,
                     "analyzing",
-                    f"Analizando frame {i+1}/{len(frames)} (fallback)",
+                    f"Analyzing frame {i+1}/{len(frames)} (fallback)",
                 )
 
                 frame_data_copy = frame_data.copy()
@@ -746,16 +744,16 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 analysis["brightness"] = frame_data.get("brightness", 0.0)
                 frame_analyses.append(analysis)
 
-        # 5. Transcribir audio
+        # 5. Transcribe audio
         transcription_result = transcribe_audio_task(temp_path, job_id)
 
-        # 5b. Generar resúmenes jerárquicos (escenas -> capítulos -> video)
+        # 5b. Generate hierarchical summaries (scenes -> chapters -> video)
         video_summary = None
         key_topics = []
         if config.get("generate_summaries", True):
             try:
                 update_job_status(
-                    job_id, "processing", 68, "summarizing", "Generando resúmenes jerárquicos..."
+                    job_id, "processing", 68, "summarizing", "Generating hierarchical summaries..."
                 )
 
                 from services.hierarchical_summarizer import HierarchicalSummarizer, SummaryConfig
@@ -768,13 +766,13 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     video_summary_max_tokens=600,
                 )
 
-                # Construir estructura de escenas desde los análisis
+                # Build scene structure from analyses
                 scenes = []
                 duration_sec = float(metadata.get("duration", 0) or 0)
                 frames_count = len(frame_analyses)
 
                 if frames_count > 0:
-                    # Agrupar frames en escenas (aprox 5-10 frames por escena)
+                    # Group frames into scenes (approx 5-10 frames per scene)
                     frames_per_scene = max(3, frames_count // 10)
 
                     for scene_idx in range(0, frames_count, frames_per_scene):
@@ -789,7 +787,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             "frame_number", scene_idx + len(scene_frames) - 1
                         )
 
-                        # Combinar descripciones visuales
+                        # Combine visual descriptions
                         visual_desc = " ".join(
                             [f.get("analysis", "")[:500] for f in scene_frames if f.get("analysis")]
                         )[:2000]
@@ -812,7 +810,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         scenes.append(scene)
 
                 if scenes:
-                    # Crear estructura de video
+                    # Create video structure
                     structure = VideoStructure(
                         media_id=video_id,
                         total_duration=duration_sec,
@@ -821,7 +819,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         chapters=[],
                     )
 
-                    # Generar resúmenes (async)
+                    # Generate summaries (async)
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
@@ -842,17 +840,17 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
                 logger.debug(traceback.format_exc())
 
-        # 6. Generar embeddings
+        # 6. Generate embeddings
         analysis_texts = [a.get("analysis", "") for a in frame_analyses if a.get("analysis")]
         embeddings = (
             generate_embeddings_batch_task(analysis_texts, job_id) if analysis_texts else []
         )
 
-        # 7. Indexar en Knowledge Graph (Neo4j) + almacenar embeddings
+        # 7. Index in Knowledge Graph (Neo4j) + store embeddings
         graph_indexed = False
         if config.get("index_graph", True):
             update_job_status(
-                job_id, "processing", 80, "graph", "Indexando en Knowledge Graph (Neo4j)..."
+                job_id, "processing", 80, "graph", "Indexing in Knowledge Graph (Neo4j)..."
             )
             try:
                 from models.graph_models import FrameNode, VideoNode
@@ -861,7 +859,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 graph = KnowledgeGraphService()
                 graph.initialize_schema()
 
-                # Evitar duplicados si re-procesamos el mismo video
+                # Avoid duplicates if reprocessing the same video
                 try:
                     graph.delete_video_graph(video_id)
                 except Exception:
@@ -878,7 +876,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     except Exception:
                         pass
 
-                # resolution viene como "{w}x{h}"
+                # resolution comes as "{w}x{h}"
                 w, h = 0, 0
                 try:
                     res = str(metadata.get("resolution", "0x0"))
@@ -905,7 +903,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 )
                 graph.create_video_node(video_node)
 
-                # Crear escenas (FFmpeg scene detection) para navegación/timeline
+                # Create scenes (FFmpeg scene detection) for navigation/timeline
                 scene_nodes = []
                 try:
                     from models.graph_models import SceneNode
@@ -940,7 +938,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 except Exception as e:
                     logger.warning(f"Scene detection/indexing skipped: {e}")
 
-                # Crear frames + guardar embeddings en el nodo
+                # Create frames + store embeddings in the node
                 frame_nodes_with_embeddings: list[tuple[FrameNode, list[float] | None]] = []
                 embedding_idx = 0
                 for a in frame_analyses:
@@ -974,7 +972,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                                     embedding=emb,
                                 )
 
-                # Vincular frames a escenas por timestamp (si existen escenas)
+                # Link frames to scenes by timestamp (if scenes exist)
                 if scene_nodes:
                     with graph.get_session() as session:
                         session.run(
@@ -1002,7 +1000,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     "processing",
                     85,
                     "transcript_graph",
-                    "Indexando transcripción en Knowledge Graph...",
+                    "Indexing transcription in Knowledge Graph...",
                 )
                 transcript_data = transcription_result.get("transcription", {})
                 total_segments = len(transcript_data.get("segments", []))
@@ -1012,7 +1010,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 )
                 transcript_indexed = index_result_transcript.get("indexed", 0)
 
-                # Verificar que se indexaron los segmentos esperados
+                # Verify expected segments were indexed
                 if total_segments > 0 and transcript_indexed == 0:
                     transcript_indexing_error = index_result_transcript.get(
                         "error", "Unknown indexing error"
@@ -1022,7 +1020,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         f"expected {total_segments} segments, indexed {transcript_indexed}. "
                         f"Error: {transcript_indexing_error}"
                     )
-                elif transcript_indexed < total_segments * 0.9:  # Menos del 90%
+                elif transcript_indexed < total_segments * 0.9:  # Less than 90%
                     logger.warning(
                         f"Partial transcript indexing for video {video_id}: "
                         f"indexed {transcript_indexed}/{total_segments} segments"
@@ -1063,19 +1061,19 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             except Exception as e:
                 logger.warning(f"Failed to update Video node with summary: {e}")
 
-        # 9. Limpiar archivos temporales
+        # 9. Clean up temporary files
         cleanup_task(temp_path)
 
-        # 9. Calcular estadísticas
+        # 9b. Calculate statistics
         elapsed_time = time.time() - start_time
         total_tokens = sum(a.get("tokens_used", 0) for a in frame_analyses)
 
-        # Determinar si hubo warnings durante el procesamiento
+        # Determine if there were warnings during processing
         processing_warnings = []
         if transcript_indexing_error:
             processing_warnings.append(f"Transcript indexing error: {transcript_indexing_error}")
 
-        # Determinar estado: completed_with_warnings si hubo errores parciales
+        # Determine status: completed_with_warnings if there were partial errors
         final_status = "completed"
         if transcript_indexing_error and transcript_indexed == 0:
             final_status = "completed_with_warnings"
@@ -1099,17 +1097,17 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             "processing_warnings": processing_warnings if processing_warnings else None,
         }
 
-        # 10. Actualizar estado final
+        # 10. Update final status
         update_job_status(
             job_id,
             "completed",
             100,
             "done",
-            f"Completado en {elapsed_time:.1f}s",
+            f"Completed in {elapsed_time:.1f}s",
             result_data=result,
         )
 
-        # 11. Actualizar metadata en PostgreSQL
+        # 11. Update metadata in PostgreSQL
         if _db_service:
             try:
                 updates = {
@@ -1175,13 +1173,13 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
 
 # =============================================================================
-# Utilidades
+# Utilities
 # =============================================================================
 
 
 @celery_app.task(name="tasks.video_tasks.get_job_status")
 def get_job_status_task(job_id: str) -> dict | None:
-    """Obtiene el estado de un job desde cache"""
+    """Get job status from cache."""
     import asyncio
 
     async def _get():
@@ -1193,12 +1191,12 @@ def get_job_status_task(job_id: str) -> dict | None:
 
 @celery_app.task(name="tasks.video_tasks.cancel_job")
 def cancel_job(job_id: str) -> bool:
-    """Intenta cancelar un job en progreso"""
+    """Attempt to cancel a job in progress."""
     from celery.result import AsyncResult
 
     result = AsyncResult(job_id, app=celery_app)
     if result.state in ["PENDING", "STARTED"]:
         result.revoke(terminate=True)
-        update_job_status.delay(job_id, "cancelled", 0, "cancelled", "Job cancelado por usuario")
+        update_job_status.delay(job_id, "cancelled", 0, "cancelled", "Job cancelled by user")
         return True
     return False

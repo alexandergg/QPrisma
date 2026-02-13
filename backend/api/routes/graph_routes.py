@@ -300,7 +300,7 @@ async def advanced_graph_search(
                     node_id=r["node_id"],
                     node_type=r["node_type"],
                     vector_score=r.get("vector_score", 0),
-                    graph_score=0,  # TODO: Calcular basado en expansión
+                    graph_score=0,  # TODO: Calculate based on expansion
                     combined_score=r.get("vector_score", 0),
                     content=r["content"],
                     related_nodes=r.get("related_nodes", []),
@@ -851,12 +851,12 @@ async def load_children(
     request: LoadChildrenRequest, current_user: User = Depends(get_current_user)
 ):
     """
-    Carga lazy de nodos hijos.
+    Lazy loading of child nodes.
 
-    Permite cargar hijos de un nodo bajo demanda, sin necesidad
-    de cargar toda la jerarquía de una vez.
+    Allows loading children of a node on demand, without needing
+    to load the entire hierarchy at once.
 
-    Soporta paginación para niveles con muchos hijos.
+    Supports pagination for levels with many children.
     """
     try:
         hierarchy_service = get_hierarchy_service()
@@ -899,12 +899,12 @@ async def load_children(
 @router.get("/hierarchy/stats/{video_id}", response_model=HierarchyStatsResponse)
 async def get_hierarchy_stats(video_id: str, current_user: User = Depends(get_current_user)):
     """
-    Obtiene estadísticas de la jerarquía de un video.
+    Gets hierarchy statistics for a video.
 
-    Incluye:
-    - Conteo de chapters, scenes, frames
-    - Estado de embeddings por nivel
-    - Duración y título del video
+    Includes:
+    - Chapter, scene, and frame counts
+    - Embedding status per level
+    - Video duration and title
     """
     try:
         hierarchy_service = get_hierarchy_service()
@@ -935,12 +935,12 @@ async def get_hierarchy_path(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Obtiene la ruta completa desde la raíz (video) hasta un nodo.
+    Gets the full path from the root (video) to a node.
 
-    Útil para:
-    - Navegación breadcrumb
-    - Entender el contexto de un resultado de búsqueda
-    - Construir URLs de navegación
+    Useful for:
+    - Breadcrumb navigation
+    - Understanding the context of a search result
+    - Building navigation URLs
     """
     try:
         hierarchy_service = get_hierarchy_service()
@@ -978,10 +978,10 @@ async def clear_all_graph_data(
     confirm: bool = Query(False), current_user: User = Depends(get_current_user)
 ):
     """
-    Elimina TODOS los datos del Knowledge Graph.
+    Deletes ALL data from the Knowledge Graph.
 
-    PELIGROSO - Solo para desarrollo/testing.
-    Requiere confirmación explícita.
+    DANGEROUS - For development/testing only.
+    Requires explicit confirmation.
     """
     if not confirm:
         raise HTTPException(
@@ -998,5 +998,5 @@ async def clear_all_graph_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# Importar time al inicio del módulo
+# Import time at the top of the module
 import time

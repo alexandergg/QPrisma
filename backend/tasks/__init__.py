@@ -1,12 +1,12 @@
 """
 QPrisma Tasks Module
-Tareas asíncronas con Celery para procesamiento de video.
+Asynchronous Celery tasks for video processing.
 
-Uso:
-    # Importar la app de Celery
+Usage:
+    # Import Celery app
     from tasks.celery_app import celery_app
 
-    # Importar tasks específicas
+    # Import specific tasks
     from tasks.video_tasks import process_video_task
 """
 

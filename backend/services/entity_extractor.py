@@ -1,8 +1,8 @@
 """
 Entity Extractor Service for QPrisma
 
-Extrae entidades estructuradas de frames de video usando GPT-4o.
-Detecta personas, objetos, lugares, acciones, texto (OCR), marcas y eventos.
+Extracts structured entities from video frames using GPT-4o.
+Detects people, objects, locations, actions, text (OCR), brands, and events.
 """
 
 import base64
@@ -26,7 +26,7 @@ from models.graph_models import (
 logger = logging.getLogger(__name__)
 
 
-# Prompt del sistema para extracción de entidades
+# System prompt for entity extraction
 ENTITY_EXTRACTION_SYSTEM_PROMPT = """You are an expert visual analyst for a video understanding system. Your task is to analyze video frames and extract structured information about entities, relationships, and context.
 
 For each frame, you must identify and extract:
@@ -95,14 +95,14 @@ Respond with a JSON object following this exact schema:
 
 class EntityExtractor:
     """
-    Servicio para extraer entidades de frames de video usando GPT-4o.
+    Service for extracting entities from video frames using GPT-4o.
 
-    Características:
-    - Análisis de imágenes con GPT-4o Vision
-    - Extracción estructurada de entidades
-    - Detección de relaciones entre entidades
-    - Cache de resultados para evitar re-procesamiento
-    - Batch processing para eficiencia
+    Features:
+    - Image analysis with GPT-4o Vision
+    - Structured entity extraction
+    - Relationship detection between entities
+    - Result caching to avoid re-processing
+    - Batch processing for efficiency
     """
 
     def __init__(
@@ -113,13 +113,13 @@ class EntityExtractor:
         api_version: str = "2024-08-01-preview",
     ):
         """
-        Inicializa el extractor de entidades.
+        Initialize the entity extractor.
 
         Args:
-            api_key: Azure OpenAI API key
-            endpoint: Azure OpenAI endpoint
-            deployment: Nombre del deployment de GPT-4o
-            api_version: Versión del API
+            api_key: Azure OpenAI API key.
+            endpoint: Azure OpenAI endpoint.
+            deployment: GPT-4o deployment name.
+            api_version: API version.
         """
         self.api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
         self.endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -130,7 +130,7 @@ class EntityExtractor:
 
     @property
     def client(self) -> AzureOpenAI:
-        """Lazy initialization del cliente Azure OpenAI."""
+        """Lazy initialization of the Azure OpenAI client."""
         if self._client is None:
             self._client = AzureOpenAI(
                 api_key=self.api_key,
@@ -140,12 +140,12 @@ class EntityExtractor:
         return self._client
 
     def _encode_image_to_base64(self, image_path: str) -> str:
-        """Codifica una imagen a base64."""
+        """Encode an image to base64."""
         with open(image_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
 
     async def _fetch_image_as_base64(self, image_url: str) -> str:
-        """Descarga una imagen desde URL y la codifica a base64."""
+        """Download an image from a URL and encode it to base64."""
         async with httpx.AsyncClient() as client:
             response = await client.get(image_url)
             response.raise_for_status()
@@ -163,20 +163,20 @@ class EntityExtractor:
         is_url: bool = True,
     ) -> FrameAnalysisResult:
         """
-        Extrae entidades de una imagen usando GPT-4o Vision.
+        Extract entities from an image using GPT-4o Vision.
 
         Args:
-            image_source: URL de la imagen o path local
-            timestamp: Timestamp del frame en el video
-            context: Contexto adicional (transcripción, descripción previa, etc.)
-            is_url: Si True, image_source es una URL; si False, es un path local
+            image_source: Image URL or local path.
+            timestamp: Frame timestamp in the video.
+            context: Additional context (transcript, previous description, etc.).
+            is_url: If True, image_source is a URL; if False, it is a local path.
 
         Returns:
-            FrameAnalysisResult con entidades y relaciones extraídas
+            FrameAnalysisResult with extracted entities and relationships.
         """
         start_time = datetime.now(UTC)
 
-        # Preparar la imagen
+        # Prepare the image
         if is_url:
             image_content = {
                 "type": "image_url",
@@ -184,7 +184,7 @@ class EntityExtractor:
             }
         else:
             base64_image = self._encode_image_to_base64(image_source)
-            # Detectar formato de imagen
+            # Detect image format
             if image_source.lower().endswith(".png"):
                 mime_type = "image/png"
             elif image_source.lower().endswith(".gif"):
@@ -197,7 +197,7 @@ class EntityExtractor:
                 "image_url": {"url": f"data:{mime_type};base64,{base64_image}"},
             }
 
-        # Construir el mensaje
+        # Build the message
         user_message = ENTITY_EXTRACTION_USER_PROMPT.format(
             timestamp=timestamp,
             context=context or "No additional context provided",
@@ -214,7 +214,7 @@ class EntityExtractor:
             },
         ]
 
-        # Llamar a GPT-4o
+        # Call GPT-4o
         response = self.client.chat.completions.create(
             model=self.deployment,
             messages=messages,
@@ -223,7 +223,7 @@ class EntityExtractor:
             response_format={"type": "json_object"},
         )
 
-        # Parsear respuesta
+        # Parse response
         response_text = response.choices[0].message.content
         analysis_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
@@ -232,7 +232,7 @@ class EntityExtractor:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse GPT-4o response: {e}")
             logger.error(f"Response: {response_text}")
-            # Retornar resultado vacío en caso de error
+            # Return empty result on error
             return FrameAnalysisResult(
                 frame_id=str(uuid4()),
                 timestamp=timestamp,
@@ -244,7 +244,7 @@ class EntityExtractor:
                 analysis_time_ms=analysis_time,
             )
 
-        # Convertir a modelos Pydantic
+        # Convert to Pydantic models
         entities = []
         for e in data.get("entities", []):
             try:
@@ -280,17 +280,17 @@ class EntityExtractor:
         context: str = "",
     ) -> FrameAnalysisResult:
         """
-        Extrae entidades de una descripción de frame existente.
+        Extract entities from an existing frame description.
 
-        Útil para re-procesar frames que ya tienen descripción pero no entidades estructuradas.
+        Useful for re-processing frames that already have a description but no structured entities.
 
         Args:
-            description: Descripción textual del frame
-            timestamp: Timestamp del frame
-            context: Contexto adicional
+            description: Textual description of the frame.
+            timestamp: Frame timestamp.
+            context: Additional context.
 
         Returns:
-            FrameAnalysisResult con entidades extraídas
+            FrameAnalysisResult with extracted entities.
         """
         start_time = datetime.now(UTC)
 
@@ -390,14 +390,14 @@ Respond with JSON following this schema:
         video_id: str,
     ) -> list[EntityNode]:
         """
-        Convierte ExtractedEntity a EntityNode para almacenar en el grafo.
+        Convert ExtractedEntity to EntityNode for graph storage.
 
         Args:
-            analysis: Resultado del análisis de frame
-            video_id: ID del video
+            analysis: Frame analysis result.
+            video_id: Video ID.
 
         Returns:
-            Lista de EntityNode listos para insertar en Neo4j
+            List of EntityNode ready for Neo4j insertion.
         """
         nodes = []
 
@@ -425,19 +425,19 @@ Respond with JSON following this schema:
         max_concurrent: int = 5,
     ) -> list[FrameAnalysisResult]:
         """
-        Extrae entidades de múltiples frames.
+        Extract entities from multiple frames.
 
         Args:
-            frames: Lista de dicts con {"image_url": str, "timestamp": float, "context": str}
-            max_concurrent: Máximo de requests concurrentes
+            frames: List of dicts with {"image_url": str, "timestamp": float, "context": str}.
+            max_concurrent: Maximum concurrent requests.
 
         Returns:
-            Lista de FrameAnalysisResult
+            List of FrameAnalysisResult.
         """
         results = []
 
-        # Por ahora, procesamiento secuencial para evitar rate limits
-        # TODO: Implementar procesamiento paralelo con semáforo
+        # Sequential processing for now to avoid rate limits
+        # TODO: Implement parallel processing with semaphore
         for frame in frames:
             try:
                 result = self.extract_from_image(
@@ -485,7 +485,7 @@ _entity_extractor: EntityExtractor | None = None
 
 
 def get_entity_extractor() -> EntityExtractor:
-    """Obtiene la instancia singleton del EntityExtractor."""
+    """Get the singleton EntityExtractor instance."""
     global _entity_extractor
     if _entity_extractor is None:
         _entity_extractor = EntityExtractor()

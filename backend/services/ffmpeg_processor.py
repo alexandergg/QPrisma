@@ -1,7 +1,7 @@
 """
 FFmpeg Video Processor
-Sistema de procesamiento de video ultra-rápido con FFmpeg.
-Inspirado en Edconv para máxima customización y performance.
+Ultra-fast video processing system with FFmpeg.
+Inspired by Edconv for maximum customization and performance.
 """
 
 import base64
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class FFmpegVideoProcessor:
-    """Procesador de video con FFmpeg para extracción ultra-rápida de frames"""
+    """Video processor with FFmpeg for ultra-fast frame extraction"""
 
     # Cached result of hardware acceleration detection
     _hwaccel_available: str | None = None
@@ -35,10 +35,10 @@ class FFmpegVideoProcessor:
 
     def __init__(self, config: FFmpegProcessingConfig | None = None):
         """
-        Inicializar procesador
+        Initialize processor
 
         Args:
-            config: Configuración de procesamiento (None = usar defaults)
+            config: Processing configuration (None = use defaults)
         """
         self.config = config or FFmpegProcessingConfig()
         self.status = ProcessingStatus(status="pending")
@@ -97,24 +97,24 @@ class FFmpegVideoProcessor:
 
     def get_video_info(self, video_path: str) -> dict[str, Any]:
         """
-        Obtener información del video usando ffprobe
+        Get video information using ffprobe
 
         Args:
-            video_path: Ruta al archivo de video
+            video_path: Path to the video file
 
         Returns:
-            Diccionario con información del video
+            Dictionary with video information
         """
         try:
             probe = ffmpeg.probe(video_path)
 
-            # Encontrar stream de video
+            # Find video stream
             video_stream = next((s for s in probe["streams"] if s["codec_type"] == "video"), None)
 
             if not video_stream:
-                raise ValueError("No se encontró stream de video")
+                raise ValueError("No video stream found")
 
-            # Extraer información relevante
+            # Extract relevant information
             format_info = probe.get("format", {})
 
             info = {
@@ -131,7 +131,7 @@ class FFmpegVideoProcessor:
                 "profile": video_stream.get("profile", ""),
             }
 
-            # Calcular FPS
+            # Calculate FPS
             r_frame_rate = video_stream.get("r_frame_rate", "0/1")
             if "/" in r_frame_rate:
                 num, den = map(int, r_frame_rate.split("/"))
@@ -139,7 +139,7 @@ class FFmpegVideoProcessor:
             else:
                 info["fps"] = float(r_frame_rate)
 
-            # Calcular frame count estimado
+            # Calculate estimated frame count
             if info["fps"] > 0 and info["duration"] > 0:
                 info["frame_count"] = int(info["fps"] * info["duration"])
             else:
@@ -157,17 +157,17 @@ class FFmpegVideoProcessor:
             return info
 
         except Exception as e:
-            raise RuntimeError(f"Error obteniendo información del video: {str(e)}")
+            raise RuntimeError(f"Error getting video information: {str(e)}")
 
     def _build_filter_chain(self, video_info: dict[str, Any]) -> list[str]:
         """
-        Construir cadena de filtros FFmpeg
+        Build FFmpeg filter chain
 
         Args:
-            video_info: Información del video
+            video_info: Video information
 
         Returns:
-            Lista de filtros a aplicar
+            List of filters to apply
         """
         filters = []
         vf = self.config.video_filters
@@ -201,7 +201,7 @@ class FFmpegVideoProcessor:
             h = vf.scale_height or -1
             scale_filter = f"scale={w}:{h}"
 
-            # Agregar algoritmo de escalado
+            # Add scaling algorithm
             if vf.scaling_filter:
                 scale_filter += f":flags={vf.scaling_filter.value}"
 
@@ -240,51 +240,51 @@ class FFmpegVideoProcessor:
 
     def _calculate_frame_timestamps(self, video_info: dict[str, Any]) -> list[float]:
         """
-        Calcular timestamps de los frames a extraer
+        Calculate timestamps of frames to extract
 
         Args:
-            video_info: Información del video
+            video_info: Video information
 
         Returns:
-            Lista de timestamps en segundos
+            List of timestamps in seconds
         """
         extraction = self.config.frame_extraction
         duration = video_info["duration"]
 
-        # Aplicar start/end time
+        # Apply start/end time
         start = extraction.start_time or 0
-        end = min(extraction.end_time or duration, duration)  # No exceder duración real
+        end = min(extraction.end_time or duration, duration)  # Do not exceed actual duration
         effective_duration = end - start
 
-        # Validar que hay duración válida
+        # Validate that there is a valid duration
         if effective_duration <= 0:
             return []
 
         timestamps = []
 
         if extraction.method == FrameExtractionMethod.FPS:
-            # Extraer a FPS específico
+            # Extract at specific FPS
             interval = 1.0 / extraction.fps
             t = start
             while t < end and len(timestamps) < extraction.max_frames:
                 timestamps.append(t)
                 t += interval
 
-            # Asegurar que no excedemos la duración
+            # Ensure we do not exceed the duration
             timestamps = [t for t in timestamps if t < duration]
 
         elif extraction.method == FrameExtractionMethod.INTERVAL:
-            # Extraer cada N segundos
+            # Extract every N seconds
             t = start
             while t < end and len(timestamps) < extraction.max_frames:
                 timestamps.append(t)
                 t += extraction.interval_seconds
 
-            # Asegurar que no excedemos la duración
+            # Ensure we do not exceed the duration
             timestamps = [t for t in timestamps if t < duration]
 
         elif extraction.method == FrameExtractionMethod.UNIFORM:
-            # Distribuir uniformemente
+            # Distribute uniformly
             num = min(extraction.num_frames, extraction.max_frames)
             if num > 1:
                 step = effective_duration / (num - 1)
@@ -292,25 +292,25 @@ class FFmpegVideoProcessor:
             else:
                 timestamps = [start + effective_duration / 2]
 
-            # Asegurar que no excedemos la duración (ajustar último frame si es necesario)
+            # Ensure we do not exceed the duration (adjust last frame if necessary)
             timestamps = [min(t, duration - 0.1) for t in timestamps]
 
         elif extraction.method == FrameExtractionMethod.KEYFRAMES:
-            # Esto requiere análisis previo - se maneja diferente
-            return []  # Se procesará con select filter
+            # This requires prior analysis - handled differently
+            return []  # Will be processed with select filter
 
         elif extraction.method == FrameExtractionMethod.SCENE_DETECT:
-            # También requiere análisis previo
-            return []  # Se procesará con scene detection
+            # Also requires prior analysis
+            return []  # Will be processed with scene detection
 
         elif extraction.method == FrameExtractionMethod.ADAPTIVE:
-            # Calcular configuración óptima según duración
+            # Calculate optimal configuration based on duration
             from models.ffmpeg_config import get_adaptive_config
 
             adaptive_config = get_adaptive_config(duration)
-            # Usar el método calculado (puede ser INTERVAL o HYBRID)
+            # Use the calculated method (can be INTERVAL or HYBRID)
             if adaptive_config.method == FrameExtractionMethod.HYBRID:
-                # Delegar a HYBRID
+                # Delegate to HYBRID
                 return self._calculate_hybrid_timestamps(
                     video_info,
                     adaptive_config.scene_threshold or 0.3,
@@ -319,7 +319,7 @@ class FFmpegVideoProcessor:
                     adaptive_config.max_frames or 500,
                 )
             else:
-                # Usar INTERVAL con parámetros adaptativos
+                # Use INTERVAL with adaptive parameters
                 t = start
                 interval = adaptive_config.interval_seconds or 5.0
                 max_frames = adaptive_config.max_frames or 500
@@ -328,7 +328,7 @@ class FFmpegVideoProcessor:
                     t += interval
 
         elif extraction.method == FrameExtractionMethod.HYBRID:
-            # Modo híbrido: scene detection + uniform fill
+            # Hybrid mode: scene detection + uniform fill
             return self._calculate_hybrid_timestamps(
                 video_info,
                 extraction.scene_threshold or 0.3,
@@ -348,40 +348,40 @@ class FFmpegVideoProcessor:
         max_frames: int,
     ) -> list[float]:
         """
-        Calcular timestamps usando método híbrido: scene detection + uniform fill.
+        Calculate timestamps using the hybrid method: scene detection + uniform fill.
 
-        1. Detecta cambios de escena (captura transiciones importantes)
-        2. Rellena gaps largos con frames uniformes (no perder contenido estático)
+        1. Detects scene changes (captures important transitions)
+        2. Fills long gaps with uniform frames (avoids missing static content)
 
         Args:
-            video_info: Información del video
-            scene_threshold: Umbral de detección de escena (0-1)
-            scene_ratio: Ratio de frames de escenas vs fill (0.6 = 60% escenas)
-            min_gap_seconds: Gap mínimo antes de insertar fill frames
-            max_frames: Máximo de frames a extraer
+            video_info: Video information dictionary
+            scene_threshold: Scene detection threshold (0-1)
+            scene_ratio: Ratio of scene frames vs fill frames (0.6 = 60% scenes)
+            min_gap_seconds: Minimum gap before inserting fill frames
+            max_frames: Maximum number of frames to extract
 
         Returns:
-            Lista de timestamps ordenados
+            Sorted list of timestamps
         """
         duration = video_info["duration"]
         extraction = self.config.frame_extraction
         start = extraction.start_time or 0
         end = min(extraction.end_time or duration, duration)
 
-        # Paso 1: Detectar escenas
+        # Step 1: Detect scenes
         scene_frames_target = int(max_frames * scene_ratio)
         scene_timestamps = self._detect_scene_timestamps(
             video_info.get("path", ""), scene_threshold, scene_frames_target
         )
 
-        # Si no hay detección de escenas, fallback a uniform
+        # If scene detection yields nothing, fall back to uniform distribution
         if not scene_timestamps:
-            # Uniform distribution como fallback
+            # Uniform distribution as fallback
             num_frames = max_frames
             step = (end - start) / max(num_frames - 1, 1)
             return [start + i * step for i in range(num_frames)]
 
-        # Paso 2: Identificar gaps y rellenar
+        # Step 2: Identify gaps and fill them
         fill_frames_target = max_frames - len(scene_timestamps)
         all_timestamps = sorted(scene_timestamps)
 
@@ -394,11 +394,11 @@ class FFmpegVideoProcessor:
                 if gap_duration > min_gap_seconds:
                     gaps.append((gap_start, gap_end, gap_duration))
 
-            # Distribuir fill frames proporcionalmente a los gaps
+            # Distribute fill frames proportionally across gaps
             total_gap_duration = sum(g[2] for g in gaps)
             if total_gap_duration > 0:
                 for gap_start, _gap_end, gap_duration in gaps:
-                    # Frames a insertar en este gap
+                    # Frames to insert in this gap
                     gap_frames = int((gap_duration / total_gap_duration) * fill_frames_target)
                     if gap_frames > 0:
                         step = gap_duration / (gap_frames + 1)
@@ -407,13 +407,13 @@ class FFmpegVideoProcessor:
                             if fill_ts not in all_timestamps:
                                 all_timestamps.append(fill_ts)
 
-        # Añadir inicio y fin si no están
+        # Add start and end if not already present
         if start not in all_timestamps and start >= 0:
             all_timestamps.append(start)
         if end - 0.5 not in all_timestamps and end <= duration:
             all_timestamps.append(min(end - 0.1, duration - 0.1))
 
-        # Ordenar y limitar
+        # Sort and limit
         all_timestamps = sorted(set(all_timestamps))
         return all_timestamps[:max_frames]
 
@@ -421,21 +421,21 @@ class FFmpegVideoProcessor:
         self, video_path: str, threshold: float, max_scenes: int
     ) -> list[float]:
         """
-        Detectar timestamps de cambios de escena usando FFmpeg.
+        Detect scene-change timestamps using FFmpeg.
 
         Args:
-            video_path: Ruta al video
-            threshold: Umbral de detección (0-1)
-            max_scenes: Máximo de escenas a detectar
+            video_path: Path to the video file
+            threshold: Detection threshold (0-1)
+            max_scenes: Maximum number of scenes to detect
 
         Returns:
-            Lista de timestamps donde hay cambios de escena
+            List of timestamps where scene changes occur
         """
         if not video_path or not os.path.exists(video_path):
             return []
 
         try:
-            # Usar FFmpeg para detectar escenas
+            # Use FFmpeg for scene detection
             cmd = [
                 "ffmpeg",
                 *self._build_hwaccel_args(),
@@ -452,15 +452,15 @@ class FFmpegVideoProcessor:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=120,  # 2 minutos máximo
+                timeout=120,  # 2 minute maximum
             )
 
-            # Parsear output para extraer timestamps
+            # Parse output to extract timestamps
             timestamps = []
             for line in result.stderr.split("\n"):
                 if "pts_time:" in line:
                     try:
-                        # Extraer pts_time del output de showinfo
+                        # Extract pts_time from showinfo output
                         pts_part = line.split("pts_time:")[1].split()[0]
                         ts = float(pts_part)
                         timestamps.append(ts)
@@ -482,41 +482,41 @@ class FFmpegVideoProcessor:
         self, video_path: str, output_dir: str | None = None, return_as_bytes: bool = True
     ) -> list[dict[str, Any]]:
         """
-        Extraer frames usando FFmpeg (método ultra-rápido)
+        Extract frames using FFmpeg (ultra-fast method)
 
         Args:
-            video_path: Ruta al video
-            output_dir: Directorio de salida (None = usar temp)
-            return_as_bytes: Si True, retorna frames como bytes en memoria
+            video_path: Path to the video file
+            output_dir: Output directory (None = use temp directory)
+            return_as_bytes: If True, returns frames as in-memory bytes
 
         Returns:
-            Lista de diccionarios con información de cada frame:
+            List of dictionaries with information for each frame:
             {
                 'timestamp': float,
                 'frame_number': int,
-                'image_data': bytes (si return_as_bytes=True),
-                'file_path': str (si return_as_bytes=False)
+                'image_data': bytes (if return_as_bytes=True),
+                'file_path': str (if return_as_bytes=False)
             }
         """
-        logger.info(f"extract_frames_ffmpeg iniciado para: {video_path}")
-        logger.debug(f"Video existe: {os.path.exists(video_path)}")
+        logger.info(f"extract_frames_ffmpeg started for: {video_path}")
+        logger.debug(f"Video exists: {os.path.exists(video_path)}")
 
         video_info = self.get_video_info(video_path)
 
         logger.info(
-            f"Video Info: duración={video_info.get('duration', 'N/A')}s, "
+            f"Video info: duration={video_info.get('duration', 'N/A')}s, "
             f"fps={video_info.get('fps', 'N/A')}, "
-            f"resolución={video_info.get('width', 'N/A')}x{video_info.get('height', 'N/A')}"
+            f"resolution={video_info.get('width', 'N/A')}x{video_info.get('height', 'N/A')}"
         )
 
-        # Actualizar status
+        # Update status
         self.status.video_duration = video_info["duration"]
         self.status.video_fps = video_info["fps"]
         self.status.video_width = video_info["width"]
         self.status.video_height = video_info["height"]
         self.status.status = "processing"
 
-        # Crear directorio temporal si es necesario
+        # Create temporary directory if necessary
         if output_dir is None:
             output_dir = tempfile.mkdtemp(prefix="qprisma_frames_")
         else:
@@ -536,22 +536,22 @@ class FFmpegVideoProcessor:
             if extraction.method == FrameExtractionMethod.FPS:
                 logger.debug(f"FPS: {extraction.fps}")
 
-            # Construir filtros
+            # Build filter chain
             filters = self._build_filter_chain(video_info)
 
-            # Añadir path a video_info para métodos que lo necesitan
+            # Add path to video_info for methods that need it
             video_info["path"] = video_path
 
-            # Método específico de extracción
+            # Specific extraction method
             if extraction.method == FrameExtractionMethod.KEYFRAMES:
-                # Extraer solo keyframes
+                # Extract keyframes only
                 filters.append("select='eq(pict_type\\,I)'")
                 self._extract_with_select_filter(
                     video_path, output_dir, filters, video_info, frames
                 )
 
             elif extraction.method == FrameExtractionMethod.SCENE_DETECT:
-                # Detección de cambio de escena
+                # Scene change detection
                 scene_filter = f"select='gt(scene\\,{extraction.scene_threshold})'"
                 filters.append(scene_filter)
                 self._extract_with_select_filter(
@@ -559,7 +559,7 @@ class FFmpegVideoProcessor:
                 )
 
             else:
-                # Métodos basados en timestamps (FPS, INTERVAL, UNIFORM, ADAPTIVE, HYBRID)
+                # Timestamp-based methods (FPS, INTERVAL, UNIFORM, ADAPTIVE, HYBRID)
                 timestamps = self._calculate_frame_timestamps(video_info)
                 self.status.total_frames = len(timestamps)
 
@@ -569,7 +569,7 @@ class FFmpegVideoProcessor:
                         f"First timestamp: {timestamps[0]:.2f}s, Last: {timestamps[-1]:.2f}s"
                     )
 
-                    # Calcular y mostrar métricas de cobertura
+                    # Calculate and log coverage metrics
                     coverage = self.calculate_coverage_metrics(timestamps, video_info["duration"])
                     logger.info(
                         f"Coverage score: {coverage['coverage_score']}%, "
@@ -582,17 +582,17 @@ class FFmpegVideoProcessor:
 
                 self._extract_at_timestamps(video_path, output_dir, timestamps, filters, frames)
 
-            # Cargar imágenes como bytes si se requiere
+            # Load images as bytes if required
             if return_as_bytes:
                 for frame in frames:
                     if "file_path" in frame:
                         with open(frame["file_path"], "rb") as f:
                             frame["image_data"] = f.read()
-                        # Opcionalmente eliminar archivo temporal
+                        # Optionally remove temporary file
                         if output_dir.startswith(tempfile.gettempdir()):
                             os.remove(frame["file_path"])
 
-            # Actualizar status
+            # Update status
             elapsed = time.time() - start_time
             self.status.status = "completed"
             self.status.progress = 100.0
@@ -604,7 +604,7 @@ class FFmpegVideoProcessor:
         except Exception as e:
             self.status.status = "failed"
             self.status.error = str(e)
-            raise RuntimeError(f"Error extrayendo frames: {str(e)}")
+            raise RuntimeError(f"Error extracting frames: {str(e)}")
 
     def _extract_with_select_filter(
         self,
@@ -614,9 +614,9 @@ class FFmpegVideoProcessor:
         video_info: dict[str, Any],
         frames: list[dict[str, Any]],
     ):
-        """Extraer frames usando select filter (keyframes/scenes)"""
+        """Extract frames using select filter (keyframes/scenes)"""
 
-        # El último filtro debe ser el select
+        # The last filter must be the select filter
         filter_str = ",".join(filters)
 
         # Construir comando FFmpeg
@@ -636,21 +636,21 @@ class FFmpegVideoProcessor:
             stream,
             output_pattern,
             vsync="vfr",  # Variable frame rate
-            q=2,  # Calidad JPEG
+            q=2,  # JPEG quality
             loglevel=self.config.log_level.value,
         )
 
-        # Ejecutar
+        # Execute
         ffmpeg.run(stream, overwrite_output=True)
 
-        # Recopilar frames generados
+        # Collect generated frames
         frame_files = sorted(Path(output_dir).glob("frame_*.jpg"))
 
         for idx, frame_file in enumerate(frame_files[: self.config.frame_extraction.max_frames]):
             frames.append(
                 {
                     "frame_number": idx,
-                    "timestamp": None,  # No conocemos timestamp exacto con select
+                    "timestamp": None,  # Exact timestamp not known when using select filter
                     "file_path": str(frame_file),
                 }
             )
@@ -709,19 +709,19 @@ class FFmpegVideoProcessor:
                     "image_data": result.stdout,
                 }
             else:
-                logger.warning(f"Frame vacío en t={timestamp}, rc={result.returncode}")
+                logger.warning(f"Empty frame at t={timestamp}, rc={result.returncode}")
                 if result.stderr:
                     logger.debug(f"FFmpeg stderr: {result.stderr[:500]}")
                 return None
 
         except subprocess.TimeoutExpired:
-            logger.warning(f"Timeout extrayendo frame en t={timestamp}")
+            logger.warning(f"Timeout extracting frame at t={timestamp}")
             return None
         except subprocess.SubprocessError as e:
-            logger.error(f"Error de subprocess en t={timestamp}: {e}")
+            logger.error(f"Subprocess error at t={timestamp}: {e}")
             return None
         except Exception as e:
-            logger.exception(f"Error inesperado en t={timestamp}: {type(e).__name__}: {e}")
+            logger.exception(f"Unexpected error at t={timestamp}: {type(e).__name__}: {e}")
             return None
 
     def _extract_at_timestamps(
@@ -733,21 +733,21 @@ class FFmpegVideoProcessor:
         frames: list[dict[str, Any]],
     ) -> None:
         """
-        Extraer frames en timestamps específicos usando FFmpeg en paralelo.
+        Extract frames at specific timestamps using FFmpeg in parallel.
 
         Uses ThreadPoolExecutor for concurrent extraction with pipe-to-memory,
         eliminating sequential subprocess overhead and disk I/O.
 
         Args:
-            video_path: Ruta al archivo de video.
-            output_dir: Directorio de salida para frames (used as fallback).
-            timestamps: Lista de timestamps a extraer.
-            filters: Filtros FFmpeg a aplicar.
-            frames: Lista donde agregar los frames extraídos.
+            video_path: Path to the video file.
+            output_dir: Output directory for frames (used as fallback).
+            timestamps: List of timestamps to extract.
+            filters: FFmpeg filters to apply.
+            frames: List to append extracted frames to.
         """
         total = len(timestamps)
         logger.info(
-            f"Extrayendo {total} frames en paralelo " f"(max {self.MAX_EXTRACTION_WORKERS} workers)"
+            f"Extracting {total} frames in parallel (max {self.MAX_EXTRACTION_WORKERS} workers)"
         )
         logger.debug(f"Video: {video_path}")
         if total > 5:
@@ -790,37 +790,37 @@ class FFmpegVideoProcessor:
                     self.status.progress = extracted_count / total * 100
 
                     if extracted_count % 10 == 0:
-                        logger.debug(f"{extracted_count}/{total} frames extraídos")
+                        logger.debug(f"{extracted_count}/{total} frames extracted")
 
         # Sort frames by frame_number to maintain temporal order
         frames.sort(key=lambda f: f["frame_number"])
-        logger.info(f"Extracción paralela completada: {extracted_count}/{total} frames")
+        logger.info(f"Parallel extraction completed: {extracted_count}/{total} frames")
 
     def frame_to_base64(self, frame_data: bytes) -> str:
         """
-        Convertir frame a base64
+        Convert frame to base64
 
         Args:
-            frame_data: Datos de la imagen en bytes
+            frame_data: Image data as bytes
 
         Returns:
-            String base64
+            Base64-encoded string
         """
         return base64.b64encode(frame_data).decode("utf-8")
 
     def get_processing_pipeline(self) -> ProcessingPipeline:
         """
-        Generar representación del pipeline de procesamiento para visualización
+        Generate a representation of the processing pipeline for visualization
 
         Returns:
-            ProcessingPipeline con nodos y edges para el grafo
+            ProcessingPipeline with nodes and edges for the graph
         """
         nodes = []
         edges = []
         node_id = 0
 
-        # Nodo 1: Input
-        # Description del video (con valores por defecto si no se ha procesado aún)
+        # Node 1: Input
+        # Video description (with default values if not yet processed)
         video_desc = "Video source"
         if self.status.video_width and self.status.video_height and self.status.video_fps:
             video_desc = f"{self.status.video_width}x{self.status.video_height} @ {self.status.video_fps:.2f}fps"
@@ -836,7 +836,7 @@ class FFmpegVideoProcessor:
         prev_node = node_id
         node_id += 1
 
-        # Nodo 2: Frame Extraction
+        # Node 2: Frame Extraction
         extraction = self.config.frame_extraction
         nodes.append(
             {
@@ -874,7 +874,7 @@ class FFmpegVideoProcessor:
         prev_node = node_id
         node_id += 1
 
-        # Nodo 3: Video Filters (si hay alguno configurado)
+        # Node 3: Video Filters (if any are configured)
         vf = self.config.video_filters
         has_filters = any(
             [
@@ -927,7 +927,7 @@ class FFmpegVideoProcessor:
             prev_node = node_id
             node_id += 1
 
-        # Nodo 4: GPT-Vision Analysis
+        # Node 4: GPT-Vision Analysis
         nodes.append(
             {
                 "id": f"node_{node_id}",
@@ -951,7 +951,7 @@ class FFmpegVideoProcessor:
         prev_node = node_id
         node_id += 1
 
-        # Nodo 5: Embedding Generation
+        # Node 5: Embedding Generation
         nodes.append(
             {
                 "id": f"node_{node_id}",
@@ -973,7 +973,7 @@ class FFmpegVideoProcessor:
             }
         )
 
-        # Nodo 6: Knowledge Graph Indexing
+        # Node 6: Knowledge Graph Indexing
         nodes.append(
             {
                 "id": f"node_{node_id + 1}",
@@ -995,7 +995,7 @@ class FFmpegVideoProcessor:
             }
         )
 
-        # Nodo 7: Cosmos DB Storage
+        # Node 7: Cosmos DB Storage
         nodes.append(
             {
                 "id": f"node_{node_id + 2}",
@@ -1020,27 +1020,27 @@ class FFmpegVideoProcessor:
         return ProcessingPipeline(nodes=nodes, edges=edges, config=self.config)
 
     def get_status(self) -> ProcessingStatus:
-        """Obtener estado actual del procesamiento"""
+        """Return the current processing status"""
         return self.status
 
     def calculate_coverage_metrics(
         self, timestamps: list[float], video_duration: float
     ) -> dict[str, Any]:
         """
-        Calcular métricas de cobertura del video.
+        Calculate video coverage metrics.
 
         Args:
-            timestamps: Lista de timestamps extraídos
-            video_duration: Duración total del video en segundos
+            timestamps: List of extracted timestamps
+            video_duration: Total video duration in seconds
 
         Returns:
-            Dict con métricas de cobertura:
-            - coverage_score: 0-100, qué tan bien cubierto está el video
-            - average_gap: Gap promedio entre frames
-            - max_gap: Gap máximo (indica posibles "puntos ciegos")
-            - gaps_over_threshold: Lista de gaps problemáticos
-            - density_per_minute: Frames por minuto promedio
-            - recommendations: Sugerencias para mejorar cobertura
+            Dict with coverage metrics:
+            - coverage_score: 0-100, how well the video is covered
+            - average_gap: Average gap between frames
+            - max_gap: Maximum gap (indicates possible blind spots)
+            - gaps_over_threshold: List of problematic gaps
+            - density_per_minute: Average frames per minute
+            - recommendations: Suggestions to improve coverage
         """
         if not timestamps or video_duration <= 0:
             return {
@@ -1054,7 +1054,7 @@ class FFmpegVideoProcessor:
 
         sorted_ts = sorted(timestamps)
 
-        # Calcular gaps
+        # Calculate gaps
         gaps = []
         for i in range(len(sorted_ts) - 1):
             gap = sorted_ts[i + 1] - sorted_ts[i]
@@ -1066,8 +1066,8 @@ class FFmpegVideoProcessor:
                 }
             )
 
-        # Añadir gap inicial y final
-        if sorted_ts[0] > 1.0:  # Si hay más de 1 segundo al inicio
+        # Add leading and trailing gaps
+        if sorted_ts[0] > 1.0:  # If there is more than 1 second at the start
             gaps.insert(0, {"start": 0, "end": sorted_ts[0], "duration": sorted_ts[0]})
         if video_duration - sorted_ts[-1] > 1.0:
             gaps.append(
@@ -1078,32 +1078,32 @@ class FFmpegVideoProcessor:
                 }
             )
 
-        # Métricas básicas
+        # Basic metrics
         gap_durations = [g["duration"] for g in gaps]
         avg_gap = sum(gap_durations) / len(gap_durations) if gap_durations else 0
         max_gap = max(gap_durations) if gap_durations else 0
 
-        # Threshold dinámico basado en duración del video
-        # Para videos cortos, gaps >10s son problemáticos
-        # Para videos largos, gaps >30s son problemáticos
+        # Dynamic threshold based on video duration
+        # For short videos, gaps >10s are problematic
+        # For long videos, gaps >30s are problematic
         if video_duration < 300:  # < 5 min
             gap_threshold = 10.0
         elif video_duration < 1800:  # < 30 min
             gap_threshold = 20.0
-        elif video_duration < 3600:  # < 1 hora
+        elif video_duration < 3600:  # < 1 hour
             gap_threshold = 30.0
-        else:  # > 1 hora
+        else:  # > 1 hour
             gap_threshold = 45.0
 
         problematic_gaps = [g for g in gaps if g["duration"] > gap_threshold]
 
         # Coverage score (0-100)
-        # Basado en: densidad de frames, gaps máximos, distribución
-        density = len(timestamps) / (video_duration / 60)  # frames por minuto
-        ideal_density = 10  # 10 frames/min es ideal para análisis
+        # Based on: frame density, maximum gaps, distribution
+        density = len(timestamps) / (video_duration / 60)  # frames per minute
+        ideal_density = 10  # 10 frames/min is ideal for analysis
         density_score = min(density / ideal_density * 100, 100)
 
-        # Penalización por gaps grandes
+        # Penalty for large gaps
         gap_penalty = min(len(problematic_gaps) * 10, 50)
         max_gap_penalty = (
             min((max_gap / gap_threshold - 1) * 20, 30) if max_gap > gap_threshold else 0
@@ -1111,7 +1111,7 @@ class FFmpegVideoProcessor:
 
         coverage_score = max(0, density_score - gap_penalty - max_gap_penalty)
 
-        # Recomendaciones
+        # Recommendations
         recommendations = []
         if coverage_score < 50:
             recommendations.append(
@@ -1135,7 +1135,7 @@ class FFmpegVideoProcessor:
             "average_gap": round(avg_gap, 2),
             "max_gap": round(max_gap, 2),
             "gap_threshold": gap_threshold,
-            "gaps_over_threshold": problematic_gaps[:10],  # Limitar a 10
+            "gaps_over_threshold": problematic_gaps[:10],  # Limit to 10
             "total_problematic_gaps": len(problematic_gaps),
             "density_per_minute": round(density, 2),
             "total_frames": len(timestamps),
@@ -1146,30 +1146,30 @@ class FFmpegVideoProcessor:
 
 def get_recommended_preset(video_duration: float, content_type: str = "general") -> str:
     """
-    Recomendar preset óptimo según duración y tipo de contenido.
+    Recommend the optimal preset based on duration and content type.
 
     Args:
-        video_duration: Duración en segundos
-        content_type: Tipo de contenido (general, interview, action, tutorial)
+        video_duration: Duration in seconds
+        content_type: Content type (general, interview, action, tutorial)
 
     Returns:
-        Nombre del preset recomendado
+        Name of the recommended preset
     """
     duration_minutes = video_duration / 60
 
-    # Por tipo de contenido
+    # By content type
     if content_type == "interview":
         return "interview_mode"
     elif content_type == "action":
         return "action_mode"
     elif content_type == "tutorial":
-        # Tutoriales necesitan buena cobertura visual
+        # Tutorials require good visual coverage
         if duration_minutes < 30:
             return "high_quality"
         else:
             return "deep_analysis"
 
-    # Por duración (general)
+    # By duration (general)
     if duration_minutes < 5:
         return "balanced"
     elif duration_minutes < 30:

@@ -1,14 +1,14 @@
 """
 Graph-Enhanced Search Service for QPrisma
 
-Implementa búsqueda híbrida combinando:
+Implements hybrid search combining:
 - Vector search (embeddings)
-- Graph traversal (relaciones)
+- Graph traversal (relations)
 - Full-text search
 - Temporal awareness
-- Re-ranking con contexto expandido
+- Re-ranking with expanded context
 
-Inspirado en VideoRAG para retrieval inteligente de contenido multimedia.
+Inspired by VideoRAG for intelligent multimedia content retrieval.
 """
 
 import logging
@@ -29,22 +29,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ScoredNode:
-    """Nodo con scores de diferentes fuentes."""
+    """Node with scores from different sources."""
 
     node_id: str
     node_type: NodeType
     content: dict
 
-    # Scores individuales
+    # Individual scores
     vector_score: float = 0.0
     fulltext_score: float = 0.0
     graph_score: float = 0.0
     temporal_score: float = 0.0
 
-    # Score combinado
+    # Combined score
     combined_score: float = 0.0
 
-    # Contexto expandido
+    # Expanded context
     related_nodes: list = field(default_factory=list)
     path_to_video: list = field(default_factory=list)
 
@@ -55,19 +55,19 @@ class ScoredNode:
 
 class GraphSearchService:
     """
-    Servicio de búsqueda híbrida para el Knowledge Graph.
+    Hybrid search service for the Knowledge Graph.
 
-    Combina múltiples señales de relevancia:
-    1. **Vector similarity**: Similitud semántica via embeddings
-    2. **Graph proximity**: Cercanía en el grafo (hops)
-    3. **Full-text match**: Coincidencia de términos
-    4. **Temporal relevance**: Cercanía temporal en el video
-    5. **Co-occurrence**: Entidades que aparecen juntas
+    Combines multiple relevance signals:
+    1. **Vector similarity**: Semantic similarity via embeddings
+    2. **Graph proximity**: Closeness in the graph (hops)
+    3. **Full-text match**: Term matching
+    4. **Temporal relevance**: Temporal closeness within the video
+    5. **Co-occurrence**: Entities that appear together
 
-    El scoring final combina estas señales con pesos configurables.
+    The final score combines these signals with configurable weights.
     """
 
-    # Pesos por defecto para scoring híbrido
+    # Default weights for hybrid scoring
     DEFAULT_WEIGHTS = {
         "vector": 0.35,
         "fulltext": 0.25,
@@ -75,7 +75,7 @@ class GraphSearchService:
         "temporal": 0.15,
     }
 
-    # Dimensiones del embedding (text-embedding-3-large)
+    # Embedding dimensions (text-embedding-3-large)
     EMBEDDING_DIM = 3072
 
     def __init__(
@@ -85,18 +85,18 @@ class GraphSearchService:
         weights: dict | None = None,
     ):
         """
-        Inicializa el servicio de búsqueda.
+        Initialize the search service.
 
         Args:
-            graph_service: Servicio del Knowledge Graph
-            embedding_service: Servicio de embeddings
-            weights: Pesos personalizados para scoring
+            graph_service: Knowledge Graph service
+            embedding_service: Embeddings service
+            weights: Custom weights for scoring
         """
         self.graph_service = graph_service or get_knowledge_graph_service()
         self.embedding_service = embedding_service or get_embedding_service()
         self.weights = weights or self.DEFAULT_WEIGHTS
 
-        # Asegurar que los pesos suman 1
+        # Ensure weights sum to 1
         total = sum(self.weights.values())
         if total != 1.0:
             self.weights = {k: v / total for k, v in self.weights.items()}
@@ -107,11 +107,11 @@ class GraphSearchService:
 
     def initialize_vector_indexes(self):
         """
-        Crea índices vectoriales en Neo4j para búsqueda por similitud.
+        Create vector indexes in Neo4j for similarity search.
 
         Creates both full (3072d) and coarse (512d) Matryoshka indexes
         for two-pass search: fast filtering then precise ranking.
-        Requiere Neo4j 5.11+ con soporte de vector indexes.
+        Requires Neo4j 5.11+ with vector index support.
         """
         index_configs = [
             # Full precision indexes (3072d)
@@ -151,12 +151,12 @@ class GraphSearchService:
         node_type: NodeType | None = None,
     ):
         """
-        Almacena both full and coarse (Matryoshka) embeddings on a node.
+        Store both full and coarse (Matryoshka) embeddings on a node.
 
         Args:
-            node_id: ID del nodo
-            embedding: Vector de embedding (3072 dims)
-            node_type: Tipo de nodo (para query más eficiente)
+            node_id: Node ID
+            embedding: Embedding vector (3072 dims)
+            node_type: Node type (for more efficient queries)
         """
         coarse = embedding[:512] if len(embedding) >= 512 else embedding
 
@@ -188,15 +188,15 @@ class GraphSearchService:
         node_type: NodeType | None = None,
     ) -> list[float]:
         """
-        Genera embedding para texto y lo almacena en el nodo.
+        Generate an embedding for the given text and store it on the node.
 
         Args:
-            node_id: ID del nodo
-            text: Texto a embedear
-            node_type: Tipo de nodo
+            node_id: Node ID
+            text: Text to embed
+            node_type: Node type
 
         Returns:
-            El embedding generado
+            The generated embedding
         """
         embedding = await self.embedding_service.generate_embedding(text)
         self.store_embedding(node_id, embedding, node_type)
@@ -210,20 +210,20 @@ class GraphSearchService:
         video_id: str | None = None,
     ) -> int:
         """
-        Genera embeddings en bulk para todos los nodos de un tipo.
+        Generate embeddings in bulk for all nodes of a given type.
 
         Args:
-            node_type: Tipo de nodo (Frame, Entity, Scene)
-            text_field: Campo de texto a embedear
-            batch_size: Tamaño del batch
-            video_id: Filtrar por video (opcional)
+            node_type: Node type (Frame, Entity, Scene)
+            text_field: Text field to embed
+            batch_size: Batch size
+            video_id: Filter by video (optional)
 
         Returns:
-            Número de embeddings generados
+            Number of embeddings generated
         """
         label = node_type.value
 
-        # Query para obtener nodos sin embedding
+        # Query to fetch nodes without an embedding
         if video_id:
             query = f"""
                 MATCH (n:{label})
@@ -483,8 +483,8 @@ class GraphSearchService:
         video_ids: list[str] | None = None,
     ) -> list[ScoredNode]:
         """
-        Búsqueda vectorial manual cuando el índice no está disponible.
-        Menos eficiente pero funcional.
+        Manual vector search used when the index is unavailable.
+        Less efficient but functional.
         """
         label = node_type.value
 
@@ -538,7 +538,7 @@ class GraphSearchService:
                         )
                         results.append(scored)
 
-        # Ordenar por score y limitar
+        # Sort by score and limit
         results.sort(key=lambda x: x.vector_score, reverse=True)
         return results[:limit]
 
@@ -558,20 +558,20 @@ class GraphSearchService:
         use_reranking: bool = True,
     ) -> GraphSearchResponse:
         """
-        Búsqueda híbrida combinando vector, full-text y graph.
+        Hybrid search combining vector, full-text, and graph signals.
 
         Args:
-            query_text: Texto de búsqueda
-            node_types: Tipos de nodos a buscar (default: Frame, Entity)
-            video_id: Filtrar por un video
-            video_ids: Filtrar por múltiples videos (IN clause)
-            time_range: Rango temporal (start, end) en segundos
-            limit: Máximo de resultados
-            expansion_hops: Hops para expansión de contexto
-            use_reranking: Si aplicar re-ranking con contexto
+            query_text: Search text
+            node_types: Node types to search (default: Frame, Entity)
+            video_id: Filter by a single video
+            video_ids: Filter by multiple videos (IN clause)
+            time_range: Temporal range (start, end) in seconds
+            limit: Maximum number of results
+            expansion_hops: Hops for context expansion
+            use_reranking: Whether to apply context-based re-ranking
 
         Returns:
-            GraphSearchResponse con resultados ordenados
+            GraphSearchResponse with sorted results
         """
         start_time = datetime.now(UTC)
 
@@ -585,11 +585,11 @@ class GraphSearchService:
         if node_types is None:
             node_types = [NodeType.FRAME, NodeType.ENTITY, NodeType.AUDIO_SEGMENT]
 
-        # 1. Generar embedding de la query
+        # 1. Generate query embedding
         query_embedding = await self.embedding_service.generate_embedding(query_text)
         (datetime.now(UTC) - start_time).total_seconds() * 1000
 
-        # 2. Buscar en cada tipo de nodo
+        # 2. Search each node type
         all_candidates: list[ScoredNode] = []
 
         vector_start = datetime.now(UTC)
@@ -620,19 +620,19 @@ class GraphSearchService:
 
         vector_search_time = (datetime.now(UTC) - vector_start).total_seconds() * 1000
 
-        # 3. Aplicar filtro temporal si se especificó
+        # 3. Apply temporal filter if specified
         if time_range:
             all_candidates = self._filter_by_time_range(all_candidates, time_range)
 
-        # 4. Calcular graph scores
+        # 4. Calculate graph scores
         graph_start = datetime.now(UTC)
         self._calculate_graph_scores(all_candidates, expansion_hops)
         graph_time = (datetime.now(UTC) - graph_start).total_seconds() * 1000
 
-        # 5. Calcular temporal scores
+        # 5. Calculate temporal scores
         self._calculate_temporal_scores(all_candidates, time_range)
 
-        # 6. Calcular score combinado
+        # 6. Calculate combined score
         for candidate in all_candidates:
             candidate.combined_score = (
                 self.weights["vector"] * candidate.vector_score
@@ -641,7 +641,7 @@ class GraphSearchService:
                 + self.weights["temporal"] * candidate.temporal_score
             )
 
-        # 7. Re-ranking con contexto expandido
+        # 7. Re-ranking with expanded context
         if use_reranking and all_candidates:
             all_candidates = self._rerank_with_context(all_candidates, query_text, query_embedding)
 
@@ -687,7 +687,7 @@ class GraphSearchService:
         video_id: str | None,
         video_ids: list[str] | None = None,
     ) -> list[tuple[str, float]]:
-        """Búsqueda full-text y retorna [(node_id, score)]."""
+        """Full-text search; returns [(node_id, score)]."""
         label = node_type.value
 
         if node_type == NodeType.FRAME:
@@ -761,8 +761,8 @@ class GraphSearchService:
         video_id: str | None = None,
     ):
         """
-        Merge full-text scores con candidatos existentes.
-        También añade nuevos candidatos que solo fueron encontrados por full-text.
+        Merge full-text scores into existing candidates.
+        Also adds new candidates that were found only by full-text search.
         """
         fulltext_map = dict(fulltext_results)
 
@@ -824,7 +824,7 @@ class GraphSearchService:
         candidates: list[ScoredNode],
         time_range: tuple[float, float],
     ) -> list[ScoredNode]:
-        """Filtra candidatos por rango temporal."""
+        """Filter candidates by temporal range."""
         start, end = time_range
         return [c for c in candidates if c.timestamp is None or (start <= c.timestamp <= end)]
 
@@ -834,30 +834,30 @@ class GraphSearchService:
         expansion_hops: int,
     ):
         """
-        Calcula graph scores basados en conectividad y expansión.
+        Calculate graph scores based on connectivity and expansion.
 
-        Nodos más conectados y cercanos al centro del grafo obtienen scores más altos.
+        More connected nodes that are closer to the centre of the graph receive higher scores.
         """
         if not candidates:
             return
 
         for candidate in candidates:
             try:
-                # Expandir contexto
+                # Expand context
                 expansion = self.graph_service.expand_context(
                     node_id=candidate.node_id,
                     hops=expansion_hops,
                     max_nodes=30,
                 )
 
-                # Graph score basado en número de conexiones
+                # Graph score based on number of connections
                 total_related = expansion.get("total_nodes", 0)
-                candidate.graph_score = min(1.0, total_related / 50)  # Normalizar a 50
+                candidate.graph_score = min(1.0, total_related / 50)  # Normalise to 50
 
-                # Guardar nodos relacionados
+                # Store related nodes
                 nodes_by_distance = expansion.get("nodes_by_distance", {})
                 for distance, nodes in nodes_by_distance.items():
-                    for node in nodes[:5]:  # Limitar por distancia
+                    for node in nodes[:5]:  # Limit per distance
                         candidate.related_nodes.append(
                             {
                                 "node": node,
@@ -865,7 +865,7 @@ class GraphSearchService:
                             }
                         )
 
-                # Calcular path to video
+                # Calculate path to video
                 candidate.path_to_video = self._get_path_to_video(candidate.node_id)
 
             except Exception as e:
@@ -878,15 +878,15 @@ class GraphSearchService:
         time_range: tuple[float, float] | None,
     ):
         """
-        Calcula temporal scores basados en posición temporal.
+        Calculate temporal scores based on temporal position.
 
-        Si hay un rango de tiempo especificado, nodos más cercanos al centro obtienen
-        scores más altos. Si no, se basa en densidad de eventos cercanos.
+        When a time range is specified, nodes closer to the centre receive higher scores.
+        Otherwise, the score is based on whether a timestamp is present.
         """
         if not candidates:
             return
 
-        # Si hay rango temporal, calcular cercanía al centro
+        # If a temporal range is provided, calculate proximity to the centre
         if time_range:
             center = (time_range[0] + time_range[1]) / 2
             range_width = time_range[1] - time_range[0]
@@ -894,12 +894,12 @@ class GraphSearchService:
             for candidate in candidates:
                 if candidate.timestamp is not None:
                     distance = abs(candidate.timestamp - center)
-                    # Score gaussiano
+                    # Gaussian score
                     candidate.temporal_score = math.exp(-0.5 * (distance / (range_width / 2)) ** 2)
                 else:
-                    candidate.temporal_score = 0.5  # Score neutral
+                    candidate.temporal_score = 0.5  # Neutral score
         else:
-            # Sin rango, dar score basado en si tiene timestamp
+            # No range provided — score based on whether a timestamp is present
             for candidate in candidates:
                 candidate.temporal_score = 0.7 if candidate.timestamp is not None else 0.3
 
@@ -910,15 +910,15 @@ class GraphSearchService:
         query_embedding: list[float],
     ) -> list[ScoredNode]:
         """
-        Re-ranking usando contexto expandido.
+        Re-ranking using expanded context.
 
-        Para cada candidato, considera también la relevancia de sus nodos relacionados.
+        For each candidate, also considers the relevance of its related nodes.
         """
         for candidate in candidates:
             if not candidate.related_nodes:
                 continue
 
-            # Calcular boost basado en relevancia de nodos relacionados
+            # Calculate boost based on relevance of related nodes
             context_boost = 0.0
             related_count = 0
 
@@ -926,22 +926,22 @@ class GraphSearchService:
                 node_data = related.get("node", {})
                 distance = related.get("distance", 1)
 
-                # Texto del nodo relacionado
+                # Text of the related node
                 related_text = node_data.get("description") or node_data.get("name", "")
 
                 if related_text:
-                    # Bonus por coincidencia de términos
+                    # Bonus for term overlap
                     query_terms = set(query_text.lower().split())
                     related_terms = set(related_text.lower().split())
                     overlap = len(query_terms & related_terms)
 
                     if overlap > 0:
-                        # Boost decae con la distancia
+                        # Boost decays with distance
                         term_boost = (overlap / len(query_terms)) / (distance + 1)
                         context_boost += term_boost
                         related_count += 1
 
-            # Aplicar boost (máximo 20% de incremento)
+            # Apply boost (maximum 20% increase)
             if related_count > 0:
                 avg_boost = context_boost / related_count
                 candidate.combined_score *= 1 + min(0.2, avg_boost)
@@ -949,7 +949,7 @@ class GraphSearchService:
         return candidates
 
     def _get_path_to_video(self, node_id: str) -> list[str]:
-        """Obtiene el path desde un nodo hasta el Video raíz."""
+        """Return the path from a node up to the root Video node."""
         query = """
             MATCH path = (n {id: $node_id})<-[:CONTAINS*]-(v:Video)
             RETURN [node in nodes(path) | node.id] as path
@@ -968,7 +968,7 @@ class GraphSearchService:
         return []
 
     def _count_by_type(self, results: list[ScoredNode]) -> dict[str, int]:
-        """Cuenta resultados por tipo de nodo."""
+        """Count results by node type."""
         counts = {}
         for r in results:
             type_name = r.node_type.value
@@ -976,7 +976,7 @@ class GraphSearchService:
         return counts
 
     def _count_by_video(self, results: list[ScoredNode]) -> dict[str, int]:
-        """Cuenta resultados por video."""
+        """Count results by video."""
         counts = {}
         for r in results:
             if r.video_id:
@@ -994,17 +994,17 @@ class GraphSearchService:
         min_similarity: float = 0.7,
     ) -> list[ScoredNode]:
         """
-        Encuentra nodos similares en otros videos.
+        Find similar nodes across other videos.
 
         Args:
-            reference_node_id: ID del nodo de referencia
-            limit: Máximo de resultados
-            min_similarity: Similitud mínima
+            reference_node_id: Reference node ID
+            limit: Maximum number of results
+            min_similarity: Minimum similarity threshold
 
         Returns:
-            Lista de nodos similares de otros videos
+            List of similar nodes from other videos
         """
-        # Obtener embedding del nodo de referencia
+        # Retrieve the embedding of the reference node
         query = """
             MATCH (n {id: $node_id})
             RETURN n.embedding as embedding, n.video_id as video_id, labels(n)[0] as label
@@ -1021,13 +1021,13 @@ class GraphSearchService:
             ref_video_id = record["video_id"]
             ref_label = record["label"]
 
-        # Buscar similares excluyendo el video de referencia
+        # Search for similar nodes excluding the reference video
         try:
             node_type = NodeType(ref_label)
         except ValueError:
             return []
 
-        # Vector search excluyendo el video actual
+        # Vector search excluding the current video
         search_query = """
             CALL db.index.vector.queryNodes($index_name, $limit * 2, $embedding)
             YIELD node, score
@@ -1080,7 +1080,7 @@ _graph_search_service: GraphSearchService | None = None
 
 
 def get_graph_search_service() -> GraphSearchService:
-    """Obtiene la instancia singleton del GraphSearchService."""
+    """Return the singleton instance of GraphSearchService."""
     global _graph_search_service
     if _graph_search_service is None:
         _graph_search_service = GraphSearchService()

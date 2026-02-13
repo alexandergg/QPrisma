@@ -15,7 +15,7 @@ from models.graph_models import EntityType, NodeType, RelationType
 
 
 class GraphHealthResponse(BaseModel):
-    """Respuesta de health check del grafo."""
+    """Graph health check response."""
 
     status: str
     connected: bool
@@ -24,7 +24,7 @@ class GraphHealthResponse(BaseModel):
 
 
 class EntitySearchRequest(BaseModel):
-    """Request para búsqueda de entidades."""
+    """Request for entity search."""
 
     query: str
     entity_types: list[EntityType] | None = None
@@ -33,7 +33,7 @@ class EntitySearchRequest(BaseModel):
 
 
 class FrameSearchRequest(BaseModel):
-    """Request para búsqueda en frames."""
+    """Request for frame search."""
 
     query: str
     video_id: str | None = None
@@ -43,7 +43,7 @@ class FrameSearchRequest(BaseModel):
 
 
 class ContextExpansionRequest(BaseModel):
-    """Request para expansión de contexto."""
+    """Request for context expansion."""
 
     node_id: str
     hops: int = Field(default=2, ge=1, le=4)
@@ -52,7 +52,7 @@ class ContextExpansionRequest(BaseModel):
 
 
 class ContextExpansionResponse(BaseModel):
-    """Respuesta de expansión de contexto."""
+    """Context expansion response."""
 
     center_node_id: str
     hops: int
@@ -61,14 +61,14 @@ class ContextExpansionResponse(BaseModel):
 
 
 class EntityTimelineRequest(BaseModel):
-    """Request para timeline de entidad."""
+    """Request for entity timeline."""
 
     entity_name: str
     video_id: str
 
 
 class EntityTimelineResponse(BaseModel):
-    """Respuesta de timeline de entidad."""
+    """Entity timeline response."""
 
     entity_name: str
     video_id: str
@@ -77,7 +77,7 @@ class EntityTimelineResponse(BaseModel):
 
 
 class RelatedEntitiesRequest(BaseModel):
-    """Request para entidades relacionadas."""
+    """Request for related entities."""
 
     entity_id: str
     relation_types: list[RelationType] | None = None
@@ -85,7 +85,7 @@ class RelatedEntitiesRequest(BaseModel):
 
 
 class ProcessVideoGraphRequest(BaseModel):
-    """Request para procesar el grafo de un video."""
+    """Request to process the graph for a video."""
 
     video_id: str
     reprocess: bool = False
@@ -93,7 +93,7 @@ class ProcessVideoGraphRequest(BaseModel):
 
 
 class ProcessVideoGraphResponse(BaseModel):
-    """Respuesta de procesamiento de grafo."""
+    """Graph processing response."""
 
     video_id: str
     status: str
@@ -107,7 +107,7 @@ class ProcessVideoGraphResponse(BaseModel):
 
 
 class HybridSearchRequest(BaseModel):
-    """Request para búsqueda híbrida (vector + graph + fulltext)."""
+    """Request for hybrid search (vector + graph + fulltext)."""
 
     query: str
     node_types: list[NodeType] | None = None
@@ -120,7 +120,7 @@ class HybridSearchRequest(BaseModel):
 
 
 class CrossVideoSearchRequest(BaseModel):
-    """Request para búsqueda cross-video."""
+    """Request for cross-video search."""
 
     reference_node_id: str
     limit: int = Field(default=10, ge=1, le=50)
@@ -128,7 +128,7 @@ class CrossVideoSearchRequest(BaseModel):
 
 
 class CrossVideoSearchResponse(BaseModel):
-    """Respuesta de búsqueda cross-video."""
+    """Cross-video search response."""
 
     reference_node_id: str
     similar_nodes: list[dict]
@@ -141,7 +141,7 @@ class CrossVideoSearchResponse(BaseModel):
 
 
 class GenerateEmbeddingsRequest(BaseModel):
-    """Request para generar embeddings en bulk."""
+    """Request to generate embeddings in bulk."""
 
     node_type: NodeType
     video_id: str | None = None
@@ -149,7 +149,7 @@ class GenerateEmbeddingsRequest(BaseModel):
 
 
 class GenerateEmbeddingsResponse(BaseModel):
-    """Respuesta de generación de embeddings."""
+    """Embedding generation response."""
 
     node_type: str
     embeddings_generated: int
@@ -157,7 +157,7 @@ class GenerateEmbeddingsResponse(BaseModel):
 
 
 class EmbeddingStatsResponse(BaseModel):
-    """Estadísticas del servicio de embeddings."""
+    """Embedding service statistics."""
 
     total_requests: int
     cache_hits: int
@@ -171,7 +171,7 @@ class EmbeddingStatsResponse(BaseModel):
 
 
 class ProcessHierarchyRequest(BaseModel):
-    """Request para procesar jerarquía completa de un video."""
+    """Request to process the complete hierarchy of a video."""
 
     video_path: str
     video_id: str
@@ -182,7 +182,7 @@ class ProcessHierarchyRequest(BaseModel):
 
 
 class ProcessHierarchyResponse(BaseModel):
-    """Respuesta de procesamiento jerárquico."""
+    """Hierarchical processing response."""
 
     video_id: str
     status: str
@@ -194,7 +194,7 @@ class ProcessHierarchyResponse(BaseModel):
 
 
 class DrillDownSearchRequest(BaseModel):
-    """Request para búsqueda drill-down jerárquica."""
+    """Request for hierarchical drill-down search."""
 
     query: str
     video_id: str | None = None
@@ -205,7 +205,7 @@ class DrillDownSearchRequest(BaseModel):
 
 
 class HierarchyLevelResponse(BaseModel):
-    """Representación de un nivel en la jerarquía."""
+    """Representation of a level in the hierarchy."""
 
     level: str
     node_id: str
@@ -218,7 +218,7 @@ class HierarchyLevelResponse(BaseModel):
 
 
 class DrillDownSearchResponse(BaseModel):
-    """Respuesta de búsqueda drill-down."""
+    """Drill-down search response."""
 
     query: str
     results: list[dict]
@@ -227,7 +227,7 @@ class DrillDownSearchResponse(BaseModel):
 
 
 class LoadChildrenRequest(BaseModel):
-    """Request para carga lazy de hijos."""
+    """Request for lazy-loading children."""
 
     node_id: str
     node_type: NodeType
@@ -236,7 +236,7 @@ class LoadChildrenRequest(BaseModel):
 
 
 class LoadChildrenResponse(BaseModel):
-    """Respuesta de carga lazy."""
+    """Lazy-load response."""
 
     parent_node_id: str
     children: list[HierarchyLevelResponse]
@@ -245,7 +245,7 @@ class LoadChildrenResponse(BaseModel):
 
 
 class HierarchyStatsResponse(BaseModel):
-    """Estadísticas de la jerarquía de un video."""
+    """Hierarchy statistics for a video."""
 
     video_id: str
     video_title: str | None = None
@@ -255,7 +255,7 @@ class HierarchyStatsResponse(BaseModel):
 
 
 class HierarchyPathResponse(BaseModel):
-    """Ruta desde la raíz hasta un nodo."""
+    """Path from the root to a node."""
 
     node_id: str
     path: list[HierarchyLevelResponse]

@@ -1,8 +1,8 @@
 """
 Relation Builder Service for QPrisma
 
-Construye relaciones temporales y semánticas entre nodos del Knowledge Graph.
-Analiza patrones de co-ocurrencia, secuencias temporales y similitud semántica.
+Builds temporal and semantic relations between nodes in the Knowledge Graph.
+Analyses co-occurrence patterns, temporal sequences, and semantic similarity.
 """
 
 import json
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EntityOccurrence:
-    """Registro de aparición de una entidad."""
+    """Record of a single entity appearance."""
 
     entity_name: str
     normalized_name: str
@@ -37,34 +37,34 @@ class EntityOccurrence:
 
 @dataclass
 class RelationCandidate:
-    """Candidato a relación entre dos entidades."""
+    """Candidate relation between two entities."""
 
     source_name: str
     target_name: str
     relation_type: RelationType
     confidence: float
-    evidence: list[str]  # Frame IDs donde se detectó la relación
+    evidence: list[str]  # Frame IDs where the relation was detected
 
 
 class RelationBuilder:
     """
-    Servicio para construir relaciones entre entidades en el Knowledge Graph.
+    Service for building relations between entities in the Knowledge Graph.
 
-    Tipos de relaciones:
-    1. **Temporales**: BEFORE, AFTER, DURING, SIMULTANEOUS
-       - Basadas en timestamps de aparición
+    Relation types:
+    1. **Temporal**: BEFORE, AFTER, DURING, SIMULTANEOUS
+       - Derived from appearance timestamps
 
-    2. **Co-ocurrencia**: APPEARS_WITH
-       - Entidades que aparecen en el mismo frame
+    2. **Co-occurrence**: APPEARS_WITH
+       - Entities that appear in the same frame
 
-    3. **Semánticas**: INTERACTS_WITH, RELATES_TO, SIMILAR_TO
-       - Basadas en análisis de GPT-4o o reglas
+    3. **Semantic**: INTERACTS_WITH, RELATES_TO, SIMILAR_TO
+       - Derived from GPT-4o analysis or rules
 
-    4. **Jerárquicas**: CONTAINS, BELONGS_TO
-       - Video → Scene → Frame → Entity
+    4. **Hierarchical**: CONTAINS, BELONGS_TO
+       - Video -> Scene -> Frame -> Entity
 
     5. **Cross-video**: SAME_ENTITY, TOPIC_OVERLAP
-       - Entidades que aparecen en múltiples videos
+       - Entities that appear across multiple videos
     """
 
     def __init__(
@@ -73,22 +73,22 @@ class RelationBuilder:
         openai_client: AzureOpenAI | None = None,
     ):
         """
-        Inicializa el RelationBuilder.
+        Initialize the RelationBuilder.
 
         Args:
-            graph_service: Servicio del Knowledge Graph
-            openai_client: Cliente de Azure OpenAI para análisis semántico
+            graph_service: Knowledge Graph service
+            openai_client: Azure OpenAI client for semantic analysis
         """
         self.graph_service = graph_service
         self._openai_client = openai_client
 
-        # Tracking de entidades durante el procesamiento de un video
+        # Entity tracking during video processing
         self._entity_occurrences: list[EntityOccurrence] = []
         self._frame_entities: dict[str, list[str]] = defaultdict(list)  # frame_id -> [entity_names]
 
     @property
     def openai_client(self) -> AzureOpenAI:
-        """Lazy initialization del cliente OpenAI."""
+        """Lazy initialization of the OpenAI client."""
         if self._openai_client is None:
             self._openai_client = AzureOpenAI(
                 api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -98,7 +98,7 @@ class RelationBuilder:
         return self._openai_client
 
     def reset(self):
-        """Limpia el estado del builder para un nuevo video."""
+        """Clear the builder state for a new video."""
         self._entity_occurrences = []
         self._frame_entities = defaultdict(list)
 
@@ -115,7 +115,7 @@ class RelationBuilder:
         confidence: float = 1.0,
     ):
         """
-        Registra una aparición de entidad para posterior análisis de relaciones.
+        Record an entity appearance for subsequent relation analysis.
         """
         normalized = entity_name.lower().strip().replace(" ", "_")
 
@@ -133,7 +133,7 @@ class RelationBuilder:
 
     def track_from_analysis(self, analysis: FrameAnalysisResult, frame_id: str):
         """
-        Registra todas las entidades de un FrameAnalysisResult.
+        Record all entities from a FrameAnalysisResult.
         """
         for entity in analysis.entities:
             self.track_entity(
@@ -154,20 +154,20 @@ class RelationBuilder:
         min_confidence: float = 0.5,
     ) -> list[RelationCandidate]:
         """
-        Construye relaciones APPEARS_WITH basadas en co-ocurrencia en frames.
+        Build APPEARS_WITH relations based on frame co-occurrence.
 
         Args:
-            min_cooccurrences: Mínimo de frames donde deben co-aparecer
-            min_confidence: Confianza mínima para considerar
+            min_cooccurrences: Minimum number of frames in which entities must co-appear
+            min_confidence: Minimum confidence to consider
 
         Returns:
-            Lista de RelationCandidate
+            List of RelationCandidate
         """
-        # Contar co-ocurrencias
+        # Count co-occurrences
         cooccurrence_count: dict[tuple[str, str], list[str]] = defaultdict(list)
 
         for frame_id, entities in self._frame_entities.items():
-            # Generar pares únicos ordenados
+            # Generate unique sorted pairs
             unique_entities = list(set(entities))
             for i, e1 in enumerate(unique_entities):
                 for e2 in unique_entities[i + 1 :]:
@@ -175,11 +175,11 @@ class RelationBuilder:
                     pair = tuple(sorted([e1, e2]))
                     cooccurrence_count[pair].append(frame_id)
 
-        # Filtrar y crear candidatos
+        # Filter and create candidates
         candidates = []
         for (e1, e2), frames in cooccurrence_count.items():
             if len(frames) >= min_cooccurrences:
-                # Calcular confianza basada en frecuencia
+                # Calculate confidence based on frequency
                 confidence = min(1.0, len(frames) / 10)  # Normalizar a 10 frames
 
                 candidate = RelationCandidate(
@@ -200,24 +200,24 @@ class RelationBuilder:
 
     def build_temporal_relations(
         self,
-        time_threshold: float = 5.0,  # segundos
+        time_threshold: float = 5.0,  # seconds
     ) -> list[RelationCandidate]:
         """
-        Construye relaciones temporales entre entidades.
+        Build temporal relations between entities.
 
         Args:
-            time_threshold: Ventana de tiempo para considerar entidades "cercanas"
+            time_threshold: Time window for considering entities "close in time"
 
         Returns:
-            Lista de RelationCandidate con relaciones temporales
+            List of RelationCandidate with temporal relations
         """
-        # Agrupar ocurrencias por entidad
+        # Group occurrences by entity
         entity_times: dict[str, list[float]] = defaultdict(list)
 
         for occ in self._entity_occurrences:
             entity_times[occ.normalized_name].append(occ.timestamp)
 
-        # Calcular rango temporal de cada entidad
+        # Calculate the temporal range of each entity
         entity_ranges: dict[str, tuple[float, float]] = {}
         for entity, times in entity_times.items():
             entity_ranges[entity] = (min(times), max(times))
@@ -231,7 +231,7 @@ class RelationBuilder:
             for e2 in entities[i + 1 :]:
                 start2, end2 = entity_ranges[e2]
 
-                # Determinar tipo de relación temporal
+                # Determine the type of temporal relation
                 relation_type = None
                 confidence = 0.8
 
@@ -240,21 +240,21 @@ class RelationBuilder:
                     relation_type = RelationType.BEFORE
                     start2 - end1
 
-                # AFTER: e1 empieza después de que e2 termine
+                # AFTER: e1 starts after e2 ends
                 elif start1 > end2 + time_threshold:
                     relation_type = RelationType.AFTER
                     start1 - end2
 
-                # SIMULTANEOUS: aparecen al mismo tiempo (dentro del threshold)
+                # SIMULTANEOUS: appear at the same time (within the threshold)
                 elif abs(start1 - start2) <= time_threshold and abs(end1 - end2) <= time_threshold:
                     relation_type = RelationType.SIMULTANEOUS
                     confidence = 0.9
 
-                # DURING: uno está contenido en el otro temporalmente
+                # DURING: one is temporally contained within the other
                 elif start1 >= start2 and end1 <= end2:
                     relation_type = RelationType.DURING  # e1 during e2
                 elif start2 >= start1 and end2 <= end1:
-                    # Invertir para mantener e1 como contenido
+                    # Swap to keep e1 as the contained entity
                     e1, e2 = e2, e1
                     relation_type = RelationType.DURING
 
@@ -281,14 +281,14 @@ class RelationBuilder:
         context: str = "",
     ) -> list[RelationCandidate]:
         """
-        Infiere relaciones semánticas entre pares de entidades usando GPT-4o.
+        Infer semantic relations between entity pairs using GPT-4o.
 
         Args:
-            entity_pairs: Lista de tuplas (entity1, entity2) a analizar
-            context: Contexto del video (transcripción, descripción, etc.)
+            entity_pairs: List of (entity1, entity2) tuples to analyse
+            context: Video context (transcript, description, etc.)
 
         Returns:
-            Lista de RelationCandidate con relaciones inferidas
+            List of RelationCandidate with inferred relations
         """
         if not entity_pairs:
             return []
@@ -379,16 +379,16 @@ Only include pairs where has_relation is true."""
         similarity_threshold: float = 0.85,
     ) -> list[RelationCandidate]:
         """
-        Encuentra entidades similares en otros videos.
+        Find similar entities across other videos.
 
-        Requiere que el graph_service esté configurado.
+        Requires graph_service to be configured.
 
         Args:
-            video_id: ID del video actual
-            similarity_threshold: Umbral de similitud para considerar "misma entidad"
+            video_id: Current video ID
+            similarity_threshold: Similarity threshold for considering entities the "same entity"
 
         Returns:
-            Lista de RelationCandidate con relaciones SAME_ENTITY
+            List of RelationCandidate with SAME_ENTITY relations
         """
         if not self.graph_service:
             logger.warning("Graph service not configured, skipping cross-video analysis")
@@ -396,7 +396,7 @@ Only include pairs where has_relation is true."""
 
         candidates = []
 
-        # Obtener entidades únicas del video actual
+        # Retrieve unique entities from the current video
         current_entities = set()
         for occ in self._entity_occurrences:
             current_entities.add((occ.normalized_name, occ.entity_type))
@@ -404,7 +404,7 @@ Only include pairs where has_relation is true."""
         # Buscar en otros videos
         for entity_name, entity_type in current_entities:
             try:
-                # Buscar entidades similares en el grafo
+                # Search for similar entities in the graph
                 similar = self.graph_service.search_entities(
                     query_text=entity_name.replace("_", " "),
                     entity_types=[entity_type],
@@ -446,31 +446,31 @@ Only include pairs where has_relation is true."""
         video_context: str = "",
     ) -> dict[str, list[RelationCandidate]]:
         """
-        Construye todas las relaciones posibles.
+        Build all possible relations.
 
         Args:
-            include_semantic: Si incluir análisis semántico con GPT-4o
-            include_cross_video: Si buscar entidades en otros videos
-            video_context: Contexto del video para análisis semántico
+            include_semantic: Whether to include semantic analysis with GPT-4o
+            include_cross_video: Whether to search for entities in other videos
+            video_context: Video context for semantic analysis
 
         Returns:
-            Dict con relaciones agrupadas por tipo
+            Dict of relations grouped by type
         """
         results = {}
 
-        # 1. Co-ocurrencia
+        # 1. Co-occurrence
         results["cooccurrence"] = self.build_cooccurrence_relations()
 
-        # 2. Temporal
+        # 2. Temporal relations
         results["temporal"] = self.build_temporal_relations()
 
-        # 3. Semántico (opcional, usa GPT-4o)
+        # 3. Semantic (optional, uses GPT-4o)
         if include_semantic and len(self._entity_occurrences) > 0:
-            # Seleccionar pares para análisis semántico
-            # (entidades que co-ocurren pero no tienen relación obvia)
+            # Select pairs for semantic analysis
+            # (entities that co-occur but have no obvious relation)
             entity_names = list({o.normalized_name for o in self._entity_occurrences})
 
-            # Limitar a 20 pares para no exceder tokens
+            # Limit to 20 pairs to avoid exceeding token budget
             pairs_to_analyze = []
             for i, e1 in enumerate(entity_names[:10]):
                 for e2 in entity_names[i + 1 : 15]:
@@ -497,14 +497,14 @@ Only include pairs where has_relation is true."""
         graph_service: KnowledgeGraphService | None = None,
     ) -> int:
         """
-        Persiste las relaciones en el Knowledge Graph using batched UNWIND operations.
+        Persist relations in the Knowledge Graph using batched UNWIND operations.
 
         Args:
-            relations: Lista de RelationCandidate
-            graph_service: Servicio del grafo (usa self.graph_service si no se proporciona)
+            relations: List of RelationCandidate
+            graph_service: Graph service (uses self.graph_service if not provided)
 
         Returns:
-            Número de relaciones creadas
+            Number of relations created
         """
         service = graph_service or self.graph_service
         if not service:
@@ -544,7 +544,7 @@ _relation_builder: RelationBuilder | None = None
 def get_relation_builder(
     graph_service: KnowledgeGraphService | None = None,
 ) -> RelationBuilder:
-    """Obtiene la instancia singleton del RelationBuilder."""
+    """Return the singleton instance of RelationBuilder."""
     global _relation_builder
     if _relation_builder is None:
         _relation_builder = RelationBuilder(graph_service=graph_service)

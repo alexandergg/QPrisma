@@ -1,8 +1,8 @@
 """
 Embedding Service for QPrisma
 
-Genera embeddings usando Azure OpenAI text-embedding-3-large.
-Proporciona cache de embeddings y batch processing.
+Generates embeddings using Azure OpenAI text-embedding-3-large.
+Provides embedding cache and batch processing.
 """
 
 import hashlib
@@ -17,16 +17,16 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingService:
     """
-    Servicio para generar embeddings con Azure OpenAI.
+    Service for generating embeddings with Azure OpenAI.
 
-    Características:
-    - text-embedding-3-large (3072 dimensiones)
-    - Batch processing para eficiencia
-    - Cache de embeddings por hash de contenido
-    - Retry con exponential backoff
+    Features:
+    - text-embedding-3-large (3072 dimensions)
+    - Batch processing for efficiency
+    - Embedding cache by content hash
+    - Retry with exponential backoff
     """
 
-    # Dimensiones del modelo text-embedding-3-large
+    # Dimensions of the text-embedding-3-large model
     EMBEDDING_DIMENSIONS = 3072
     # Coarse dimensions for fast initial filtering (Matryoshka)
     COARSE_DIMENSIONS = 512
@@ -40,14 +40,14 @@ class EmbeddingService:
         cache_service=None,
     ):
         """
-        Inicializa el servicio de embeddings.
+        Initialize the embedding service.
 
         Args:
             api_key: Azure OpenAI API key
             endpoint: Azure OpenAI endpoint
-            deployment: Nombre del deployment de embeddings
-            api_version: Versión del API
-            cache_service: Servicio de cache opcional
+            deployment: Embeddings deployment name
+            api_version: API version
+            cache_service: Optional cache service
         """
         self.api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
         self.endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
@@ -59,7 +59,7 @@ class EmbeddingService:
 
         self._client: AzureOpenAI | AsyncAzureOpenAI | None = None
 
-        # Estadísticas
+        # Statistics
         self.stats = {
             "total_requests": 0,
             "cache_hits": 0,
@@ -68,7 +68,7 @@ class EmbeddingService:
 
     @property
     def client(self) -> AzureOpenAI | AsyncAzureOpenAI:
-        """Lazy initialization del cliente Azure OpenAI."""
+        """Lazy initialization of the Azure OpenAI client."""
         if self._client is None:
             self._client = AsyncAzureOpenAI(
                 api_key=self.api_key,
@@ -78,11 +78,11 @@ class EmbeddingService:
         return self._client
 
     def _compute_hash(self, text: str) -> str:
-        """Computa hash SHA-256 del texto para cache."""
+        """Compute SHA-256 hash of text for cache."""
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def _get_from_cache(self, text_hash: str) -> list[float] | None:
-        """Intenta obtener embedding del cache."""
+        """Attempt to retrieve embedding from cache."""
         if self.cache_service is None:
             return None
 
@@ -97,7 +97,7 @@ class EmbeddingService:
         return None
 
     def _save_to_cache(self, text_hash: str, embedding: list[float], ttl: int = 86400 * 7):
-        """Guarda embedding en cache (default: 7 días)."""
+        """Save embedding to cache (default: 7 days)."""
         if self.cache_service is None:
             return
 
@@ -112,30 +112,30 @@ class EmbeddingService:
     )
     async def generate_embedding(self, text: str, use_cache: bool = True) -> list[float]:
         """
-        Genera embedding para un texto.
+        Generate embedding for a text.
 
         Args:
-            text: Texto a embedear
-            use_cache: Si usar cache
+            text: Text to embed
+            use_cache: Whether to use cache
 
         Returns:
-            Lista de floats (embedding de 3072 dimensiones)
+            List of floats (embedding of 3072 dimensions)
         """
         if not text or not text.strip():
-            # Retornar embedding de ceros para texto vacío
+            # Return zero embedding for empty text
             return [0.0] * self.EMBEDDING_DIMENSIONS
 
-        # Normalizar texto
-        text = text.strip()[:8000]  # Limitar a 8000 chars
+        # Normalize text
+        text = text.strip()[:8000]  # Limit to 8000 chars
 
-        # Intentar cache
+        # Try cache
         text_hash = self._compute_hash(text)
         if use_cache:
             cached = self._get_from_cache(text_hash)
             if cached:
                 return cached
 
-        # Generar embedding
+        # Generate embedding
         self.stats["total_requests"] += 1
 
         try:
@@ -150,7 +150,7 @@ class EmbeddingService:
         embedding = response.data[0].embedding
         self.stats["tokens_used"] += response.usage.total_tokens
 
-        # Guardar en cache
+        # Save to cache
         if use_cache:
             self._save_to_cache(text_hash, embedding)
 
@@ -171,15 +171,15 @@ class EmbeddingService:
         batch_size: int = 100,
     ) -> list[list[float]]:
         """
-        Genera embeddings para múltiples textos en batch.
+        Generate embeddings for multiple texts in batch.
 
         Args:
-            texts: Lista de textos.
-            use_cache: Si usar cache.
-            batch_size: Tamaño máximo de batch.
+            texts: List of texts.
+            use_cache: Whether to use cache.
+            batch_size: Maximum batch size.
 
         Returns:
-            Lista de embeddings.
+            List of embeddings.
         """
         if not texts:
             return []
@@ -188,7 +188,7 @@ class EmbeddingService:
         texts_to_embed: list[str] = []
         indices_to_embed: list[int] = []
 
-        # Verificar cache primero
+        # Check cache first
         for i, text in enumerate(texts):
             if not text or not text.strip():
                 results[i] = [0.0] * self.EMBEDDING_DIMENSIONS
@@ -206,7 +206,7 @@ class EmbeddingService:
             texts_to_embed.append(text)
             indices_to_embed.append(i)
 
-        # Procesar en batches
+        # Process in batches
         for batch_start in range(0, len(texts_to_embed), batch_size):
             batch_end = min(batch_start + batch_size, len(texts_to_embed))
             batch_texts = texts_to_embed[batch_start:batch_end]
@@ -230,7 +230,7 @@ class EmbeddingService:
                 embedding = emb_data.embedding
                 results[idx] = embedding
 
-                # Guardar en cache
+                # Save to cache
                 if use_cache:
                     text_hash = self._compute_hash(batch_texts[j])
                     self._save_to_cache(text_hash, embedding)
@@ -239,14 +239,14 @@ class EmbeddingService:
 
     def compute_similarity(self, embedding1: list[float], embedding2: list[float]) -> float:
         """
-        Calcula similitud coseno entre dos embeddings.
+        Compute cosine similarity between two embeddings.
 
         Args:
-            embedding1: Primer embedding
-            embedding2: Segundo embedding
+            embedding1: First embedding
+            embedding2: Second embedding
 
         Returns:
-            Similitud coseno (0-1)
+            Cosine similarity (0-1)
         """
         import math
 
@@ -260,7 +260,7 @@ class EmbeddingService:
         return dot_product / (norm1 * norm2)
 
     def get_stats(self) -> dict:
-        """Retorna estadísticas del servicio."""
+        """Return service statistics."""
         return {
             **self.stats,
             "cache_hit_rate": (
@@ -279,7 +279,7 @@ _embedding_service: EmbeddingService | None = None
 
 
 def get_embedding_service(cache_service=None) -> EmbeddingService:
-    """Obtiene la instancia singleton del EmbeddingService."""
+    """Get the singleton instance of EmbeddingService."""
     global _embedding_service
     if _embedding_service is None:
         _embedding_service = EmbeddingService(cache_service=cache_service)
