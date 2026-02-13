@@ -1072,4 +1072,48 @@ export const apiClient = {
       }
     }
   },
+
+  // ==========================================================================
+  // Knowledge Graph Visualization
+  // ==========================================================================
+
+  /**
+   * Get the NVL-compatible graph visualization for a video.
+   */
+  async getVideoVisualization(
+    videoId: string,
+    options?: { depth?: number; includeEntities?: boolean; maxNodes?: number }
+  ) {
+    const params = new URLSearchParams();
+    if (options?.depth != null) params.set('depth', String(options.depth));
+    if (options?.includeEntities != null) params.set('include_entities', String(options.includeEntities));
+    if (options?.maxNodes != null) params.set('max_nodes', String(options.maxNodes));
+    const qs = params.toString();
+    const url = `${API_URL}/graph/video/${videoId}/visualization${qs ? `?${qs}` : ''}`;
+    const res = await fetch(url, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error(`Graph visualization failed: ${res.statusText}`);
+    return res.json();
+  },
+
+  /**
+   * Expand a node's subgraph for progressive lazy-load visualization.
+   */
+  async expandGraphNode(nodeId: string, hops = 1, maxNodes = 50) {
+    const res = await fetch(`${API_URL}/graph/expand-subgraph`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ node_id: nodeId, hops, max_nodes: maxNodes }),
+    });
+    if (!res.ok) throw new Error(`Graph expansion failed: ${res.statusText}`);
+    return res.json();
+  },
+
+  /**
+   * Get Knowledge Graph stats.
+   */
+  async getGraphStats() {
+    const res = await fetch(`${API_URL}/graph/stats`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error(`Graph stats failed: ${res.statusText}`);
+    return res.json();
+  },
 };

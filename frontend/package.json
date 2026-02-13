@@ -16,6 +16,8 @@
     "analyze": "ANALYZE=true next build"
   },
   "dependencies": {
+    "@neo4j-nvl/interaction-handlers": "^1.0.0",
+    "@neo4j-nvl/react": "^1.0.0",
     "@tailwindcss/typography": "^0.5.19",
     "lucide-react": "^0.556.0",
     "next": "^16.1.6",

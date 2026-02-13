@@ -92,6 +92,21 @@ export const DynamicChatContainer = dynamic(
 // ============================================================================
 
 /**
+ * Knowledge Graph Viewer - Neo4j NVL based graph visualization
+ */
+export const DynamicKnowledgeGraphViewer = dynamic(
+  () => import('@/components/graph/KnowledgeGraphViewer'),
+  {
+    loading: () => (
+      <div className="h-full bg-gray-50 rounded-lg animate-pulse flex items-center justify-center">
+        <span className="text-gray-400">Loading Knowledge Graph...</span>
+      </div>
+    ),
+    ssr: false,
+  }
+);
+
+/**
  * Pipeline Visualizer - ReactFlow based visualization
  */
 export const DynamicPipelineVisualizer = dynamic(

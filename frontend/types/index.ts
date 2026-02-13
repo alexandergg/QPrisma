@@ -215,3 +215,64 @@ export type CropModeType =
   | 'bottom'
   | 'left'
   | 'right';
+
+// ============================================================================
+// Knowledge Graph Visualization Types
+// ============================================================================
+
+export type GraphNodeType =
+  | 'Video'
+  | 'Chapter'
+  | 'Scene'
+  | 'Frame'
+  | 'Entity'
+  | 'AudioSegment'
+  | 'Topic';
+
+export type GraphEntityType =
+  | 'person'
+  | 'object'
+  | 'location'
+  | 'action'
+  | 'concept'
+  | 'text'
+  | 'brand'
+  | 'event';
+
+export interface GraphNode {
+  id: string;
+  caption: string;
+  color: string;
+  size: number;
+  icon?: string;
+  node_type: GraphNodeType;
+  entity_type?: GraphEntityType;
+  properties: Record<string, unknown>;
+}
+
+export interface GraphRelationship {
+  id: string;
+  from: string;
+  to: string;
+  caption: string;
+  type: string;
+  color: string;
+  properties: Record<string, unknown>;
+}
+
+export interface GraphVisualizationData {
+  video_id: string;
+  nodes: GraphNode[];
+  relationships: GraphRelationship[];
+  total_nodes: number;
+  total_relationships: number;
+  depth: number;
+}
+
+export interface GraphExpandResult {
+  center_node_id: string;
+  nodes: GraphNode[];
+  relationships: GraphRelationship[];
+  total_nodes: number;
+  total_relationships: number;
+}
