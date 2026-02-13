@@ -260,3 +260,60 @@ class HierarchyPathResponse(BaseModel):
     node_id: str
     path: list[HierarchyLevelResponse]
     depth: int
+
+
+# =============================================================================
+# Graph Visualization Models (NVL-compatible)
+# =============================================================================
+
+
+class NvlNode(BaseModel):
+    """Node in NVL-compatible format for @neo4j-nvl/react visualization."""
+
+    id: str
+    caption: str = ""
+    color: str = "#6366F1"
+    size: int = 25
+    icon: str | None = None
+
+    # Neo4j label (NodeType)
+    node_type: str
+    # Entity subtype (only for Entity nodes)
+    entity_type: str | None = None
+
+    # Original properties for tooltips / interactions
+    properties: dict = Field(default_factory=dict)
+
+
+class NvlRelationship(BaseModel):
+    """Relationship in NVL-compatible format for @neo4j-nvl/react visualization."""
+
+    id: str
+    from_: str = Field(alias="from")
+    to: str
+    caption: str = ""
+    type: str  # RelationType value
+    color: str = "#94A3B8"
+
+    properties: dict = Field(default_factory=dict)
+
+    model_config = {"populate_by_name": True}
+
+
+class GraphVisualizationResponse(BaseModel):
+    """Full graph visualization payload for the frontend."""
+
+    video_id: str
+    nodes: list[NvlNode]
+    relationships: list[NvlRelationship]
+    total_nodes: int
+    total_relationships: int
+    depth: int
+
+
+class ExpandSubgraphRequest(BaseModel):
+    """Request to expand a node's subgraph for progressive visualization."""
+
+    node_id: str
+    hops: int = Field(default=1, ge=1, le=3)
+    max_nodes: int = Field(default=50, ge=1, le=200)

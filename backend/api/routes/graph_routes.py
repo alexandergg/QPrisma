@@ -29,16 +29,20 @@ from models.graph_route_schemas import (
     EntitySearchRequest,
     EntityTimelineRequest,
     EntityTimelineResponse,
+    ExpandSubgraphRequest,
     FrameSearchRequest,
     GenerateEmbeddingsRequest,
     GenerateEmbeddingsResponse,
     GraphHealthResponse,
+    GraphVisualizationResponse,
     HierarchyLevelResponse,
     HierarchyPathResponse,
     HierarchyStatsResponse,
     HybridSearchRequest,
     LoadChildrenRequest,
     LoadChildrenResponse,
+    NvlNode,
+    NvlRelationship,
     ProcessHierarchyRequest,
     ProcessHierarchyResponse,
     RelatedEntitiesRequest,
@@ -1000,3 +1004,180 @@ async def clear_all_graph_data(
 
 # Import time at the top of the module
 import time
+
+
+# =============================================================================
+# Graph Visualization Endpoints (NVL)
+# =============================================================================
+
+# Visual mapping: NodeType -> (color, size)
+_NODE_VISUAL_MAP: dict[str, tuple[str, int]] = {
+    "Video": ("#4F46E5", 40),       # indigo-600
+    "Chapter": ("#7C3AED", 30),     # violet-600
+    "Scene": ("#6366F1", 25),       # indigo-500
+    "Frame": ("#06B6D4", 15),       # cyan-500
+    "Entity": ("#8B5CF6", 18),      # violet-500 (default, overridden per entity type)
+    "AudioSegment": ("#10B981", 15),# emerald-500
+    "Topic": ("#F59E0B", 20),       # amber-500
+}
+
+_ENTITY_COLOR_MAP: dict[str, str] = {
+    "person": "#EC4899",
+    "object": "#8B5CF6",
+    "location": "#14B8A6",
+    "action": "#F97316",
+    "concept": "#6366F1",
+    "text": "#64748B",
+    "brand": "#EF4444",
+    "event": "#A855F7",
+}
+
+
+def _raw_to_nvl_node(raw: dict) -> NvlNode:
+    """Convert a raw Neo4j node dict to NVL format with visual styling."""
+    labels = raw.get("labels", [])
+    props = raw.get("properties", {})
+    node_id = raw.get("id") or props.get("id", "")
+
+    # Determine primary label (NodeType)
+    node_type = "Entity"  # default
+    for label in labels:
+        if label in _NODE_VISUAL_MAP:
+            node_type = label
+            break
+
+    color, size = _NODE_VISUAL_MAP.get(node_type, ("#6366F1", 20))
+
+    # Entity subtype coloring
+    entity_type = props.get("entity_type")
+    if node_type == "Entity" and entity_type:
+        color = _ENTITY_COLOR_MAP.get(entity_type, color)
+
+    # Build caption from best available property
+    caption = (
+        props.get("title")
+        or props.get("name")
+        or props.get("normalized_name")
+        or props.get("description", "")[:40]
+        or f"{node_type}"
+    )
+    if node_type == "Frame":
+        ts = props.get("timestamp")
+        caption = f"{ts:.1f}s" if ts is not None else "Frame"
+    elif node_type == "AudioSegment":
+        start = props.get("start_time", 0)
+        end = props.get("end_time", 0)
+        caption = f"{start:.0f}–{end:.0f}s"
+
+    # Strip embedding arrays from properties to keep payload small
+    clean_props = {k: v for k, v in props.items() if k != "embedding"}
+
+    return NvlNode(
+        id=str(node_id),
+        caption=str(caption),
+        color=color,
+        size=size,
+        node_type=node_type,
+        entity_type=entity_type,
+        properties=clean_props,
+    )
+
+
+def _raw_to_nvl_rel(raw: dict) -> NvlRelationship:
+    """Convert a raw Neo4j relationship dict to NVL format."""
+    rel_type = raw.get("type", "RELATES_TO")
+    return NvlRelationship(
+        id=str(raw.get("id", "")),
+        **{"from": str(raw.get("start", ""))},
+        to=str(raw.get("end", "")),
+        caption=rel_type.replace("_", " ").title(),
+        type=rel_type,
+        properties=raw.get("properties", {}),
+    )
+
+
+@router.get("/video/{video_id}/visualization", response_model=GraphVisualizationResponse)
+async def get_video_visualization(
+    video_id: str,
+    depth: int = Query(default=2, ge=1, le=4),
+    include_entities: bool = Query(default=True),
+    max_nodes: int = Query(default=200, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Returns the video Knowledge Graph in NVL-compatible format.
+
+    Returns nodes and relationships styled for @neo4j-nvl/react:
+    - Nodes have id, caption, color, size, node_type, properties
+    - Relationships have id, from, to, caption, type, properties
+    """
+    try:
+        service = get_graph_service()
+        subgraph = service.get_video_subgraph(
+            video_id=video_id,
+            depth=depth,
+            include_entities=include_entities,
+            max_nodes=max_nodes,
+        )
+
+        raw_nodes = subgraph.get("nodes", [])
+        raw_rels = subgraph.get("relationships", [])
+
+        if not raw_nodes:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Video {video_id} not found in the Knowledge Graph",
+            )
+
+        nvl_nodes = [_raw_to_nvl_node(n) for n in raw_nodes]
+        nvl_rels = [_raw_to_nvl_rel(r) for r in raw_rels]
+
+        return GraphVisualizationResponse(
+            video_id=video_id,
+            nodes=nvl_nodes,
+            relationships=nvl_rels,
+            total_nodes=len(nvl_nodes),
+            total_relationships=len(nvl_rels),
+            depth=depth,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get video visualization: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/expand-subgraph")
+async def expand_subgraph(
+    request: ExpandSubgraphRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Expand a node's neighborhood for progressive lazy-load in the graph viewer.
+
+    Returns additional NVL nodes and relationships around the given node.
+    """
+    try:
+        service = get_graph_service()
+        subgraph = service.expand_node_subgraph(
+            node_id=request.node_id,
+            hops=request.hops,
+            max_nodes=request.max_nodes,
+        )
+
+        raw_nodes = subgraph.get("nodes", [])
+        raw_rels = subgraph.get("relationships", [])
+
+        nvl_nodes = [_raw_to_nvl_node(n) for n in raw_nodes]
+        nvl_rels = [_raw_to_nvl_rel(r) for r in raw_rels]
+
+        return {
+            "center_node_id": request.node_id,
+            "nodes": [n.model_dump(by_alias=True) for n in nvl_nodes],
+            "relationships": [r.model_dump(by_alias=True) for r in nvl_rels],
+            "total_nodes": len(nvl_nodes),
+            "total_relationships": len(nvl_rels),
+        }
+    except Exception as e:
+        logger.error(f"Failed to expand subgraph: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
