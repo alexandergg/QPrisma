@@ -6,6 +6,7 @@ Includes CRUD operations, search, and graph expansion.
 """
 
 import logging
+import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
@@ -1000,10 +1001,6 @@ async def clear_all_graph_data(
     except Exception as e:
         logger.error(f"Failed to clear graph: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# Import time at the top of the module
-import time
 
 
 # =============================================================================

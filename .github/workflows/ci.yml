@@ -14,9 +14,6 @@ jobs:
   backend-lint:
     name: Backend Linting
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
 
     steps:
       - name: Checkout code
@@ -27,11 +24,8 @@ jobs:
         with:
           working-directory: backend
 
-      - name: Run ruff check
-        run: ruff check .
-
-      - name: Run black check
-        run: black --check .
+      - name: Run pre-commit (backend hooks)
+        run: pre-commit run --all-files
 
   backend-test:
     name: Backend Tests

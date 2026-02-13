@@ -71,6 +71,19 @@ docs(readme): update installation instructions
 - Lint with `ruff`
 - Type hints required for public functions
 
+Install pre-commit hooks once (recommended):
+
+```bash
+uv pip install pre-commit
+pre-commit install
+```
+
+Run all hooks manually anytime:
+
+```bash
+pre-commit run --all-files
+```
+
 ```bash
 cd backend
 black .

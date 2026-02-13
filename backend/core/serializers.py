@@ -2,7 +2,7 @@
 Serialization helpers for API responses and storage.
 """
 
-from datetime import datetime, date, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 import numpy as np
 
