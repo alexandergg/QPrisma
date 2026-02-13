@@ -53,19 +53,11 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 
 ## Architecture
 
-```mermaid
-graph TD
-    User([User]) --> FE[Frontend\nNext.js 16 / React 19]
-    FE <--> API[Backend API\nFastAPI / Python 3.11+]
+<p align="center">
+  <img src="docs/assets/qprisma_architecture.png" alt="QPrisma Azure Architecture" width="100%">
+</p>
 
-    API --> Worker[Celery Workers\nProcessing Pipeline]
-    Worker --> Blob[(Azure Blob Storage)]
-    Worker --> SQL[(PostgreSQL)]
-    Worker --> Graph[(Neo4j)]
-    Worker <--> Redis[(Redis)]
-
-    Worker <--> AOAI[Azure OpenAI\nVision / Chat / Embeddings / Transcription]
-```
+> Multi-region deployment: **West Europe** (compute), **Sweden Central** (AI Foundry), **North Europe** (PostgreSQL). Full infrastructure defined as code with [Azure Bicep](infra/main.bicep). See [Infrastructure docs](docs/INFRASTRUCTURE.md) for details.
 
 ### Technology Stack
 
