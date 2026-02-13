@@ -334,6 +334,7 @@ function NewChatContent() {
         {selectedVideo && currentMode === 'single' && (
           <div className="w-full md:w-[40%] md:min-w-[400px] md:max-w-[600px] flex-shrink-0 h-[40vh] md:h-screen">
             <VideoPanel
+              videoId={selectedVideo.id}
               videoUrl={selectedVideo.url}
               videoTitle={selectedVideo.title}
               duration={selectedVideo.duration}
@@ -392,6 +393,7 @@ function NewChatContent() {
                 {selectedVideos.map((v, idx) => (
                   <div key={v.id} className="flex-1 min-h-0 border-b border-gray-200 last:border-b-0">
                     <VideoPanel
+                      videoId={v.id}
                       videoUrl={v.url}
                       videoTitle={v.title}
                       duration={v.duration}
@@ -410,6 +412,7 @@ function NewChatContent() {
             ) : selectedVideos[activeVideoTab] ? (
               <div className="flex-1 min-h-0">
                 <VideoPanel
+                  videoId={selectedVideos[activeVideoTab].id}
                   videoUrl={selectedVideos[activeVideoTab].url}
                   videoTitle={selectedVideos[activeVideoTab].title}
                   duration={selectedVideos[activeVideoTab].duration}

@@ -14,8 +14,10 @@ import {
   ChevronDown,
   ChevronRight,
   X,
+  Share2,
 } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
+import { DynamicKnowledgeGraphViewer } from '@/lib/dynamic';
 
 interface Scene {
   scene_id: number;
@@ -42,6 +44,7 @@ interface TranscriptSegment {
 }
 
 interface VideoPanelProps {
+  videoId?: string;
   videoUrl?: string;
   videoTitle?: string;
   duration?: number;
@@ -55,9 +58,10 @@ interface VideoPanelProps {
   onClose?: () => void;
 }
 
-type TabType = 'chapters' | 'transcript' | 'entities';
+type TabType = 'chapters' | 'transcript' | 'graph';
 
 export default function VideoPanel({
+  videoId,
   videoUrl,
   videoTitle,
   duration = 0,
@@ -309,6 +313,19 @@ export default function VideoPanel({
           <Mic className="w-4 h-4" />
           Transcript
         </button>
+        {videoId && (
+          <button
+            onClick={() => setActiveTab('graph')}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'graph'
+                ? 'text-indigo-600 border-b-2 border-indigo-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Share2 className="w-4 h-4" />
+            Graph
+          </button>
+        )}
       </div>
 
       {/* Tab Content */}
@@ -446,6 +463,16 @@ export default function VideoPanel({
                 );
               })
             )}
+          </div>
+        )}
+
+        {activeTab === 'graph' && videoId && (
+          <div className="h-full min-h-[400px]">
+            <DynamicKnowledgeGraphViewer
+              videoId={videoId}
+              onSeek={handleSeek}
+              className="h-full"
+            />
           </div>
         )}
       </div>

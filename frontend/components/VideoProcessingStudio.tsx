@@ -314,7 +314,7 @@ export default function VideoProcessingStudio() {
                   sceneDetectionEnabled={sceneDetectionEnabled}
                   hierarchicalSummaryEnabled={hierarchicalSummaryEnabled}
                   onVideoProcessed={(mediaId) => {
-                    router.push(`/video/${mediaId}`);
+                    router.push(`/chat/new?videoId=${mediaId}`);
                   }}
                 />
               </div>
@@ -490,7 +490,7 @@ export default function VideoProcessingStudio() {
                       {filteredMedia.map((item) => (
                         <div
                           key={item.id}
-                          onClick={() => router.push(`/video/${item.id}`)}
+                          onClick={() => router.push(`/chat/new?videoId=${item.id}`)}
                           className="group cursor-pointer bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 overflow-hidden hover:shadow-xl hover:shadow-indigo-200/30 hover:-translate-y-1 transition-all duration-300"
                         >
                           {/* Thumbnail */}
@@ -565,7 +565,7 @@ export default function VideoProcessingStudio() {
                       {filteredMedia.map((item) => (
                         <div
                           key={item.id}
-                          onClick={() => router.push(`/video/${item.id}`)}
+                          onClick={() => router.push(`/chat/new?videoId=${item.id}`)}
                           className="group cursor-pointer bg-white rounded-xl shadow-lg shadow-gray-200/50 border border-gray-100 overflow-hidden hover:shadow-xl hover:shadow-indigo-200/30 transition-all duration-300 flex items-center gap-4 p-4"
                         >
                           {/* Thumbnail */}
