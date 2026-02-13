@@ -48,8 +48,8 @@ class TestUserCreate:
     @pytest.mark.parametrize(
         "password",
         [
-            "Admin123",     # lowered = "admin123" in weak set
-            "Qwerty123",    # lowered = "qwerty123" in weak set
+            "Admin123",  # lowered = "admin123" in weak set
+            "Qwerty123",  # lowered = "qwerty123" in weak set
         ],
     )
     def test_common_weak_passwords_rejected(self, password):

@@ -109,10 +109,7 @@ class Mem0MemoryService:
                 continue
 
             memory_text = (
-                item.get("memory")
-                or item.get("text")
-                or item.get("content")
-                or item.get("summary")
+                item.get("memory") or item.get("text") or item.get("content") or item.get("summary")
             )
             if not isinstance(memory_text, str) or not memory_text:
                 continue

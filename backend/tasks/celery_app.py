@@ -74,9 +74,7 @@ celery_app = Celery(
 # with EnterpriseCluster mode. Hash tags {celery} ensure all Celery/Kombu keys
 # map to the same slot, avoiding ClusterCrossSlotError in pipeline transactions.
 _redis_transport_opts = (
-    {"global_keyprefix": "{celery}."}
-    if REDIS_URL.startswith("rediss://")
-    else {}
+    {"global_keyprefix": "{celery}."} if REDIS_URL.startswith("rediss://") else {}
 )
 
 celery_app.conf.update(

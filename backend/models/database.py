@@ -400,6 +400,7 @@ class BatchJobModel(Base):
             ),
         }
 
+
 class ToolArtifactModel(Base):
     """Metadata index for full tool output artifacts."""
 
@@ -453,5 +454,7 @@ class ToolArtifactModel(Base):
             "artifact_metadata": self.artifact_metadata,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "last_accessed_at": self.last_accessed_at.isoformat() if self.last_accessed_at else None,
+            "last_accessed_at": (
+                self.last_accessed_at.isoformat() if self.last_accessed_at else None
+            ),
         }

@@ -30,9 +30,7 @@ from api.dependencies import (
 @pytest.mark.unit
 class TestGetCurrentUser:
     async def test_valid_token(self, auth_service, test_user):
-        token = auth_service.create_access_token(
-            {"sub": test_user.id, "email": test_user.email}
-        )
+        token = auth_service.create_access_token({"sub": test_user.id, "email": test_user.email})
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
         with patch("api.dependencies.get_auth_service", return_value=auth_service):
@@ -62,7 +60,9 @@ class TestGetCurrentUser:
         assert exc_info.value.status_code == 401
 
     async def test_invalid_token_raises_401(self, auth_service):
-        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="garbage.token.here")
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer", credentials="garbage.token.here"
+        )
 
         with patch("api.dependencies.get_auth_service", return_value=auth_service):
             with pytest.raises(HTTPException) as exc_info:
@@ -78,9 +78,7 @@ class TestGetCurrentUser:
 @pytest.mark.unit
 class TestGetCurrentUserOptional:
     async def test_valid_token(self, auth_service, test_user):
-        token = auth_service.create_access_token(
-            {"sub": test_user.id, "email": test_user.email}
-        )
+        token = auth_service.create_access_token({"sub": test_user.id, "email": test_user.email})
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
         with patch("api.dependencies.get_auth_service", return_value=auth_service):

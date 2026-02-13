@@ -21,10 +21,17 @@ class TestChat:
 
         assert resp.status_code == 503
 
-    def test_chat_success(self, authenticated_client, mock_openai_client, mock_graph_search_service):
+    def test_chat_success(
+        self, authenticated_client, mock_openai_client, mock_graph_search_service
+    ):
         with (
-            patch("api.routes.chat_routes.get_async_openai_client", return_value=mock_openai_client),
-            patch("api.routes.chat_routes.get_graph_search_service", return_value=mock_graph_search_service),
+            patch(
+                "api.routes.chat_routes.get_async_openai_client", return_value=mock_openai_client
+            ),
+            patch(
+                "api.routes.chat_routes.get_graph_search_service",
+                return_value=mock_graph_search_service,
+            ),
             patch("api.routes.chat_routes.ChatService") as MockChatService,
         ):
             mock_instance = AsyncMock()
@@ -36,10 +43,17 @@ class TestChat:
         assert resp.status_code == 200
         assert resp.json()["response"] == "Hello back!"
 
-    def test_chat_with_media_id(self, authenticated_client, mock_openai_client, mock_graph_search_service):
+    def test_chat_with_media_id(
+        self, authenticated_client, mock_openai_client, mock_graph_search_service
+    ):
         with (
-            patch("api.routes.chat_routes.get_async_openai_client", return_value=mock_openai_client),
-            patch("api.routes.chat_routes.get_graph_search_service", return_value=mock_graph_search_service),
+            patch(
+                "api.routes.chat_routes.get_async_openai_client", return_value=mock_openai_client
+            ),
+            patch(
+                "api.routes.chat_routes.get_graph_search_service",
+                return_value=mock_graph_search_service,
+            ),
             patch("api.routes.chat_routes.ChatService") as MockChatService,
         ):
             mock_instance = AsyncMock()
@@ -65,7 +79,10 @@ class TestSearch:
         assert resp.status_code in (401, 403)
 
     def test_search_success(self, authenticated_client, mock_graph_search_service):
-        with patch("api.routes.chat_routes.get_graph_search_service", return_value=mock_graph_search_service):
+        with patch(
+            "api.routes.chat_routes.get_graph_search_service",
+            return_value=mock_graph_search_service,
+        ):
             resp = authenticated_client.post("/search", json={"query": "people talking"})
 
         assert resp.status_code == 200

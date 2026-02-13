@@ -422,7 +422,9 @@ class DatabaseService:
     def get_tool_artifact(self, artifact_id: str) -> ToolArtifactModel | None:
         """Get tool artifact metadata by ID."""
         with self.get_session() as session:
-            artifact = session.query(ToolArtifactModel).filter(ToolArtifactModel.id == artifact_id).first()
+            artifact = (
+                session.query(ToolArtifactModel).filter(ToolArtifactModel.id == artifact_id).first()
+            )
             if artifact:
                 session.expunge(artifact)
             return artifact
@@ -430,7 +432,9 @@ class DatabaseService:
     def update_tool_artifact_accessed_at(self, artifact_id: str) -> ToolArtifactModel | None:
         """Update last accessed timestamp for a tool artifact."""
         with self.get_session() as session:
-            artifact = session.query(ToolArtifactModel).filter(ToolArtifactModel.id == artifact_id).first()
+            artifact = (
+                session.query(ToolArtifactModel).filter(ToolArtifactModel.id == artifact_id).first()
+            )
             if not artifact:
                 return None
 
@@ -439,6 +443,7 @@ class DatabaseService:
             session.refresh(artifact)
             session.expunge(artifact)
             return artifact
+
     # =========================================================================
     # Editor Project Operations
     # =========================================================================

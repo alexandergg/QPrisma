@@ -4,7 +4,6 @@ Tests for api/main.py core endpoints.
 Covers root health check, detailed health, and config endpoints.
 """
 
-
 from unittest.mock import Mock, patch
 
 import pytest

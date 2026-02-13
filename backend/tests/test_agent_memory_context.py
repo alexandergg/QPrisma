@@ -76,7 +76,9 @@ class TestAgentMemoryContext:
         config = RunnableConfig(configurable={"thread_id": "session-2"})
 
         with (
-            patch("core.config.settings.azure.storage_connection_string", "UseDevelopmentStorage=true"),
+            patch(
+                "core.config.settings.azure.storage_connection_string", "UseDevelopmentStorage=true"
+            ),
             patch(
                 "services.tool_artifact_service.get_tool_artifact_service",
                 AsyncMock(return_value=mock_artifact_service),
@@ -169,12 +171,16 @@ class TestAgentMemoryContext:
             return_value={
                 "id": "artifact-789",
                 "tool_name": "search_video",
-                "payload": {"results": [{"timestamp": 5.2, "content": "Opening with city panorama"}]},
+                "payload": {
+                    "results": [{"timestamp": 5.2, "content": "Opening with city panorama"}]
+                },
             }
         )
 
         state = {
-            "messages": [HumanMessage(content="Give exact details with timestamp for the opening scene")],
+            "messages": [
+                HumanMessage(content="Give exact details with timestamp for the opening scene")
+            ],
             "artifact_refs": [
                 {
                     "artifact_id": "artifact-789",
@@ -244,7 +250,9 @@ class TestAgentMemoryContext:
         )
 
         state = {
-            "messages": [HumanMessage(content="Give exact timestamp and evidence for opening panorama")],
+            "messages": [
+                HumanMessage(content="Give exact timestamp and evidence for opening panorama")
+            ],
             "memory_context": [
                 "search_video: returned 2 results [artifact:artifact-local]",
                 "summarize_video: broad overview",

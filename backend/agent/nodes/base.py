@@ -141,10 +141,7 @@ def _get_latest_human_query(messages: list) -> str:
 def _format_external_memory(memory: dict) -> str | None:
     """Format one external memory entry as compact text."""
     text = (
-        memory.get("memory")
-        or memory.get("text")
-        or memory.get("content")
-        or memory.get("summary")
+        memory.get("memory") or memory.get("text") or memory.get("content") or memory.get("summary")
     )
     if not isinstance(text, str) or not text:
         return None
@@ -210,9 +207,7 @@ def _extract_query_terms(query: str) -> set[str]:
         "please",
     }
     return {
-        term
-        for term in re.findall(r"\b[a-z0-9]{3,}\b", query.lower())
-        if term not in stop_words
+        term for term in re.findall(r"\b[a-z0-9]{3,}\b", query.lower()) if term not in stop_words
     }
 
 
@@ -309,6 +304,7 @@ async def _search_external_memories(
 ) -> list[dict]:
     """Retrieve raw semantic memory candidates from Mem0."""
     from core.config import settings
+
     retrieval_started = time.time()
     metric_labels = {"source": "mem0", "agent": _agent_type_from_state(state)}
 
@@ -415,10 +411,14 @@ async def _retrieve_hybrid_memory_context(
             continue
 
         metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
-        artifact_id = metadata.get("artifact_id") if isinstance(metadata.get("artifact_id"), str) else None
+        artifact_id = (
+            metadata.get("artifact_id") if isinstance(metadata.get("artifact_id"), str) else None
+        )
         lexical_score = _score_text_overlap(snippet, query_terms)
         semantic_score = memory.get("score")
-        semantic_score_value = float(semantic_score) if isinstance(semantic_score, int | float) else 0.0
+        semantic_score_value = (
+            float(semantic_score) if isinstance(semantic_score, int | float) else 0.0
+        )
         rank_score = (lexical_score * 2.5) + (semantic_score_value * 1.5) + 0.4
         if detail_query and artifact_id:
             rank_score += 0.6
@@ -444,8 +444,14 @@ async def _retrieve_hybrid_memory_context(
                 continue
 
             tool_name = ref.get("tool_name") if isinstance(ref.get("tool_name"), str) else "tool"
-            artifact_id = ref.get("artifact_id") if isinstance(ref.get("artifact_id"), str) else None
-            ref_text = summary if summary.lower().startswith(tool_name.lower()) else f"{tool_name}: {summary}"
+            artifact_id = (
+                ref.get("artifact_id") if isinstance(ref.get("artifact_id"), str) else None
+            )
+            ref_text = (
+                summary
+                if summary.lower().startswith(tool_name.lower())
+                else f"{tool_name}: {summary}"
+            )
             lexical_score = _score_text_overlap(ref_text, query_terms)
             recency_score = max(0.0, 1.0 - (index / 20))
             rank_score = (lexical_score * 2.2) + (recency_score * 0.8)
@@ -465,7 +471,9 @@ async def _retrieve_hybrid_memory_context(
 
     if not candidates:
         duration_seconds = time.time() - retrieval_started
-        Metrics.observe_histogram(Metrics.MEMORY_RETRIEVAL_DURATION, duration_seconds, metric_labels)
+        Metrics.observe_histogram(
+            Metrics.MEMORY_RETRIEVAL_DURATION, duration_seconds, metric_labels
+        )
         Metrics.observe_histogram(Metrics.MEMORY_CANDIDATES, 0, metric_labels)
         Metrics.observe_histogram(Metrics.MEMORY_SNIPPETS_INJECTED, 0, metric_labels)
         Metrics.observe_histogram(
@@ -645,7 +653,9 @@ async def _rehydrate_artifact_context(
 
     if not selected_refs:
         duration_seconds = time.time() - rehydration_started
-        Metrics.observe_histogram(Metrics.ARTIFACT_REHYDRATION_DURATION, duration_seconds, metric_labels)
+        Metrics.observe_histogram(
+            Metrics.ARTIFACT_REHYDRATION_DURATION, duration_seconds, metric_labels
+        )
         Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ATTEMPTS, metric_labels, 0)
         Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_SUCCESSES, metric_labels, 0)
         return []
@@ -698,7 +708,9 @@ async def _rehydrate_artifact_context(
         successes += 1
 
     duration_seconds = time.time() - rehydration_started
-    Metrics.observe_histogram(Metrics.ARTIFACT_REHYDRATION_DURATION, duration_seconds, metric_labels)
+    Metrics.observe_histogram(
+        Metrics.ARTIFACT_REHYDRATION_DURATION, duration_seconds, metric_labels
+    )
     Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ATTEMPTS, metric_labels, attempts)
     Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_SUCCESSES, metric_labels, successes)
     logger.info(
@@ -801,7 +813,9 @@ async def base_call_model(
     trimmed_messages = _message_trimmer.invoke(truncated_messages)
     messages = [system_message] + trimmed_messages
 
-    hybrid_memory_context, prioritized_artifact_ids = await _retrieve_hybrid_memory_context(state, config)
+    hybrid_memory_context, prioritized_artifact_ids = await _retrieve_hybrid_memory_context(
+        state, config
+    )
     if hybrid_memory_context:
         memory_hint = SystemMessage(
             content=(

@@ -1354,4 +1354,3 @@ class TestMultiVideoApiSchemas:
         assert "vid-1" in ids
         assert "vid-2" in ids
         assert "vid-3" in ids
-

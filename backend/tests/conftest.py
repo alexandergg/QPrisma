@@ -183,9 +183,7 @@ def superuser():
 @pytest.fixture
 def auth_token(auth_service, test_user):
     """Generate a valid JWT access token for test_user."""
-    return auth_service.create_access_token(
-        {"sub": test_user.id, "email": test_user.email}
-    )
+    return auth_service.create_access_token({"sub": test_user.id, "email": test_user.email})
 
 
 @pytest.fixture
@@ -261,9 +259,7 @@ def mock_openai_client():
 def mock_graph_search_service():
     """Mocked GraphSearchService."""
     mock = AsyncMock()
-    mock.hybrid_search = AsyncMock(
-        return_value=MagicMock(results=[], total_results=0)
-    )
+    mock.hybrid_search = AsyncMock(return_value=MagicMock(results=[], total_results=0))
     mock.graph_service = MagicMock(is_connected=True)
     return mock
 

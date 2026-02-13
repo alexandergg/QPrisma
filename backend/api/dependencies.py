@@ -131,6 +131,7 @@ async def get_tool_artifact_service():
 
     return await _get_tool_artifact_service()
 
+
 def get_storage_container_name() -> str:
     """Get Azure Storage container name for media."""
     return settings.azure.storage_container_name

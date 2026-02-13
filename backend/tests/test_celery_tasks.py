@@ -220,4 +220,3 @@ class TestCeleryIntegration:
         time.sleep(2)
 
         assert result.state in ["PENDING", "STARTED", "SUCCESS", "FAILURE"]
-

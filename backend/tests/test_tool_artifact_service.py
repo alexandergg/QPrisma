@@ -147,7 +147,9 @@ class TestToolArtifactService:
         assert f"test_tool_artifact:{saved['id']}" in cache.storage
 
     @pytest.mark.asyncio
-    async def test_get_artifact_falls_back_to_blob_and_backfills_cache(self, artifact_service_fixture):
+    async def test_get_artifact_falls_back_to_blob_and_backfills_cache(
+        self, artifact_service_fixture
+    ):
         service, _, cache, _ = artifact_service_fixture
 
         saved = await service.save_artifact(

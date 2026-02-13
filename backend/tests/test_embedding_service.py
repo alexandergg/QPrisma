@@ -114,7 +114,9 @@ class TestEmbeddingGeneration:
         mock_client_ctor.return_value.embeddings.create.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_generate_embedding_uses_correct_model(self, embedding_service: EmbeddingService) -> None:
+    async def test_generate_embedding_uses_correct_model(
+        self, embedding_service: EmbeddingService
+    ) -> None:
         mock_response = Mock()
         mock_response.data = [Mock(embedding=[0.1, 0.2])]
         mock_response.usage = Mock(total_tokens=10)
@@ -222,7 +224,9 @@ class TestBatchGeneration:
 
 
 class TestSimilarityAndStats:
-    def test_compute_similarity_identical_vectors(self, embedding_service: EmbeddingService) -> None:
+    def test_compute_similarity_identical_vectors(
+        self, embedding_service: EmbeddingService
+    ) -> None:
         vector = [1.0, 2.0, 3.0]
         similarity = embedding_service.compute_similarity(vector, vector)
         assert abs(similarity - 1.0) < 1e-9

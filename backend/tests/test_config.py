@@ -82,9 +82,7 @@ class TestPostgresSettings:
             patch.dict(os.environ, {"APP_ENV": "production"}),
             pytest.raises(ValueError, match="Default database credentials"),
         ):
-            PostgresSettings(
-                database_url="postgresql://qprisma:qprisma123@localhost:5432/qprisma"
-            )
+            PostgresSettings(database_url="postgresql://qprisma:qprisma123@localhost:5432/qprisma")
 
     def test_production_accepts_secure_credentials(self):
         with patch.dict(os.environ, {"APP_ENV": "production"}):
@@ -220,7 +218,9 @@ class TestSettings:
 
     def test_apply_env_overrides(self):
         s = Settings()
-        with patch.dict(os.environ, {"APP_ENV": "staging", "LOG_LEVEL": "DEBUG", "API_PORT": "9000"}):
+        with patch.dict(
+            os.environ, {"APP_ENV": "staging", "LOG_LEVEL": "DEBUG", "API_PORT": "9000"}
+        ):
             s.apply_env_overrides()
         assert s.app.environment == "staging"
         assert s.app.log_level == "DEBUG"

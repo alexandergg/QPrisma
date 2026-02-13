@@ -61,17 +61,15 @@ class ToolArtifactService:
         return f"{self.cache_key_prefix}:{artifact_id}"
 
     def _build_blob_name(self, session_id: str, tool_name: str, artifact_id: str) -> str:
-        safe_session_id = "".join(
-            ch if ch.isalnum() or ch in "-_" else "_" for ch in session_id
-        ) or "session"
-        safe_tool_name = "".join(
-            ch if ch.isalnum() or ch in "-_" else "_" for ch in tool_name
-        ) or "tool"
+        safe_session_id = (
+            "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in session_id) or "session"
+        )
+        safe_tool_name = (
+            "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in tool_name) or "tool"
+        )
         date_partition = datetime.now(UTC).strftime("%Y%m%d")
 
-        relative_name = (
-            f"{safe_session_id}/{date_partition}/{safe_tool_name}_{artifact_id}.json.gz"
-        )
+        relative_name = f"{safe_session_id}/{date_partition}/{safe_tool_name}_{artifact_id}.json.gz"
         return f"{self.blob_prefix}/{relative_name}" if self.blob_prefix else relative_name
 
     async def _set_cached_payload(

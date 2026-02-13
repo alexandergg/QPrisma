@@ -4,7 +4,6 @@ Tests for core/async_utils.py
 Covers run_sync, async_wrap, file operations, and executor management.
 """
 
-
 import pytest
 
 from core.async_utils import (
