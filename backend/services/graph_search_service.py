@@ -129,8 +129,7 @@ class GraphSearchService:
         with self.graph_service.get_session() as session:
             for index_name, label, prop, dims in index_configs:
                 try:
-                    session.run(
-                        f"""
+                    session.run(f"""
                         CREATE VECTOR INDEX {index_name} IF NOT EXISTS
                         FOR (n:{label})
                         ON n.{prop}
@@ -140,8 +139,7 @@ class GraphSearchService:
                                 `vector.similarity_function`: 'cosine'
                             }}
                         }}
-                        """
-                    )
+                        """)
                     logger.info(f"Created vector index {index_name} ({dims}d)")
                 except Exception as e:
                     logger.debug(f"Vector index {index_name} may already exist: {e}")
