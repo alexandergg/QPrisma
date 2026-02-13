@@ -52,22 +52,36 @@ async def lifespan(app: FastAPI):
     print("QPrisma API v0.3.0")
     print("=" * 50)
     print(f"📍 Environment: {settings.app.environment}")
-    print(f"📊 Azure OpenAI: {'✓' if get_openai_client() else '✗'}")
-    print(f"💾 Azure Storage: {'✓' if get_blob_service() else '✗'}")
-    db = get_database_service()
-    db_health = db.health_check() if db else {"status": "not_configured"}
-    print(f"🗄️  PostgreSQL: {'✓' if db_health.get('status') == 'healthy' else '✗'}")
+    disable_startup_checks = os.getenv("DISABLE_STARTUP_HEALTHCHECKS", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if disable_startup_checks:
+        print("📊 Azure OpenAI: skipped (startup checks disabled)")
+        print("💾 Azure Storage: skipped (startup checks disabled)")
+        print("🗄️  PostgreSQL: skipped (startup checks disabled)")
+    else:
+        print(f"📊 Azure OpenAI: {'✓' if get_openai_client() else '✗'}")
+        print(f"💾 Azure Storage: {'✓' if get_blob_service() else '✗'}")
+        db = get_database_service()
+        db_health = db.health_check() if db else {"status": "not_configured"}
+        print(f"🗄️  PostgreSQL: {'✓' if db_health.get('status') == 'healthy' else '✗'}")
 
     # Initialize Redis Pub/Sub listener for WebSocket events from Celery
     pubsub_task = None
-    try:
-        from api.routes.websocket_manager import get_pubsub_manager
+    disable_pubsub = os.getenv("DISABLE_REDIS_PUBSUB", "").lower() in {"1", "true", "yes"}
+    if disable_pubsub:
+        print("📡 Redis Pub/Sub: skipped (disabled by env)")
+    else:
+        try:
+            from api.routes.websocket_manager import get_pubsub_manager
 
-        pubsub_manager = await get_pubsub_manager()
-        pubsub_task = asyncio.create_task(pubsub_manager.listen())
-        print("📡 Redis Pub/Sub: ✓ (WebSocket sync enabled)")
-    except Exception as e:
-        print(f"📡 Redis Pub/Sub: ✗ ({e})")
+            pubsub_manager = await get_pubsub_manager()
+            pubsub_task = asyncio.create_task(pubsub_manager.listen())
+            print("📡 Redis Pub/Sub: ✓ (WebSocket sync enabled)")
+        except Exception as e:
+            print(f"📡 Redis Pub/Sub: ✗ ({e})")
 
     print("=" * 50)
 

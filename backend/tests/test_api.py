@@ -5,6 +5,8 @@ Covers root health check, detailed health, and config endpoints.
 """
 
 
+from unittest.mock import Mock, patch
+
 import pytest
 
 
@@ -27,7 +29,12 @@ class TestRootEndpoint:
 @pytest.mark.unit
 class TestHealthEndpoint:
     def test_returns_services_status(self, client):
-        resp = client.get("/health")
+        mock_db = Mock()
+        mock_db.health_check.return_value = {"status": "healthy"}
+
+        with patch("api.main.get_database_service", return_value=mock_db):
+            resp = client.get("/health")
+
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "healthy"
@@ -41,7 +48,12 @@ class TestHealthEndpoint:
 @pytest.mark.unit
 class TestConfigEndpoint:
     def test_returns_config_status(self, client):
-        resp = client.get("/config")
+        mock_db = Mock()
+        mock_db.health_check.return_value = {"status": "healthy"}
+
+        with patch("api.main.get_database_service", return_value=mock_db):
+            resp = client.get("/config")
+
         assert resp.status_code == 200
         body = resp.json()
         assert "azure_openai_configured" in body

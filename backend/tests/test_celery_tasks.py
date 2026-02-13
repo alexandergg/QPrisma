@@ -1,25 +1,6 @@
-"""
-Tests para el sistema de tareas Celery de QPrisma
-
-Ejecutar:
-    # Tests unitarios (sin broker real)
-    cd backend
-    python -m pytest tests/test_celery_tasks.py -v
-
-    # Test con Celery real (requiere Redis + Worker)
-    python tests/test_celery_tasks.py --live
-
-    # Solo verificar configuración
-    python tests/test_celery_tasks.py --check
-"""
+"""Tests para el sistema de tareas Celery de QPrisma."""
 
 import os
-import sys
-from pathlib import Path
-
-# Agregar parent al path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,7 +15,6 @@ class TestCeleryConfiguration:
 
         assert celery_app is not None
         assert celery_app.main == "qprisma"
-        print("✓ Celery app creada correctamente")
 
     def test_celery_config(self):
         """Test que la configuración es correcta"""
@@ -47,7 +27,6 @@ class TestCeleryConfiguration:
         assert config.result_serializer == "json"
         assert config.timezone == "UTC"
         assert config.task_acks_late is True
-        print("✓ Configuración de Celery correcta")
 
     def test_task_routes(self):
         """Test que las rutas de tareas están configuradas"""
@@ -57,7 +36,6 @@ class TestCeleryConfiguration:
 
         assert "tasks.video_tasks.process_video_pipeline" in routes
         assert routes["tasks.video_tasks.process_video_pipeline"]["queue"] == "video_processing"
-        print("✓ Rutas de tareas configuradas")
 
     def test_task_queues(self):
         """Test que las colas están definidas"""
@@ -69,7 +47,6 @@ class TestCeleryConfiguration:
         assert "video_processing" in queue_names
         assert "fast_tasks" in queue_names
         assert "default" in queue_names
-        print("✓ Colas de tareas definidas")
 
 
 class TestVideoTasks:
@@ -94,8 +71,6 @@ class TestVideoTasks:
         for task in expected_tasks:
             assert task in registered, f"Task {task} no registrada"
 
-        print(f"✓ {len(expected_tasks)} tareas registradas correctamente")
-
     def test_debug_task(self):
         """Test la tarea de debug"""
         from tasks.celery_app import debug_task
@@ -105,7 +80,6 @@ class TestVideoTasks:
 
         assert result["status"] == "ok"
         assert "worker" in result
-        print("✓ Task de debug funciona")
 
 
 class TestTasksEagerMode:
@@ -153,8 +127,6 @@ class TestTasksEagerMode:
             assert result["job_id"] == "test_job_123"
             assert result["status"] == "processing"
 
-        print("✓ Task update_job_status funciona")
-
     def test_cleanup_task(self):
         """Test limpieza de archivos temporales"""
         import tempfile
@@ -171,7 +143,6 @@ class TestTasksEagerMode:
         cleanup_task(tmp_path)
 
         assert not os.path.exists(tmp_path)
-        print("✓ Task cleanup funciona")
 
 
 class TestJobsAPI:
@@ -215,8 +186,14 @@ class TestJobsAPI:
 # =============================================================================
 
 
+@pytest.mark.integration
 class TestCeleryIntegration:
     """Tests de integración con Celery real"""
+
+    @pytest.fixture(autouse=True)
+    def require_integration(self):
+        if os.getenv("RUN_INTEGRATION_TESTS", "").lower() not in {"1", "true", "yes"}:
+            pytest.skip("Integration tests disabled. Set RUN_INTEGRATION_TESTS=true to enable.")
 
     @pytest.fixture
     def celery_app(self):
@@ -225,7 +202,6 @@ class TestCeleryIntegration:
 
         return celery_app
 
-    @pytest.mark.skip(reason="Requiere Redis y Worker corriendo")
     def test_submit_and_track_job(self, celery_app):
         """Test completo de envío y tracking de job"""
         from tasks.video_tasks import process_video_pipeline
@@ -244,137 +220,4 @@ class TestCeleryIntegration:
         time.sleep(2)
 
         assert result.state in ["PENDING", "STARTED", "SUCCESS", "FAILURE"]
-        print(f"✓ Job enviado: {result.id}, estado: {result.state}")
 
-
-# =============================================================================
-# Demo / CLI
-# =============================================================================
-
-
-def check_celery_setup():
-    """Verifica que Celery está configurado correctamente"""
-    print("\n" + "=" * 60)
-    print("QPrisma Celery Setup Check")
-    print("=" * 60 + "\n")
-
-    # 1. Verificar importación
-    print("1. Verificando importación de Celery...")
-    try:
-        from tasks.celery_app import celery_app
-
-        print("   ✓ Celery app importada correctamente")
-    except Exception as e:
-        print(f"   ✗ Error: {e}")
-        return False
-
-    # 2. Verificar tasks
-    print("\n2. Verificando tasks registradas...")
-    try:
-        tasks_count = len([t for t in celery_app.tasks if t.startswith("tasks.")])
-        print(f"   ✓ {tasks_count} tasks registradas")
-    except Exception as e:
-        print(f"   ✗ Error: {e}")
-        return False
-
-    # 3. Verificar conexión a Redis
-    print("\n3. Verificando conexión a Redis...")
-    try:
-        import redis
-
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        r = redis.from_url(redis_url)
-        r.ping()
-        print(f"   ✓ Redis conectado en {redis_url}")
-    except Exception as e:
-        print(f"   ⚠ Redis no disponible: {e}")
-        print("   (El worker no podrá ejecutarse sin Redis)")
-
-    # 4. Verificar colas
-    print("\n4. Verificando colas configuradas...")
-    queues = [q.name for q in celery_app.conf.task_queues]
-    for q in queues:
-        print(f"   ✓ Cola: {q}")
-
-    print("\n" + "=" * 60)
-    print("Setup verificado correctamente!")
-    print("=" * 60)
-
-    print("\nPara iniciar el sistema:")
-    print("  1. docker-compose up -d redis")
-    print("  2. celery -A tasks.celery_app worker --loglevel=info")
-    print("  3. python api/main.py")
-    print("\nO con Docker:")
-    print("  docker-compose --profile worker up -d")
-
-    return True
-
-
-def run_live_test():
-    """Ejecuta un test en vivo con Celery"""
-    print("\n" + "=" * 60)
-    print("QPrisma Celery Live Test")
-    print("=" * 60 + "\n")
-
-    print("Este test requiere:")
-    print("  - Redis corriendo (docker-compose up -d redis)")
-    print("  - Worker corriendo (celery -A tasks.celery_app worker)")
-    print()
-
-    try:
-        from tasks.celery_app import celery_app, debug_task
-
-        # Test 1: Debug task
-        print("1. Enviando debug task...")
-        result = debug_task.delay()
-        print(f"   Task ID: {result.id}")
-
-        # Esperar resultado
-        import time
-
-        for i in range(10):
-            if result.ready():
-                break
-            print(f"   Esperando... ({i+1}s)")
-            time.sleep(1)
-
-        if result.ready():
-            print(f"   ✓ Resultado: {result.result}")
-        else:
-            print("   ⚠ Timeout esperando resultado")
-
-        # Test 2: Verificar workers
-        print("\n2. Verificando workers activos...")
-        inspect = celery_app.control.inspect()
-        active = inspect.active()
-        if active:
-            for worker, tasks in active.items():
-                print(f"   ✓ Worker: {worker} ({len(tasks)} tasks activas)")
-        else:
-            print("   ⚠ No hay workers activos")
-
-        print("\n" + "=" * 60)
-        print("Live test completado!")
-        print("=" * 60)
-
-    except Exception as e:
-        print(f"\n✗ Error: {e}")
-        print("\nAsegúrate de que Redis y el Worker están corriendo.")
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Test Celery para QPrisma")
-    parser.add_argument("--check", action="store_true", help="Solo verificar setup")
-    parser.add_argument("--live", action="store_true", help="Test en vivo con Celery")
-
-    args = parser.parse_args()
-
-    if args.check:
-        check_celery_setup()
-    elif args.live:
-        run_live_test()
-    else:
-        # Por defecto, verificar setup
-        check_celery_setup()

@@ -13,12 +13,16 @@ Uso:
 
 import argparse
 import os
-import sys
 from datetime import datetime
 from uuid import uuid4
 
-# Agregar backend al path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pytest
+
+if os.getenv("RUN_INTEGRATION_TESTS", "").lower() not in {"1", "true", "yes"}:
+    pytest.skip(
+        "Manual hierarchical-context demo tests are disabled. Set RUN_INTEGRATION_TESTS=true to enable.",
+        allow_module_level=True,
+    )
 
 from dotenv import load_dotenv
 
@@ -578,9 +582,3 @@ async def main():
         tester.disconnect()
 
     return 0
-
-
-if __name__ == "__main__":
-    import asyncio
-
-    sys.exit(asyncio.run(main()))

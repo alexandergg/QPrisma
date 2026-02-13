@@ -19,6 +19,35 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+def _env_enabled(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes"}
+
+
+collect_ignore: list[str] = []
+if not _env_enabled("RUN_INTEGRATION_TESTS"):
+    collect_ignore.extend(
+        [
+            "test_batch_vision.py",
+            "test_deployments.py",
+            "test_ffmpeg_basic.py",
+            "test_graph_search.py",
+            "test_hierarchical_context.py",
+            "test_knowledge_graph.py",
+        ]
+    )
+if not _env_enabled("RUN_E2E_TESTS"):
+    collect_ignore.extend(
+        [
+            "test_chat_quick.py",
+            "test_ffmpeg_endpoints.py",
+            "test_full_pipeline.py",
+            "test_video_upload.py",
+        ]
+    )
+if not _env_enabled("RUN_PERFORMANCE_TESTS"):
+    collect_ignore.append("test_parallel_performance.py")
+
+
 # =============================================================================
 # Environment Fixtures
 # =============================================================================
@@ -31,6 +60,8 @@ def test_env():
 
     os.environ.setdefault("APP_ENV", "test")
     os.environ.setdefault("LOG_LEVEL", "WARNING")
+    os.environ.setdefault("DISABLE_REDIS_PUBSUB", "1")
+    os.environ.setdefault("DISABLE_STARTUP_HEALTHCHECKS", "1")
     # Prevent production validators from firing
     os.environ.pop("ENVIRONMENT", None)
 

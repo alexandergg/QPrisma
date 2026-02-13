@@ -352,10 +352,4 @@ class TestEdgeCases:
 
     def test_validates_export_format(self, export_service):
         """Test that invalid formats are rejected."""
-        # This test assumes validation exists
-        # May need to be adjusted based on actual implementation
-        pass
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        pytest.xfail("Export format validation is not explicitly implemented in ExportService yet.")

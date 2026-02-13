@@ -3,9 +3,17 @@ Script de prueba completo para QPrisma
 Prueba upload, procesamiento, búsqueda y chat
 """
 
+import os
 import time
 
+import pytest
 import requests
+
+if os.getenv("RUN_E2E_TESTS", "").lower() not in {"1", "true", "yes"}:
+    pytest.skip(
+        "Manual full-pipeline checks are disabled. Set RUN_E2E_TESTS=true to enable.",
+        allow_module_level=True,
+    )
 
 API_URL = "http://localhost:8000"
 
@@ -190,7 +198,3 @@ def main():
     test_chat_general()
 
     print_header("✨ Tests Completados")
-
-
-if __name__ == "__main__":
-    main()

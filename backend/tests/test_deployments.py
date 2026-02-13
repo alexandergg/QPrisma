@@ -2,9 +2,16 @@
 
 import os
 
+import pytest
 import requests
 from dotenv import load_dotenv
 from openai import AzureOpenAI
+
+if os.getenv("RUN_INTEGRATION_TESTS", "").lower() not in {"1", "true", "yes"}:
+    pytest.skip(
+        "Manual deployment checks are disabled. Set RUN_INTEGRATION_TESTS=true to enable.",
+        allow_module_level=True,
+    )
 
 load_dotenv()
 

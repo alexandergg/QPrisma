@@ -1,23 +1,9 @@
 """
 Tests para el sistema de caching de QPrisma
-
-Ejecutar:
-    cd backend
-    python -m pytest tests/test_cache_service.py -v
-
-    # O directamente:
-    python tests/test_cache_service.py
 """
 
-import asyncio
-import sys
-import time
-from pathlib import Path
-
-# Agregar parent al path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import io
+from unittest.mock import patch
 
 import pytest
 from PIL import Image
@@ -33,14 +19,15 @@ class TestCacheService:
 
         config = CacheConfig(key_prefix="test_qprisma", max_memory_items=100)
 
-        cache = CacheService(config=config)
-        await cache.connect()
+        with patch("services.cache_service.REDIS_AVAILABLE", False):
+            cache = CacheService(config=config)
+            await cache.connect()
 
-        yield cache
+            yield cache
 
-        # Limpiar después del test
-        await cache.clear_all()
-        await cache.disconnect()
+            # Limpiar después del test
+            await cache.clear_all()
+            await cache.disconnect()
 
     @pytest.mark.asyncio
     async def test_connection(self, cache_service):
@@ -48,7 +35,6 @@ class TestCacheService:
         metrics = cache_service.get_metrics()
         assert metrics["connected"] is True
         assert metrics["backend"] in ["redis", "memory"]
-        print(f"✓ Conectado a backend: {metrics['backend']}")
 
     @pytest.mark.asyncio
     async def test_embedding_cache(self, cache_service):
@@ -68,7 +54,6 @@ class TestCacheService:
         # Verificar métricas
         metrics = cache_service.get_metrics()
         assert metrics["hits"] >= 1
-        print("✓ Embedding cacheado y recuperado correctamente")
 
     @pytest.mark.asyncio
     async def test_frame_analysis_cache(self, cache_service):
@@ -87,7 +72,6 @@ class TestCacheService:
         # Recuperar
         cached = await cache_service.get_frame_analysis(frame_hash)
         assert cached == analysis
-        print("✓ Análisis de frame cacheado correctamente")
 
     @pytest.mark.asyncio
     async def test_job_status_cache(self, cache_service):
@@ -105,7 +89,6 @@ class TestCacheService:
         cached = await cache_service.get_job_status(job_id)
         assert cached["progress"] == 50
         assert cached["stage"] == "processing"
-        print("✓ Estado de job actualizado correctamente")
 
     @pytest.mark.asyncio
     async def test_get_or_compute_embedding(self, cache_service):
@@ -134,7 +117,6 @@ class TestCacheService:
         # Verificar que se ahorró una llamada
         metrics = cache_service.get_metrics()
         assert metrics["api_calls_saved"] >= 1
-        print(f"✓ Patrón Cache-Aside funcionando (ahorro: {metrics['api_calls_saved']} llamadas)")
 
     @pytest.mark.asyncio
     async def test_perceptual_hash(self, cache_service):
@@ -160,7 +142,6 @@ class TestCacheService:
         # Los hashes deben ser similares (distancia baja)
         distance = cache_service.hash_distance(phash, phash2)
         assert distance <= 10, f"Distancia muy alta: {distance}"
-        print(f"✓ Hash perceptual: distancia entre imágenes similares = {distance}")
 
     @pytest.mark.asyncio
     async def test_frame_similarity_dedup(self, cache_service):
@@ -201,7 +182,7 @@ class TestCacheService:
 
         # No debería haber llamado a compute de nuevo (frame similar)
         # Nota: puede fallar si las imágenes son muy diferentes
-        print(f"✓ Deduplicación por similitud: compute llamado {compute_called} veces")
+        assert result2 is not None
 
     @pytest.mark.asyncio
     async def test_invalidation(self, cache_service):
@@ -214,8 +195,7 @@ class TestCacheService:
         # Invalidar por patrón
         pattern = f"{cache_service.config.key_prefix}:*video1*"
         deleted = await cache_service.invalidate_by_pattern(pattern)
-
-        print(f"✓ Invalidación: {deleted} keys eliminadas con patrón")
+        assert isinstance(deleted, int)
 
     @pytest.mark.asyncio
     async def test_metrics_tracking(self, cache_service):
@@ -231,9 +211,6 @@ class TestCacheService:
         assert metrics["hits"] >= 1
         assert metrics["misses"] >= 1
         assert float(metrics["hit_rate"].rstrip("%")) > 0
-        print(
-            f"✓ Métricas: {metrics['hits']} hits, {metrics['misses']} misses, {metrics['hit_rate']} hit rate"
-        )
 
 
 class TestInMemoryCache:
@@ -246,9 +223,9 @@ class TestInMemoryCache:
 
         config = CacheConfig(key_prefix="test_memory", max_memory_items=10)
 
-        # Forzar uso de memoria (URL inválida)
-        cache = CacheService(redis_url="redis://invalid:9999", config=config)
-        await cache.connect()
+        with patch("services.cache_service.REDIS_AVAILABLE", False):
+            cache = CacheService(config=config)
+            await cache.connect()
 
         assert cache._use_memory_fallback is True
 
@@ -258,7 +235,6 @@ class TestInMemoryCache:
         assert result == [0.1, 0.2]
 
         await cache.disconnect()
-        print("✓ Fallback a memoria funciona correctamente")
 
     @pytest.mark.asyncio
     async def test_lru_eviction(self):
@@ -285,105 +261,3 @@ class TestInMemoryCache:
         # key1 debe seguir existiendo
         result = await cache.get("key1")
         assert result == b"value1"
-
-        print("✓ Evicción LRU funciona correctamente")
-
-
-# =============================================================================
-# Ejecutar tests directamente
-# =============================================================================
-
-
-async def run_demo():
-    """Demo interactivo del sistema de cache"""
-    from services.cache_service import CacheConfig, CacheService
-
-    print("\n" + "=" * 60)
-    print("QPrisma Cache Service - Demo")
-    print("=" * 60 + "\n")
-
-    # Crear servicio
-    config = CacheConfig(key_prefix="demo_qprisma")
-    cache = CacheService(config=config)
-
-    print("1. Conectando a cache...")
-    connected_to_redis = await cache.connect()
-    backend = "Redis" if connected_to_redis else "Memory (fallback)"
-    print(f"   Backend: {backend}\n")
-
-    print("2. Probando cache de embeddings...")
-    test_text = "Este es un texto de prueba para el demo"
-
-    # Simular compute function
-    calls = 0
-
-    def fake_compute():
-        nonlocal calls
-        calls += 1
-        print(f"   [Compute] Llamada #{calls} a Azure OpenAI (simulado)")
-        time.sleep(0.1)  # Simular latencia
-        return [0.1, 0.2, 0.3, 0.4, 0.5]
-
-    # Primera llamada (miss)
-    start = time.time()
-    result1 = await cache.get_or_compute_embedding(test_text, fake_compute)
-    time1 = time.time() - start
-    print(f"   Primera llamada: {time1*1000:.1f}ms (cache MISS)\n")
-
-    # Segunda llamada (hit)
-    start = time.time()
-    result2 = await cache.get_or_compute_embedding(test_text, fake_compute)
-    time2 = time.time() - start
-    print(f"   Segunda llamada: {time2*1000:.1f}ms (cache HIT)")
-    print(f"   Speedup: {time1/time2:.1f}x más rápido\n")
-
-    print("3. Probando deduplicación de frames...")
-
-    # Crear imagen
-    img = Image.new("RGB", (200, 200), color="green")
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG")
-    frame_bytes = buffer.getvalue()
-
-    phash = cache.compute_perceptual_hash(frame_bytes)
-    print(f"   Hash perceptual: {phash}")
-
-    # Crear imagen similar
-    img2 = Image.new("RGB", (200, 200), color="green")
-    pixels = img2.load()
-    for i in range(5):
-        pixels[i, i] = (0, 255, 0)  # Pequeños cambios
-
-    buffer2 = io.BytesIO()
-    img2.save(buffer2, format="JPEG")
-    frame_bytes2 = buffer2.getvalue()
-
-    phash2 = cache.compute_perceptual_hash(frame_bytes2)
-    distance = cache.hash_distance(phash, phash2)
-    print(f"   Hash perceptual (similar): {phash2}")
-    print(f"   Distancia: {distance} (threshold: {config.similarity_threshold})")
-    print(f"   ¿Son similares?: {'Sí' if distance <= config.similarity_threshold else 'No'}\n")
-
-    print("4. Métricas finales:")
-    metrics = cache.get_metrics()
-    print(f"   Hits: {metrics['hits']}")
-    print(f"   Misses: {metrics['misses']}")
-    print(f"   Hit Rate: {metrics['hit_rate']}")
-    print(f"   API calls saved: {metrics['api_calls_saved']}")
-    print(f"   Estimated cost saved: {metrics['estimated_cost_saved']}\n")
-
-    # Limpiar
-    await cache.clear_all()
-    await cache.disconnect()
-
-    print("=" * 60)
-    print("Demo completado!")
-    print("=" * 60 + "\n")
-
-
-if __name__ == "__main__":
-    # Si se ejecuta directamente, correr demo
-    print("\nEjecutando demo del Cache Service...\n")
-    asyncio.run(run_demo())
-
-    # Para correr tests: python -m pytest tests/test_cache_service.py -v

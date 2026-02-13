@@ -8,8 +8,15 @@ import os
 import tempfile
 import time
 
+import pytest
 from dotenv import load_dotenv
 from openai import AzureOpenAI
+
+if os.getenv("RUN_INTEGRATION_TESTS", "").lower() not in {"1", "true", "yes"}:
+    pytest.skip(
+        "Manual Batch API checks are disabled. Set RUN_INTEGRATION_TESTS=true to enable.",
+        allow_module_level=True,
+    )
 
 load_dotenv()
 

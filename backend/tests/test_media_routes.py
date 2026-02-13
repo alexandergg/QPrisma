@@ -166,7 +166,11 @@ class TestDeleteMedia:
             patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
             patch("api.routes.media_routes.get_blob_service", return_value=mock_blob_service),
             patch("api.routes.media_routes.get_video_processor", return_value=None),
+            patch("services.knowledge_graph.KnowledgeGraphService") as mock_kg_cls,
         ):
+            mock_kg = MagicMock()
+            mock_kg.delete_video_subgraph.return_value = True
+            mock_kg_cls.return_value = mock_kg
             resp = authenticated_client.delete("/media/some_id")
 
         assert resp.status_code == 200

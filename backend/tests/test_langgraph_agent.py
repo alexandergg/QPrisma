@@ -1355,6 +1355,3 @@ class TestMultiVideoApiSchemas:
         assert "vid-2" in ids
         assert "vid-3" in ids
 
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
