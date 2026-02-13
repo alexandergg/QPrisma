@@ -18,14 +18,36 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup backend
         uses: ./.github/actions/setup-backend
         with:
           working-directory: backend
 
-      - name: Run pre-commit (backend hooks)
-        run: pre-commit run --all-files
+      - name: Run pre-commit on changed backend files
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            FROM_SHA="${{ github.event.pull_request.base.sha }}"
+            TO_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            FROM_SHA="${{ github.event.before }}"
+            TO_SHA="${{ github.sha }}"
+          fi
+
+          echo "Comparing changes from $FROM_SHA to $TO_SHA"
+
+          mapfile -t changed_files < <(git diff --name-only "$FROM_SHA" "$TO_SHA" -- 'backend/**/*.py')
+
+          if [[ ${#changed_files[@]} -eq 0 ]]; then
+            echo "No backend Python files changed. Skipping pre-commit."
+            exit 0
+          fi
+
+          printf 'Changed backend Python files:\n%s\n' "${changed_files[@]}"
+          pre-commit run --files "${changed_files[@]}"
 
   backend-test:
     name: Backend Tests
