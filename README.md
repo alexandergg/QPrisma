@@ -1,4 +1,7 @@
-# QPrisma: AI Video Intelligence Accelerator
+<p align="left">
+  <img src="docs/assets/logo.png" alt="QPrisma Logo" width="600">
+</p>
+
 
 [![OpenSSF Best Practices](https://bestpractices.coreinfrastructure.org/projects/1/badge)](https://bestpractices.coreinfrastructure.org/projects/1)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
