@@ -28,6 +28,7 @@ export interface ChatMessageData {
   isLoading?: boolean;
   videoName?: string;
   toolCalls?: number;
+  isError?: boolean;
 }
 
 interface MessageListProps {
@@ -37,6 +38,17 @@ interface MessageListProps {
   onSuggestionClick?: (suggestion: string) => void;
   streamingContent?: string;
   activeTools?: ToolStatus[];
+  onRetryLast?: () => void;
+}
+
+function confidenceLabel(sources: ChatMessageSource[]): string {
+  const scored = sources.filter((source) => typeof source.score === 'number');
+  if (scored.length === 0) return 'Evidence available';
+
+  const average = scored.reduce((sum, source) => sum + (source.score || 0), 0) / scored.length;
+  if (average >= 0.8) return 'High confidence';
+  if (average >= 0.5) return 'Medium confidence';
+  return 'Low confidence';
 }
 
 function ToolProgress({ tools }: { tools: ToolStatus[] }) {
@@ -95,12 +107,25 @@ function MessageBubble({
   message,
   onTimestampClick,
   onSuggestionClick,
+  onRetryLast,
 }: {
   message: ChatMessageData;
   onTimestampClick?: (timestamp: number) => void;
   onSuggestionClick?: (suggestion: string) => void;
+  onRetryLast?: () => void;
 }) {
   const isUser = message.role === 'user';
+  const groupedSources = (message.sources || [])
+    .slice()
+    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .reduce<Record<string, ChatMessageSource[]>>((acc, source) => {
+      const key = source.videoTitle || source.videoId || 'Current video';
+      if (!acc[key]) {
+        acc[key] = [];
+      }
+      acc[key].push(source);
+      return acc;
+    }, {});
   
   // Parse content for suggestions
   let displayContent = message.content;
@@ -185,23 +210,43 @@ function MessageBubble({
               {/* Sources / Timestamps */}
               {!isUser && message.sources && message.sources.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-100">
-                  <p className="text-xs text-gray-400 mb-2">Referenced moments:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {message.sources.slice(0, 5).map((source, index) => (
-                      <TimestampBadge
-                        key={index}
-                        timestamp={source.timestamp}
-                        type={source.type}
-                        label={source.videoTitle || undefined}
-                        onClick={() => onTimestampClick?.(source.timestamp)}
-                      />
+                  <p className="text-xs text-gray-500 mb-2">
+                    Referenced moments • {confidenceLabel(message.sources)}
+                  </p>
+                  <div className="space-y-2">
+                    {Object.entries(groupedSources).slice(0, 3).map(([groupLabel, groupSources]) => (
+                      <div key={groupLabel}>
+                        <p className="text-[11px] text-gray-400 mb-1">{groupLabel}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {groupSources.slice(0, 3).map((source, index) => (
+                            <TimestampBadge
+                              key={`${groupLabel}-${index}-${source.timestamp}`}
+                              timestamp={source.timestamp}
+                              type={source.type}
+                              label={undefined}
+                              onClick={() => onTimestampClick?.(source.timestamp)}
+                            />
+                          ))}
+                        </div>
+                      </div>
                     ))}
-                    {message.sources.length > 5 && (
-                      <span className="text-xs text-gray-400 self-center">
-                        +{message.sources.length - 5} more
+                    {message.sources.length > 9 && (
+                      <span className="text-xs text-gray-400 self-center block">
+                        +{message.sources.length - 9} more references
                       </span>
                     )}
                   </div>
+                </div>
+              )}
+
+              {!isUser && message.isError && onRetryLast && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <button
+                    onClick={onRetryLast}
+                    className="text-sm px-3 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+                  >
+                    Retry last prompt
+                  </button>
                 </div>
               )}
             </>
@@ -212,7 +257,7 @@ function MessageBubble({
   );
 }
 
-export default function MessageList({ messages, isLoading, onTimestampClick, onSuggestionClick, streamingContent, activeTools = [] }: MessageListProps) {
+export default function MessageList({ messages, isLoading, onTimestampClick, onSuggestionClick, streamingContent, activeTools = [], onRetryLast }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom when new messages arrive
@@ -229,6 +274,7 @@ export default function MessageList({ messages, isLoading, onTimestampClick, onS
             message={message}
             onTimestampClick={onTimestampClick}
             onSuggestionClick={onSuggestionClick}
+            onRetryLast={onRetryLast}
           />
         ))}
 

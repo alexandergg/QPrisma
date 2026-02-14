@@ -12,17 +12,22 @@ Reference: https://a2a-protocol.org/latest/specification/
 """
 
 import asyncio
+import inspect
 import logging
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.checkpoint.memory import MemorySaver
 
 from agent.graphs.editor import create_editor_agent_graph
-from agent.graphs.video import create_video_agent_graph
+from agent.graphs.video import create_production_checkpointer, create_video_agent_graph
 from agent.state.agent_state import create_agent_state
+from agent.utils.observability import Metrics, get_logger
+from services.database_service import DatabaseService, get_database_service
 from models.a2a_models import (
     Artifact,
     Message,
@@ -37,7 +42,110 @@ from models.a2a_models import (
     TaskStatusUpdateEvent,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+
+def _record_phase_latency(phase: str, duration_seconds: float, agent_type: str) -> None:
+    """Record standardized A2A phase latency metric."""
+    Metrics.observe_histogram(
+        "a2a_phase_latency_seconds",
+        duration_seconds,
+        labels={"phase": phase, "agent": agent_type},
+    )
+
+
+_shared_checkpointer: Any | None = None
+_shared_checkpointer_cm: Any | None = None
+_checkpointer_lock = asyncio.Lock()
+
+
+async def _maybe_call_setup(checkpointer: Any) -> None:
+    """Call saver setup() if available (sync or async)."""
+    setup_fn = getattr(checkpointer, "setup", None)
+    if setup_fn is None:
+        return
+
+    try:
+        result = setup_fn()
+        if inspect.isawaitable(result):
+            await result
+    except Exception as exc:
+        logger.warning(f"Checkpointer setup failed, continuing without setup: {exc}")
+
+
+async def _materialize_checkpointer(candidate: Any) -> Any:
+    """
+    Materialize checkpointer instances that may be returned as context managers.
+
+    Supports:
+    - direct saver instances
+    - sync context managers via __enter__
+    - async context managers via __aenter__
+    """
+    global _shared_checkpointer_cm
+
+    if candidate is None:
+        return None
+
+    if hasattr(candidate, "__aenter__") and hasattr(candidate, "__aexit__"):
+        _shared_checkpointer_cm = candidate
+        saver = await candidate.__aenter__()
+        await _maybe_call_setup(saver)
+        return saver
+
+    if hasattr(candidate, "__enter__") and hasattr(candidate, "__exit__"):
+        _shared_checkpointer_cm = candidate
+        saver = candidate.__enter__()
+        await _maybe_call_setup(saver)
+        return saver
+
+    await _maybe_call_setup(candidate)
+    return candidate
+
+
+async def get_shared_checkpointer() -> Any:
+    """
+    Get a singleton shared checkpointer for all A2A executors.
+
+    Preference order follows production factory:
+    PostgreSQL > Redis > MemorySaver fallback.
+    """
+    global _shared_checkpointer
+    start = perf_counter()
+
+    if _shared_checkpointer is not None:
+        return _shared_checkpointer
+
+    async with _checkpointer_lock:
+        if _shared_checkpointer is not None:
+            return _shared_checkpointer
+
+        try:
+            candidate = create_production_checkpointer()
+            materialized = await _materialize_checkpointer(candidate)
+            if materialized is None:
+                raise RuntimeError("Production checkpointer factory returned None")
+
+            _shared_checkpointer = materialized
+            logger.info(
+                "A2A shared checkpointer initialized",
+                checkpointer_type=type(_shared_checkpointer).__name__,
+            )
+            _record_phase_latency(
+                "checkpointer_init",
+                perf_counter() - start,
+                "shared",
+            )
+            return _shared_checkpointer
+        except Exception as exc:
+            logger.warning(f"Falling back to MemorySaver for A2A checkpointer: {exc}")
+            _shared_checkpointer = MemorySaver()
+            _record_phase_latency(
+                "checkpointer_init",
+                perf_counter() - start,
+                "shared",
+            )
+            return _shared_checkpointer
 
 
 class TaskStore:
@@ -153,15 +261,140 @@ class TaskStore:
             return task
 
 
+class PersistentTaskStore:
+    """PostgreSQL-backed task store for durable A2A task lifecycle state."""
+
+    def __init__(self, db: DatabaseService):
+        self._db = db
+        self._lock = asyncio.Lock()
+
+    @staticmethod
+    def _task_to_row(task: Task) -> dict[str, Any]:
+        return {
+            "id": task.id,
+            "context_id": task.contextId,
+            "status_state": str(task.status.state),
+            "status_timestamp": task.status.timestamp,
+            "status_payload": task.status.model_dump(mode="json"),
+            "artifacts": [a.model_dump(mode="json") for a in (task.artifacts or [])],
+            "history": [m.model_dump(mode="json") for m in (task.history or [])],
+            "task_metadata": task.metadata or {},
+        }
+
+    @staticmethod
+    def _row_to_task(row: Any, include_artifacts: bool = True) -> Task:
+        status_payload = row.status_payload or {"state": TaskState.SUBMITTED}
+        artifacts_payload = row.artifacts if include_artifacts else None
+
+        return Task.model_validate(
+            {
+                "id": row.id,
+                "contextId": row.context_id,
+                "status": status_payload,
+                "artifacts": artifacts_payload,
+                "history": row.history,
+                "metadata": row.task_metadata,
+            }
+        )
+
+    async def create_task(
+        self,
+        context_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Task:
+        start = perf_counter()
+        task = Task(
+            id=str(uuid.uuid4()),
+            contextId=context_id or str(uuid.uuid4()),
+            status=TaskStatus(state=TaskState.SUBMITTED),
+            artifacts=[],
+            history=[],
+            metadata=metadata or {},
+        )
+
+        async with self._lock:
+            await asyncio.to_thread(self._db.upsert_a2a_task, self._task_to_row(task))
+            _record_phase_latency("task_persist", perf_counter() - start, "persistent_store")
+            return task
+
+    async def get_task(self, task_id: str) -> Task | None:
+        row = await asyncio.to_thread(self._db.get_a2a_task, task_id)
+        if not row:
+            return None
+        return self._row_to_task(row)
+
+    async def update_task(self, task: Task) -> Task:
+        start = perf_counter()
+        async with self._lock:
+            await asyncio.to_thread(self._db.upsert_a2a_task, self._task_to_row(task))
+            _record_phase_latency("task_persist", perf_counter() - start, "persistent_store")
+            return task
+
+    async def list_tasks(
+        self,
+        context_id: str | None = None,
+        status: TaskState | None = None,
+        page_size: int = 50,
+        include_artifacts: bool = False,
+    ) -> tuple[list[Task], int]:
+        rows, total = await asyncio.to_thread(
+            self._db.list_a2a_tasks,
+            context_id,
+            str(status) if status is not None else None,
+            page_size,
+        )
+        tasks = [self._row_to_task(row, include_artifacts=include_artifacts) for row in rows]
+        return tasks, total
+
+    async def cancel_task(self, task_id: str) -> Task | None:
+        async with self._lock:
+            task = await self.get_task(task_id)
+            if not task:
+                return None
+
+            terminal_states = {
+                TaskState.COMPLETED,
+                TaskState.FAILED,
+                TaskState.CANCELED,
+                TaskState.REJECTED,
+            }
+            if task.status.state in terminal_states:
+                return None
+
+            task.status = TaskStatus(
+                state=TaskState.CANCELED,
+                timestamp=datetime.now(UTC),
+            )
+            persist_start = perf_counter()
+            await asyncio.to_thread(self._db.upsert_a2a_task, self._task_to_row(task))
+            _record_phase_latency(
+                "task_persist", perf_counter() - persist_start, "persistent_store"
+            )
+            return task
+
+
 # Global task store instance
-_task_store: TaskStore | None = None
+_task_store: TaskStore | PersistentTaskStore | None = None
 
 
-def get_task_store() -> TaskStore:
+def get_task_store() -> TaskStore | PersistentTaskStore:
     """Get or create the global task store."""
     global _task_store
     if _task_store is None:
-        _task_store = TaskStore()
+        try:
+            db = get_database_service()
+            health = db.health_check()
+            if health.get("status") == "healthy":
+                _task_store = PersistentTaskStore(db)
+                logger.info("Using persistent PostgreSQL A2A TaskStore")
+            else:
+                logger.warning(
+                    "Database not healthy, using in-memory A2A TaskStore fallback"
+                )
+                _task_store = TaskStore()
+        except Exception as exc:
+            logger.warning(f"Failed to initialize persistent A2A TaskStore: {exc}")
+            _task_store = TaskStore()
     return _task_store
 
 
@@ -199,16 +432,27 @@ class A2AAgentExecutor:
         self.checkpointer = checkpointer
         self.task_store = get_task_store()
         self._graph = None
+        self._graph_lock = asyncio.Lock()
 
-    @property
-    def graph(self):
-        """Get or create the appropriate LangGraph agent."""
-        if self._graph is None:
+    async def _get_graph(self):
+        """Get or create the appropriate LangGraph agent with persistent checkpointer."""
+        if self._graph is not None:
+            return self._graph
+
+        async with self._graph_lock:
+            if self._graph is not None:
+                return self._graph
+
+            resolved_checkpointer = self.checkpointer
+            if resolved_checkpointer is None:
+                resolved_checkpointer = await get_shared_checkpointer()
+
             if self.agent_type == "editor":
-                self._graph = create_editor_agent_graph(self.checkpointer)
+                self._graph = create_editor_agent_graph(resolved_checkpointer)
             else:
-                self._graph = create_video_agent_graph(self.checkpointer)
-        return self._graph
+                self._graph = create_video_agent_graph(resolved_checkpointer)
+
+            return self._graph
 
     def _a2a_message_to_langchain(self, message: Message) -> HumanMessage | AIMessage:
         """Convert A2A Message to LangChain message."""
@@ -347,6 +591,7 @@ class A2AAgentExecutor:
         Returns:
             Task or Message depending on the complexity of the request
         """
+        execution_start = perf_counter()
         message = request.message
 
         # Create task
@@ -400,10 +645,21 @@ class A2AAgentExecutor:
 
         try:
             logger.info(
-                f"A2A executing task {task.id} with message: {message.parts[0].text[:50] if message.parts else ''}..."
+                "A2A task execution started",
+                task_id=task.id,
+                context_id=task.contextId,
+                agent_type=self.agent_type,
             )
 
-            result = await self.graph.ainvoke(state, run_config)
+            graph_ready_start = perf_counter()
+            graph = await self._get_graph()
+            _record_phase_latency(
+                "graph_ready", perf_counter() - graph_ready_start, self.agent_type
+            )
+
+            model_start = perf_counter()
+            result = await graph.ainvoke(state, run_config)
+            _record_phase_latency("model_execution", perf_counter() - model_start, self.agent_type)
 
             # Extract final response
             final_message = result["messages"][-1]
@@ -436,13 +692,41 @@ class A2AAgentExecutor:
             agent_msg = self._langchain_message_to_a2a(final_message, task.id, task.contextId)
             task.history.append(agent_msg)
 
+            persist_start = perf_counter()
             await self.task_store.update_task(task)
+            _record_phase_latency("task_persist", perf_counter() - persist_start, self.agent_type)
 
-            logger.info(f"A2A task {task.id} completed successfully")
+            total_duration = perf_counter() - execution_start
+            Metrics.record_graph_execution(
+                graph_name=f"a2a_{self.agent_type}",
+                duration_seconds=total_duration,
+                success=True,
+                tool_calls=0,
+            )
+            logger.info(
+                "A2A task execution completed",
+                task_id=task.id,
+                context_id=task.contextId,
+                agent_type=self.agent_type,
+                duration_ms=round(total_duration * 1000, 2),
+            )
             return task
 
         except Exception as e:
-            logger.error(f"A2A task {task.id} failed: {e}")
+            total_duration = perf_counter() - execution_start
+            Metrics.record_graph_execution(
+                graph_name=f"a2a_{self.agent_type}",
+                duration_seconds=total_duration,
+                success=False,
+                tool_calls=0,
+            )
+            logger.error(
+                f"A2A task {task.id} failed: {e}",
+                task_id=task.id,
+                context_id=task.contextId,
+                agent_type=self.agent_type,
+                duration_ms=round(total_duration * 1000, 2),
+            )
 
             task.status = TaskStatus(
                 state=TaskState.FAILED,
@@ -452,7 +736,9 @@ class A2AAgentExecutor:
                 ),
                 timestamp=datetime.now(UTC),
             )
+            persist_start = perf_counter()
             await self.task_store.update_task(task)
+            _record_phase_latency("task_persist", perf_counter() - persist_start, self.agent_type)
             return task
 
     async def send_streaming_message(
@@ -474,6 +760,7 @@ class A2AAgentExecutor:
         Yields:
             StreamResponse objects wrapping status/artifact updates
         """
+        execution_start = perf_counter()
         message = request.message
 
         # Create task
@@ -507,7 +794,13 @@ class A2AAgentExecutor:
         media_ids = message.metadata.get("media_ids") if message.metadata else None
         project_id = message.metadata.get("project_id") if message.metadata else None
 
-        logger.info(f"A2A streaming: media_id='{media_id}', " f"media_ids={media_ids}")
+        logger.info(
+            "A2A streaming started",
+            task_id=task.id,
+            context_id=task.contextId,
+            agent_type=self.agent_type,
+            media_id=media_id,
+        )
 
         # Convert message
         lc_message = self._a2a_message_to_langchain(message)
@@ -536,8 +829,15 @@ class A2AAgentExecutor:
             # Stream events from the graph
             accumulated_content = ""
             artifact_id = str(uuid.uuid4())
+            graph_ready_start = perf_counter()
+            graph = await self._get_graph()
+            _record_phase_latency(
+                "graph_ready", perf_counter() - graph_ready_start, self.agent_type
+            )
 
-            async for event in self.graph.astream_events(state, run_config, version="v2"):
+            model_start = perf_counter()
+
+            async for event in graph.astream_events(state, run_config, version="v2"):
                 kind = event.get("event")
 
                 # Stream token-by-token from LLM
@@ -607,7 +907,26 @@ class A2AAgentExecutor:
                 state=TaskState.COMPLETED,
                 timestamp=datetime.now(UTC),
             )
+            _record_phase_latency("model_execution", perf_counter() - model_start, self.agent_type)
+
+            persist_start = perf_counter()
             await self.task_store.update_task(task)
+            _record_phase_latency("task_persist", perf_counter() - persist_start, self.agent_type)
+
+            total_duration = perf_counter() - execution_start
+            Metrics.record_graph_execution(
+                graph_name=f"a2a_stream_{self.agent_type}",
+                duration_seconds=total_duration,
+                success=True,
+                tool_calls=0,
+            )
+            logger.info(
+                "A2A streaming completed",
+                task_id=task.id,
+                context_id=task.contextId,
+                agent_type=self.agent_type,
+                duration_ms=round(total_duration * 1000, 2),
+            )
 
             yield StreamResponse(
                 statusUpdate=TaskStatusUpdateEvent(
@@ -618,7 +937,20 @@ class A2AAgentExecutor:
             )
 
         except Exception as e:
-            logger.error(f"A2A streaming task {task.id} failed: {e}")
+            total_duration = perf_counter() - execution_start
+            Metrics.record_graph_execution(
+                graph_name=f"a2a_stream_{self.agent_type}",
+                duration_seconds=total_duration,
+                success=False,
+                tool_calls=0,
+            )
+            logger.error(
+                f"A2A streaming task {task.id} failed: {e}",
+                task_id=task.id,
+                context_id=task.contextId,
+                agent_type=self.agent_type,
+                duration_ms=round(total_duration * 1000, 2),
+            )
 
             task.status = TaskStatus(
                 state=TaskState.FAILED,
@@ -628,7 +960,9 @@ class A2AAgentExecutor:
                 ),
                 timestamp=datetime.now(UTC),
             )
+            persist_start = perf_counter()
             await self.task_store.update_task(task)
+            _record_phase_latency("task_persist", perf_counter() - persist_start, self.agent_type)
 
             yield StreamResponse(
                 statusUpdate=TaskStatusUpdateEvent(

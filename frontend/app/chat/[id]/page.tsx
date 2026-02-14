@@ -3,9 +3,20 @@
 import React, { useState, useEffect, use, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar, VideoPanel } from '@/components/layout';
-import { ChatContainer } from '@/components/chat';
+import { ChatContainer, type ChatMessageData } from '@/components/chat';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
+import {
+  type ConversationSummary,
+  getConversationById,
+  getConversationPreview,
+  getConversationTitle,
+  loadConversationMessages,
+  loadConversations,
+  removeConversation,
+  saveConversationMessages,
+  upsertConversation,
+} from '@/lib/conversations';
 import RequireAuth from '@/components/RequireAuth';
 import { Film, Loader2 } from 'lucide-react';
 
@@ -43,13 +54,6 @@ interface VideoData {
   transcript?: TranscriptSegment[];
 }
 
-interface SavedConversation {
-  id: string;
-  videoId?: string;
-  videoIds?: string[];
-  title?: string;
-}
-
 interface ChatPageProps {
   params: Promise<{ id: string }>;
 }
@@ -61,8 +65,14 @@ export default function ChatPage({ params }: ChatPageProps) {
 
   const [currentMode, setCurrentMode] = useState<'single' | 'library'>('single');
   const [selectedVideo, setSelectedVideo] = useState<VideoData | null>(null);
+  const [selectedVideos, setSelectedVideos] = useState<VideoData[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessageData[]>([]);
+  const [chatSessionId, setChatSessionId] = useState<string | undefined>();
+
+  const isMultiVideo = selectedVideos.length > 1;
 
   const loadVideo = useCallback(async (videoId: string) => {
     try {
@@ -71,32 +81,52 @@ export default function ChatPage({ params }: ChatPageProps) {
         apiClient.getVideoStructure(videoId).catch(() => null),
       ]);
 
-        setSelectedVideo({
-          id: videoId,
-          url: metadata.blob_url,
-          title: metadata.original_filename,
-          duration: metadata.duration,
-          scenes: structure?.structure?.scenes || structure?.scenes || [],
-          chapters: structure?.structure?.chapters || structure?.chapters || [],
-          transcript: metadata.audio_data?.transcription?.segments || [],
-        });
+      return {
+        id: videoId,
+        url: metadata.blob_url,
+        title: metadata.original_filename,
+        duration: metadata.duration,
+        scenes: structure?.structure?.scenes || structure?.scenes || [],
+        chapters: structure?.structure?.chapters || structure?.chapters || [],
+        transcript: metadata.audio_data?.transcription?.segments || [],
+      } as VideoData;
     } catch (error) {
       console.error('Failed to load video:', error);
+      return null;
     }
   }, []);
 
   const loadConversation = useCallback(async () => {
     try {
       setIsLoading(true);
+      setConversations(loadConversations());
+      setChatMessages(loadConversationMessages(resolvedParams.id));
 
-      // Load conversation from localStorage or API
-      const savedConversations = localStorage.getItem('qprisma_conversations');
-      if (savedConversations) {
-        const conversations = JSON.parse(savedConversations) as SavedConversation[];
-        const conversation = conversations.find((c) => c.id === resolvedParams.id);
+      const conversation = getConversationById(resolvedParams.id);
+      if (conversation?.sessionId) {
+        setChatSessionId(conversation.sessionId);
+      }
 
-        if (conversation?.videoId) {
-          await loadVideo(conversation.videoId);
+      if (conversation?.videoIds && conversation.videoIds.length > 0) {
+        const loadedVideos: VideoData[] = [];
+        for (const videoId of conversation.videoIds.slice(0, 10)) {
+          const videoData = await loadVideo(videoId);
+          if (videoData) {
+            loadedVideos.push(videoData);
+          }
+        }
+
+        setSelectedVideos(loadedVideos);
+        setSelectedVideo(loadedVideos[0] || null);
+
+        if (loadedVideos.length > 1 || conversation.mode === 'library') {
+          setCurrentMode('library');
+        }
+      } else if (conversation?.videoId) {
+        const videoData = await loadVideo(conversation.videoId);
+        if (videoData) {
+          setSelectedVideo(videoData);
+          setSelectedVideos([videoData]);
         }
       }
     } catch (error) {
@@ -113,6 +143,48 @@ export default function ChatPage({ params }: ChatPageProps) {
 
   const handleTimestampClick = (timestamp: number) => {
     setCurrentTime(timestamp);
+  };
+
+  useEffect(() => {
+    if (chatMessages.length === 0) {
+      return;
+    }
+
+    const summary: ConversationSummary = {
+      id: resolvedParams.id,
+      title: getConversationTitle(chatMessages),
+      videoId: selectedVideo?.id,
+      videoIds: isMultiVideo ? selectedVideos.map((video) => video.id) : undefined,
+      videoName: selectedVideo?.title,
+      videoNames: isMultiVideo ? selectedVideos.map((video) => video.title || 'Video') : undefined,
+      lastMessage: getConversationPreview(chatMessages),
+      updatedAt: new Date(),
+      mode: isMultiVideo ? 'library' : currentMode,
+      sessionId: chatSessionId,
+      messageCount: chatMessages.length,
+    };
+
+    const updated = upsertConversation(summary);
+    setConversations(updated);
+    saveConversationMessages(resolvedParams.id, chatMessages);
+  }, [
+    chatMessages,
+    chatSessionId,
+    currentMode,
+    isMultiVideo,
+    resolvedParams.id,
+    selectedVideo?.id,
+    selectedVideo?.title,
+    selectedVideos,
+  ]);
+
+  const handleDeleteConversation = (conversationId: string) => {
+    const updated = removeConversation(conversationId);
+    setConversations(updated);
+
+    if (conversationId === resolvedParams.id) {
+      router.push('/chat/new');
+    }
   };
 
   if (isLoading) {
@@ -140,12 +212,13 @@ export default function ChatPage({ params }: ChatPageProps) {
         {/* Sidebar */}
         <div className="relative z-10 flex-shrink-0">
           <Sidebar
-            conversations={[]}
+            conversations={conversations}
             activeConversationId={resolvedParams.id}
             currentMode={currentMode}
             onModeChange={setCurrentMode}
             onNewChat={() => router.push('/chat/new')}
             onSelectConversation={(id) => router.push(`/chat/${id}`)}
+            onDeleteConversation={handleDeleteConversation}
           />
         </div>
 
@@ -171,11 +244,18 @@ export default function ChatPage({ params }: ChatPageProps) {
 
             {/* Chat Container */}
             <ChatContainer
+              conversationId={resolvedParams.id}
               videoId={selectedVideo?.id}
               videoName={selectedVideo?.title}
-              mode={currentMode}
+              videoIds={isMultiVideo ? selectedVideos.map((video) => video.id) : undefined}
+              videoNames={isMultiVideo ? selectedVideos.map((video) => video.title || 'Video') : undefined}
+              mode={isMultiVideo ? 'library' : currentMode}
               onTimestampClick={handleTimestampClick}
               userName={user?.full_name || user?.email}
+              initialMessages={chatMessages}
+              initialSessionId={chatSessionId}
+              onMessagesChange={setChatMessages}
+              onSessionIdChange={setChatSessionId}
             />
           </main>
 

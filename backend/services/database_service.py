@@ -17,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from models.database import (
+    A2ATaskModel,
     Base,
     BatchJobModel,
     ClipModel,
@@ -278,6 +279,69 @@ class DatabaseService:
             session.refresh(batch_job)
             session.expunge(batch_job)
             return batch_job
+
+    # =========================================================================
+    # A2A Task Persistence Operations
+    # =========================================================================
+
+    def upsert_a2a_task(self, task_data: dict[str, Any]) -> A2ATaskModel:
+        """Insert or update a persisted A2A task."""
+        with self.get_session() as session:
+            task = session.query(A2ATaskModel).filter(A2ATaskModel.id == task_data["id"]).first()
+
+            if task is None:
+                task = A2ATaskModel(**task_data)
+                session.add(task)
+            else:
+                task.context_id = task_data.get("context_id", task.context_id)
+                task.status_state = task_data.get("status_state", task.status_state)
+                task.status_timestamp = task_data.get("status_timestamp", task.status_timestamp)
+                task.status_payload = task_data.get("status_payload", task.status_payload)
+                task.artifacts = task_data.get("artifacts")
+                task.history = task_data.get("history")
+                task.task_metadata = task_data.get("task_metadata")
+
+            session.flush()
+            session.refresh(task)
+            session.expunge(task)
+            return task
+
+    def get_a2a_task(self, task_id: str) -> A2ATaskModel | None:
+        """Get a persisted A2A task by ID."""
+        with self.get_session() as session:
+            task = session.query(A2ATaskModel).filter(A2ATaskModel.id == task_id).first()
+            if task:
+                session.expunge(task)
+            return task
+
+    def list_a2a_tasks(
+        self,
+        context_id: str | None = None,
+        status_state: str | None = None,
+        page_size: int = 50,
+    ) -> tuple[list[A2ATaskModel], int]:
+        """List persisted A2A tasks with optional filtering."""
+        with self.get_session() as session:
+            query = session.query(A2ATaskModel)
+
+            if context_id:
+                query = query.filter(A2ATaskModel.context_id == context_id)
+
+            if status_state:
+                query = query.filter(A2ATaskModel.status_state == status_state)
+
+            total = query.count()
+
+            rows = (
+                query.order_by(A2ATaskModel.status_timestamp.desc(), A2ATaskModel.created_at.desc())
+                .limit(page_size)
+                .all()
+            )
+
+            for row in rows:
+                session.expunge(row)
+
+            return rows, total
 
     def get_batch_job(self, batch_id: str) -> BatchJobModel | None:
         """Get batch job by internal ID."""

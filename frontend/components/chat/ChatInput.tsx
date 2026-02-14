@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect } from 'react';
-import { Send, Plus, Loader2, Film, X } from 'lucide-react';
+import { Send, Plus, Loader2, Film, X, Square } from 'lucide-react';
 
 interface AttachedVideo {
   id: string;
@@ -12,6 +12,7 @@ interface ChatInputProps {
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
+  onCancel?: () => void;
   onAttachVideo?: () => void;
   attachedVideos?: AttachedVideo[];
   onRemoveVideo?: (id: string) => void;
@@ -25,6 +26,7 @@ export default function ChatInput({
   value,
   onChange,
   onSend,
+  onCancel,
   onAttachVideo,
   attachedVideos = [],
   onRemoveVideo,
@@ -58,6 +60,10 @@ export default function ChatInput({
     mode === 'single'
       ? 'Ask anything about your video...'
       : 'Search across all your videos...';
+
+  const hintText = isDisabled
+    ? 'Select or upload a video to start chatting'
+    : 'Press Enter to send • Shift+Enter for new line';
 
   return (
     <div className="border-t border-gray-100 bg-white/80 backdrop-blur-xl">
@@ -129,13 +135,21 @@ export default function ChatInput({
                 <Send className="w-4 h-4" />
               )}
             </button>
+
+            {isLoading && onCancel && (
+              <button
+                onClick={onCancel}
+                className="p-3 rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                title="Stop response"
+              >
+                <Square className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
         {/* Hint */}
-        <p className="text-xs text-gray-400 text-center mt-2">
-          Press Enter to send • Shift+Enter for new line
-        </p>
+        <p className="text-xs text-gray-400 text-center mt-2">{hintText}</p>
       </div>
     </div>
   );

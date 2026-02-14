@@ -7,8 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Durable A2A task persistence (PostgreSQL)**:
+  - Added `A2ATaskModel` (`a2a_tasks`) to persist A2A lifecycle state (`status`, `artifacts`, `history`, metadata, timestamps).
+  - Added database operations in `database_service.py`: `upsert_a2a_task()`, `get_a2a_task()`, `list_a2a_tasks()`.
+  - Added `PersistentTaskStore` in `agent/a2a.py` with automatic fallback to in-memory store when DB is unavailable.
+- **A2A durability tests**:
+  - New `backend/tests/test_a2a_task_store.py` validates persistent-store selection, unhealthy-DB fallback, and row→task conversion shape.
+- **Memory architecture guide**:
+  - Added `docs/MEMORY_ARCHITECTURE.md` documenting layer responsibilities (LocalStorage, LangGraph checkpointer, Mem0, A2A Task Store), source-of-truth policy, ID mapping, and operational guidance.
+
 ### Changed
 - **README Branding**: Added QPrisma logo to README header.
+- **A2A checkpointer and execution resilience**:
+  - `agent/a2a.py` now resolves a shared production checkpointer (production saver with `MemorySaver` fallback).
+  - Improved checkpointer materialization/setup handling for direct savers and sync/async context managers.
+  - Async-safe lazy graph initialization via lock to prevent duplicate graph creation under concurrent requests.
+- **A2A observability and latency metrics**:
+  - Added per-phase timing instrumentation (`checkpointer_init`, `graph_ready`, `model_execution`, `task_persist`) and structured task lifecycle logs for both sync and streaming paths.
+- **Chat UX persistence and continuity**:
+  - `frontend/app/chat/page.tsx` and `frontend/app/chat/[id]/page.tsx` now persist/load conversation summaries, session IDs, and message history via shared conversation helpers.
+  - `ChatContainer` now supports hydrated initial state (`initialMessages`, `initialSessionId`) and emits state updates to parent routes.
+- **Streaming robustness and controls**:
+  - `frontend/lib/api.ts` improved A2A streaming completion handling with better fallback text resolution and snapshot artifact handling.
+  - Added stream cancellation support (`AbortSignal`) from UI to API client.
+  - `ChatInput` adds stop-response action; `MessageList` adds retry affordance for error responses and grouped source evidence rendering.
+- **First-message new chat stability**:
+  - Fixed `/chat/new` first-turn race by avoiding immediate route replacement during initial persistence, preventing mid-stream unmount/loading interruptions.
 
 ## [1.0.0] - 2026-02-13
 

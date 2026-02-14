@@ -8,6 +8,16 @@ import { VideoGrid } from '@/components/library';
 import { UploadZone, ProcessingCard } from '@/components/upload';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
+import type { ChatMessageData } from '@/components/chat';
+import {
+  type ConversationSummary,
+  getConversationPreview,
+  getConversationTitle,
+  loadConversations,
+  removeConversation,
+  saveConversationMessages,
+  upsertConversation,
+} from '@/lib/conversations';
 import RequireAuth from '@/components/RequireAuth';
 import { X, Film, Settings2, ChevronDown, Library, Columns2 } from 'lucide-react';
 import { ChunkedUploader, shouldUseChunkedUpload, UploadProgress } from '@/lib/chunked-upload';
@@ -90,6 +100,10 @@ function NewChatContent() {
   const [activeVideoTab, setActiveVideoTab] = useState(0);
   const [comparisonMode, setComparisonMode] = useState<'tabs' | 'side-by-side'>('tabs');
   const [showLibraryHelp, setShowLibraryHelp] = useState(true);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | undefined>();
+  const [chatMessages, setChatMessages] = useState<ChatMessageData[]>([]);
+  const [chatSessionId, setChatSessionId] = useState<string | undefined>();
 
   const isMultiVideo = selectedVideos.length > 1;
 
@@ -113,6 +127,10 @@ function NewChatContent() {
       console.error('Failed to load video:', error);
       return null;
     }
+  }, []);
+
+  useEffect(() => {
+    setConversations(loadConversations());
   }, []);
 
   // Check for videoId in URL params
@@ -197,6 +215,61 @@ function NewChatContent() {
     }
   };
 
+  const persistConversationState = useCallback(
+    (nextMessages: ChatMessageData[], nextSessionId?: string) => {
+      if (nextMessages.length === 0) {
+        return;
+      }
+
+      const conversationId = activeConversationId || crypto.randomUUID();
+      if (!activeConversationId) {
+        setActiveConversationId(conversationId);
+      }
+
+      const summary: ConversationSummary = {
+        id: conversationId,
+        title: getConversationTitle(nextMessages),
+        videoId: selectedVideo?.id,
+        videoIds: isMultiVideo ? selectedVideos.map((video) => video.id) : undefined,
+        videoName: selectedVideo?.title,
+        videoNames: isMultiVideo ? selectedVideos.map((video) => video.title || 'Video') : undefined,
+        lastMessage: getConversationPreview(nextMessages),
+        updatedAt: new Date(),
+        mode: isMultiVideo ? 'library' : currentMode,
+        sessionId: nextSessionId,
+        messageCount: nextMessages.length,
+      };
+
+      const updated = upsertConversation(summary);
+      setConversations(updated);
+      saveConversationMessages(conversationId, nextMessages);
+    },
+    [
+      activeConversationId,
+      currentMode,
+      isMultiVideo,
+      selectedVideo?.id,
+      selectedVideo?.title,
+      selectedVideos,
+    ]
+  );
+
+  useEffect(() => {
+    persistConversationState(chatMessages, chatSessionId);
+  }, [chatMessages, chatSessionId, persistConversationState]);
+
+  const handleDeleteConversation = (conversationId: string) => {
+    const updated = removeConversation(conversationId);
+    setConversations(updated);
+
+    if (conversationId === activeConversationId) {
+      setActiveConversationId(undefined);
+      setChatMessages([]);
+      setChatSessionId(undefined);
+      router.push('/chat/new');
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 overflow-hidden">
       {/* Decorative Elements */}
@@ -208,14 +281,20 @@ function NewChatContent() {
       {/* Sidebar */}
       <div className="relative z-10 flex-shrink-0">
         <Sidebar
-          conversations={[]}
+          conversations={conversations}
+          activeConversationId={activeConversationId}
           currentMode={currentMode}
           onModeChange={setCurrentMode}
           onNewChat={() => {
             setSelectedVideo(null);
+            setSelectedVideos([]);
+            setActiveConversationId(undefined);
+            setChatMessages([]);
+            setChatSessionId(undefined);
             router.push('/chat/new');
           }}
           onSelectConversation={(id) => router.push(`/chat/${id}`)}
+          onDeleteConversation={handleDeleteConversation}
         />
       </div>
 
@@ -318,6 +397,7 @@ function NewChatContent() {
 
           {/* Chat Container */}
             <ChatContainer
+              conversationId={activeConversationId}
               videoId={selectedVideo?.id}
               videoName={selectedVideo?.title}
               videoIds={isMultiVideo ? selectedVideos.map((v) => v.id) : undefined}
@@ -327,6 +407,10 @@ function NewChatContent() {
               onUploadVideo={() => setShowUploader(true)}
               onBrowseLibrary={() => setShowVideoSelector(true)}
               userName={user?.full_name || user?.email}
+              initialMessages={chatMessages}
+              initialSessionId={chatSessionId}
+              onMessagesChange={setChatMessages}
+              onSessionIdChange={setChatSessionId}
             />
         </main>
 
@@ -390,7 +474,7 @@ function NewChatContent() {
             {/* Video Content */}
             {comparisonMode === 'side-by-side' && selectedVideos.length === 2 ? (
               <div className="flex-1 min-h-0 flex flex-col">
-                {selectedVideos.map((v, idx) => (
+                {selectedVideos.map((v) => (
                   <div key={v.id} className="flex-1 min-h-0 border-b border-gray-200 last:border-b-0">
                     <VideoPanel
                       videoId={v.id}

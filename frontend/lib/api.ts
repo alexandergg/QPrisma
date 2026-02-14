@@ -770,7 +770,8 @@ export const apiClient = {
     videoId: string | null,
     chatHistory: Array<{ role: string; content: string }>,
     sessionId?: string,
-    videoIds?: string[]
+    videoIds?: string[],
+    signal?: AbortSignal
   ): AsyncGenerator<StreamEvent> {
     // Build A2A message metadata
     const messageMetadata: Record<string, unknown> = {};
@@ -807,6 +808,7 @@ export const apiClient = {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(request),
+      signal,
     });
 
     if (!response.ok) {
@@ -820,7 +822,6 @@ export const apiClient = {
 
     const decoder = new TextDecoder();
     let buffer = '';
-    let currentTaskId: string | undefined;
     let currentContextId: string | undefined;
     let accumulatedContent = '';
     const toolsUsed: string[] = [];
@@ -844,7 +845,6 @@ export const apiClient = {
             
             // Convert A2A events to legacy StreamEvent format for backward compatibility
             if (a2aResponse.task) {
-              currentTaskId = a2aResponse.task.id;
               currentContextId = a2aResponse.task.contextId;
               yield {
                 event: 'session',
@@ -873,10 +873,17 @@ export const apiClient = {
                   };
                 }
               } else if (state === 'TASK_STATE_COMPLETED') {
+                const statusText = status.message?.parts
+                  ?.map((part) => part.text)
+                  .filter((text): text is string => Boolean(text))
+                  .join('\n')
+                  .trim();
+
+                const completionText = accumulatedContent || statusText || '';
                 yield {
                   event: 'done',
                   data: {
-                    response: accumulatedContent,
+                    response: completionText,
                     tool_calls_made: toolsUsed.length,
                   },
                 };
@@ -903,6 +910,9 @@ export const apiClient = {
                   accumulatedContent += textPart.text;
                 } else if (a2aResponse.artifactUpdate.lastChunk) {
                   // Final artifact - content is complete
+                  accumulatedContent = textPart.text;
+                } else {
+                  // Snapshot-style artifact updates
                   accumulatedContent = textPart.text;
                 }
               }

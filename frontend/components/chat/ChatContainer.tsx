@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import WelcomeScreen from './WelcomeScreen';
 import MessageList, { ChatMessageData, ToolStatus } from './MessageList';
 import ChatInput from './ChatInput';
@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api';
 
 
 interface ChatContainerProps {
+  conversationId?: string;
   videoId?: string;
   videoName?: string;
   videoIds?: string[];
@@ -17,6 +18,10 @@ interface ChatContainerProps {
   onUploadVideo?: () => void;
   onBrowseLibrary?: () => void;
   userName?: string;
+  initialMessages?: ChatMessageData[];
+  initialSessionId?: string;
+  onMessagesChange?: (messages: ChatMessageData[]) => void;
+  onSessionIdChange?: (sessionId?: string) => void;
 }
 
 interface ChatSource {
@@ -29,6 +34,7 @@ interface ChatSource {
 }
 
 export default function ChatContainer({
+  conversationId,
   videoId,
   videoName,
   videoIds,
@@ -38,13 +44,19 @@ export default function ChatContainer({
   onUploadVideo,
   onBrowseLibrary,
   userName,
+  initialMessages = [],
+  initialSessionId,
+  onMessagesChange,
+  onSessionIdChange,
 }: ChatContainerProps) {
-  const [messages, setMessages] = useState<ChatMessageData[]>([]);
+  const [messages, setMessages] = useState<ChatMessageData[]>(initialMessages);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [activeTools, setActiveTools] = useState<ToolStatus[]>([]);
-  const [sessionId, setSessionId] = useState<string | undefined>();
+  const [sessionId, setSessionId] = useState<string | undefined>(initialSessionId);
+  const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState<string>('');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const hasMessages = messages.length > 0;
   const isMultiVideo = videoIds && videoIds.length > 1;
@@ -52,13 +64,35 @@ export default function ChatContainer({
 
   const generateId = () => Math.random().toString(36).substring(2, 9);
 
+  useEffect(() => {
+    setMessages(initialMessages);
+  }, [conversationId, initialMessages]);
+
+  useEffect(() => {
+    setSessionId(initialSessionId);
+  }, [conversationId, initialSessionId]);
+
+  useEffect(() => {
+    onMessagesChange?.(messages);
+  }, [messages, onMessagesChange]);
+
+  useEffect(() => {
+    onSessionIdChange?.(sessionId);
+  }, [sessionId, onSessionIdChange]);
+
   const handleSend = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;
+
+    const messageText = inputValue.trim();
+    setLastSubmittedPrompt(messageText);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     const userMessage: ChatMessageData = {
       id: generateId(),
       role: 'user',
-      content: inputValue.trim(),
+      content: messageText,
       timestamp: new Date(),
       videoName: mode === 'single' ? videoName : undefined,
     };
@@ -78,15 +112,17 @@ export default function ChatContainer({
 
       // Use streaming agent API
       let finalResponse = '';
+      let streamedResponse = '';
       let sources: ChatSource[] = [];
       let toolCallsMade = 0;
 
       for await (const event of apiClient.chatWithAgentStream(
         userMessage.content,
-        videoId || null,  // Always send videoId when available
+        videoId || null,
         chatHistory,
         sessionId,
-        videoIds
+        videoIds,
+        controller.signal
       )) {
         switch (event.event) {
           case 'session':
@@ -116,6 +152,7 @@ export default function ChatContainer({
 
           case 'token':
             if (event.data.token) {
+              streamedResponse += event.data.token;
               setStreamingContent((prev) => prev + event.data.token);
             }
             break;
@@ -135,42 +172,50 @@ export default function ChatContainer({
       }
 
       // Create final assistant message
-      const assistantMessage: ChatMessageData = {
-        id: generateId(),
-        role: 'assistant',
-        content: finalResponse,
-        timestamp: new Date(),
-        sources: sources.map((s) => ({
-          timestamp: s.timestamp,
-          type: (s.type === 'visual' || s.type === 'audio' || s.type === 'entity') ? s.type : 'visual',
-          description: s.description,
-          score: s.score,
-          videoId: s.video_id,
-          videoTitle: s.video_title,
-        })),
-        toolCalls: toolCallsMade > 0 ? toolCallsMade : undefined,
-      };
+      const resolvedResponse = finalResponse || streamedResponse;
 
-      setMessages((prev) => [...prev, assistantMessage]);
+      if (resolvedResponse) {
+        const assistantMessage: ChatMessageData = {
+          id: generateId(),
+          role: 'assistant',
+          content: resolvedResponse,
+          timestamp: new Date(),
+          sources: sources.map((s) => ({
+            timestamp: s.timestamp,
+            type: (s.type === 'visual' || s.type === 'audio' || s.type === 'entity') ? s.type : 'visual',
+            description: s.description,
+            score: s.score,
+            videoId: s.video_id,
+            videoTitle: s.video_title,
+          })),
+          toolCalls: toolCallsMade > 0 ? toolCallsMade : undefined,
+        };
+
+        setMessages((prev) => [...prev, assistantMessage]);
+      }
+
       setStreamingContent('');
       setActiveTools([]);
     } catch (error) {
-      console.error('Chat error:', error);
+      const wasCancelled = error instanceof DOMException && error.name === 'AbortError';
 
       const errorMessage: ChatMessageData = {
         id: generateId(),
         role: 'assistant',
-        content:
-          error instanceof Error
+        content: wasCancelled
+          ? 'Response stopped. You can retry your last message.'
+          : error instanceof Error
             ? `Sorry, I encountered an error: ${error.message}`
             : 'Sorry, I encountered an error processing your request. Please try again.',
         timestamp: new Date(),
+        isError: true,
       };
 
       setMessages((prev) => [...prev, errorMessage]);
       setStreamingContent('');
       setActiveTools([]);
     } finally {
+      abortControllerRef.current = null;
       setIsLoading(false);
     }
   }, [inputValue, isLoading, messages, videoId, videoName, videoIds, mode, sessionId]);
@@ -178,6 +223,20 @@ export default function ChatContainer({
   const handleQuickSuggestion = (suggestion: string) => {
     setInputValue(suggestion);
   };
+
+  const handleRetryLast = useCallback(() => {
+    if (!lastSubmittedPrompt || isLoading) {
+      return;
+    }
+    setInputValue(lastSubmittedPrompt);
+  }, [lastSubmittedPrompt, isLoading]);
+
+  const handleCancel = useCallback(() => {
+    if (!abortControllerRef.current) {
+      return;
+    }
+    abortControllerRef.current.abort();
+  }, []);
 
   // Show welcome screen if no messages and appropriate context
   const showWelcome = !hasMessages && !hasVideo;
@@ -202,16 +261,27 @@ export default function ChatContainer({
             streamingContent={streamingContent}
             activeTools={activeTools}
             onSuggestionClick={handleQuickSuggestion}
+            onRetryLast={lastSubmittedPrompt ? handleRetryLast : undefined}
           />
+
+          {!hasVideo && (
+            <div className="px-6 pb-2">
+              <div className="max-w-3xl mx-auto rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+                Select or upload at least one video to start chatting.
+              </div>
+            </div>
+          )}
 
           {/* Input */}
           <ChatInput
             value={inputValue}
             onChange={setInputValue}
             onSend={handleSend}
+            onCancel={handleCancel}
             isLoading={isLoading}
             isDisabled={!hasVideo}
             mode={mode}
+            onAttachVideo={mode === 'single' ? onUploadVideo : onBrowseLibrary}
             attachedVideos={
               isMultiVideo && videoIds && videoNames
                 ? videoIds.map((id, i) => ({ id, name: videoNames?.[i] || 'Video' }))

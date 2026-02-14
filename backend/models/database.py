@@ -458,3 +458,39 @@ class ToolArtifactModel(Base):
                 self.last_accessed_at.isoformat() if self.last_accessed_at else None
             ),
         }
+
+
+class A2ATaskModel(Base):
+    """Persistent A2A task state for multi-instance durability and recovery."""
+
+    __tablename__ = "a2a_tasks"
+
+    id = Column(String(64), primary_key=True, default=generate_uuid)
+    context_id = Column(String(128), nullable=False, index=True)
+
+    status_state = Column(String(64), nullable=False, index=True)
+    status_timestamp = Column(DateTime, nullable=True, index=True)
+    status_payload = Column(JSON, nullable=False)
+
+    artifacts = Column(JSON, nullable=True)
+    history = Column(JSON, nullable=True)
+    task_metadata = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "context_id": self.context_id,
+            "status_state": self.status_state,
+            "status_timestamp": (
+                self.status_timestamp.isoformat() if self.status_timestamp else None
+            ),
+            "status_payload": self.status_payload,
+            "artifacts": self.artifacts,
+            "history": self.history,
+            "task_metadata": self.task_metadata,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
