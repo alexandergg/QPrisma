@@ -79,7 +79,6 @@ class VideoDecoder(Protocol):
     Implementations:
     - :class:`PyAVDecoder` — C-level FFmpeg bindings via PyAV (default, fastest CPU)
     - :class:`FFmpegSubprocessDecoder` — FFmpeg CLI subprocess (universal fallback)
-    - :class:`~services.gpu_decoder.NvVideoCodecDecoder` — GPU decode via PyNvVideoCodec (stub)
     """
 
     @property
@@ -421,24 +420,12 @@ def get_best_decoder() -> VideoDecoder:
 
     Priority order::
 
-        1. NvVideoCodec  (GPU decode via NVIDIA NVDEC)
-        2. PyAV  (C-level FFmpeg bindings — fastest CPU path)
-        3. FFmpeg subprocess  (universal fallback)
+        1. PyAV  (C-level FFmpeg bindings — fastest CPU path)
+        2. FFmpeg subprocess  (universal fallback)
 
     Raises:
         RuntimeError: If no decoder backend is available.
     """
-    # Priority: GPU > PyAV > FFmpeg
-    try:
-        from services.gpu_decoder import NvVideoCodecDecoder
-
-        nvdec = NvVideoCodecDecoder()
-        if nvdec.is_available:
-            logger.info("Using NVIDIA GPU video decoder (NVDEC)")
-            return nvdec
-    except ImportError:
-        pass
-
     pyav = PyAVDecoder()
     if pyav.is_available:
         logger.info("Using PyAV video decoder (C-level FFmpeg bindings)")
@@ -458,25 +445,12 @@ def get_decoder_by_name(name: str) -> VideoDecoder:
     """Instantiate a specific decoder by its short name.
 
     Args:
-        name: ``"pyav"``, ``"ffmpeg"``, ``"ffmpeg_subprocess"``,
-            or ``"nvvideocodec"``.
+        name: ``"pyav"``, ``"ffmpeg"``, or ``"ffmpeg_subprocess"``.
 
     Raises:
         ValueError: Unknown decoder name.
         RuntimeError: Decoder dependencies not installed.
     """
-    # Lazy import for GPU decoder to avoid hard dependency
-    if name == "nvvideocodec":
-        from services.gpu_decoder import NvVideoCodecDecoder
-
-        decoder = NvVideoCodecDecoder()
-        if not decoder.is_available:
-            raise RuntimeError(
-                f"Decoder {name!r} is not available (missing dependencies). "
-                "Install with: pip install PyNvVideoCodec"
-            )
-        return decoder
-
     _registry: dict[str, type[PyAVDecoder | FFmpegSubprocessDecoder]] = {
         "pyav": PyAVDecoder,
         "ffmpeg": FFmpegSubprocessDecoder,
@@ -488,7 +462,7 @@ def get_decoder_by_name(name: str) -> VideoDecoder:
     if decoder_class is None:
         raise ValueError(
             f"Unknown decoder: {name!r}. "
-            f"Available: {sorted({'ffmpeg', 'ffmpeg_subprocess', 'nvvideocodec', 'pyav'})}"
+            f"Available: {sorted({'ffmpeg', 'ffmpeg_subprocess', 'pyav'})}"
         )
 
     decoder = decoder_class()

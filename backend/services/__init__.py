@@ -14,8 +14,6 @@ from .database_service import DatabaseService, get_database_service
 from .embedding_service import EmbeddingService, get_embedding_service
 from .enhanced_search import EnhancedSearchService
 from .entity_extractor import EntityExtractor, get_entity_extractor
-from .export_service import ExportService, get_export_service
-from .face_tracking_service import FaceTrackingService, get_face_tracking_service
 from .ffmpeg_processor import FFmpegVideoProcessor
 from .graph_expander import GraphExpander
 from .graph_node_repository import GraphNodeRepository
@@ -28,18 +26,15 @@ from .hierarchical_summarizer import HierarchicalSummarizer, SceneEmbeddingGener
 from .hierarchy_embedding_generator import HierarchyEmbeddingGenerator
 from .hierarchy_node_factory import HierarchyNodeFactory
 from .highlight_detection_service import HighlightDetectionService, get_highlight_detection_service
-from .hwaccel_resolver import HardwareAccelerationResolver
 from .knowledge_graph import KnowledgeGraphService, get_knowledge_graph_service
 from .mem0_memory_service import Mem0MemoryService, get_mem0_memory_service
 from .processing_metrics import PipelineMetrics, ProcessingTimer, StageMetrics
 from .relation_builder import RelationBuilder, get_relation_builder
 from .scene_analyzer import SceneAnalyzer
 from .storage_tiering_service import StorageTieringService, get_storage_tiering_service
-from .subtitle_service import SubtitleService, get_subtitle_service
 from .timestamp_calculator import TimestampCalculator
 from .tool_artifact_service import ToolArtifactService, get_tool_artifact_service
 from .video_processor import VideoProcessor
-from .viral_score_service import ViralScoreService, get_viral_score_service
 
 __all__ = [
     # Core processors
@@ -49,7 +44,6 @@ __all__ = [
     "BatchProcessor",
     # Video processing specialists
     "CoverageAnalyzer",
-    "HardwareAccelerationResolver",
     "TimestampCalculator",
     # AI Services
     "EmbeddingService",
@@ -60,8 +54,6 @@ __all__ = [
     "HierarchicalSummarizer",
     "SceneEmbeddingGenerator",
     "SceneAnalyzer",
-    "ViralScoreService",
-    "get_viral_score_service",
     # Cross-Video Search
     "CrossVideoSearchService",
     "get_cross_video_search_service",
@@ -86,13 +78,6 @@ __all__ = [
     "PipelineMetrics",
     "ProcessingTimer",
     "StageMetrics",
-    # Export Services
-    "ExportService",
-    "get_export_service",
-    "SubtitleService",
-    "get_subtitle_service",
-    "FaceTrackingService",
-    "get_face_tracking_service",
     # Storage & Cache
     "CacheService",
     "get_cache_service",

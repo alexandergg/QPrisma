@@ -46,7 +46,6 @@ dependencies = [
     "python-jose[cryptography]>=3.5.0,<4.0.0",
     "passlib[bcrypt]>=1.7.4,<2.0.0",
     "bcrypt~=4.2",
-    "yt-dlp>=2026.2.4,<2027.0.0",
     # Rate Limiting
     "slowapi>=0.1.9,<1.0.0",
 ]
@@ -54,8 +53,6 @@ dependencies = [
 [project.optional-dependencies]
 gpu = [
     "faster-whisper>=1.1.0,<2.0.0",
-    # "PyNvVideoCodec>=2.1.0",  # Uncomment when available on PyPI
-    # "transnetv2>=1.0.0",       # Uncomment when stable
 ]
 
 [build-system]
@@ -76,7 +73,6 @@ dev-dependencies = [
     "faker>=33.0.0",
     "freezegun>=1.4.0",
     "hypothesis>=6.120.0",
-    "mutmut>=3.2.0",
     "black>=24.0.0",
     "pre-commit>=4.0.0",
     "ruff>=0.8.0",
@@ -181,10 +177,4 @@ exclude_lines = [
     "pass",
 ]
 
-# =============================================================================
-# Mutation Testing Configuration
-# =============================================================================
-[tool.mutmut]
-paths_to_mutate = "core/,services/auth_service.py,api/dependencies.py,models/user.py,agent/utils/"
-tests_dir = "tests/"
-runner = "python -m pytest tests/ -x -q --tb=no"
+

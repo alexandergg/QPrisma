@@ -20,13 +20,12 @@
 11. [Sistema de Búsqueda Híbrida](#11-sistema-de-búsqueda-híbrida)
 12. [Arquitectura de Memoria del Agente](#12-arquitectura-de-memoria-del-agente)
 13. [Sistema de Caché Multinivel](#13-sistema-de-caché-multinivel)
-14. [Chat-to-Edit (Editor de Video)](#14-chat-to-edit-editor-de-video)
-15. [Protocolo A2A (Agent-to-Agent)](#15-protocolo-a2a-agent-to-agent)
-16. [Autenticación y Seguridad](#16-autenticación-y-seguridad)
-17. [Observabilidad y Métricas](#17-observabilidad-y-métricas)
-18. [Patrones de Diseño](#18-patrones-de-diseño)
-19. [Dependencias y Stack Tecnológico](#19-dependencias-y-stack-tecnológico)
-20. [Diagramas de Flujo](#20-diagramas-de-flujo)
+14. [Protocolo A2A (Agent-to-Agent)](#14-protocolo-a2a-agent-to-agent)
+15. [Autenticación y Seguridad](#15-autenticación-y-seguridad)
+16. [Observabilidad y Métricas](#16-observabilidad-y-métricas)
+17. [Patrones de Diseño](#17-patrones-de-diseño)
+18. [Dependencias y Stack Tecnológico](#18-dependencias-y-stack-tecnológico)
+19. [Diagramas de Flujo](#19-diagramas-de-flujo)
 
 ---
 
@@ -42,7 +41,7 @@ QPrisma es una plataforma de procesamiento multimedia inteligente que combina vi
 │  (Next.js)   │◀────│                                                     │
 └──────────────┘     │  ┌─────────┐  ┌──────────┐  ┌───────────────────┐  │
                      │  │  API    │  │ Services │  │  LangGraph Agents │  │
-                     │  │ Routes  │──│  Layer   │──│  (Video + Editor) │  │
+                     │  │ Routes  │──│  Layer   │──│  (Video Agent)    │  │
                      │  └─────────┘  └──────────┘  └───────────────────┘  │
                      │       │            │               │               │
                      └───────┼────────────┼───────────────┼───────────────┘
@@ -91,7 +90,6 @@ backend/
 │       ├── cache_routes.py       # Gestión de caché
 │       ├── chat_routes.py        # Chat conversacional + RAG
 │       ├── chunked_upload_routes.py  # Upload paralelo por bloques
-│       ├── editor_routes.py      # Video editor (Chat-to-Edit)
 │       ├── graph_routes.py       # Knowledge Graph CRUD + búsqueda
 │       ├── jobs_routes.py        # Gestión de jobs Celery
 │       ├── media_routes.py       # Upload/CRUD de media
@@ -105,17 +103,14 @@ backend/
 │   ├── a2a.py                    # Bridge A2A ↔ LangGraph
 │   ├── prompts.py                # System prompts para agentes
 │   ├── graphs/                   # Definiciones de StateGraph
-│   │   ├── video.py              # Agente de análisis de video
-│   │   └── editor.py             # Agente de edición (Chat-to-Edit)
+│   │   └── video.py              # Agente de análisis de video
 │   ├── nodes/                    # Implementaciones de nodos
 │   │   ├── base.py               # Nodos compartidos (DRY)
-│   │   ├── video_nodes.py        # Nodos específicos video
-│   │   └── editor_nodes.py       # Nodos específicos editor
+│   │   └── video_nodes.py        # Nodos específicos video
 │   ├── state/                    # Definiciones de estado
 │   │   └── agent_state.py        # AgentState, Input/Output schemas
 │   ├── tools/                    # Herramientas del agente
-│   │   ├── general.py            # 16 tools de búsqueda/análisis
-│   │   └── editor.py             # 15 tools de edición
+│   │   └── general.py            # 16 tools de búsqueda/análisis
 │   └── utils/                    # Utilidades
 │       ├── formatting.py         # Formateo de timestamps
 │       └── observability.py      # Logging estructurado + métricas
@@ -133,7 +128,6 @@ backend/
 │   ├── graph_models.py           # Modelos Neo4j (Pydantic)
 │   ├── api_schemas.py            # Schemas de request/response
 │   ├── a2a_models.py             # Modelos A2A protocol
-│   ├── editor.py                 # Modelos de editor
 │   ├── export_config.py          # Configuración de exportación
 │   ├── ffmpeg_config.py          # Configuración FFmpeg
 │   ├── cache_models.py           # Modelos de caché
@@ -152,7 +146,7 @@ backend/
 │   ├── entity_extractor.py       # Extracción de entidades (GPT-4o vision)
 │   ├── export_service.py         # Exportación FFmpeg + Azure Blob
 │   ├── face_tracking_service.py  # Detección/tracking facial (smart crop)
-│   ├── ffmpeg_processor.py       # Procesamiento FFmpeg (hwaccel)
+│   ├── ffmpeg_processor.py       # Procesamiento FFmpeg (PyAV + subprocess)
 │   ├── graph_search_service.py   # Búsqueda híbrida Neo4j (VideoRAG)
 │   ├── hierarchical_context_service.py  # RAG jerárquico
 │   ├── hierarchical_summarizer.py # Resúmenes multi-nivel
@@ -401,19 +395,6 @@ def get_blob_service() -> BlobServiceClient | None:
 | POST | `/hierarchy/search/drill-down` | Búsqueda drill-down jerárquica |
 | GET | `/video/{id}/visualization` | Datos visualización (NVL) |
 
-#### Editor (`/editor`)
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| POST | `/projects` | Crear proyecto desde video |
-| GET | `/projects` | Listar proyectos |
-| GET/PATCH/DELETE | `/projects/{id}` | CRUD proyecto |
-| POST | `/projects/{id}/clips` | Crear clip |
-| POST | `/projects/{id}/chat` | Chat-to-Edit (streaming SSE) |
-| POST | `/clips/{id}/subtitles/generate` | Generar subtítulos |
-| POST | `/clips/{id}/export` | Exportar clip para plataforma |
-| GET | `/subtitle-styles` | Estilos de subtítulos disponibles |
-| GET | `/export/presets` | Presets de exportación |
-
 #### A2A Protocol
 | Método | Ruta | Descripción |
 |--------|------|-------------|
@@ -563,76 +544,7 @@ RetryPolicy(
 
 5. **Metadata Extraction**: Extracción automática de sources, navigation_actions, clip_suggestions y entities de los resultados de tools para enriquecer la respuesta.
 
-### 5.3 Editor Agent (`graphs/editor.py`)
-
-**Propósito**: Edición de video conversacional (Chat-to-Edit) — crear clips, subtítulos, exportar.
-
-#### Grafo
-
-```
-START → call_model → should_continue? ─── "tools" ──→ tools* → update_context → call_model
-                          │
-                          │── "error_handler" ──→ error_handler → END
-                          └── "__end__" ──→ END
-
-* tools = tools_with_interrupt (si HITL habilitado) OR ToolNode estándar
-```
-
-#### Configuración
-
-| Parámetro | Valor |
-|-----------|-------|
-| `MAX_EDITOR_TOOL_ITERATIONS` | 8 |
-| `EDITOR_WARN_TOOL_ITERATIONS` | 6 |
-
-#### Herramientas (15 Editor Tools)
-
-| Tool | Tipo | Descripción |
-|------|------|-------------|
-| `create_clip` | 🔴 Destructiva | Crear clip desde rango temporal |
-| `modify_clip` | 🔴 Destructiva | Modificar timing/título de clip |
-| `delete_clip` | 🔴 Destructiva | Eliminar clip |
-| `reorder_clips` | 🔴 Destructiva | Reordenar clips |
-| `add_suggested_clips` | 🔴 Destructiva | Añadir clips sugeridos por IA |
-| `add_subtitles` | 🔴 Destructiva | Añadir subtítulos |
-| `change_subtitle_style` | 🔴 Destructiva | Cambiar estilo subtítulos |
-| `remove_subtitles` | 🔴 Destructiva | Quitar subtítulos |
-| `export_clip` | 🔴 Destructiva | Exportar clip |
-| `export_all_clips` | 🔴 Destructiva | Exportar todos los clips |
-| `list_clips` | 🟢 Safe | Listar clips del proyecto |
-| `generate_auto_clips` | 🟢 Safe | Generar clips automáticamente |
-| `list_subtitle_styles` | 🟢 Safe | Listar estilos disponibles |
-| `get_export_status` | 🟢 Safe | Estado de exportación |
-| `list_export_presets` | 🟢 Safe | Presets de plataforma |
-
-#### Human-in-the-Loop (HITL)
-
-El editor implementa **interrupción granular** usando `interrupt()` de LangGraph v1.0+:
-
-```python
-async def tools_with_interrupt(state, config):
-    # Clasificar tools por peligrosidad
-    for tool_call in last_message.tool_calls:
-        if tool_name in DESTRUCTIVE_TOOLS:
-            needs_confirmation.append(tool_call)
-        else:
-            safe_calls.append(tool_call)
-    
-    # Interrumpir solo para tools destructivas
-    if needs_confirmation:
-        user_response = interrupt({
-            "message": "I'm about to: • Create clip...\nProceed?",
-            "pending_tools": needs_confirmation
-        })
-        
-        if not user_response.get("confirmed"):
-            return cancelled_messages  # Operación cancelada
-    
-    # Ejecutar tools aprobadas
-    return await tool_node.ainvoke(state, config)
-```
-
-### 5.4 Estado del Agente (`state/agent_state.py`)
+### 5.3 Estado del Agente (`state/agent_state.py`)
 
 #### AgentState (interno)
 
@@ -642,8 +554,6 @@ class AgentState(TypedDict, total=False):
     media_id: str | None
     media_ids: list[str] | None
     video_context: VideoContext | None
-    project_context: ProjectContext | None
-    project_id: str | None
     sources: list[dict]
     
     # Internos (ocultos de la API)
@@ -750,8 +660,6 @@ def create_production_checkpointer():
 | `SYSTEM_PROMPT` | Video cargado | Rol, capacidades, guidelines de calidad, estrategias por tipo de pregunta, formato de respuesta |
 | `MULTI_VIDEO_SYSTEM_PROMPT` | Múltiples videos | Capacidades cross-video |
 | `NO_VIDEO_CONTEXT_PROMPT` | Sin video | Guía al usuario para cargar video |
-| `EDITOR_SYSTEM_PROMPT` | Modo editor | Capacidades de edición |
-| `EDITOR_NO_PROJECT_PROMPT` | Sin proyecto | Guía para crear proyecto |
 
 ---
 
@@ -768,7 +676,7 @@ La lógica de negocio reside en **25 servicios** en la capa `services/`. Los rou
 Upload → Frame Extraction (FFmpeg) → Vision Analysis (GPT-4o) → Embedding Generation → Audio Transcription
 ```
 
-- **Extracción de frames**: FFmpeg con hwaccel (CUDA, QSV, D3D11VA)
+- **Extracción de frames**: FFmpeg con PyAV (C-level bindings) y subprocess fallback
 - **Análisis visual**: GPT-4o con Batch API para 50% ahorro de costos
 - **Budget adaptativo de tokens**: Estimación de complejidad por entropía de imagen (low/medium/high)
 - **Embeddings batch**: Generación paralela con `text-embedding-3-large`
@@ -1108,29 +1016,7 @@ Schemas Pydantic para request/response de la API. Incluye:
 - **Batch**: `BatchStatusResponse`, `CostEstimateResponse`
 - **TypedDicts**: `ChatHistoryMessage`, `SourceReference`, `TokenUsage`, `EntityReference`
 
-### 7.4 Editor Models (`editor.py`)
-
-```
-ProjectCreate → ProjectResponse (+ ProjectWithClips)
-ClipCreate → ClipResponse
-ClipSubtitleUpdate, ClipReorder
-ExportFormat: TIKTOK, REELS, SHORTS, YOUTUBE, TWITTER
-SubtitleStyle: HORMOZI, MRBEAST, MINIMAL, KARAOKE, NEWS
-```
-
-### 7.5 Export Config (`export_config.py`)
-
-Configuración detallada de exportación con presets por plataforma:
-
-| Plataforma | Aspect Ratio | Resolución | Max Duración | CropMode |
-|-----------|-------------|-----------|-------------|----------|
-| TikTok | 9:16 | 1080×1920 | 180s | FACE_TRACK |
-| Reels | 9:16 | 1080×1920 | 90s | FACE_TRACK |
-| Shorts | 9:16 | 1080×1920 | 60s | CENTER |
-| YouTube | 16:9 | 1920×1080 | - | NONE |
-| Twitter | 16:9 | 1280×720 | 140s | CENTER |
-
-### 7.6 FFmpeg Config (`ffmpeg_config.py`)
+### 7.4 FFmpeg Config (`ffmpeg_config.py`)
 
 Configuración declarativa de procesamiento FFmpeg:
 
@@ -1138,7 +1024,7 @@ Configuración declarativa de procesamiento FFmpeg:
 - `ProcessingPreset`: FAST_PREVIEW, BALANCED, HIGH_QUALITY, KEYFRAMES_ONLY, SCENE_ANALYSIS
 - Support para hardware acceleration, filter chains, pixel formats
 
-### 7.7 A2A Models (`a2a_models.py`)
+### 7.5 A2A Models (`a2a_models.py`)
 
 Implementación completa del protocolo A2A v1.0:
 - `TaskState`: SUBMITTED → WORKING → COMPLETED/FAILED/CANCELED
@@ -1503,53 +1389,7 @@ if existing:
 
 ---
 
-## 14. Chat-to-Edit (Editor de Video)
-
-### Flujo de Edición Conversacional
-
-```
-Usuario: "Create a 30s highlight clip starting from when the speaker says 'innovation'"
-
-    │
-    ▼
-┌─── Editor Agent ────────────────────────────────┐
-│                                                   │
-│  1. search_video("innovation", audio) → t=45.3s │
-│  2. get_scene_context(45.3) → context             │
-│  3. create_clip(45.3, 75.3, "Innovation")         │
-│     ↪ [INTERRUPT: HITL confirmation]             │
-│     ↪ User confirms                              │
-│  4. add_subtitles(clip_id, style="HORMOZI")      │
-│     ↪ [INTERRUPT: HITL confirmation]             │
-│     ↪ User confirms                              │
-│                                                   │
-│  Response: "Created 30s clip with subtitles..."   │
-└───────────────────────────────────────────────────┘
-```
-
-### Arquitectura del Export Pipeline
-
-```
-Source Video (Azure Blob)
-    │
-    ▼
-Download → FFmpeg Clip → Aspect Ratio Conversion → Subtitle Burning → Encoding → Upload
-                              │                         │
-                         ┌────┴────┐              ┌─────┴──────┐
-                         │ Modes:  │              │ ASS Format │
-                         │ Center  │              │ Word-level │
-                         │ Face    │              │ timing     │
-                         │ Track   │              │ (Whisper)  │
-                         │ Letter  │              └────────────┘
-                         │ box     │
-                         │ Blur    │
-                         │ Fill    │
-                         └─────────┘
-```
-
----
-
-## 15. Protocolo A2A (Agent-to-Agent)
+## 14. Protocolo A2A (Agent-to-Agent)
 
 ### Implementación
 
@@ -1598,7 +1438,7 @@ data: {"type": "status", "state": "completed"}
 
 ---
 
-## 16. Autenticación y Seguridad
+## 15. Autenticación y Seguridad
 
 ### JWT Flow
 
@@ -1633,7 +1473,7 @@ async def list_items(current_user: User = Depends(get_current_user)):
 
 ---
 
-## 17. Observabilidad y Métricas
+## 16. Observabilidad y Métricas
 
 ### Request Context Propagation
 
@@ -1678,7 +1518,7 @@ logger.info("Processing started", extra={"media_id": "123", "frames": 20})
 
 ---
 
-## 18. Patrones de Diseño
+## 17. Patrones de Diseño
 
 ### 18.1 Singleton con Lazy Init
 
@@ -1770,7 +1610,7 @@ Frame → pHash (8x8 DCT) → Hamming distance → threshold=8 → dedup
 
 ---
 
-## 19. Dependencias y Stack Tecnológico
+## 18. Dependencias y Stack Tecnológico
 
 ### Core Framework
 
@@ -1834,7 +1674,7 @@ Frame → pHash (8x8 DCT) → Hamming distance → threshold=8 → dedup
 
 ---
 
-## 20. Diagramas de Flujo
+## 19. Diagramas de Flujo
 
 ### 20.1 Request Flow (Chat con Video)
 
@@ -1904,7 +1744,7 @@ POST /jobs/submit {media_id}
 │     └── Azure Blob → local temp file                │
 │                                                     │
 │  2. extract_frames_task                             │
-│     └── FFmpeg (hwaccel) → frames/{n}.jpg           │
+│     └── FFmpeg (PyAV) → frames/{n}.jpg              │
 │                                                     │
 │  3. analyze_frames_task                             │
 │     ├── Build JSONL batch payloads                  │

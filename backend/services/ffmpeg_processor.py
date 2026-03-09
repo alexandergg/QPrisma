@@ -33,7 +33,6 @@ from models.ffmpeg_config import (
     ProcessingStatus,
 )
 from services.coverage_analyzer import CoverageAnalyzer
-from services.hwaccel_resolver import HardwareAccelerationResolver
 from services.scene_detect_service import SceneDetectService, map_ffmpeg_threshold
 from services.timestamp_calculator import TimestampCalculator
 
@@ -68,8 +67,6 @@ class FFmpegVideoProcessor:
         """
         self.config = config or FFmpegProcessingConfig()
         self.status = ProcessingStatus(status="pending")
-        self._resolved_hwaccel = HardwareAccelerationResolver.resolve(self.config.hardware_accel)
-
         # Determine decoder backend (pyav | ffmpeg_subprocess)
         self._decoder_backend = self._resolve_decoder_backend()
 
@@ -112,22 +109,6 @@ class FFmpegVideoProcessor:
                 return "ffmpeg_subprocess"
 
         return backend
-
-    @staticmethod
-    def _detect_available_hwaccel() -> str | None:
-        """Auto-detect available hardware acceleration using FFmpeg.
-
-        Delegates to :class:`HardwareAccelerationResolver`.
-        """
-        return HardwareAccelerationResolver.detect_available()
-
-    def _resolve_hwaccel(self) -> str | None:
-        """Resolve hardware acceleration: use config value, auto-detect, or None."""
-        return HardwareAccelerationResolver.resolve(self.config.hardware_accel)
-
-    def _build_hwaccel_args(self) -> list[str]:
-        """Build FFmpeg hardware acceleration arguments (inserted before -i)."""
-        return HardwareAccelerationResolver.build_args(self._resolved_hwaccel)
 
     def get_video_info(self, video_path: str) -> dict[str, Any]:
         """
@@ -338,7 +319,6 @@ class FFmpegVideoProcessor:
             # Use FFmpeg for scene detection
             cmd = [
                 "ffmpeg",
-                *self._build_hwaccel_args(),
                 "-i",
                 video_path,
                 "-vf",
@@ -427,6 +407,9 @@ class FFmpegVideoProcessor:
         start_time = time.time()
         frames: list[dict[str, Any]] = []
 
+        # Attach path for methods that need it (e.g. HYBRID scene detection)
+        video_info["path"] = video_path
+
         # ---- PyAV fast-path ---------------------------------------------------
         if self._decoder_backend == "pyav":
             try:
@@ -496,9 +479,6 @@ class FFmpegVideoProcessor:
 
             # Build filter chain
             filters = self._build_filter_chain(video_info)
-
-            # Add path to video_info for methods that need it
-            video_info["path"] = video_path
 
             # Specific extraction method
             if extraction.method == FrameExtractionMethod.KEYFRAMES:
@@ -1009,7 +989,6 @@ class FFmpegVideoProcessor:
         try:
             cmd = [
                 "ffmpeg",
-                *self._build_hwaccel_args(),
                 "-ss",
                 str(timestamp),
                 "-i",

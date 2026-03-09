@@ -2,7 +2,6 @@
 Tests for extracted video processing modules.
 
 Covers:
-- HardwareAccelerationResolver (hwaccel_resolver.py)
 - TimestampCalculator (timestamp_calculator.py)
 - CoverageAnalyzer (coverage_analyzer.py)
 
@@ -18,101 +17,6 @@ import pytest
 
 # Ensure backend is on path
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
-
-# ===========================================================================
-# HardwareAccelerationResolver
-# ===========================================================================
-
-
-@pytest.mark.unit
-class TestHardwareAccelerationResolver:
-    def test_resolve_auto_delegates_to_detect(self):
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        with patch.object(HardwareAccelerationResolver, "detect_available", return_value="cuda"):
-            assert HardwareAccelerationResolver.resolve("auto") == "cuda"
-
-    def test_resolve_explicit_value(self):
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        assert HardwareAccelerationResolver.resolve("qsv") == "qsv"
-
-    def test_resolve_none(self):
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        assert HardwareAccelerationResolver.resolve(None) is None
-
-    def test_resolve_empty_string(self):
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        assert HardwareAccelerationResolver.resolve("") is None
-
-    def test_build_args_with_hwaccel(self):
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        assert HardwareAccelerationResolver.build_args("cuda") == ["-hwaccel", "cuda"]
-
-    def test_build_args_without_hwaccel(self):
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        assert HardwareAccelerationResolver.build_args(None) == []
-
-    def test_detect_available_caches_result(self):
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        # Reset cache
-        HardwareAccelerationResolver._hwaccel_checked = False
-        HardwareAccelerationResolver._hwaccel_available = None
-
-        mock_result = MagicMock()
-        mock_result.stdout = "cuda\nvaapi\n"
-
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
-            result1 = HardwareAccelerationResolver.detect_available()
-            result2 = HardwareAccelerationResolver.detect_available()
-
-        assert result1 == "cuda"
-        assert result2 == "cuda"
-        # subprocess.run should be called only once (cached)
-        mock_run.assert_called_once()
-
-        # Reset cache for other tests
-        HardwareAccelerationResolver._hwaccel_checked = False
-        HardwareAccelerationResolver._hwaccel_available = None
-
-    def test_detect_available_no_gpu(self):
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        HardwareAccelerationResolver._hwaccel_checked = False
-        HardwareAccelerationResolver._hwaccel_available = None
-
-        mock_result = MagicMock()
-        mock_result.stdout = "Hardware acceleration methods:\n"
-
-        with patch("subprocess.run", return_value=mock_result):
-            result = HardwareAccelerationResolver.detect_available()
-
-        assert result is None
-
-        # Reset cache
-        HardwareAccelerationResolver._hwaccel_checked = False
-        HardwareAccelerationResolver._hwaccel_available = None
-
-    def test_detect_available_subprocess_failure(self):
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        HardwareAccelerationResolver._hwaccel_checked = False
-        HardwareAccelerationResolver._hwaccel_available = None
-
-        with patch("subprocess.run", side_effect=FileNotFoundError("ffmpeg not found")):
-            result = HardwareAccelerationResolver.detect_available()
-
-        assert result is None
-
-        # Reset cache
-        HardwareAccelerationResolver._hwaccel_checked = False
-        HardwareAccelerationResolver._hwaccel_available = None
 
 
 # ===========================================================================
@@ -359,24 +263,6 @@ class TestFFmpegProcessorDelegation:
         assert "recommendations" in result
 
     @patch("services.pyav_extractor.is_pyav_available", return_value=True)
-    def test_hwaccel_delegator_build_args(self, _):
-        from models.ffmpeg_config import FFmpegProcessingConfig
-        from services.ffmpeg_processor import FFmpegVideoProcessor
-
-        config = FFmpegProcessingConfig(hardware_accel="cuda")
-        proc = FFmpegVideoProcessor(config=config)
-        assert proc._build_hwaccel_args() == ["-hwaccel", "cuda"]
-
-    @patch("services.pyav_extractor.is_pyav_available", return_value=True)
-    def test_hwaccel_delegator_build_args_none(self, _):
-        from models.ffmpeg_config import FFmpegProcessingConfig
-        from services.ffmpeg_processor import FFmpegVideoProcessor
-
-        config = FFmpegProcessingConfig(hardware_accel="")
-        proc = FFmpegVideoProcessor(config=config)
-        assert proc._build_hwaccel_args() == []
-
-    @patch("services.pyav_extractor.is_pyav_available", return_value=True)
     def test_calculate_frame_timestamps_delegation(self, _):
         from models.ffmpeg_config import FFmpegProcessingConfig, FrameExtractionConfig
         from services.ffmpeg_processor import FFmpegVideoProcessor
@@ -387,20 +273,3 @@ class TestFFmpegProcessorDelegation:
         proc = FFmpegVideoProcessor(config=config)
         ts = proc._calculate_frame_timestamps({"duration": 100.0})
         assert len(ts) == 5
-
-    @patch("services.pyav_extractor.is_pyav_available", return_value=True)
-    def test_detect_available_hwaccel_is_static(self, _):
-        from services.ffmpeg_processor import FFmpegVideoProcessor
-
-        # Should still be accessible as a static method
-        from services.hwaccel_resolver import HardwareAccelerationResolver
-
-        HardwareAccelerationResolver._hwaccel_checked = False
-        HardwareAccelerationResolver._hwaccel_available = None
-
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            result = FFmpegVideoProcessor._detect_available_hwaccel()
-        assert result is None
-
-        HardwareAccelerationResolver._hwaccel_checked = False
-        HardwareAccelerationResolver._hwaccel_available = None
