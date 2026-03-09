@@ -60,11 +60,7 @@ async def lifespan(app: FastAPI):
     logger.info("QPrisma API v%s", _VERSION)
     logger.info("=" * 50)
     logger.info("Environment: %s", settings.app.environment)
-    disable_startup_checks = os.getenv("DISABLE_STARTUP_HEALTHCHECKS", "").lower() in {
-        "1",
-        "true",
-        "yes",
-    }
+    disable_startup_checks = settings.app.disable_startup_healthchecks
     if disable_startup_checks:
         logger.info("Azure OpenAI: skipped (startup checks disabled)")
         logger.info("Azure Storage: skipped (startup checks disabled)")
@@ -81,7 +77,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize Redis Pub/Sub listener for WebSocket events from Celery
     pubsub_task = None
-    disable_pubsub = os.getenv("DISABLE_REDIS_PUBSUB", "").lower() in {"1", "true", "yes"}
+    disable_pubsub = settings.app.disable_redis_pubsub
     if disable_pubsub:
         logger.info("Redis Pub/Sub: skipped (disabled by env)")
     else:

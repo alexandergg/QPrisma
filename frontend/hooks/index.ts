@@ -289,3 +289,9 @@ export function useCopyToClipboard(): [boolean, (text: string) => Promise<void>]
 
   return [copied, copy];
 }
+
+// Re-export chat hooks
+export { useChatState } from './useChatState';
+export type { ChatMessage, ChatMessageSource, UseChatStateOptions, UseChatStateReturn } from './useChatState';
+export { useStreamingChat } from './useStreamingChat';
+export type { UseStreamingChatOptions, UseStreamingChatReturn } from './useStreamingChat';

@@ -234,6 +234,26 @@ class TestAppSettings:
             s = AppSettings()
         assert s.log_file == "/tmp/app.log"
 
+    def test_disable_startup_healthchecks_default(self):
+        with patch.dict(os.environ, {}, clear=True):
+            s = AppSettings()
+        assert s.disable_startup_healthchecks is False
+
+    def test_disable_startup_healthchecks_from_env(self):
+        with patch.dict(os.environ, {"DISABLE_STARTUP_HEALTHCHECKS": "true"}):
+            s = AppSettings()
+        assert s.disable_startup_healthchecks is True
+
+    def test_disable_redis_pubsub_default(self):
+        with patch.dict(os.environ, {}, clear=True):
+            s = AppSettings()
+        assert s.disable_redis_pubsub is False
+
+    def test_disable_redis_pubsub_from_env(self):
+        with patch.dict(os.environ, {"DISABLE_REDIS_PUBSUB": "1"}):
+            s = AppSettings()
+        assert s.disable_redis_pubsub is True
+
 
 # =============================================================================
 # RedisSettings

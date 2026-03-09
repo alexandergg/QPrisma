@@ -1,22 +1,11 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect } from 'react';
 import { Send } from 'lucide-react';
-import { apiClient, Clip } from '@/lib/api';
+import type { Clip } from '@/lib/api';
 import { EditorChatMessages } from './EditorChatMessages';
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-  toolCalls?: number;
-}
-
-interface ToolStatus {
-  name: string;
-  status: 'running' | 'success' | 'error';
-}
+import { useChatState } from '@/hooks/useChatState';
+import { useStreamingChat } from '@/hooks/useStreamingChat';
 
 interface EditorChatProps {
   projectId: string;
@@ -32,16 +21,25 @@ export default function EditorChat({
   onClipsUpdated,
   onTimestampClick,
 }: EditorChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [streamingContent, setStreamingContent] = useState('');
-  const [activeTools, setActiveTools] = useState<ToolStatus[]>([]);
-  const [sessionId, setSessionId] = useState<string | undefined>();
+  const chatState = useChatState({});
+
+  const {
+    messages,
+    inputValue,
+    setInputValue,
+    isLoading,
+    streamingContent,
+    activeTools,
+  } = chatState;
+
+  const { handleSend } = useStreamingChat({
+    ...chatState,
+    projectId,
+    onClipsUpdated,
+  });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  const generateId = () => Math.random().toString(36).substring(2, 9);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -53,115 +51,20 @@ export default function EditorChat({
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
   };
 
-  const handleSend = useCallback(async () => {
+  const handleSendFromInput = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;
-
-    const userMessage: ChatMessage = {
-      id: generateId(),
-      role: 'user',
-      content: inputValue.trim(),
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
+    const text = inputValue.trim();
     setInputValue('');
-    setIsLoading(true);
-    setStreamingContent('');
-    setActiveTools([]);
-
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
     }
-
-    try {
-      const chatHistory = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      let finalResponse = '';
-      let toolCallsMade = 0;
-
-      for await (const event of apiClient.chatWithEditorAgentStream(
-        userMessage.content,
-        projectId,
-        chatHistory,
-        sessionId
-      )) {
-        switch (event.event) {
-          case 'session':
-            setSessionId(event.data.session_id);
-            break;
-          case 'thinking':
-            break;
-          case 'tool_start':
-            setActiveTools((prev) => [
-              ...prev,
-              { name: event.data.tool || 'unknown', status: 'running' },
-            ]);
-            break;
-          case 'tool_end':
-            setActiveTools((prev) =>
-              prev.map((t) =>
-                t.name === event.data.tool
-                  ? { ...t, status: event.data.success ? 'success' : 'error' }
-                  : t
-              )
-            );
-            break;
-          case 'token':
-            if (event.data.token) {
-              setStreamingContent((prev) => prev + event.data.token);
-            }
-            break;
-          case 'clips_updated':
-            if (event.data.clips) {
-              onClipsUpdated?.(event.data.clips);
-            }
-            break;
-          case 'done':
-            finalResponse = event.data.response || '';
-            toolCallsMade = event.data.tool_calls_made || 0;
-            break;
-          case 'error':
-            throw new Error(event.data.error || 'Unknown error');
-        }
-      }
-
-      const assistantMessage: ChatMessage = {
-        id: generateId(),
-        role: 'assistant',
-        content: finalResponse,
-        timestamp: new Date(),
-        toolCalls: toolCallsMade > 0 ? toolCallsMade : undefined,
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
-      setStreamingContent('');
-      setActiveTools([]);
-    } catch (error) {
-      console.error('Chat error:', error);
-      const errorMessage: ChatMessage = {
-        id: generateId(),
-        role: 'assistant',
-        content:
-          error instanceof Error
-            ? `Sorry, I encountered an error: ${error.message}`
-            : 'Sorry, I encountered an error processing your request. Please try again.',
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-      setStreamingContent('');
-      setActiveTools([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [inputValue, isLoading, messages, projectId, sessionId, onClipsUpdated]);
+    await handleSend(text);
+  }, [inputValue, isLoading, setInputValue, handleSend]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      handleSendFromInput();
     }
   };
 
@@ -202,7 +105,7 @@ export default function EditorChat({
             />
           </div>
           <button
-            onClick={handleSend}
+            onClick={handleSendFromInput}
             disabled={!inputValue.trim() || isLoading}
             className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
           >

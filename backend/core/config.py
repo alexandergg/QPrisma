@@ -329,6 +329,12 @@ class AppSettings(BaseSettings):
     # Logging
     log_file: str | None = Field(default=None)
 
+    # Startup / runtime toggles
+    disable_startup_healthchecks: bool = Field(
+        default=False, description="Skip health checks on startup"
+    )
+    disable_redis_pubsub: bool = Field(default=False, description="Disable Redis pub/sub listener")
+
     # CORS
     cors_origins: list[str] = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
