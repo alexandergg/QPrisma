@@ -19,8 +19,8 @@ describe('Constants', () => {
       expect(VIDEO.SEEK_STEP).toBeLessThanOrEqual(30);
     });
 
-    it('has valid clip duration limits', () => {
-      expect(VIDEO.MIN_CLIP_DURATION).toBeLessThan(VIDEO.MAX_CLIP_DURATION);
+    it('has valid zoom limits', () => {
+      expect(VIDEO.TIMELINE_MIN_ZOOM).toBeLessThan(VIDEO.TIMELINE_MAX_ZOOM);
     });
   });
 

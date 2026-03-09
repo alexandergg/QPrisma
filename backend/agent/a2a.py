@@ -5,8 +5,8 @@ A2A Agent Executor
 Bridges LangGraph agents with the A2A (Agent-to-Agent) protocol.
 Handles task lifecycle, streaming, and artifact generation.
 
-This module wraps the existing VideoAgentGraph and EditorAgentGraph
-to expose them as A2A-compliant servers.
+This module wraps the existing VideoAgentGraph
+to expose it as an A2A-compliant server.
 
 Reference: https://a2a-protocol.org/latest/specification/
 """
@@ -22,7 +22,6 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.graphs.editor import create_editor_agent_graph
 from agent.graphs.video import create_production_checkpointer, create_video_agent_graph
 from agent.state.agent_state import create_agent_state
 from agent.utils.observability import Metrics, get_logger
@@ -399,7 +398,7 @@ class A2AAgentExecutor:
     """
     A2A-compliant executor for QPrisma agents.
 
-    Wraps LangGraph-based agents (VideoAgentGraph, EditorAgentGraph) to provide
+    Wraps the LangGraph-based VideoAgentGraph to provide
     A2A protocol operations including:
     - SendMessage (sync and streaming)
     - GetTask / ListTasks
@@ -412,7 +411,6 @@ class A2AAgentExecutor:
 
     def __init__(
         self,
-        agent_type: str = "video",  # "video" or "editor"
         model_deployment: str | None = None,
         checkpointer=None,
     ):
@@ -420,11 +418,10 @@ class A2AAgentExecutor:
         Initialize the A2A executor.
 
         Args:
-            agent_type: Type of agent ("video" for VideoAgentGraph, "editor" for EditorAgentGraph)
             model_deployment: Azure OpenAI deployment name
             checkpointer: LangGraph checkpointer for persistence
         """
-        self.agent_type = agent_type
+        self.agent_type = "video"
         self.model_deployment = model_deployment
         self.checkpointer = checkpointer
         self.task_store = get_task_store()
@@ -444,10 +441,7 @@ class A2AAgentExecutor:
             if resolved_checkpointer is None:
                 resolved_checkpointer = await get_shared_checkpointer()
 
-            if self.agent_type == "editor":
-                self._graph = create_editor_agent_graph(resolved_checkpointer)
-            else:
-                self._graph = create_video_agent_graph(resolved_checkpointer)
+            self._graph = create_video_agent_graph(resolved_checkpointer)
 
             return self._graph
 
@@ -610,11 +604,9 @@ class A2AAgentExecutor:
         # Extract metadata from message
         media_id = None
         media_ids = None
-        project_id = None
         if message.metadata:
             media_id = message.metadata.get("media_id")
             media_ids = message.metadata.get("media_ids")
-            project_id = message.metadata.get("project_id")
 
         # Convert message to LangChain format
         lc_message = self._a2a_message_to_langchain(message)
@@ -635,7 +627,6 @@ class A2AAgentExecutor:
                 "thread_id": task.contextId,
                 "media_id": media_id,
                 "media_ids": media_ids,
-                "project_id": project_id,
                 "model_deployment": self.model_deployment,
             }
         )
@@ -789,7 +780,6 @@ class A2AAgentExecutor:
         # Extract metadata
         media_id = message.metadata.get("media_id") if message.metadata else None
         media_ids = message.metadata.get("media_ids") if message.metadata else None
-        project_id = message.metadata.get("project_id") if message.metadata else None
 
         logger.info(
             "A2A streaming started",
@@ -817,7 +807,6 @@ class A2AAgentExecutor:
                 "thread_id": task.contextId,
                 "media_id": media_id,
                 "media_ids": media_ids,
-                "project_id": project_id,
                 "model_deployment": self.model_deployment,
             }
         )
@@ -1014,20 +1003,11 @@ class A2AAgentExecutor:
 
 
 _video_executor: A2AAgentExecutor | None = None
-_editor_executor: A2AAgentExecutor | None = None
 
 
 def get_video_a2a_executor() -> A2AAgentExecutor:
     """Get the singleton video agent A2A executor."""
     global _video_executor
     if _video_executor is None:
-        _video_executor = A2AAgentExecutor(agent_type="video")
+        _video_executor = A2AAgentExecutor()
     return _video_executor
-
-
-def get_editor_a2a_executor() -> A2AAgentExecutor:
-    """Get the singleton editor agent A2A executor."""
-    global _editor_executor
-    if _editor_executor is None:
-        _editor_executor = A2AAgentExecutor(agent_type="editor")
-    return _editor_executor

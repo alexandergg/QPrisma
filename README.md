@@ -68,7 +68,7 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 |---|---|
 | Frontend | Next.js 16, React 19, Tailwind |
 | Backend | FastAPI, Python 3.11+, Pydantic |
-| Agent Runtime | LangGraph (video + editor agents) |
+| Agent Runtime | LangGraph (video agent) |
 | AI | Azure OpenAI multimodal/chat/embedding/transcription models |
 | Video Decode | PyAV (C-level FFmpeg bindings), FFmpeg subprocess fallback |
 | Scene Detection | PySceneDetect (AdaptiveDetector + ContentDetector) |

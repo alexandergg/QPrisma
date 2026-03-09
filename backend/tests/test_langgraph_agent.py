@@ -2,7 +2,7 @@
 LangGraph Agent Tests
 =====================
 
-Tests for the LangGraph-based video and editor agents.
+Tests for the LangGraph-based video agent.
 """
 
 import json
@@ -42,25 +42,6 @@ class TestGraphState:
 
         assert state["video_context"] is None
         assert state["sources"] == []
-
-    def test_create_agent_state_with_project(self):
-        """Test state creation with project context."""
-        from agent.state.agent_state import ProjectContext, create_agent_state
-
-        project = ProjectContext(
-            project_id="proj-1",
-            project_name="Test Project",
-            source_media_id="vid-1",
-        )
-        messages = [HumanMessage(content="Create a clip")]
-        state = create_agent_state(
-            messages=messages,
-            project_id="proj-1",
-            project_context=project,
-        )
-
-        assert state["project_id"] == "proj-1"
-        assert state["project_context"]["project_name"] == "Test Project"
 
     def test_truncate_tool_message_content(self):
         """Test that large tool messages are truncated."""
@@ -214,9 +195,8 @@ class TestVideoAgentGraph:
     @pytest.mark.asyncio
     async def test_agent_graph_creation(self):
         """Test that the graph compiles successfully."""
-        from langgraph.checkpoint.memory import MemorySaver
-
         from agent.graphs.video import create_video_agent_graph
+        from langgraph.checkpoint.memory import MemorySaver
 
         checkpointer = MemorySaver()
         graph = create_video_agent_graph(checkpointer)
@@ -263,45 +243,6 @@ class TestVideoAgentGraph:
         assert hasattr(agent, "_build_config")
 
 
-class TestEditorAgentGraph:
-    """Test the LangGraph editor agent."""
-
-    @pytest.mark.asyncio
-    async def test_editor_graph_creation(self):
-        """Test that the editor graph compiles successfully."""
-        from langgraph.checkpoint.memory import MemorySaver
-
-        from agent.graphs.editor import create_editor_agent_graph
-
-        checkpointer = MemorySaver()
-        graph = create_editor_agent_graph(checkpointer)
-
-        assert graph is not None
-
-    @pytest.mark.asyncio
-    async def test_editor_agent_graph_class(self):
-        """Test EditorAgentGraph class initialization."""
-        from agent.graphs.editor import EditorAgentGraph
-
-        agent = EditorAgentGraph(model_deployment="gpt-4o")
-
-        assert agent.model_deployment == "gpt-4o"
-
-    @pytest.mark.asyncio
-    async def test_editor_agent_graph_singleton(self):
-        """Test that get_editor_agent_graph returns singleton."""
-        # Reset singleton
-        import agent.graphs.editor as module
-        from agent.graphs.editor import get_editor_agent_graph
-
-        module._editor_graph_instance = None
-
-        agent1 = get_editor_agent_graph()
-        agent2 = get_editor_agent_graph()
-
-        assert agent1 is agent2
-
-
 class TestIterationLimits:
     """Test agent iteration limit behavior."""
 
@@ -342,43 +283,6 @@ class TestIterationLimits:
         }
         assert should_continue(state) == "tools"
 
-    def test_editor_should_continue_no_tool_calls(self):
-        """Test editor should_continue returns END when no tool calls."""
-        from agent.nodes.editor_nodes import should_continue_editor
-
-        state = {"messages": [AIMessage(content="Done")], "tool_calls_count": 0}
-        assert should_continue_editor(state) == "__end__"
-
-    def test_editor_should_continue_at_limit(self):
-        """Test editor should_continue returns END at max iterations."""
-        from agent.nodes.editor_nodes import MAX_EDITOR_TOOL_ITERATIONS, should_continue_editor
-
-        state = {
-            "messages": [
-                AIMessage(
-                    content="",
-                    tool_calls=[{"name": "create_clip", "args": {}, "id": "tc1"}],
-                )
-            ],
-            "tool_calls_count": MAX_EDITOR_TOOL_ITERATIONS,
-        }
-        assert should_continue_editor(state) == "__end__"
-
-    def test_editor_should_continue_with_tool_calls(self):
-        """Test editor should_continue returns 'tools' under limit."""
-        from agent.nodes.editor_nodes import should_continue_editor
-
-        state = {
-            "messages": [
-                AIMessage(
-                    content="",
-                    tool_calls=[{"name": "create_clip", "args": {}, "id": "tc1"}],
-                )
-            ],
-            "tool_calls_count": 2,
-        }
-        assert should_continue_editor(state) == "tools"
-
 
 class TestLangGraphTools:
     """Test LangGraph tool definitions."""
@@ -396,20 +300,6 @@ class TestLangGraphTools:
         assert "describe_scene" in tool_names
         assert "list_chapters" in tool_names
 
-    def test_editor_tools_defined(self):
-        """Test that editor tools are properly defined."""
-        from agent.tools.editor import EDITOR_TOOLS
-
-        assert len(EDITOR_TOOLS) >= 10
-
-        tool_names = [t.name for t in EDITOR_TOOLS]
-        assert "create_clip" in tool_names
-        assert "modify_clip" in tool_names
-        assert "delete_clip" in tool_names
-        assert "list_clips" in tool_names
-        assert "add_subtitles" in tool_names
-        assert "export_clip" in tool_names
-
     @pytest.mark.asyncio
     async def test_search_video_no_context(self):
         """Test search_video returns error without media_id."""
@@ -422,19 +312,6 @@ class TestLangGraphTools:
 
         assert "error" in result
         assert "No video context" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_create_clip_no_project(self):
-        """Test create_clip returns error without project_id."""
-        from agent.tools.editor import create_clip
-
-        result = await create_clip.ainvoke(
-            {"start_time": 0, "end_time": 10},
-            config={"configurable": {}},
-        )
-
-        assert "error" in result
-        assert "No project context" in result["error"]
 
 
 class TestRedisCheckpointer:
@@ -450,8 +327,6 @@ class TestRedisCheckpointer:
             import agent.graphs.video as module
 
             importlib.reload(module)
-
-            original_func = module.create_redis_checkpointer
 
             def mock_create():
                 try:
@@ -471,20 +346,16 @@ class TestAgentImports:
         """Test LangGraph exports from agent module."""
         from agent import (
             AgentState,
-            EditorAgentGraph,
             VideoAgentGraph,
             create_agent_state,
             create_redis_checkpointer,
-            get_editor_agent_graph,
             get_video_agent_graph,
         )
 
         assert VideoAgentGraph is not None
-        assert EditorAgentGraph is not None
         assert AgentState is not None
         assert create_agent_state is not None
         assert get_video_agent_graph is not None
-        assert get_editor_agent_graph is not None
         assert create_redis_checkpointer is not None
 
     def test_metadata_extraction_exports(self):
@@ -552,9 +423,8 @@ class TestGraphExecutionPaths:
     @pytest.mark.asyncio
     async def test_video_graph_structure(self):
         """Test that the video graph compiles with expected nodes."""
-        from langgraph.checkpoint.memory import MemorySaver
-
         from agent.graphs.video import create_video_agent_graph
+        from langgraph.checkpoint.memory import MemorySaver
 
         checkpointer = MemorySaver()
         graph = create_video_agent_graph(checkpointer)
@@ -572,9 +442,8 @@ class TestGraphExecutionPaths:
     @pytest.mark.asyncio
     async def test_video_graph_edges(self):
         """Test that the video graph has correct edge connections."""
-        from langgraph.checkpoint.memory import MemorySaver
-
         from agent.graphs.video import create_video_agent_graph
+        from langgraph.checkpoint.memory import MemorySaver
 
         checkpointer = MemorySaver()
         graph = create_video_agent_graph(checkpointer)
@@ -607,23 +476,6 @@ class TestGraphExecutionPaths:
         # Should return END even though there are tool calls
         result = should_continue(state)
         assert result == "__end__"
-
-    @pytest.mark.asyncio
-    async def test_editor_graph_destructive_tools_list(self):
-        """Test that destructive tools are properly categorized."""
-        from agent.graphs.editor import DESTRUCTIVE_TOOLS, SAFE_TOOLS
-
-        # Verify tool categorization
-        assert "create_clip" in DESTRUCTIVE_TOOLS
-        assert "delete_clip" in DESTRUCTIVE_TOOLS
-        assert "modify_clip" in DESTRUCTIVE_TOOLS
-        assert "export_clip" in DESTRUCTIVE_TOOLS
-
-        assert "list_clips" in SAFE_TOOLS
-        assert "list_subtitle_styles" in SAFE_TOOLS
-
-        # Ensure no overlap
-        assert len(DESTRUCTIVE_TOOLS & SAFE_TOOLS) == 0
 
 
 class TestErrorHandling:
@@ -795,30 +647,15 @@ class TestDynamicToolBinding:
 
         assert len(selected) <= 5
 
-    def test_select_tools_for_edit_query(self):
-        """Test tool selection for editing queries."""
-        from agent.nodes.base import select_tools_for_query
-        from agent.tools import EDITOR_TOOLS, SEARCH_TOOLS
-
-        all_tools = SEARCH_TOOLS + EDITOR_TOOLS
-        query = "Create a clip from 1:00 to 2:00"
-        selected = select_tools_for_query(query, all_tools, max_tools=8)
-
-        assert len(selected) <= 8
-        # Should include clip-related tools
-        tool_names = [t.name for t in selected]
-        assert "create_clip" in tool_names or any("clip" in name for name in tool_names)
-
     def test_select_tools_max_limit(self):
         """Test that tool selection respects max_tools limit."""
         from agent.nodes.base import select_tools_for_query
-        from agent.tools import EDITOR_TOOLS, SEARCH_TOOLS
+        from agent.tools import SEARCH_TOOLS
 
-        all_tools = SEARCH_TOOLS + EDITOR_TOOLS
         query = "Do everything"  # Vague query that might match many tools
 
         for max_tools in [3, 5, 8, 10]:
-            selected = select_tools_for_query(query, all_tools, max_tools=max_tools)
+            selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=max_tools)
             assert len(selected) <= max_tools
 
 
@@ -827,9 +664,8 @@ class TestProductionCheckpointerFactory:
 
     def test_checkpointer_cascade_fallback(self):
         """Test that checkpointer factory falls back correctly."""
-        from langgraph.checkpoint.memory import MemorySaver
-
         from agent.graphs.video import create_production_checkpointer
+        from langgraph.checkpoint.memory import MemorySaver
 
         # When no persistent stores are available, should fall back to MemorySaver
         with (
@@ -1025,56 +861,6 @@ class TestObservability:
         assert updated["configurable"]["request_id"] == "test-req-1"
         assert updated["configurable"]["user_id"] == "user-1"
         assert updated["metadata"]["request_id"] == "test-req-1"
-
-
-class TestHITLFlow:
-    """Test Human-in-the-Loop interrupt/resume flow."""
-
-    def test_destructive_tools_categorized(self):
-        """Test that destructive tools are properly identified."""
-        from agent.graphs.editor import DESTRUCTIVE_TOOLS, SAFE_TOOLS
-
-        # Destructive tools that modify state
-        assert "create_clip" in DESTRUCTIVE_TOOLS
-        assert "delete_clip" in DESTRUCTIVE_TOOLS
-        assert "modify_clip" in DESTRUCTIVE_TOOLS
-        assert "export_clip" in DESTRUCTIVE_TOOLS
-
-        # Safe tools that only read
-        assert "list_clips" in SAFE_TOOLS
-        assert "list_subtitle_styles" in SAFE_TOOLS
-        assert "get_export_status" in SAFE_TOOLS
-
-    @pytest.mark.asyncio
-    async def test_editor_graph_with_interrupt_compiles(self):
-        """Test that editor graph with interrupt_before_clips compiles."""
-        from langgraph.checkpoint.memory import MemorySaver
-
-        from agent.graphs.editor import create_editor_agent_graph
-
-        checkpointer = MemorySaver()
-
-        # Should compile without errors
-        graph = create_editor_agent_graph(
-            checkpointer=checkpointer,
-            interrupt_before_clips=True,
-        )
-
-        assert graph is not None
-
-        # Verify graph structure
-        nodes = list(graph.get_graph().nodes.keys())
-        assert "tools" in nodes
-        assert "call_model" in nodes
-
-    def test_editor_agent_has_confirm_method(self):
-        """Test EditorAgentGraph has confirm_and_continue method."""
-        from agent.graphs.editor import EditorAgentGraph
-
-        agent = EditorAgentGraph()
-
-        assert hasattr(agent, "confirm_and_continue")
-        assert callable(agent.confirm_and_continue)
 
 
 class TestStateValidation:

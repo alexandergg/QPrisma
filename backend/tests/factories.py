@@ -66,33 +66,3 @@ class JobFactory(factory.DictFactory):
     message = None
     error = None
     created_at = factory.LazyFunction(lambda: datetime.now(UTC))
-
-
-class ProjectFactory(factory.DictFactory):
-    """Factory for editor project dicts."""
-
-    id = factory.LazyFunction(lambda: str(uuid.uuid4()))
-    user_id = factory.LazyFunction(lambda: f"user_{uuid.uuid4().hex[:12]}")
-    source_media_id = factory.LazyFunction(lambda: str(uuid.uuid4()))
-    name = factory.LazyFunction(lambda: f"Project {fake.word().title()}")
-    description = factory.LazyFunction(fake.sentence)
-    status = "draft"
-    settings = factory.LazyFunction(dict)
-    created_at = factory.LazyFunction(lambda: datetime.now(UTC))
-    updated_at = factory.LazyFunction(lambda: datetime.now(UTC))
-
-
-class ClipFactory(factory.DictFactory):
-    """Factory for clip dicts."""
-
-    id = factory.LazyFunction(lambda: str(uuid.uuid4()))
-    project_id = factory.LazyFunction(lambda: str(uuid.uuid4()))
-    start_time = factory.LazyFunction(lambda: fake.pyfloat(min_value=0.0, max_value=100.0))
-    end_time = factory.LazyFunction(lambda: fake.pyfloat(min_value=101.0, max_value=300.0))
-    title = factory.LazyFunction(lambda: f"Clip: {fake.sentence(nb_words=3)}")
-    notes = factory.LazyFunction(fake.sentence)
-    order = factory.Sequence(lambda n: n)
-    is_ai_suggested = False
-    viral_score = None
-    viral_reasons = None
-    transcript_snippet = factory.LazyFunction(lambda: fake.paragraph(nb_sentences=2))

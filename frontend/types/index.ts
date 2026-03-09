@@ -191,32 +191,6 @@ export interface WebSocketMessage<T = unknown> {
 }
 
 // ============================================================================
-// Export Preset Types
-// ============================================================================
-
-export type ExportPlatform = 
-  | 'tiktok'
-  | 'youtube_shorts'
-  | 'instagram_reels'
-  | 'youtube'
-  | 'twitter'
-  | 'custom';
-
-export type ExportQuality = 
-  | 'draft'
-  | 'standard'
-  | 'high'
-  | 'ultra';
-
-export type CropModeType = 
-  | 'center'
-  | 'smart'
-  | 'top'
-  | 'bottom'
-  | 'left'
-  | 'right';
-
-// ============================================================================
 // Knowledge Graph Visualization Types
 // ============================================================================
 

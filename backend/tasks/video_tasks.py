@@ -252,78 +252,169 @@ def download_video_task(self, blob_name: str, job_id: str) -> dict:
 
 
 @celery_app.task(bind=True, name="tasks.video_tasks.extract_frames_task", max_retries=2)
-def extract_frames_task(self, download_result: dict, job_id: str, max_frames: int = 20) -> dict:
+def extract_frames_task(
+    self,
+    download_result: dict,
+    job_id: str,
+    max_frames: int = 20,
+    preset: str | None = None,
+) -> dict:
     """
-    Extract frames from a video using FFmpeg.
+    Extract frames from a video using FFmpegVideoProcessor (PyAV + deduplication).
+
+    Uses the optimized :class:`FFmpegVideoProcessor` for frame extraction and
+    PIL/Pillow for re-encoding frames into the configured format (WebP by default).
+
+    When a *preset* is provided, the corresponding
+    :func:`get_preset_config` configuration is used (honouring the
+    extraction method, interval, scene threshold, etc.).  Otherwise
+    falls back to ``UNIFORM`` distribution with *max_frames*.
 
     Returns:
         Dict with list of frames (bytes) and metadata.
     """
     _initialize_services()
-    import cv2
+    import io
+
+    from PIL import Image, ImageFilter
+
+    from core.config import settings
+    from models.ffmpeg_config import (
+        FFmpegProcessingConfig,
+        FrameExtractionConfig,
+        FrameExtractionMethod,
+        ProcessingPreset,
+        get_preset_config,
+    )
+    from services.ffmpeg_processor import FFmpegVideoProcessor
+
+    # ---- helpers for quality metrics (PIL-based, no cv2) --------------------
+
+    def calculate_blur_score(image_data: bytes) -> float:
+        """Approximate blur using edge-intensity variance. Higher = sharper."""
+        try:
+            img = Image.open(io.BytesIO(image_data)).convert("L")
+            # Laplacian-like edge detection via FIND_EDGES kernel
+            edges = img.filter(ImageFilter.FIND_EDGES)
+            import numpy as np
+
+            arr = np.asarray(edges, dtype=np.float64)
+            variance = float(arr.var())
+            # Normalize to 0-1 (empirical cap at 2000 for edge filter)
+            return min(variance / 2000.0, 1.0)
+        except Exception:
+            return 0.0
+
+    def calculate_brightness(image_data: bytes) -> float:
+        """Calculate average brightness. 0=dark, 1=bright."""
+        try:
+            img = Image.open(io.BytesIO(image_data)).convert("L")
+            import numpy as np
+
+            arr = np.asarray(img, dtype=np.float64)
+            return float(arr.mean() / 255.0)
+        except Exception:
+            return 0.0
+
+    def encode_frame(image_data: bytes, fmt: str = "webp", quality: int = 80) -> bytes:
+        """Re-encode raw frame bytes into the target format for Vision API."""
+        img = Image.open(io.BytesIO(image_data))
+        buf = io.BytesIO()
+        pil_format = fmt.upper() if fmt.lower() != "webp" else "WEBP"
+        img.save(buf, format=pil_format, quality=quality)
+        return buf.getvalue()
+
+    # ---- main logic ---------------------------------------------------------
 
     try:
         update_job_status.delay(
-            job_id, "processing", 15, "extracting", f"Extracting {max_frames} frames..."
+            job_id, "processing", 15, "extracting", f"Extracting up to {max_frames} frames..."
         )
 
         temp_path = download_result["temp_path"]
 
-        # Get video metadata
-        cap = cv2.VideoCapture(temp_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        duration = total_frames / fps if fps > 0 else 0
+        # Read settings for decoder and encoding
+        decoder_backend = settings.app.video_decoder_backend
+        encoding_format = settings.processing.frame_encoding_format
+        encoding_quality = settings.processing.frame_encoding_quality
 
-        # Helper functions for frame quality metrics
-        def calculate_blur_score(frame) -> float:
-            """Calculate blur using Laplacian variance. Higher = sharper."""
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-            # Normalize to 0-1 range (typical values 0-500+, cap at 500)
-            return min(laplacian_var / 500.0, 1.0)
-
-        def calculate_brightness(frame) -> float:
-            """Calculate average brightness. 0=dark, 1=bright."""
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            return float(gray.mean() / 255.0)
-
-        # Extract frames distributed evenly
-        frames_data = []
-        if total_frames > 0:
-            step = max(1, total_frames // max_frames)
-            frame_positions = [i * step for i in range(min(max_frames, total_frames))]
-
-            for idx, pos in enumerate(frame_positions):
-                cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
-                ret, frame = cap.read()
-
-                if ret:
-                    # Calculate quality metrics
-                    blur_score = calculate_blur_score(frame)
-                    brightness = calculate_brightness(frame)
-
-                    # Encode as JPEG
-                    _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                    frame_bytes = buffer.tobytes()
-
-                    timestamp = pos / fps if fps > 0 else 0
-                    frames_data.append(
-                        {
-                            "index": idx,
-                            "frame_number": pos,
-                            "timestamp": round(timestamp, 2),
-                            "image_bytes": frame_bytes,  # Note: bytes are serialized as base64
-                            "blur_score": round(blur_score, 4),
-                            "brightness": round(brightness, 4),
-                        }
+        # Build FFmpeg processor config from preset (if provided) or defaults
+        if preset:
+            try:
+                preset_enum = ProcessingPreset(preset)
+                config = get_preset_config(preset_enum)
+                # Override max_frames if explicitly provided
+                if max_frames:
+                    config.frame_extraction.max_frames = max_frames
+            except ValueError:
+                logger.warning("Unknown preset '%s' — falling back to UNIFORM", preset)
+                config = FFmpegProcessingConfig(
+                    frame_extraction=FrameExtractionConfig(
+                        method=FrameExtractionMethod.UNIFORM,
+                        max_frames=max_frames,
                     )
+                )
+        else:
+            config = FFmpegProcessingConfig(
+                frame_extraction=FrameExtractionConfig(
+                    method=FrameExtractionMethod.UNIFORM,
+                    max_frames=max_frames,
+                )
+            )
 
-        cap.release()
+        # Ensure decoder backend and deduplication are always applied
+        config.frame_extraction.decoder_backend = decoder_backend
+        config.frame_extraction.deduplication_enabled = True
+        config.frame_extraction.deduplication_threshold = 5
 
-        logger.info(f"Extracted {len(frames_data)} frames from {temp_path}")
+        processor = FFmpegVideoProcessor(config=config)
+
+        # Get video metadata via ffprobe
+        video_info = processor.get_video_info(temp_path)
+        fps = video_info.get("fps", 0)
+        total_frames = video_info.get("frame_count", 0)
+        duration = video_info.get("duration", 0)
+        width = video_info.get("width", 0)
+        height = video_info.get("height", 0)
+
+        # Extract frames (returns list of dicts with image_data bytes)
+        raw_frames = processor.extract_frames_ffmpeg(temp_path, return_as_bytes=True)
+        frames_before_dedup = getattr(processor.status, "frames_extracted", len(raw_frames))
+        # The processor already applies deduplication internally when enabled,
+        # so raw_frames is the post-dedup list.  We capture pre-dedup count
+        # from the processor status which is updated before dedup runs.
+
+        # Re-encode each frame and compute quality metrics
+        frames_data = []
+        for idx, raw in enumerate(raw_frames):
+            raw_image = raw.get("image_data", b"")
+
+            # Re-encode into configured format (webp/jpeg)
+            encoded_bytes = encode_frame(raw_image, fmt=encoding_format, quality=encoding_quality)
+
+            # Quality metrics (computed on the raw extraction, before re-encode)
+            blur_score = calculate_blur_score(raw_image)
+            brightness = calculate_brightness(raw_image)
+
+            frames_data.append(
+                {
+                    "index": idx,
+                    "frame_number": raw.get("frame_number", idx),
+                    "timestamp": round(raw.get("timestamp", 0.0), 2),
+                    "image_bytes": encoded_bytes,
+                    "blur_score": round(blur_score, 4),
+                    "brightness": round(brightness, 4),
+                }
+            )
+
+        logger.info(
+            "Extracted %d frames from %s (decoder=%s, format=%s, dedup=%s)",
+            len(frames_data),
+            temp_path,
+            decoder_backend,
+            encoding_format,
+            config.frame_extraction.deduplication_enabled,
+        )
 
         return {
             "frames": frames_data,
@@ -333,6 +424,10 @@ def extract_frames_task(self, download_result: dict, job_id: str, max_frames: in
                 "duration": round(duration, 2),
                 "resolution": f"{width}x{height}",
                 "frames_extracted": len(frames_data),
+                "decoder_backend": decoder_backend,
+                "deduplication_enabled": config.frame_extraction.deduplication_enabled,
+                "frames_before_dedup": frames_before_dedup,
+                "encoding_format": encoding_format,
             },
             "temp_path": temp_path,
             "blob_name": download_result["blob_name"],
@@ -357,28 +452,26 @@ def analyze_frame_task(
     """
     Analyze an individual frame with GPT-4V.
     Rate limited to protect Azure OpenAI quota.
+
+    Accepts frames encoded as WebP or JPEG bytes (produced by
+    ``extract_frames_task``).  The raw image bytes are passed directly
+    to ``analyze_frame_with_gpt4v`` — no cv2/numpy round-trip required.
     """
     _initialize_services()
     import base64
 
-    import cv2
-    import numpy as np
-
     try:
-        # Decode frame
+        # Decode frame bytes (may arrive as base64 str from JSON serialization)
         frame_bytes = (
             base64.b64decode(frame_data["image_bytes"])
             if isinstance(frame_data["image_bytes"], str)
             else frame_data["image_bytes"]
         )
 
-        nparr = np.frombuffer(frame_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        # Analyze with GPT-4V
+        # Pass raw image bytes directly — _encode_frame_optimized handles bytes
         analysis = asyncio.run(
             _video_processor.analyze_frame_with_gpt4v(
-                frame,
+                frame_bytes,
                 custom_prompt=custom_prompt,
                 timestamp=frame_data.get("timestamp"),
             )
@@ -452,28 +545,125 @@ def generate_embeddings_batch_task(self, texts: list[str], job_id: str) -> list[
 
 @celery_app.task(bind=True, name="tasks.video_tasks.transcribe_audio_task", max_retries=2)
 def transcribe_audio_task(self, temp_path: str, job_id: str) -> dict:
-    """Transcribe video audio with Whisper."""
+    """Transcribe video audio with Whisper.
+
+    Performs the full audio pipeline (extract → transcribe → analyse) with
+    granular progress updates sent via :func:`update_job_status`.  The Whisper
+    backend (``azure`` or ``faster_whisper``) is read from
+    ``settings.azure.whisper_backend``.
+    """
     _initialize_services()
 
-    try:
-        update_job_status.delay(job_id, "processing", 60, "transcribing", "Transcribing audio...")
+    from core.config import settings
 
+    whisper_backend = settings.azure.whisper_backend
+    logger.info(
+        "transcribe_audio_task started – backend=%s, path=%s",
+        whisper_backend,
+        temp_path,
+    )
+
+    try:
+        # --- resolve an AudioProcessor instance ---
+        audio_proc = None
         if _video_processor and _video_processor.audio_processor:
-            # process_video_audio is async — must run in event loop
-            result = asyncio.run(_video_processor.audio_processor.process_video_audio(temp_path))
-            transcription = result.get("transcription", {})
-            return {"transcription": transcription, "success": True}
-        else:
-            logger.warning("Audio processor not available")
+            audio_proc = _video_processor.audio_processor
+        elif _openai_client:
+            logger.info("VideoProcessor unavailable, creating standalone AudioProcessor")
+            from services.audio_processor import AudioProcessor
+
+            audio_proc = AudioProcessor(
+                _openai_client,
+                rate_limit_rpm=settings.azure.openai_whisper_rpm,
+            )
+
+        if audio_proc is None:
+            logger.warning("No AudioProcessor available (no OpenAI client)")
             return {
                 "transcription": None,
                 "success": False,
                 "error": "Audio processor not available",
+                "whisper_backend": whisper_backend,
+                "chunked": False,
+                "chunk_count": 0,
+                "parallel_transcription": False,
             }
+
+        # 1. Extract audio
+        update_job_status.delay(job_id, "processing", 55, "transcribing", "Extracting audio...")
+        audio_path = audio_proc.extract_audio_from_video(temp_path)
+
+        # 2. Transcribe
+        backend_label = (
+            "faster-whisper (local)" if whisper_backend == "faster_whisper" else "Azure Whisper API"
+        )
+        update_job_status.delay(
+            job_id,
+            "processing",
+            60,
+            "transcribing",
+            f"Transcribing with {backend_label}...",
+        )
+        transcription = asyncio.run(audio_proc.transcribe_audio(audio_path))
+
+        chunked = transcription.get("chunked", False)
+        chunk_count = transcription.get("chunk_count", 1 if not chunked else 0)
+        parallel = chunked  # parallel transcription is used when chunking
+
+        logger.info(
+            "Transcription complete – backend=%s, chunked=%s, chunks=%d",
+            whisper_backend,
+            chunked,
+            chunk_count,
+        )
+
+        # 3. Analyse transcription with GPT
+        full_text = transcription.get("text", "")
+        analysis: dict = {}
+
+        if full_text and len(full_text.strip()) > 50:
+            update_job_status.delay(
+                job_id,
+                "processing",
+                70,
+                "transcribing",
+                "Analyzing transcription...",
+            )
+            analysis = asyncio.run(audio_proc.analyze_transcription(full_text))
+        else:
+            logger.warning("Transcription too short or empty, skipping analysis")
+
+        # 4. Build result (preserves original return shape)
+        transcription_data = {
+            "text": full_text,
+            "language": transcription.get("language"),
+            "duration": transcription.get("duration"),
+            "segments": transcription.get("segments", []),
+            "words": transcription.get("words", []),
+        }
+
+        return {
+            "transcription": transcription_data,
+            "analysis": analysis,
+            "success": True,
+            "error": None,
+            "whisper_backend": whisper_backend,
+            "chunked": chunked,
+            "chunk_count": chunk_count,
+            "parallel_transcription": parallel,
+        }
 
     except Exception as e:
         logger.error(f"Transcription failed: {e}")
-        return {"transcription": None, "success": False, "error": str(e)}
+        return {
+            "transcription": None,
+            "success": False,
+            "error": str(e),
+            "whisper_backend": whisper_backend,
+            "chunked": False,
+            "chunk_count": 0,
+            "parallel_transcription": False,
+        }
 
 
 @celery_app.task(bind=True, name="tasks.video_tasks.cleanup_task")
@@ -606,6 +796,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
     config = config or {}
     max_frames = config.get("max_frames", 20)
     custom_prompt = config.get("custom_prompt")
+    preset = config.get("preset")
 
     start_time = time.time()
 
@@ -618,7 +809,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         temp_path = download_result["temp_path"]
 
         # 3. Extract frames
-        extraction_result = extract_frames_task(download_result, job_id, max_frames)
+        extraction_result = extract_frames_task(download_result, job_id, max_frames, preset=preset)
         frames = extraction_result["frames"]
         metadata = extraction_result["metadata"]
 
@@ -966,10 +1157,12 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     with graph.get_session() as session:
                         for f, emb in frame_nodes_with_embeddings:
                             if f.description and emb:
+                                coarse = emb[:512] if len(emb) >= 512 else emb
                                 session.run(
-                                    "MATCH (n:Frame {id: $id}) SET n.embedding = $embedding, n.embedding_updated_at = datetime()",
+                                    "MATCH (n:Frame {id: $id}) SET n.embedding = $embedding, n.embedding_coarse = $coarse, n.embedding_updated_at = datetime()",
                                     id=f.id,
                                     embedding=emb,
+                                    coarse=coarse,
                                 )
 
                 # Link frames to scenes by timestamp (if scenes exist)
@@ -1034,7 +1227,57 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 transcript_indexing_error = str(e)
                 logger.error(f"Transcript graph indexing failed: {e}", exc_info=True)
 
-        # 8c. Update Video node with summary and topics in Neo4j
+        # 8c. Generate and store embeddings for transcript segments
+        if transcript_indexed > 0:
+            try:
+                update_job_status(
+                    job_id,
+                    "processing",
+                    88,
+                    "transcript_embeddings",
+                    "Generating transcript embeddings...",
+                )
+
+                from services.knowledge_graph import get_knowledge_graph_service
+
+                graph = get_knowledge_graph_service()
+                if not graph.is_connected:
+                    graph.connect()
+
+                # Collect transcript texts for embedding generation
+                transcript_data = transcription_result.get("transcription", {})
+                segments = transcript_data.get("segments", [])
+                segment_texts = [
+                    seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip()
+                ]
+
+                if segment_texts:
+                    transcript_embeddings = asyncio.run(
+                        _video_processor.generate_embeddings_batch(segment_texts, batch_size=16)
+                    )
+
+                    emb_stored = 0
+                    with graph.get_session() as session:
+                        for idx, emb in enumerate(transcript_embeddings):
+                            if emb:
+                                seg_id = f"{video_id}_audio_{idx}"
+                                coarse = emb[:512] if len(emb) >= 512 else emb
+                                session.run(
+                                    "MATCH (a:AudioSegment {id: $id}) "
+                                    "SET a.embedding = $embedding, "
+                                    "a.embedding_coarse = $coarse, "
+                                    "a.embedding_updated_at = datetime()",
+                                    id=seg_id,
+                                    embedding=emb,
+                                    coarse=coarse,
+                                )
+                                emb_stored += 1
+
+                    logger.info(f"Stored {emb_stored} transcript embeddings for video {video_id}")
+            except Exception as e:
+                logger.warning(f"Transcript embedding generation skipped: {e}")
+
+        # 8d. Update Video node with summary and topics in Neo4j
         if video_summary or key_topics:
             try:
                 from services.knowledge_graph import get_knowledge_graph_service
@@ -1072,10 +1315,12 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         processing_warnings = []
         if transcript_indexing_error:
             processing_warnings.append(f"Transcript indexing error: {transcript_indexing_error}")
+        if not graph_indexed:
+            processing_warnings.append("Knowledge graph indexing failed")
 
         # Determine status: completed_with_warnings if there were partial errors
         final_status = "completed"
-        if transcript_indexing_error and transcript_indexed == 0:
+        if not graph_indexed or (transcript_indexing_error and transcript_indexed == 0):
             final_status = "completed_with_warnings"
 
         result = {
@@ -1112,7 +1357,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             try:
                 updates = {
                     "processed": True,
-                    "processing_status": "completed",
+                    "processing_status": final_status,
                     "processing_method": "celery_pipeline",
                     "job_id": job_id,
                     "processing_result": result,

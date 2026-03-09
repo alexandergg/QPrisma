@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **Editor agent (Chat-to-Edit) feature** — incomplete feature removed to simplify the repository.
+- **`CLAUDE.md` and `.claude/` directory** — removed Claude Code configuration.
+- **Orphaned scripts in `scripts/` directory** — removed unused helper scripts.
+- **Unused dependencies** (`mutmut`, `yt-dlp`, `wavesurfer.js`) — removed from project.
+- **`docs/architecture_diagram.py`** — removed unused diagram generator.
+
 ### Added
 
 #### Security

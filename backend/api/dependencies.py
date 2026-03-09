@@ -193,26 +193,6 @@ def get_knowledge_graph_service():
     return _knowledge_graph_service
 
 
-_editor_route_service = None
-
-
-def get_editor_route_service():
-    """Get or create EditorRouteService singleton.
-
-    Injects ``generate_sas_url`` from media routes so the service can
-    build source-media response dicts with streaming URLs.
-    """
-    global _editor_route_service
-    if _editor_route_service is None:
-        from api.routes.media_routes import generate_sas_url
-        from services.editor_route_service import EditorRouteService
-
-        _editor_route_service = EditorRouteService(
-            sas_url_generator=generate_sas_url,
-        )
-    return _editor_route_service
-
-
 _graph_search_service = None
 
 _faster_whisper_transcriber = None

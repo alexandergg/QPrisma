@@ -70,4 +70,4 @@ SEARCH_TOOLS = [
     get_library_overview,
 ]
 
-# Note: Editor tools will be added separately for the EditorAgent graph
+# Note: Search tools are used by the VideoAgent graph

@@ -10,7 +10,6 @@ import {
   Settings,
   LogOut,
   ChevronRight,
-  Scissors,
   Upload,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -109,26 +108,6 @@ export default function Sidebar({
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">
             Quick Links
           </p>
-          <button
-            onClick={() => router.push('/editor')}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
-              pathname?.startsWith('/editor')
-                ? 'bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 text-purple-700'
-                : 'hover:bg-gray-50 text-gray-600'
-            }`}
-          >
-            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-              pathname?.startsWith('/editor')
-                ? 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white'
-                : 'bg-gray-100'
-            }`}>
-              <Scissors className="w-3.5 h-3.5" />
-            </div>
-            <div className="flex-1 text-left">
-              <p className="text-sm font-medium">Video Editor</p>
-            </div>
-            <ChevronRight className="w-4 h-4 text-gray-400" />
-          </button>
           <button
             onClick={() => router.push('/library')}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${

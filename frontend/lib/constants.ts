@@ -39,10 +39,6 @@ export const VIDEO = {
   VOLUME_STEP: 0.1,
   /** Default playback rate */
   DEFAULT_PLAYBACK_RATE: 1.0,
-  /** Minimum clip duration in seconds */
-  MIN_CLIP_DURATION: 1,
-  /** Maximum clip duration in seconds */
-  MAX_CLIP_DURATION: 300,
   /** Timeline zoom min level */
   TIMELINE_MIN_ZOOM: 1,
   /** Timeline zoom max level */
@@ -92,70 +88,6 @@ export const PROCESSING_PRESETS = {
 } as const;
 
 // ============================================================================
-// Export Platform Specs
-// ============================================================================
-
-export const EXPORT_PLATFORMS = {
-  tiktok: {
-    name: 'TikTok',
-    aspectRatio: '9:16',
-    maxDuration: 180,
-    resolution: '1080x1920',
-  },
-  youtube_shorts: {
-    name: 'YouTube Shorts',
-    aspectRatio: '9:16',
-    maxDuration: 60,
-    resolution: '1080x1920',
-  },
-  instagram_reels: {
-    name: 'Instagram Reels',
-    aspectRatio: '9:16',
-    maxDuration: 90,
-    resolution: '1080x1920',
-  },
-  youtube: {
-    name: 'YouTube',
-    aspectRatio: '16:9',
-    maxDuration: null,
-    resolution: '1920x1080',
-  },
-  twitter: {
-    name: 'Twitter/X',
-    aspectRatio: '16:9',
-    maxDuration: 140,
-    resolution: '1280x720',
-  },
-} as const;
-
-// ============================================================================
-// Subtitle Styles
-// ============================================================================
-
-export const SUBTITLE_STYLES = {
-  hormozi: {
-    name: 'Hormozi',
-    description: 'Word-by-word, bold, yellow/white',
-  },
-  mrbeast: {
-    name: 'MrBeast',
-    description: 'Large, dramatic, all caps',
-  },
-  minimal: {
-    name: 'Minimal',
-    description: 'Small, clean, professional',
-  },
-  karaoke: {
-    name: 'Karaoke',
-    description: 'Highlight current word',
-  },
-  news: {
-    name: 'News',
-    description: 'Lower third, solid background',
-  },
-} as const;
-
-// ============================================================================
 // UI Constants
 // ============================================================================
 
@@ -198,7 +130,6 @@ export const STORAGE_KEYS = {
   theme: 'theme',
   sidebarCollapsed: 'sidebar_collapsed',
   recentVideos: 'recent_videos',
-  editorPreferences: 'editor_preferences',
   chatHistory: 'chat_history',
 } as const;
 
@@ -214,7 +145,6 @@ export const ERROR_MESSAGES = {
   serverError: 'Server error. Please try again later.',
   uploadFailed: 'Upload failed. Please try again.',
   processingFailed: 'Processing failed. Please try again.',
-  exportFailed: 'Export failed. Please try again.',
-  invalidFile: 'Invalid file type. Please upload a supported video format.',
+  invalidFile:'Invalid file type. Please upload a supported video format.',
   fileTooLarge: 'File is too large. Maximum size is 500MB.',
 } as const;

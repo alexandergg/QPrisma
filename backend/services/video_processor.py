@@ -95,58 +95,6 @@ class VideoProcessor:
         with open(file_path, "wb") as f:
             blob_client.download_blob(max_concurrency=8).readinto(f)
 
-    def extract_frames(
-        self, video_path: str, max_frames: int = 10, interval_seconds: float | None = None
-    ) -> list[np.ndarray]:
-        """
-        Extract frames from a video.
-
-        Args:
-            video_path: Path to the video file
-            max_frames: Maximum number of frames to extract
-            interval_seconds: Interval between frames (if None, distributes evenly)
-
-        Returns:
-            List of frames as numpy arrays
-        """
-        cap = cv2.VideoCapture(video_path)
-
-        if not cap.isOpened():
-            raise ValueError(f"Could not open video: {video_path}")
-
-        # Get video information
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        _duration = total_frames / fps if fps > 0 else 0
-
-        frames = []
-
-        if interval_seconds:
-            # Extract frames at specific intervals
-            frame_interval = int(interval_seconds * fps)
-            frame_positions = range(0, total_frames, frame_interval)[:max_frames]
-        else:
-            # Distribute frames evenly
-            if total_frames <= max_frames:
-                frame_positions = range(total_frames)
-            else:
-                step = total_frames / max_frames
-                frame_positions = [int(i * step) for i in range(max_frames)]
-
-        for frame_pos in frame_positions:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_pos)
-            ret, frame = cap.read()
-
-            if ret:
-                frames.append(frame)
-
-            if len(frames) >= max_frames:
-                break
-
-        cap.release()
-
-        return frames
-
     def frame_to_base64(self, frame: np.ndarray, quality: int = 85) -> str:
         """Convert a numpy frame to base64 JPEG."""
         _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
@@ -210,7 +158,7 @@ class VideoProcessor:
 
     async def analyze_frame_with_gpt4v(
         self,
-        frame: np.ndarray,
+        frame: np.ndarray | bytes,
         custom_prompt: str | None = None,
         detail_level: str = "auto",
         *,
@@ -221,7 +169,7 @@ class VideoProcessor:
         Analyze a frame with GPT-4o Vision.
 
         Args:
-            frame: Frame as a numpy array
+            frame: Frame as a numpy array or raw image bytes (JPEG/WebP)
             custom_prompt: Custom prompt (optional)
             detail_level: "low", "high" or "auto"
 

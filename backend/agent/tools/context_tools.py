@@ -233,10 +233,10 @@ async def get_scene_context(
                 """
                 MATCH (a:AudioSegment)
                 WHERE a.video_id = $media_id
-                  AND a.timestamp >= $start_time
-                  AND a.timestamp <= $end_time
-                RETURN a.timestamp as timestamp, a.text as text
-                ORDER BY a.timestamp
+                  AND a.start_time >= $start_time
+                  AND a.start_time <= $end_time
+                RETURN a.start_time as timestamp, a.text as text
+                ORDER BY a.start_time
                 """,
                 media_id=media_id,
                 start_time=start_time,

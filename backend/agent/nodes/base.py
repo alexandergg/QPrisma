@@ -3,7 +3,6 @@ Base Agent Nodes
 ================
 
 Shared node implementations for LangGraph agents.
-DRY pattern - unifies common code between video_nodes and editor_nodes.
 
 Features:
 - Configurable model creation with caching
@@ -46,8 +45,6 @@ _message_trimmer = get_message_trimmer(max_tokens=80000)
 # Iteration limits
 DEFAULT_MAX_TOOL_ITERATIONS = 5
 DEFAULT_WARN_TOOL_ITERATIONS = 3
-EDITOR_MAX_TOOL_ITERATIONS = 8
-EDITOR_WARN_TOOL_ITERATIONS = 6
 
 # Error thresholds for graceful degradation
 MAX_CONSECUTIVE_ERRORS = 3
@@ -183,7 +180,7 @@ def _memory_budget_chars(query: str) -> int:
 
 def _agent_type_from_state(state: AgentState) -> str:
     """Infer agent type label from state for observability metrics."""
-    return "editor" if state.get("project_context") else "video"
+    return "video"
 
 
 def _extract_query_terms(query: str) -> set[str]:
@@ -320,14 +317,11 @@ async def _search_external_memories(
 
         service = await get_mem0_memory_service()
         media_id = state.get("media_id")
-        if not media_id:
-            media_id = (state.get("project_context") or {}).get("source_media_id")
         memories = await service.search_memories(
             query=query,
             user_id=state.get("user_id"),
             session_id=state.get("session_id") or config.get("configurable", {}).get("thread_id"),
             media_id=media_id,
-            project_id=state.get("project_id"),
             limit=limit,
         )
     except (TypeError, ValueError, RuntimeError, ImportError) as exc:
@@ -597,14 +591,11 @@ async def _persist_external_memory_summary(
 
         service = await get_mem0_memory_service()
         media_id = state.get("media_id")
-        if not media_id:
-            media_id = (state.get("project_context") or {}).get("source_media_id")
         await service.add_memory(
             content=summary,
             user_id=state.get("user_id"),
             session_id=state.get("session_id") or config.get("configurable", {}).get("thread_id"),
             media_id=media_id,
-            project_id=state.get("project_id"),
             metadata={
                 "source": "langgraph_tool_summary",
                 "tool_name": tool_name,
@@ -742,7 +733,7 @@ async def base_call_model(
     """
     Base implementation for calling the LLM.
 
-    Shared logic between video and editor agents:
+    Shared logic for calling the LLM:
     - Message trimming to prevent context overflow
     - Tool binding with iteration management
     - Error tracking for graceful degradation
@@ -1045,8 +1036,6 @@ async def _persist_tool_artifact(
     from services.tool_artifact_service import get_tool_artifact_service
 
     media_id = state.get("media_id")
-    if not media_id:
-        media_id = (state.get("project_context") or {}).get("source_media_id")
 
     artifact_service = await get_tool_artifact_service()
     artifact = await artifact_service.save_artifact(
@@ -1056,7 +1045,6 @@ async def _persist_tool_artifact(
         thread_id=config.get("configurable", {}).get("thread_id"),
         user_id=state.get("user_id"),
         media_id=media_id,
-        project_id=state.get("project_id"),
         payload=payload,
         metadata={"summary": summary, "source": "langgraph_tool"},
     )

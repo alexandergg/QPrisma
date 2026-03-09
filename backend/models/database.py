@@ -150,7 +150,9 @@ class JobModel(Base):
     __tablename__ = "jobs"
 
     id = Column(String(64), primary_key=True)  # Celery task ID
-    media_id = Column(String(64), ForeignKey("media.id"), nullable=True, index=True)
+    media_id = Column(
+        String(64), ForeignKey("media.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     user_id = Column(String(64), ForeignKey("users.id"), nullable=True, index=True)
     job_type = Column(String(64), nullable=False)  # 'video_processing', 'embedding', etc.
     status = Column(String(32), default="pending", index=True)
@@ -179,163 +181,6 @@ class JobModel(Base):
         }
 
 
-class EditorProjectModel(Base):
-    """Editor project for video editing.
-
-    A project represents an editing session for a source video,
-    containing multiple clips that form the final output.
-    """
-
-    __tablename__ = "editor_projects"
-
-    id = Column(String(64), primary_key=True, default=generate_uuid)
-    user_id = Column(String(64), ForeignKey("users.id"), nullable=False, index=True)
-    source_media_id = Column(String(64), ForeignKey("media.id"), nullable=False, index=True)
-
-    # Project metadata
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-
-    # Status: draft, exporting, completed, archived
-    status = Column(String(32), default="draft", index=True)
-
-    # Project settings (format, resolution, etc.)
-    settings = Column(JSON, nullable=True, default=dict)
-
-    # Export info
-    export_format = Column(String(32), nullable=True)  # tiktok, reels, shorts, youtube
-    export_url = Column(String(512), nullable=True)  # Final exported video URL
-
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-    )
-
-    # Relationships
-    clips = relationship(
-        "ClipModel",
-        back_populates="project",
-        cascade="all, delete-orphan",
-        order_by="ClipModel.order",
-    )
-    source_media = relationship("MediaModel")
-
-    def to_dict(self) -> dict[str, Any]:
-        # Safe access to clips - avoid lazy load if detached from session
-        from sqlalchemy.orm import object_session
-        from sqlalchemy.orm.attributes import instance_state
-
-        clips_count = 0
-        state = instance_state(self)
-        if "clips" in state.dict:
-            # Clips already loaded
-            clips_count = len(self.clips) if self.clips else 0
-        elif object_session(self) is not None:
-            # Still in session, can lazy load
-            clips_count = len(self.clips) if self.clips else 0
-        # If detached and not loaded, clips_count stays 0
-
-        return {
-            "id": self.id,
-            "user_id": self.user_id,
-            "source_media_id": self.source_media_id,
-            "name": self.name,
-            "description": self.description,
-            "status": self.status,
-            "settings": self.settings,
-            "export_format": self.export_format,
-            "export_url": self.export_url,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "clips_count": clips_count,
-        }
-
-
-class ClipModel(Base):
-    """Clip within an editor project.
-
-    Represents a segment of the source video that will be
-    included in the final export.
-    """
-
-    __tablename__ = "clips"
-
-    id = Column(String(64), primary_key=True, default=generate_uuid)
-    project_id = Column(String(64), ForeignKey("editor_projects.id"), nullable=False, index=True)
-
-    # Timing (in seconds)
-    start_time = Column(Float, nullable=False)
-    end_time = Column(Float, nullable=False)
-
-    # Position in timeline
-    order = Column(Integer, nullable=False, default=0)
-
-    # Clip metadata
-    title = Column(String(255), nullable=True)
-    notes = Column(Text, nullable=True)
-
-    # AI metadata
-    is_ai_suggested = Column(Boolean, default=False)
-    viral_score = Column(Float, nullable=True)  # 0-100
-    viral_reasons = Column(JSON, nullable=True)  # ["hook", "high_energy", ...]
-    transcript_snippet = Column(Text, nullable=True)  # Text from this segment
-
-    # Subtitle configuration
-    subtitle_style = Column(String(32), nullable=True)  # hormozi, mrbeast, minimal, karaoke, news
-    subtitles_enabled = Column(Boolean, default=False)
-    subtitles_data = Column(JSON, nullable=True)  # Parsed SRT data with word timings
-    subtitle_settings = Column(JSON, nullable=True)  # font, color, position, etc.
-
-    # Export status for individual clip
-    export_status = Column(String(32), default="pending")  # pending, processing, done, failed
-    export_url = Column(String(512), nullable=True)  # URL of exported clip
-    export_format = Column(String(32), nullable=True)  # tiktok, reels, etc.
-
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC),
-    )
-
-    # Relationships
-    project = relationship("EditorProjectModel", back_populates="clips")
-
-    @property
-    def duration(self) -> float:
-        """Calculate clip duration in seconds."""
-        return self.end_time - self.start_time
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "project_id": self.project_id,
-            "start_time": self.start_time,
-            "end_time": self.end_time,
-            "duration": self.duration,
-            "order": self.order,
-            "title": self.title,
-            "notes": self.notes,
-            "is_ai_suggested": self.is_ai_suggested,
-            "viral_score": self.viral_score,
-            "viral_reasons": self.viral_reasons,
-            "transcript_snippet": self.transcript_snippet,
-            "subtitle_style": self.subtitle_style,
-            "subtitles_enabled": self.subtitles_enabled,
-            "subtitles_data": self.subtitles_data,
-            "subtitle_settings": self.subtitle_settings,
-            "export_status": self.export_status,
-            "export_url": self.export_url,
-            "export_format": self.export_format,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-
 class BatchJobModel(Base):
     """Azure OpenAI Batch API job tracking.
 
@@ -347,7 +192,9 @@ class BatchJobModel(Base):
 
     id = Column(String(64), primary_key=True, default=generate_uuid)
     azure_batch_id = Column(String(128), nullable=False, unique=True, index=True)
-    media_id = Column(String(64), ForeignKey("media.id"), nullable=True, index=True)
+    media_id = Column(
+        String(64), ForeignKey("media.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     user_id = Column(String(64), ForeignKey("users.id"), nullable=True, index=True)
 
     # Batch type: 'vision', 'embedding', 'chat'
@@ -432,9 +279,9 @@ class ToolArtifactModel(Base):
     session_id = Column(String(128), nullable=False, index=True)
     thread_id = Column(String(128), nullable=True, index=True)
     user_id = Column(String(64), ForeignKey("users.id"), nullable=True, index=True)
-    media_id = Column(String(64), ForeignKey("media.id"), nullable=True, index=True)
-    project_id = Column(String(64), ForeignKey("editor_projects.id"), nullable=True, index=True)
-
+    media_id = Column(
+        String(64), ForeignKey("media.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     # Durable payload reference
     blob_name = Column(String(512), nullable=False, unique=True)
     content_type = Column(String(128), nullable=False, default="application/json")

@@ -9,24 +9,21 @@ This document describes the architecture and best practices followed.
 
 ```
 agent/
-├── __init__.py           # Main exports (VideoAgentGraph, EditorAgentGraph, AgentState)
+├── __init__.py           # Main exports (VideoAgentGraph, AgentState)
 ├── a2a.py               # A2A protocol bridge for inter-agent communication
 ├── prompts.py           # System prompts and templates
 ├── graphs/              # LangGraph StateGraph definitions
 │   ├── __init__.py
-│   ├── video.py         # Video analysis agent graph
-│   └── editor.py        # Chat-to-Edit agent graph
+│   └── video.py         # Video analysis agent graph
 ├── nodes/               # Graph node implementations
 │   ├── __init__.py
-│   ├── video_nodes.py   # Video agent nodes (call_model, should_continue)
-│   └── editor_nodes.py  # Editor agent nodes
+│   └── video_nodes.py   # Video agent nodes (call_model, should_continue)
 ├── state/               # State definitions with reducers
 │   ├── __init__.py
-│   └── agent_state.py   # AgentState, VideoContext, ProjectContext
+│   └── agent_state.py   # AgentState, VideoContext
 ├── tools/               # LangGraph @tool implementations
-│   ├── __init__.py      # Tool collections (SEARCH_TOOLS, EDITOR_TOOLS)
-│   ├── general.py       # Search & analysis tools
-│   └── editor.py        # Clip management tools
+│   ├── __init__.py      # Tool collections (SEARCH_TOOLS)
+│   └── general.py       # Search & analysis tools
 └── utils/               # Helper functions
     ├── __init__.py
     └── formatting.py    # Timestamp formatting
@@ -94,15 +91,6 @@ def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
     return END
 ```
 
-### 5. Human-in-the-Loop (Editor Agent)
-
-```python
-graph = workflow.compile(
-    checkpointer=checkpointer,
-    interrupt_before=["tools"],  # Pause before clip modifications
-)
-```
-
 ## Graph Architectures
 
 ### Video Agent Graph
@@ -122,23 +110,6 @@ START → call_model → has_tool_calls? → tools → update_context → call_m
 - Iteration limits (MAX_TOOL_ITERATIONS=5)
 - Message trimming for context window management
 - Conversation context tracking
-
-### Editor Agent Graph
-
-```
-START → call_model → tools_condition? → tools → call_model → ... → END
-                          ↓ no
-                        END
-```
-
-**Nodes:**
-- `call_model`: Invokes LLM with search + editor tools
-- `tools`: Executes both search and clip modification tools
-
-**Features:**
-- Uses `tools_condition` from prebuilt
-- Optional `interrupt_before` for human confirmation
-- Project context awareness
 
 ## Best Practices Followed
 

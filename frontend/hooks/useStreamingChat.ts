@@ -1,15 +1,13 @@
 /**
  * useStreamingChat Hook
  *
- * Encapsulates the streaming send / cancel / retry logic shared by
- * ChatContainer and EditorChat. Delegates SSE processing of both
- * `chatWithAgentStream` and `chatWithEditorAgentStream` through a
- * single event loop.
+ * Encapsulates the streaming send / cancel / retry logic used by
+ * ChatContainer. Processes SSE events from `chatWithAgentStream`
+ * through a single event loop.
  */
 
 import { useCallback, useRef, useState } from 'react';
 import type { ToolStatus } from '@/components/chat/MessageBubble';
-import type { Clip } from '@/lib/api';
 import { apiClient } from '@/lib/api';
 import type { ChatMessage, ChatMessageSource } from './useChatState';
 
@@ -35,21 +33,14 @@ export interface UseStreamingChatOptions {
   sessionId: string | undefined;
   setSessionId: React.Dispatch<React.SetStateAction<string | undefined>>;
 
-  // --- ChatContainer-specific -------------------------------------------------
-  /** Single video id (ChatContainer, single mode). */
+  /** Single video id (single mode). */
   videoId?: string;
-  /** Multiple video ids (ChatContainer, library mode). */
+  /** Multiple video ids (library mode). */
   videoIds?: string[];
-  /** Video name attached to user messages (ChatContainer, single mode). */
+  /** Video name attached to user messages (single mode). */
   videoName?: string;
   /** Chat mode – only used to decide whether to attach videoName. */
   mode?: 'single' | 'library';
-
-  // --- EditorChat-specific ----------------------------------------------------
-  /** Project id forwarded to the editor agent. */
-  projectId?: string;
-  /** Callback when clips are updated via the editor agent stream. */
-  onClipsUpdated?: (clips: Clip[]) => void;
 }
 
 export interface UseStreamingChatReturn {
@@ -86,17 +77,10 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
     videoIds,
     videoName,
     mode,
-    projectId,
-    onClipsUpdated,
   } = options;
 
   const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Determine which stream variant to use:
-  // - If `projectId` is provided we talk to the editor agent
-  // - Otherwise we use the regular video agent
-  const isEditorMode = !!projectId;
 
   const handleSend = useCallback(
     async (content: string) => {
@@ -133,22 +117,14 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         let sources: ChatSource[] = [];
         let toolCallsMade = 0;
 
-        // Choose the right streaming generator
-        const stream = isEditorMode
-          ? apiClient.chatWithEditorAgentStream(
-              messageText,
-              projectId as string,
-              chatHistory,
-              sessionId,
-            )
-          : apiClient.chatWithAgentStream(
-              messageText,
-              videoId || null,
-              chatHistory,
-              sessionId,
-              videoIds,
-              controller.signal,
-            );
+        const stream = apiClient.chatWithAgentStream(
+          messageText,
+          videoId || null,
+          chatHistory,
+          sessionId,
+          videoIds,
+          controller.signal,
+        );
 
         for await (const event of stream) {
           switch (event.event) {
@@ -157,7 +133,6 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
               break;
 
             case 'thinking':
-              // Could show a thinking indicator
               break;
 
             case 'tool_start':
@@ -186,12 +161,6 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
 
             case 'sources':
               sources = (event.data.sources as ChatSource[] | undefined) || [];
-              break;
-
-            case 'clips_updated':
-              if (event.data.clips) {
-                onClipsUpdated?.(event.data.clips);
-              }
               break;
 
             case 'done':
@@ -273,9 +242,6 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
       videoIds,
       videoName,
       mode,
-      isEditorMode,
-      projectId,
-      onClipsUpdated,
     ],
   );
 

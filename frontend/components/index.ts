@@ -6,9 +6,6 @@
 // UI design system
 export * from './ui';
 
-// Editor components
-export * from './editor';
-
 // Chat components
 export * from './chat';
 
@@ -37,7 +34,6 @@ export {
   SkeletonText,
   SkeletonAvatar,
   SkeletonVideoCard,
-  SkeletonClipCard,
   SkeletonChatMessage,
   SkeletonTableRow,
   SkeletonSidebarItem,

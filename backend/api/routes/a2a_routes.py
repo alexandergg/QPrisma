@@ -25,7 +25,6 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependencies import get_current_user_optional
 from api.routes.a2a_agent_cards import (
-    get_editor_agent_card,
     get_executor,  # noqa: F401 — re-exported for backward compat (test patches)
     get_video_agent_card,
 )
@@ -65,12 +64,6 @@ async def get_agent_card():
 async def get_video_agent_card_endpoint():
     """Get the Video Agent's agent card."""
     return get_video_agent_card()
-
-
-@router.get("/a2a/editor/agent-card.json", response_model=AgentCard)
-async def get_editor_agent_card_endpoint():
-    """Get the Editor Agent's agent card."""
-    return get_editor_agent_card()
 
 
 @router.get("/a2a/extendedAgentCard", response_model=AgentCard)
@@ -119,5 +112,5 @@ async def a2a_health():
         "status": "healthy",
         "protocol": "A2A",
         "version": "1.0",
-        "agents": ["video", "editor"],
+        "agents": ["video"],
     }

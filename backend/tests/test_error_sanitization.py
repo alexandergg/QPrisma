@@ -302,31 +302,6 @@ class TestJobsRoutesErrorSanitization:
 
 
 # =============================================================================
-# Editor Routes — error sanitization
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestEditorRoutesErrorSanitization:
-    """Verify editor route 500s never expose internal details."""
-
-    def test_get_project_hides_error(self, authenticated_client):
-        mock_db = MagicMock()
-        mock_project = MagicMock()
-        mock_project.user_id = "user_test123"
-        mock_project.to_dict.side_effect = RuntimeError("serialization error: column X missing")
-        mock_db.get_project.return_value = mock_project
-
-        with patch("api.routes.editor_routes.get_database_service", return_value=mock_db):
-            resp = authenticated_client.get("/editor/projects/proj_123")
-
-        assert resp.status_code == 500
-        body = resp.json()
-        assert "column X" not in body.get("detail", "")
-        assert body["detail"] == "Failed to process media request"
-
-
-# =============================================================================
 # Chunked Upload Routes — error sanitization
 # =============================================================================
 

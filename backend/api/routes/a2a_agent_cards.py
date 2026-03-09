@@ -11,7 +11,6 @@ import logging
 
 from agent.a2a import (
     A2AAgentExecutor,
-    get_editor_a2a_executor,
     get_video_a2a_executor,
 )
 
@@ -39,8 +38,6 @@ def get_base_url() -> str:
 
 def get_executor(agent_type: str = "video") -> A2AAgentExecutor:
     """Get the appropriate A2A executor based on agent type."""
-    if agent_type == "editor":
-        return get_editor_a2a_executor()
     return get_video_a2a_executor()
 
 
@@ -144,98 +141,4 @@ def get_video_agent_card() -> AgentCard:
             ),
         ],
         iconUrl=f"{base_url}/static/qprisma-icon.png",
-    )
-
-
-def get_editor_agent_card() -> AgentCard:
-    """Build the AgentCard for the Editor Agent."""
-    base_url = get_base_url()
-
-    return AgentCard(
-        name="QPrisma Editor Agent",
-        description=(
-            "A conversational video editing agent (Chat-to-Edit). Create and modify "
-            "video clips through natural language. Supports clip creation, subtitle "
-            "styling, reordering, and project management."
-        ),
-        supportedInterfaces=[
-            AgentInterface(
-                url=f"{base_url}/a2a/editor",
-                protocolBinding="HTTP+JSON",
-                protocolVersion="1.0",
-            ),
-        ],
-        provider=AgentProvider(
-            organization="QPrisma",
-            url="https://github.com/alexandergg/QPrisma",
-        ),
-        version="1.0.0",
-        documentationUrl="https://github.com/alexandergg/QPrisma/blob/main/API_DOCUMENTATION.md",
-        capabilities=AgentCapabilities(
-            streaming=True,
-            pushNotifications=False,
-            extendedAgentCard=True,
-        ),
-        defaultInputModes=["text/plain", "application/json"],
-        defaultOutputModes=["text/plain", "application/json"],
-        skills=[
-            AgentSkill(
-                id="clip-creation",
-                name="Clip Creation",
-                description=(
-                    "Create video clips from timestamps or search results. "
-                    "Automatically finds relevant segments based on content queries."
-                ),
-                tags=["clips", "editing", "creation"],
-                examples=[
-                    "Create a clip from 1:30 to 2:45",
-                    "Make a clip of when they discuss pricing",
-                    "Extract the intro section as a clip",
-                ],
-            ),
-            AgentSkill(
-                id="clip-modification",
-                name="Clip Modification",
-                description=(
-                    "Modify existing clips - change timing, add/remove subtitles, "
-                    "update styling, and reorder within the project."
-                ),
-                tags=["editing", "modification", "subtitles"],
-                examples=[
-                    "Add subtitles to clip 1",
-                    "Change the style of subtitles to bold white",
-                    "Extend clip 2 by 5 seconds",
-                    "Move clip 3 to the beginning",
-                ],
-            ),
-            AgentSkill(
-                id="highlight-clips",
-                name="Auto-Generate Highlight Clips",
-                description=(
-                    "Automatically generate clips from video highlights and "
-                    "viral-worthy moments detected in the video."
-                ),
-                tags=["highlights", "automation", "clips"],
-                examples=[
-                    "Create clips from the top highlights",
-                    "Generate clips for social media",
-                    "Make clips from the most engaging moments",
-                ],
-            ),
-            AgentSkill(
-                id="project-management",
-                name="Project Management",
-                description=(
-                    "Manage editing projects - list clips, get project status, "
-                    "export configurations, and organize content."
-                ),
-                tags=["project", "management", "export"],
-                examples=[
-                    "Show me all clips in this project",
-                    "What's the total duration of all clips?",
-                    "Prepare this project for export",
-                ],
-            ),
-        ],
-        iconUrl=f"{base_url}/static/qprisma-editor-icon.png",
     )

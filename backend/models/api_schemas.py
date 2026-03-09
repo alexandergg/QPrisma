@@ -625,61 +625,6 @@ class EnhancedSearchRequest(BaseModel):
 
 
 # =============================================================================
-# Editor Schemas
-# =============================================================================
-
-
-class EditorChatRequest(BaseModel):
-    """Editor chat request."""
-
-    message: str
-    project_id: str
-    context: dict[str, Any] | None = None
-
-
-class GenerateSubtitlesRequest(BaseModel):
-    """Generate subtitles request."""
-
-    clip_id: str
-    style: str = "hormozi"
-    language: str = "en"
-
-
-class UpdateSubtitleCueRequest(BaseModel):
-    """Update subtitle cue request."""
-
-    cue_id: int
-    text: str
-
-
-class ExportClipRequest(BaseModel):
-    """Export clip request."""
-
-    clip_id: str
-    platform: str = "tiktok"
-    quality: str = "high"
-    include_subtitles: bool = True
-    subtitle_style: str | None = None
-
-
-class BatchExportRequest(BaseModel):
-    """Batch export request."""
-
-    clip_ids: list[str]
-    platform: str = "tiktok"
-    quality: str = "high"
-    include_subtitles: bool = True
-
-
-class EstimateExportRequest(BaseModel):
-    """Estimate export request."""
-
-    clip_ids: list[str]
-    platform: str = "tiktok"
-    quality: str = "high"
-
-
-# =============================================================================
 # Exports
 # =============================================================================
 
@@ -741,11 +686,4 @@ __all__ = [
     # Processing
     "ProcessingSearchRequest",
     "EnhancedSearchRequest",
-    # Editor
-    "EditorChatRequest",
-    "GenerateSubtitlesRequest",
-    "UpdateSubtitleCueRequest",
-    "ExportClipRequest",
-    "BatchExportRequest",
-    "EstimateExportRequest",
 ]

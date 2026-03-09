@@ -3,9 +3,6 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from langchain_core.messages import HumanMessage, ToolMessage
-from langchain_core.runnables import RunnableConfig
-
 from agent.nodes.base import (
     _rehydrate_artifact_context,
     _retrieve_external_memories,
@@ -13,6 +10,8 @@ from agent.nodes.base import (
     update_context_node,
 )
 from agent.utils.observability import Metrics
+from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 
 
 @pytest.mark.unit
@@ -365,15 +364,3 @@ class TestAgentMemoryContext:
         ]
         assert attempt_keys
         assert success_keys
-
-
-@pytest.mark.unit
-def test_editor_graph_contains_update_context_node():
-    """Editor graph should also update compact memory after tools."""
-    from langgraph.checkpoint.memory import MemorySaver
-
-    from agent.graphs.editor import create_editor_agent_graph
-
-    graph = create_editor_agent_graph(MemorySaver())
-    node_names = list(graph.get_graph().nodes.keys())
-    assert "update_context" in node_names

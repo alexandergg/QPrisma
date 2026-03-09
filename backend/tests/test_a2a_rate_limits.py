@@ -52,7 +52,7 @@ def _make_task(task_id: str = "task-1", state: TaskState = TaskState.COMPLETED) 
 
 @pytest.mark.unit
 class TestMessageEndpointRateLimits:
-    """POST /a2a/message:send, /a2a/message:stream and editor variants."""
+    """POST /a2a/message:send, /a2a/message:stream."""
 
     def test_send_message_has_rate_limit_header(self, client):
         mock_executor = MagicMock()
@@ -60,17 +60,6 @@ class TestMessageEndpointRateLimits:
 
         with patch("api.routes.a2a_message_routes.get_executor", return_value=mock_executor):
             resp = client.post("/a2a/message:send", json=_make_send_body())
-
-        assert resp.status_code == 200
-        assert "x-ratelimit-limit" in resp.headers
-        assert resp.headers["x-ratelimit-limit"] == "60"
-
-    def test_editor_send_message_has_rate_limit_header(self, client):
-        mock_executor = MagicMock()
-        mock_executor.send_message = AsyncMock(return_value=_make_task())
-
-        with patch("api.routes.a2a_message_routes.get_executor", return_value=mock_executor):
-            resp = client.post("/a2a/editor/message:send", json=_make_send_body())
 
         assert resp.status_code == 200
         assert "x-ratelimit-limit" in resp.headers
@@ -86,21 +75,6 @@ class TestMessageEndpointRateLimits:
 
         with patch("api.routes.a2a_message_routes.get_executor", return_value=mock_executor):
             resp = client.post("/a2a/message:stream", json=_make_send_body())
-
-        assert resp.status_code == 200
-        assert "x-ratelimit-limit" in resp.headers
-        assert resp.headers["x-ratelimit-limit"] == "60"
-
-    def test_editor_stream_message_has_rate_limit_header(self, client):
-        async def _fake_stream(req):
-            return
-            yield  # noqa: E501
-
-        mock_executor = MagicMock()
-        mock_executor.send_streaming_message = _fake_stream
-
-        with patch("api.routes.a2a_message_routes.get_executor", return_value=mock_executor):
-            resp = client.post("/a2a/editor/message:stream", json=_make_send_body())
 
         assert resp.status_code == 200
         assert "x-ratelimit-limit" in resp.headers
@@ -169,11 +143,6 @@ class TestDiscoveryEndpointsNotRateLimited:
 
     def test_a2a_agent_card_no_rate_limit(self, client):
         resp = client.get("/a2a/agent-card.json")
-        assert resp.status_code == 200
-        assert "x-ratelimit-limit" not in resp.headers
-
-    def test_editor_agent_card_no_rate_limit(self, client):
-        resp = client.get("/a2a/editor/agent-card.json")
         assert resp.status_code == 200
         assert "x-ratelimit-limit" not in resp.headers
 

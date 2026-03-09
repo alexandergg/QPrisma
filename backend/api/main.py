@@ -171,7 +171,6 @@ from api.routes import (
     cache_router,
     chat_router,
     chunked_upload_router,
-    editor_router,
     graph_router,
     jobs_router,
     media_router,
@@ -189,7 +188,6 @@ app.include_router(batch_router, tags=["Batch API"])
 app.include_router(cache_router, prefix="/cache", tags=["Cache"])
 app.include_router(chat_router, tags=["Chat & Search"])
 app.include_router(chunked_upload_router, tags=["Chunked Upload"])
-app.include_router(editor_router, tags=["Video Editor"])
 app.include_router(graph_router, tags=["Knowledge Graph"])
 app.include_router(jobs_router, prefix="/jobs", tags=["Jobs"])
 app.include_router(media_router, tags=["Media"])

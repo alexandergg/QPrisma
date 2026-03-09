@@ -2,7 +2,7 @@
 QPrisma Video Agent
 ===================
 
-LangGraph-based agentic system for intelligent video chat and editing.
+LangGraph-based agentic system for intelligent video chat.
 Uses Azure OpenAI with LangGraph StateGraph for declarative agent orchestration.
 
 Architecture (LangGraph v1.0+):
@@ -14,7 +14,6 @@ Key Components:
 - AgentState: LangGraph typed state with Annotated message reducer
 - AgentInputState/AgentOutputState: Input/Output schema separation (hides internal state)
 - VideoAgentGraph: Main video agent using LangGraph StateGraph
-- EditorAgentGraph: Editor agent for Chat-to-Edit functionality
 - Tools: LangGraph @tool decorated functions with dynamic binding
 - Memory: Production checkpointer factory (PostgreSQL > Redis > Memory)
 - Error Handling: Graceful degradation with error_handler node
@@ -31,12 +30,6 @@ Best Practices Applied (LangGraph v1.0+):
 """
 
 # LangGraph implementations (recommended)
-from agent.graphs.editor import (
-    DESTRUCTIVE_TOOLS,
-    SAFE_TOOLS,
-    EditorAgentGraph,
-    get_editor_agent_graph,
-)
 from agent.graphs.video import (
     VideoAgentGraph,
     create_postgres_checkpointer,
@@ -63,7 +56,6 @@ from agent.state.agent_state import (
 __all__ = [
     # Agent classes
     "VideoAgentGraph",
-    "EditorAgentGraph",
     # State types
     "AgentState",
     "AgentInputState",
@@ -71,7 +63,6 @@ __all__ = [
     # Factory functions
     "create_agent_state",
     "get_video_agent_graph",
-    "get_editor_agent_graph",
     # Checkpointer factories
     "create_redis_checkpointer",
     "create_postgres_checkpointer",
@@ -85,7 +76,4 @@ __all__ = [
     "get_message_trimmer",
     "error_handler_node",
     "select_tools_for_query",
-    # Tool categorization
-    "DESTRUCTIVE_TOOLS",
-    "SAFE_TOOLS",
 ]

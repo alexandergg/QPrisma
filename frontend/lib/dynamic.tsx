@@ -2,7 +2,7 @@
  * Dynamic imports for code splitting
  * 
  * Use these for heavy components that don't need to be in the initial bundle.
- * Import with: import { DynamicExportModal } from '@/lib/dynamic'
+ * Import with: import { DynamicChatContainer } from '@/lib/dynamic'
  */
 
 import dynamic from 'next/dynamic';
@@ -21,55 +21,6 @@ const LoadingCard = () => (
     <div className="h-4 bg-gray-200 rounded w-3/4 mb-4" />
     <div className="h-4 bg-gray-200 rounded w-1/2" />
   </div>
-);
-
-// ============================================================================
-// Editor Components (Heavy)
-// ============================================================================
-
-/**
- * Export Modal - Only loaded when user clicks export
- */
-export const DynamicExportModal = dynamic(
-  () => import('@/components/editor/ExportModal'),
-  {
-    loading: LoadingSpinner,
-    ssr: false,
-  }
-);
-
-/**
- * Timeline Waveform - Heavy component with WaveSurfer.js
- */
-export const DynamicTimelineWaveform = dynamic(
-  () => import('@/components/editor/TimelineWaveform'),
-  {
-    loading: () => (
-      <div className="h-32 bg-gray-100 rounded-lg animate-pulse" />
-    ),
-    ssr: false,
-  }
-);
-
-/**
- * Subtitle Editor - Loaded when editing subtitles
- */
-export const DynamicSubtitleEditor = dynamic(
-  () => import('@/components/editor/SubtitleEditor'),
-  {
-    loading: LoadingCard,
-    ssr: false,
-  }
-);
-
-/**
- * Subtitle Overlay - Loaded with video player
- */
-export const DynamicSubtitleOverlay = dynamic(
-  () => import('@/components/editor/SubtitleOverlay'),
-  {
-    ssr: false,
-  }
 );
 
 // ============================================================================

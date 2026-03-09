@@ -1,7 +1,7 @@
 /**
  * useChatState Hook
  *
- * Manages shared chat state used by both ChatContainer and EditorChat.
+ * Manages shared chat state used by ChatContainer.
  * Holds messages, input value, loading/streaming state, active tools,
  * and an optional session ID. Syncs with external callbacks when provided.
  */
@@ -13,7 +13,7 @@ import type { ToolStatus } from '@/components/chat/MessageBubble';
 // Types
 // =============================================================================
 
-/** Generic chat message – superset of fields used by both Chat and Editor. */
+/** Generic chat message used by Chat. */
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';

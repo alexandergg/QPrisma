@@ -142,7 +142,7 @@ The "Brain" of QPrisma is a **LangGraph StateGraph** that manages the cognitive 
 *   **Next.js 16 (App Router)**: Server-side rendering for performance.
 *   **React 19**: Utilizing Server Components and Actions.
 *   **Tailwind CSS 4**: Modern utility-first styling.
-*   **ReactFlow**: Visualizing the Knowledge Graph and Video/Editor pipelines.
+*   **ReactFlow**: Visualizing the Knowledge Graph pipelines.
 
 ---
 

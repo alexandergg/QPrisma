@@ -2,7 +2,7 @@
 A2A Message Routes
 ==================
 
-Send and streaming message endpoints for both Video and Editor agents.
+Send and streaming message endpoints for the Video agent.
 """
 
 import logging
@@ -48,33 +48,6 @@ async def send_message(
     executor = get_executor("video")
 
     # Add user context to metadata
-    if current_user and body.message.metadata:
-        body.message.metadata["user_id"] = current_user.id
-    elif current_user:
-        body.message.metadata = {"user_id": current_user.id}
-
-    result = await executor.send_message(body)
-
-    if isinstance(result, Task):
-        return SendMessageResponse(task=result)
-    else:
-        return SendMessageResponse(message=result)
-
-
-@message_router.post("/a2a/editor/message:send", response_model=SendMessageResponse)
-@limiter.limit("60/minute")
-async def send_editor_message(
-    request: Request,
-    body: SendMessageRequest,
-    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
-):
-    """
-    Send a message to the Editor Agent.
-
-    Creates a new task or continues an existing one based on taskId/contextId.
-    """
-    executor = get_executor("editor")
-
     if current_user and body.message.metadata:
         body.message.metadata["user_id"] = current_user.id
     elif current_user:
@@ -134,41 +107,6 @@ async def send_streaming_message(
                 )
             )
             yield f"data: {error_response.model_dump_json(exclude_none=True)}\n\n"
-
-    return StreamingResponse(
-        generate_sse(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-@message_router.post("/a2a/editor/message:stream")
-@limiter.limit("60/minute")
-async def send_editor_streaming_message(
-    request: Request,
-    body: SendMessageRequest,
-    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
-):
-    """Send a message to the Editor Agent with streaming response (SSE)."""
-    executor = get_executor("editor")
-
-    if current_user and body.message.metadata:
-        body.message.metadata["user_id"] = current_user.id
-    elif current_user:
-        body.message.metadata = {"user_id": current_user.id}
-
-    async def generate_sse():
-        try:
-            async for response in executor.send_streaming_message(body):
-                data = response.model_dump_json(exclude_none=True)
-                yield f"data: {data}\n\n"
-        except Exception as e:
-            logger.error(f"Editor SSE streaming error: {e}")
-            yield 'data: {"error": "An internal error occurred"}\n\n'
 
     return StreamingResponse(
         generate_sse(),

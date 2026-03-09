@@ -17,17 +17,15 @@ from agent.state.agent_state import (
     AgentOutputState,
     # Core state types
     AgentState,
-    ClipSuggestion,
     EntityMention,
     NavigationAction,
     NonRetryableError,
-    # Context types
-    ProjectContext,
     # Retry policy helpers
     RetryableError,
     # Metadata types
     SourceMetadata,
     ToolArtifactRef,
+    # Context types
     VideoContext,
     # Factory
     create_agent_state,
@@ -43,12 +41,10 @@ __all__ = [
     "AgentInputState",
     "AgentOutputState",
     # Context types
-    "ProjectContext",
     "VideoContext",
     # Metadata types
     "SourceMetadata",
     "NavigationAction",
-    "ClipSuggestion",
     "EntityMention",
     "ToolArtifactRef",
     # Factory

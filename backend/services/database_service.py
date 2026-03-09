@@ -14,15 +14,13 @@ from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, sessionmaker, subqueryload
+from sqlalchemy.orm import Session, sessionmaker
 
 from core.config import settings
 from models.database import (
     A2ATaskModel,
     Base,
     BatchJobModel,
-    ClipModel,
-    EditorProjectModel,
     JobModel,
     MediaModel,
     ToolArtifactModel,
@@ -199,11 +197,16 @@ class DatabaseService:
             return media
 
     def delete_media(self, media_id: str) -> bool:
-        """Delete media record."""
+        """Delete media record and all associated data."""
         with self.get_session() as session:
             media = session.query(MediaModel).filter(MediaModel.id == media_id).first()
             if not media:
                 return False
+
+            # Delete related records that have FK references to media
+            session.query(ToolArtifactModel).filter(ToolArtifactModel.media_id == media_id).delete()
+            session.query(BatchJobModel).filter(BatchJobModel.media_id == media_id).delete()
+            session.query(JobModel).filter(JobModel.media_id == media_id).delete()
 
             session.delete(media)
             return True
@@ -506,240 +509,6 @@ class DatabaseService:
             session.refresh(artifact)
             session.expunge(artifact)
             return artifact
-
-    # =========================================================================
-    # Editor Project Operations
-    # =========================================================================
-
-    def create_project(self, project_data: dict[str, Any]) -> EditorProjectModel:
-        """Create a new editor project."""
-        with self.get_session() as session:
-            project = EditorProjectModel(**project_data)
-            session.add(project)
-            session.flush()
-            session.refresh(project)
-            session.expunge(project)
-            return project
-
-    def get_project(self, project_id: str) -> EditorProjectModel | None:
-        """Get project by ID."""
-        with self.get_session() as session:
-            project = (
-                session.query(EditorProjectModel)
-                .filter(EditorProjectModel.id == project_id)
-                .first()
-            )
-            if project:
-                session.expunge(project)
-            return project
-
-    def get_project_with_clips(self, project_id: str) -> EditorProjectModel | None:
-        """Get project with all its clips and source media."""
-        with self.get_session() as session:
-            project = (
-                session.query(EditorProjectModel)
-                .filter(EditorProjectModel.id == project_id)
-                .first()
-            )
-            if project:
-                # Force load clips
-                _ = project.clips
-                for clip in project.clips:
-                    session.expunge(clip)
-                # Force load source_media for editor routes
-                if project.source_media:
-                    session.expunge(project.source_media)
-                session.expunge(project)
-            return project
-
-    def get_projects_by_user(
-        self, user_id: str, limit: int = 50, offset: int = 0
-    ) -> list[EditorProjectModel]:
-        """Get all projects for a user."""
-        with self.get_session() as session:
-            projects = (
-                session.query(EditorProjectModel)
-                .filter(EditorProjectModel.user_id == user_id)
-                .options(subqueryload(EditorProjectModel.clips))
-                .order_by(EditorProjectModel.updated_at.desc())
-                .limit(limit)
-                .offset(offset)
-                .all()
-            )
-            for project in projects:
-                session.expunge(project)
-            return projects
-
-    def update_project(self, project_id: str, updates: dict[str, Any]) -> EditorProjectModel | None:
-        """Update project record."""
-        with self.get_session() as session:
-            project = (
-                session.query(EditorProjectModel)
-                .filter(EditorProjectModel.id == project_id)
-                .first()
-            )
-            if not project:
-                return None
-
-            for key, value in updates.items():
-                if hasattr(project, key):
-                    setattr(project, key, value)
-
-            project.updated_at = datetime.now(UTC)
-            session.flush()
-            session.refresh(project)
-            session.expunge(project)
-            return project
-
-    def delete_project(self, project_id: str) -> bool:
-        """Delete project and all its clips (cascade)."""
-        with self.get_session() as session:
-            project = (
-                session.query(EditorProjectModel)
-                .filter(EditorProjectModel.id == project_id)
-                .first()
-            )
-            if not project:
-                return False
-
-            session.delete(project)
-            return True
-
-    # =========================================================================
-    # Clip Operations
-    # =========================================================================
-
-    def create_clip(self, clip_data: dict[str, Any]) -> ClipModel:
-        """Create a new clip in a project."""
-        with self.get_session() as session:
-            # If no order specified, add at the end
-            if "order" not in clip_data or clip_data["order"] is None:
-                max_order = (
-                    session.query(ClipModel)
-                    .filter(ClipModel.project_id == clip_data["project_id"])
-                    .count()
-                )
-                clip_data["order"] = max_order
-
-            clip = ClipModel(**clip_data)
-            session.add(clip)
-            session.flush()
-            session.refresh(clip)
-            session.expunge(clip)
-            return clip
-
-    def get_clip(self, clip_id: str) -> ClipModel | None:
-        """Get clip by ID."""
-        with self.get_session() as session:
-            clip = session.query(ClipModel).filter(ClipModel.id == clip_id).first()
-            if clip:
-                session.expunge(clip)
-            return clip
-
-    def get_clips_by_project(self, project_id: str) -> list[ClipModel]:
-        """Get all clips for a project, ordered by position."""
-        with self.get_session() as session:
-            clips = (
-                session.query(ClipModel)
-                .filter(ClipModel.project_id == project_id)
-                .order_by(ClipModel.order.asc())
-                .all()
-            )
-            for clip in clips:
-                session.expunge(clip)
-            return clips
-
-    def update_clip(self, clip_id: str, updates: dict[str, Any]) -> ClipModel | None:
-        """Update clip record."""
-        with self.get_session() as session:
-            clip = session.query(ClipModel).filter(ClipModel.id == clip_id).first()
-            if not clip:
-                return None
-
-            for key, value in updates.items():
-                if hasattr(clip, key):
-                    setattr(clip, key, value)
-
-            clip.updated_at = datetime.now(UTC)
-            session.flush()
-            session.refresh(clip)
-            session.expunge(clip)
-            return clip
-
-    def delete_clip(self, clip_id: str) -> bool:
-        """Delete a clip."""
-        with self.get_session() as session:
-            clip = session.query(ClipModel).filter(ClipModel.id == clip_id).first()
-            if not clip:
-                return False
-
-            project_id = clip.project_id
-            deleted_order = clip.order
-            session.delete(clip)
-            session.flush()
-
-            # Reorder remaining clips
-            session.query(ClipModel).filter(
-                ClipModel.project_id == project_id,
-                ClipModel.order > deleted_order,
-            ).update(
-                {ClipModel.order: ClipModel.order - 1},
-                synchronize_session=False,
-            )
-
-            return True
-
-    def reorder_clips(self, project_id: str, clip_ids: list[str]) -> list[ClipModel]:
-        """Reorder clips in a project based on the provided ID list."""
-        with self.get_session() as session:
-            clips = session.query(ClipModel).filter(ClipModel.project_id == project_id).all()
-
-            clip_map = {clip.id: clip for clip in clips}
-
-            for new_order, clip_id in enumerate(clip_ids):
-                if clip_id in clip_map:
-                    clip_map[clip_id].order = new_order
-
-            session.flush()
-
-            # Return updated clips in new order
-            updated_clips = (
-                session.query(ClipModel)
-                .filter(ClipModel.project_id == project_id)
-                .order_by(ClipModel.order.asc())
-                .all()
-            )
-            for clip in updated_clips:
-                session.expunge(clip)
-            return updated_clips
-
-    def bulk_create_clips(
-        self, project_id: str, clips_data: list[dict[str, Any]]
-    ) -> list[ClipModel]:
-        """Create multiple clips at once."""
-        with self.get_session() as session:
-            # Get current max order
-            current_count = (
-                session.query(ClipModel).filter(ClipModel.project_id == project_id).count()
-            )
-
-            created_clips = []
-            for i, clip_data in enumerate(clips_data):
-                clip_data["project_id"] = project_id
-                if "order" not in clip_data or clip_data["order"] is None:
-                    clip_data["order"] = current_count + i
-
-                clip = ClipModel(**clip_data)
-                session.add(clip)
-                created_clips.append(clip)
-
-            session.flush()
-
-            for clip in created_clips:
-                session.refresh(clip)
-                session.expunge(clip)
-
-            return created_clips
 
 
 # =============================================================================

@@ -105,18 +105,6 @@ class VideoContext(TypedDict, total=False):
     current_timestamp: float | None
 
 
-class ProjectContext(TypedDict, total=False):
-    """Context about the current editor project."""
-
-    project_id: str
-    project_name: str
-    source_media_id: str
-    video_title: str
-    video_duration: float
-    clips_count: int
-    clips: list[dict]
-
-
 class AgentState(TypedDict, total=False):
     """
     LangGraph internal state for the video agent.
@@ -139,10 +127,6 @@ class AgentState(TypedDict, total=False):
 
     # Video context (for VideoAgent)
     video_context: VideoContext | None
-
-    # Project context (for EditorAgent)
-    project_context: ProjectContext | None
-    project_id: str | None
 
     # Sources found during search
     sources: list[dict]
@@ -180,8 +164,6 @@ class AgentInputState(TypedDict, total=False):
     media_id: str | None
     media_ids: list[str] | None
     video_context: VideoContext | None
-    project_context: ProjectContext | None
-    project_id: str | None
     user_id: str | None
     session_id: str | None
 
@@ -198,7 +180,6 @@ class AgentOutputState(TypedDict, total=False):
     sources: list[dict]
     # Expose these for user context but not internal tracking
     video_context: VideoContext | None
-    project_context: ProjectContext | None
 
 
 class SourceMetadata(TypedDict, total=False):
@@ -218,16 +199,6 @@ class NavigationAction(TypedDict, total=False):
     label: str
     timestamp: float
     end_timestamp: float | None
-    parameters: dict
-
-
-class ClipSuggestion(TypedDict, total=False):
-    """A suggested clip from highlights or analysis."""
-
-    action: str
-    label: str
-    timestamp: float
-    end_timestamp: float
     parameters: dict
 
 
@@ -252,8 +223,6 @@ def create_agent_state(
     messages: list[AnyMessage],
     media_id: str | None = None,
     media_ids: list[str] | None = None,
-    project_id: str | None = None,
-    project_context: ProjectContext | None = None,
     user_id: str | None = None,
     session_id: str | None = None,
 ) -> AgentState:
@@ -264,8 +233,6 @@ def create_agent_state(
         messages: Initial messages (including user message)
         media_id: Optional video ID for context (single-video mode)
         media_ids: Optional list of video IDs for cross-video analysis
-        project_id: Optional project ID for editor
-        project_context: Optional project context
         user_id: User identifier
         session_id: Session identifier for memory
 
@@ -304,8 +271,6 @@ def create_agent_state(
         media_id=primary_media_id,
         media_ids=effective_ids if len(effective_ids) > 1 else None,
         video_context=video_context,
-        project_context=project_context,
-        project_id=project_id,
         sources=[],
         tool_calls_count=0,
         conversation_context=[],

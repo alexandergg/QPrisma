@@ -194,7 +194,7 @@ export function MediaViewer({ mediaId, className = '' }: Props) {
 |------|---------|---------|
 | API Route | `{name}_routes.py` | `media_routes.py` |
 | Service | `{name}_service.py` or `{name}_processor.py` | `embedding_service.py` |
-| Agent Tool | grouped in `tools/general.py` or `tools/editor.py` | |
+| Agent Tool | grouped by domain in `tools/` | `search_tools.py`, `analysis_tools.py` |
 | Pydantic Model | `{name}.py` in `models/` | `ffmpeg_config.py`, `graph_route_schemas.py` |
 | React Component | `{Name}.tsx` | `VideoPlayer.tsx` |
 | Test (Python) | `test_{name}.py` | `test_langgraph_agent.py` |
@@ -209,10 +209,10 @@ backend/
 │   ├── dependencies.py      # Lazy init singletons (single source of truth)
 │   └── routes/              # 14 API route modules
 ├── agent/
-│   ├── graphs/              # StateGraph definitions (video.py, editor.py)
-│   ├── nodes/               # Node implementations (base, video, editor)
+│   ├── graphs/              # StateGraph definitions (video.py)
+│   ├── nodes/               # Node implementations (base, video)
 │   ├── state/               # AgentInputState / AgentOutputState
-│   ├── tools/               # general.py (16 tools), editor.py (15 tools)
+│   ├── tools/               # Search, analysis, context, highlight, multi-video tools
 │   ├── utils/               # formatting.py, observability.py
 │   ├── a2a.py               # Agent-to-Agent executor
 │   └── prompts.py           # System prompts

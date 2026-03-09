@@ -6,7 +6,6 @@
 Before asking, please check:
 - [README.md](./README.md) for setup and overview.
 - [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for endpoint details.
-- [Troubleshooting Guide](.claude/commands/troubleshoot.md) (or run `/troubleshoot` if using Claude Code).
 - [GitHub Discussions](https://github.com/alexandergg/QPrisma/discussions) (if enabled).
 
 ### 2. Search Existing Issues
