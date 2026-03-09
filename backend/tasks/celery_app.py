@@ -33,7 +33,6 @@ Usage:
 """
 
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -46,13 +45,15 @@ from celery import Celery
 from dotenv import load_dotenv
 from kombu import Exchange, Queue
 
+from core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
 # Redis configuration
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = settings.redis.url
 
 # Azure Redis uses rediss:// (TLS) — Celery requires ssl_cert_reqs parameter
 if REDIS_URL.startswith("rediss://") and "ssl_cert_reqs" not in REDIS_URL:
@@ -235,7 +236,7 @@ def configure_for_production():
 
 
 # Auto-configure based on environment
-APP_ENV = os.getenv("APP_ENV", "development")
+APP_ENV = settings.app.environment
 if APP_ENV == "testing":
     configure_for_testing()
 elif APP_ENV == "production":

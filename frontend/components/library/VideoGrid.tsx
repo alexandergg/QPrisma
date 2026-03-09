@@ -1,23 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import Image from 'next/image';
-import { Search, Grid, List, Film, Loader2, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Search, Grid, List, Film, RefreshCw } from 'lucide-react';
 import VideoCard from './VideoCard';
+import { VideoListItem } from './VideoListItem';
+import type { Video } from './VideoListItem';
 import { apiClient } from '@/lib/api';
-
-interface Video {
-  id: string;
-  original_filename: string;
-  media_type?: string;
-  file_size?: number;
-  uploaded_at?: string;
-  processed?: boolean;
-  processing_status?: string;
-  duration?: number;
-  frames_analyzed?: number;
-  thumbnail_url?: string;
-}
+import { formatTime, formatFileSize } from '@/lib/utils';
+import { Spinner, Button } from '@/components/ui';
 
 interface VideoGridProps {
   onSelectVideo?: (video: Video) => void;
@@ -85,7 +75,7 @@ export default function VideoGrid({
       }
     });
 
-  const handleVideoSelect = (video: Video) => {
+  const handleVideoSelect = useCallback((video: Video) => {
     if (selectionMode === 'single') {
       onSelectVideo?.(video);
     } else {
@@ -95,9 +85,9 @@ export default function VideoGrid({
         : [...selectedVideoIds, video.id];
       onSelectionChange?.(newSelection);
     }
-  };
+  }, [selectionMode, onSelectVideo, selectedVideoIds, onSelectionChange]);
 
-  const handleDelete = async (videoId: string) => {
+  const handleDelete = useCallback(async (videoId: string) => {
     if (!confirm('Are you sure you want to delete this video?')) return;
 
     try {
@@ -108,13 +98,13 @@ export default function VideoGrid({
       console.error('Failed to delete video:', err);
       alert('Failed to delete video');
     }
-  };
+  }, [onDeleteVideo]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-3" />
+          <Spinner size="lg" className="text-indigo-500 mx-auto mb-3" />
           <p className="text-gray-500">Loading videos...</p>
         </div>
       </div>
@@ -126,13 +116,10 @@ export default function VideoGrid({
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <p className="text-red-500 mb-3">{error}</p>
-          <button
-            onClick={loadVideos}
-            className="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 flex items-center gap-2 mx-auto"
-          >
+          <Button onClick={loadVideos} variant="primary" size="md" className="mx-auto">
             <RefreshCw className="w-4 h-4" />
             Retry
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -170,6 +157,7 @@ export default function VideoGrid({
         <div className="flex bg-gray-100 rounded-xl p-1">
           <button
             onClick={() => setViewMode('grid')}
+            aria-label="Grid view"
             className={`p-2 rounded-lg transition-colors ${
               viewMode === 'grid'
                 ? 'bg-white text-gray-900 shadow-sm'
@@ -180,6 +168,7 @@ export default function VideoGrid({
           </button>
           <button
             onClick={() => setViewMode('list')}
+            aria-label="List view"
             className={`p-2 rounded-lg transition-colors ${
               viewMode === 'list'
                 ? 'bg-white text-gray-900 shadow-sm'
@@ -193,6 +182,7 @@ export default function VideoGrid({
         {/* Refresh */}
         <button
           onClick={loadVideos}
+          aria-label="Refresh videos"
           className="p-2.5 hover:bg-gray-100 rounded-xl text-gray-500 hover:text-gray-700 transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
@@ -237,55 +227,15 @@ export default function VideoGrid({
           // List view
           <div className="space-y-2">
             {filteredVideos.map((video) => (
-              <div
+              <VideoListItem
                 key={video.id}
-                onClick={() => handleVideoSelect(video)}
-                className={`
-                  flex items-center gap-4 p-4 bg-white rounded-xl cursor-pointer
-                  border-2 transition-all hover:shadow-md
-                  ${
-                    (selectionMode === 'single' && selectedVideoId === video.id) ||
-                    (selectionMode === 'multiple' && selectedVideoIds.includes(video.id))
-                      ? 'border-indigo-500 bg-indigo-50/50'
-                      : 'border-transparent hover:border-indigo-200'
-                  }
-                `}
-              >
-                {/* Thumbnail */}
-                <div className="w-20 h-12 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
-                    {video.thumbnail_url ? (
-                      <Image
-                        src={video.thumbnail_url}
-                        alt={video.original_filename}
-                        fill
-                        sizes="80px"
-                        className="object-cover"
-                      />
-                    ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <Film className="w-5 h-5 text-gray-300" />
-                    </div>
-                  )}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 truncate">{video.original_filename}</p>
-                  <p className="text-sm text-gray-500">
-                    {video.duration ? formatDuration(video.duration) : ''} •{' '}
-                    {formatSize(video.file_size || 0)}
-                  </p>
-                </div>
-
-                {/* Status */}
-                <div className="flex-shrink-0">
-                    {video.processed ? (
-                      <span className="text-green-600 text-sm font-medium">Ready</span>
-                    ) : (
-                      <span className="text-indigo-600 text-sm font-medium">Processing</span>
-                    )}
-                </div>
-              </div>
+                video={video}
+                isSelected={
+                  (selectionMode === 'single' && selectedVideoId === video.id) ||
+                  (selectionMode === 'multiple' && selectedVideoIds.includes(video.id))
+                }
+                onSelect={() => handleVideoSelect(video)}
+              />
             ))}
           </div>
         )}
@@ -298,20 +248,4 @@ export default function VideoGrid({
       </div>
     </div>
   );
-}
-
-// Helper functions
-function formatDuration(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return '0:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }

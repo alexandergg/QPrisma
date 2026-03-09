@@ -11,6 +11,7 @@ from openai import AsyncAzureOpenAI
 
 from core.config import settings
 from models.graph_models import NodeType
+from services.graph_search_service import GraphSearchService
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,9 @@ When the user asks about the video, base your answer on the provided context. Us
 class ChatService:
     """Service for handling chat interactions with video context."""
 
-    def __init__(self, openai_client: AsyncAzureOpenAI, graph_search_service):
+    def __init__(
+        self, openai_client: AsyncAzureOpenAI, graph_search_service: GraphSearchService
+    ) -> None:
         self.openai_client = openai_client
         self.graph_search_service = graph_search_service
         self.deployment = settings.azure.openai_deployment_gpt
@@ -55,24 +58,14 @@ class ChatService:
                 gs.graph_service.connect()
 
             if gs.graph_service.is_connected:
-                with gs.graph_service.get_session() as session:
-                    result = session.run(
-                        """
-                        MATCH (v:Video)
-                        WHERE v.video_id = $media_id OR v.id = $media_id
-                        RETURN v.summary as summary, v.topics as topics
-                        """,
-                        media_id=media_id,
+                summary, topics = gs.graph_service.get_video_summary(media_id)
+                video_summary = summary or ""
+                video_topics = topics
+                if video_summary:
+                    logger.info(
+                        f"Loaded video summary ({len(video_summary)} chars) "
+                        f"and {len(video_topics)} topics from Neo4j"
                     )
-                    record = result.single()
-                    if record:
-                        video_summary = record.get("summary") or ""
-                        video_topics = record.get("topics") or []
-                        if video_summary:
-                            logger.info(
-                                f"Loaded video summary ({len(video_summary)} chars) "
-                                f"and {len(video_topics)} topics from Neo4j"
-                            )
         except Exception as e:
             logger.warning(f"Could not load video summary from Neo4j: {e}")
 

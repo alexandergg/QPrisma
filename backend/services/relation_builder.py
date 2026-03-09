@@ -7,12 +7,12 @@ Analyses co-occurrence patterns, temporal sequences, and semantic similarity.
 
 import json
 import logging
-import os
 from collections import defaultdict
 from dataclasses import dataclass
 
 from openai import APIConnectionError, APIError, AzureOpenAI, RateLimitError
 
+from core.config import settings
 from models.graph_models import (
     EntityType,
     FrameAnalysisResult,
@@ -91,9 +91,9 @@ class RelationBuilder:
         """Lazy initialization of the OpenAI client."""
         if self._openai_client is None:
             self._openai_client = AzureOpenAI(
-                api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                api_key=settings.azure.openai_api_key,
+                api_version=settings.azure.openai_api_version,
+                azure_endpoint=settings.azure.openai_endpoint,
             )
         return self._openai_client
 
@@ -327,7 +327,7 @@ Only include pairs where has_relation is true."""
 
         try:
             response = self.openai_client.chat.completions.create(
-                model=os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o"),
+                model=settings.azure.openai_deployment_gpt,
                 messages=[
                     {
                         "role": "system",

@@ -27,11 +27,13 @@ on:
         default: ''
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   bump:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

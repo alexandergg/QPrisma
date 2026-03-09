@@ -16,6 +16,8 @@ from typing import Any
 import aiofiles
 from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 
+from core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,18 +47,16 @@ class BatchProcessor:
         self.client = openai_client
 
         # Global Batch deployment (required)
-        self.gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT_BATCH")
+        self.gpt_deployment = settings.azure.openai_deployment_gpt_batch
         if not self.gpt_deployment:
             logger.warning(
                 "AZURE_OPENAI_DEPLOYMENT_GPT_BATCH not set. "
                 "Create a 'Global Batch' deployment in Azure OpenAI Studio."
             )
             # Fallback to standard deployment
-            self.gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
+            self.gpt_deployment = settings.azure.openai_deployment_gpt
 
-        self.embedding_deployment = os.getenv(
-            "AZURE_OPENAI_DEPLOYMENT_EMBEDDING", "text-embedding-3-large"
-        )
+        self.embedding_deployment = settings.azure.openai_deployment_embedding
 
     def estimate_cost(self, frame_count: int) -> dict[str, float]:
         """Estimate batch processing cost."""
@@ -192,7 +192,7 @@ Be thorough but factual. Prioritize information that would help users find this 
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{frame_data['image_base64']}"
+                                    "url": f"data:{frame_data.get('media_type', 'image/jpeg')};base64,{frame_data['image_base64']}"
                                 },
                             },
                         ],

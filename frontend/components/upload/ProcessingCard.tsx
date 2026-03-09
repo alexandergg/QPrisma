@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { Film, X, CheckCircle, AlertCircle, Sparkles, Play } from 'lucide-react';
 import ProcessingStep, { ProcessingStepData, ProcessingStepStatus } from './ProcessingStep';
+import { formatFileSize } from '@/lib/utils';
+import { useJobProgress } from './useJobProgress';
 
 interface ProcessingCardProps {
   fileName: string;
@@ -28,47 +30,7 @@ const DEFAULT_STEPS: ProcessingStepData[] = [
   { id: 'embeddings', name: 'Generating embeddings', status: 'pending' },
 ];
 
-// Map backend stage names to frontend step IDs
-const STAGE_TO_STEP: Record<string, string> = {
-  // Download/upload stages
-  downloading: 'upload',
-  started: 'upload',
-  
-  // Frame extraction and analysis stages
-  extracting: 'frames',
-  analyzing: 'frames',
-  batch_submit: 'frames',
-  batch_wait: 'frames',
-  batch_results: 'frames',
-  
-  // Transcription stages
-  transcribing: 'transcribe',
-  audio: 'audio',
-  
-  // Scene detection
-  scenes: 'scenes',
-  
-  // Knowledge graph
-  graph: 'graph',
-  
-  // Embeddings
-  embeddings: 'embeddings',
-  
-  // Direct step IDs for compatibility
-  upload: 'upload',
-  transcribe: 'transcribe',
-  frames: 'frames',
-};
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-}
-
-export default function ProcessingCard({
+function ProcessingCard({
   fileName,
   fileSize,
   jobId,
@@ -81,12 +43,13 @@ export default function ProcessingCard({
   uploadProgress,
   uploadSpeed,
 }: ProcessingCardProps) {
-  const [steps, setSteps] = useState<ProcessingStepData[]>(initialSteps || DEFAULT_STEPS);
-  const [overallProgress, setOverallProgress] = useState(0);
-  const [status, setStatus] = useState<'processing' | 'completed' | 'error'>('processing');
-  const [error, setError] = useState<string | null>(null);
-  const [estimatedTime, setEstimatedTime] = useState<string | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
+  const { steps, overallProgress, status, error, estimatedTime, wsConnected } = useJobProgress(
+    jobId,
+    mediaId,
+    initialSteps || DEFAULT_STEPS,
+    onComplete,
+    onError,
+  );
   const jobDebugInfo = jobId ? `Job ID: ${jobId.substring(0, 8)}...` : '';
 
   const stepsWithUploadStatus = useMemo(() => {
@@ -119,151 +82,6 @@ export default function ProcessingCard({
     : uploadProgress !== undefined
       ? Math.round(uploadProgress * (1 / DEFAULT_STEPS.length)) // Upload is 1 of 7 steps
       : overallProgress;
-
-  // Fallback polling for job status (if WebSocket doesn't work)
-  useEffect(() => {
-    if (!jobId || status === 'completed' || status === 'error') return;
-    
-    const pollInterval = setInterval(async () => {
-      if (wsConnected) return; // Skip polling if WebSocket is working
-      
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-        const token = localStorage.getItem('auth_token');
-        const response = await fetch(`${apiUrl}/media/${mediaId}/status`, {
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          
-          if (data.processing_status === 'completed') {
-            setStatus('completed');
-            setOverallProgress(100);
-            setSteps((prevSteps) =>
-              prevSteps.map((step) => ({
-                ...step,
-                status: 'completed' as ProcessingStepStatus,
-                progress: 100,
-                endTime: new Date(),
-              }))
-            );
-            onComplete?.(mediaId || '');
-            clearInterval(pollInterval);
-          } else if (data.processing_status === 'failed') {
-            setStatus('error');
-            setError(data.error || 'Processing failed');
-            clearInterval(pollInterval);
-          }
-        }
-      } catch {
-        // Poll error - will retry automatically
-      }
-    }, 5000); // Poll every 5 seconds
-    
-    return () => clearInterval(pollInterval);
-  }, [jobId, mediaId, status, wsConnected, onComplete]);
-
-  // WebSocket connection for real-time updates
-  useEffect(() => {
-    if (!jobId) return;
-
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
-    const ws = new WebSocket(`${wsUrl}/ws/jobs/${jobId}`);
-
-    ws.onopen = () => {
-      setWsConnected(true);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'job_progress') {
-          const { progress, stage, message, step_progress } = data.payload;
-          
-          // Map backend stage to frontend step ID
-          const stepId = STAGE_TO_STEP[stage] || stage;
-
-          // Update overall progress
-          setOverallProgress(progress);
-
-          // Update step status
-          setSteps((prevSteps) =>
-            prevSteps.map((step) => {
-              if (step.id === stepId) {
-                return {
-                  ...step,
-                  status: 'in_progress' as ProcessingStepStatus,
-                  progress: step_progress || progress,
-                  details: message,
-                  startTime: step.startTime || new Date(),
-                };
-              }
-              // Mark previous steps as completed
-              const stageIndex = prevSteps.findIndex((s) => s.id === stepId);
-              const stepIndex = prevSteps.findIndex((s) => s.id === step.id);
-              if (stepIndex < stageIndex && step.status !== 'completed') {
-                return {
-                  ...step,
-                  status: 'completed' as ProcessingStepStatus,
-                  progress: 100,
-                  endTime: new Date(),
-                };
-              }
-              return step;
-            })
-          );
-
-          // Update estimated time based on progress
-          if (progress > 0 && progress < 100) {
-            const remaining = Math.ceil((100 - progress) / 10); // Rough estimate
-            setEstimatedTime(`~${remaining} min remaining`);
-          }
-        }
-
-        if (data.type === 'job_completed') {
-          setStatus('completed');
-          setOverallProgress(100);
-          setSteps((prevSteps) =>
-            prevSteps.map((step) => ({
-              ...step,
-              status: 'completed' as ProcessingStepStatus,
-              progress: 100,
-              endTime: new Date(),
-            }))
-          );
-          onComplete?.(data.payload?.media_id || mediaId || '');
-        }
-
-        if (data.type === 'job_failed') {
-          setStatus('error');
-          setError(data.payload?.error || 'Processing failed');
-          onError?.(data.payload?.error || 'Processing failed');
-        }
-        
-        // Handle initial status from server on connect
-        if (data.type === 'connected' || data.type === 'heartbeat') {
-          // Heartbeat received
-        }
-      } catch (e) {
-        console.error('[ProcessingCard] WebSocket message parse error:', e);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('[ProcessingCard] WebSocket error:', error);
-      setWsConnected(false);
-    };
-
-    ws.onclose = () => {
-      setWsConnected(false);
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, [jobId, mediaId, onComplete, onError]);
 
   const completedSteps = steps.filter((s) => s.status === 'completed').length;
 
@@ -304,6 +122,7 @@ export default function ProcessingCard({
           <button
             onClick={onCancel}
             className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Cancel processing"
           >
             <X className="w-5 h-5" />
           </button>
@@ -374,3 +193,5 @@ export default function ProcessingCard({
     </div>
   );
 }
+
+export default memo(ProcessingCard);

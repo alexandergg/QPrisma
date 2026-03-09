@@ -475,9 +475,9 @@ async def get_pubsub_manager() -> RedisPubSubManager:
     """Gets the Redis Pub/Sub manager"""
     global _pubsub_manager
     if _pubsub_manager is None:
-        import os
+        from core.config import settings
 
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        redis_url = settings.redis.url
         _pubsub_manager = RedisPubSubManager(redis_url)
         await _pubsub_manager.connect()
     return _pubsub_manager

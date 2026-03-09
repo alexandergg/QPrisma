@@ -15,9 +15,7 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+-*'      # v0.20.0-beta.1 (pre-releases)
 
 permissions:
-  contents: write          # Create releases
-  id-token: write          # OIDC (reused by called workflows)
-  actions: write           # Trigger downstream workflows
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -33,6 +31,8 @@ jobs:
   release:
     needs: ci
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

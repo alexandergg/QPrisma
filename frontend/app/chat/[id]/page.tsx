@@ -19,40 +19,7 @@ import {
 } from '@/lib/conversations';
 import RequireAuth from '@/components/RequireAuth';
 import { Film, Loader2 } from 'lucide-react';
-
-interface Scene {
-  scene_id: number;
-  start_time: number;
-  end_time: number;
-  duration?: number;
-  summary?: string;
-}
-
-interface Chapter {
-  chapter_id: number;
-  title: string;
-  start_time: number;
-  end_time: number;
-  duration?: number;
-  scene_ids?: number[];
-}
-
-interface TranscriptSegment {
-  id: number;
-  start: number;
-  end: number;
-  text: string;
-}
-
-interface VideoData {
-  id: string;
-  url?: string;
-  title?: string;
-  duration?: number;
-  scenes?: Scene[];
-  chapters?: Chapter[];
-  transcript?: TranscriptSegment[];
-}
+import type { VideoData } from '../types';
 
 interface ChatPageProps {
   params: Promise<{ id: string }>;
@@ -77,7 +44,7 @@ export default function ChatPage({ params }: ChatPageProps) {
   const loadVideo = useCallback(async (videoId: string) => {
     try {
       const [metadata, structure] = await Promise.all([
-        apiClient.getVideoMetadata(videoId),
+        apiClient.getMediaById(videoId),
         apiClient.getVideoStructure(videoId).catch(() => null),
       ]);
 

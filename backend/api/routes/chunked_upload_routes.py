@@ -309,9 +309,9 @@ async def commit_chunked_upload(
         )
 
     except Exception as e:
-        logger.error(f"Failed to commit blob: {e}")
+        logger.error(f"Failed to commit blob: {e}", exc_info=True)
         db.update_media(request.media_id, {"processing_status": "error"})
-        raise HTTPException(status_code=500, detail=f"Failed to commit upload: {str(e)}")
+        raise HTTPException(status_code=500, detail="Storage operation failed")
 
     # Update media record
     pipeline_config = {

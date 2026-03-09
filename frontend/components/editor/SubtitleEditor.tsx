@@ -6,14 +6,10 @@ import {
   Sparkles,
   RefreshCw,
   Download,
-  ChevronDown,
-  Check,
-  Pencil,
-  X,
-  Save,
 } from 'lucide-react';
 import { apiClient, Clip, SubtitleData, SubtitleCue, SubtitleStyle } from '@/lib/api';
-import { formatTimeWithMs as formatTime } from '@/lib/utils';
+import { SubtitleCueList } from './SubtitleCueList';
+import { SubtitleStyleSelector } from './SubtitleStyleSelector';
 
 interface SubtitleEditorProps {
   /** The clip to edit subtitles for */
@@ -216,38 +212,13 @@ export default function SubtitleEditor({
         
         <div className="flex items-center gap-2">
           {/* Style Selector */}
-          <div className="relative">
-            <button
-              onClick={() => setShowStyleDropdown(!showStyleDropdown)}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span className="capitalize">{selectedStyle}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-            </button>
-            
-            {showStyleDropdown && (
-              <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
-                {styles.map((style) => (
-                  <button
-                    key={style.id}
-                    onClick={() => handleStyleChange(style.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg ${
-                      style.id === selectedStyle ? 'bg-indigo-50' : ''
-                    }`}
-                  >
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">{style.name}</p>
-                      <p className="text-xs text-gray-500">{style.description}</p>
-                    </div>
-                    {style.id === selectedStyle && (
-                      <Check className="w-4 h-4 text-indigo-600" />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <SubtitleStyleSelector
+            styles={styles}
+            selectedStyle={selectedStyle}
+            showDropdown={showStyleDropdown}
+            onToggleDropdown={() => setShowStyleDropdown(!showStyleDropdown)}
+            onStyleChange={handleStyleChange}
+          />
 
           {/* Generate Button */}
           <button
@@ -285,86 +256,17 @@ export default function SubtitleEditor({
 
       {/* Content */}
       <div className="max-h-64 overflow-y-auto">
-        {!subtitleData ? (
-          <div className="px-4 py-8 text-center text-gray-500">
-            <Type className="w-8 h-8 mx-auto mb-2 text-gray-300" />
-            <p className="text-sm">No subtitles generated yet</p>
-            <p className="text-xs text-gray-400 mt-1">
-              Click &quot;Generate&quot; to create subtitles from transcription
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {subtitleData.cues?.map((cue: SubtitleCue) => {
-              const isActive = activeCue?.id === cue.id;
-              const isEditing = editingCue === cue.id;
-              
-              return (
-                <div
-                  key={cue.id}
-                  className={`flex items-start gap-3 px-4 py-2 transition-colors ${
-                    isActive ? 'bg-indigo-50' : 'hover:bg-gray-50'
-                  }`}
-                >
-                  {/* Time */}
-                  <button
-                    onClick={() => onSeek?.(cue.start)}
-                    className="text-xs text-gray-400 hover:text-indigo-600 font-mono whitespace-nowrap pt-0.5"
-                  >
-                    {formatTime(cue.start)}
-                  </button>
-                  
-                  {/* Text */}
-                  <div className="flex-1 min-w-0">
-                    {isEditing ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={editText}
-                          onChange={(e) => setEditText(e.target.value)}
-                          className="flex-1 px-2 py-1 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleSaveEdit();
-                            if (e.key === 'Escape') setEditingCue(null);
-                          }}
-                        />
-                        <button
-                          onClick={handleSaveEdit}
-                          className="p-1 text-green-600 hover:bg-green-50 rounded"
-                        >
-                          <Save className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setEditingCue(null)}
-                          className="p-1 text-gray-400 hover:bg-gray-100 rounded"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      <p
-                        className={`text-sm ${isActive ? 'text-indigo-900 font-medium' : 'text-gray-700'}`}
-                      >
-                        {cue.text}
-                      </p>
-                    )}
-                  </div>
-                  
-                  {/* Edit button */}
-                  {!isEditing && (
-                    <button
-                      onClick={() => handleStartEdit(cue)}
-                      className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded opacity-0 group-hover:opacity-100"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <SubtitleCueList
+          subtitleData={subtitleData}
+          activeCue={activeCue}
+          editingCue={editingCue}
+          editText={editText}
+          onEditTextChange={setEditText}
+          onStartEdit={handleStartEdit}
+          onSaveEdit={handleSaveEdit}
+          onCancelEdit={() => setEditingCue(null)}
+          onSeek={onSeek}
+        />
       </div>
 
       {/* Footer with preview */}

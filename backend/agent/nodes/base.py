@@ -15,7 +15,6 @@ Features:
 """
 
 import json
-import os
 import re
 import time
 from functools import lru_cache
@@ -37,6 +36,7 @@ from agent.utils.observability import (
     extract_request_id_from_config,
     get_logger,
 )
+from core.config import settings
 
 logger = get_logger(__name__)
 
@@ -86,13 +86,13 @@ def create_model(
     Returns:
         Configured AzureChatOpenAI instance
     """
-    deployment = model_deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
+    deployment = model_deployment or settings.azure.openai_deployment_gpt
 
     return AzureChatOpenAI(
         azure_deployment=deployment,
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2025-04-01-preview"),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        api_version=settings.azure.openai_api_version,
+        azure_endpoint=settings.azure.openai_endpoint,
+        api_key=settings.azure.openai_api_key,
         temperature=temperature,
         streaming=streaming,
     )

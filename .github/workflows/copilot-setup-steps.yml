@@ -1,0 +1,37 @@
+name: Copilot Setup Steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/setup-backend/action.yml
+      - .github/actions/setup-frontend/action.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/setup-backend/action.yml
+      - .github/actions/setup-frontend/action.yml
+
+permissions:
+  contents: read
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 59
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup backend dependencies
+        uses: ./.github/actions/setup-backend
+        with:
+          working-directory: backend
+
+      - name: Setup frontend dependencies
+        uses: ./.github/actions/setup-frontend
+        with:
+          working-directory: frontend

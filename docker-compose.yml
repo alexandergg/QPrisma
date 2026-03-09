@@ -38,10 +38,10 @@ services:
     environment:
       # Override for Docker networking
       - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://qprisma:qprisma123@postgres:5432/qprisma
+      - DATABASE_URL=postgresql://qprisma:${POSTGRES_PASSWORD:-qprisma123}@postgres:5432/qprisma
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=qprisma123
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-qprisma123}
     depends_on:
       redis:
         condition: service_healthy
@@ -91,7 +91,7 @@ services:
       - "5432:5432"
     environment:
       - POSTGRES_USER=qprisma
-      - POSTGRES_PASSWORD=qprisma123
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-qprisma123}
       - POSTGRES_DB=qprisma
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -112,7 +112,7 @@ services:
       - "7474:7474"  # HTTP (Browser)
       - "7687:7687"  # Bolt protocol
     environment:
-      - NEO4J_AUTH=neo4j/qprisma123
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-qprisma123}
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_apoc_export_file_enabled=true
       - NEO4J_apoc_import_file_enabled=true
@@ -144,10 +144,10 @@ services:
       - ./backend/.env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://qprisma:qprisma123@postgres:5432/qprisma
+      - DATABASE_URL=postgresql://qprisma:${POSTGRES_PASSWORD:-qprisma123}@postgres:5432/qprisma
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=qprisma123
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-qprisma123}
     depends_on:
       redis:
         condition: service_healthy
@@ -158,6 +158,12 @@ services:
     volumes:
       - ./backend:/app
       - temp_data:/tmp/qprisma
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A tasks.celery_app inspect ping --timeout 10 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     profiles:
       - worker
@@ -174,10 +180,16 @@ services:
       - "5555:5555"
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
-      - FLOWER_BASIC_AUTH=admin:qprisma123
+      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH:-admin:qprisma123}
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5555/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
     profiles:
       - worker
@@ -209,8 +221,8 @@ services:
     ports:
       - "5050:80"
     environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@qprisma.local
-      - PGADMIN_DEFAULT_PASSWORD=qprisma123
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_EMAIL:-admin@qprisma.local}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_PASSWORD:-qprisma123}
       - PGADMIN_CONFIG_SERVER_MODE=False
     volumes:
       - pgadmin_data:/var/lib/pgadmin

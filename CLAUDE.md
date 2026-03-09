@@ -70,7 +70,7 @@ npm run test:coverage                     # With coverage
 Two LangGraph StateGraph agents in `backend/agent/`:
 
 **Video Agent** (`graphs/video.py`): `START → call_model → has_tool_calls? → tools → update_context → call_model → ... → END`
-- 16 search/analysis tools in `tools/general.py` (SEARCH_TOOLS, MULTI_VIDEO_TOOLS)
+- Tools split across `tools/search_tools.py`, `tools/analysis_tools.py`, `tools/context_tools.py`, `tools/highlight_tools.py`, `tools/multi_video_tools.py` (exported as SEARCH_TOOLS, MULTI_VIDEO_TOOLS)
 - MAX_TOOL_ITERATIONS = 5, MAX_CONTEXT_TOKENS = 100000
 
 **Editor Agent** (`graphs/editor.py`): `START → call_model → tools_condition? → tools → call_model → ... → END`
@@ -110,6 +110,50 @@ async def my_tool(query: str, media_id: Annotated[str | None, InjectedState("med
         return {"results": results, "count": len(results)}
     except Exception as e:
         return {"error": str(e), "results": [], "count": 0}  # Return error dict, never raise
+```
+
+### Standardized Error Responses
+Use the helpers in `core/errors.py` for consistent HTTP errors in route handlers:
+```python
+from core.errors import not_found, bad_request, forbidden, internal_error
+raise not_found("Media")
+raise bad_request("end_time must be greater than start_time")
+```
+
+### Centralized Retry
+Use `core/retry.py` for async retries with exponential backoff:
+```python
+from core.retry import retry_async, retry_on
+
+# Function-based
+result = await retry_async(fetch_data, max_retries=3, base_delay=1.0, operation_name="fetch")
+
+# Decorator-based
+@retry_on(ConnectionError, TimeoutError, max_retries=2)
+async def fetch_data(): ...
+```
+
+### Structured Concurrency
+Use `core/concurrency.py` for TaskGroup-based concurrent execution:
+```python
+from core.concurrency import gather_with_taskgroup, map_concurrent
+
+# All-or-nothing concurrent execution (cancels siblings on failure)
+results = await gather_with_taskgroup(coro1(), coro2(), coro3())
+
+# Bounded concurrency map
+results = await map_concurrent(process_item, items, max_concurrency=4)
+```
+
+### Pipeline Observability
+Use `services/processing_metrics.py` for stage-level timing:
+```python
+from services.processing_metrics import PipelineMetrics, ProcessingTimer
+metrics = PipelineMetrics(media_id=video_id)
+with ProcessingTimer(metrics, "frame_extraction"):
+    frames = await extract_frames(...)
+metrics.end_stage("frame_extraction", items_processed=len(frames))
+metrics.log_summary()
 ```
 
 ### Lazy Initialization Singletons
@@ -166,8 +210,11 @@ async def list_items(current_user: User = Depends(get_current_user)):
 | Type | Pattern | Example |
 |------|---------|---------|
 | API Route | `{name}_routes.py` | `media_routes.py` |
+| API Sub-router | `{domain}_{function}_routes.py` | `a2a_message_routes.py`, `a2a_task_routes.py` |
 | Service | `{name}_service.py` or `{name}_processor.py` | `embedding_service.py` |
-| Agent Tool | grouped in `tools/general.py` or `tools/editor.py` | |
+| Service Mixin | `{name}_{concern}.py` | `graph_search_queries.py`, `graph_search_scoring.py` |
+| Core Utility | `{name}.py` in `core/` | `errors.py`, `retry.py`, `concurrency.py` |
+| Agent Tool | grouped by domain in `tools/` | `search_tools.py`, `analysis_tools.py`, `multi_video_tools.py`, `editor.py` |
 | Pydantic Model | `{name}.py` in `models/` | `ffmpeg_config.py`, `graph_route_schemas.py` |
 | React Component | `{Name}.tsx` | `VideoPlayer.tsx` |
 | Python Test | `test_{name}.py` | `test_langgraph_agent.py` |
@@ -202,11 +249,23 @@ async def list_items(
 
 1. Upload → Azure Blob Storage
 2. Metadata → PostgreSQL
-3. Frame extraction → FFmpeg (recommended: presets fast/balanced/quality) or OpenCV
-4. Vision analysis → GPT-4o (standard or batch API for 50% cost savings)
-5. Audio transcription → Whisper
-6. Embeddings → text-embedding-3-large
-7. Indexing → Neo4j Knowledge Graph
+3. Frame extraction → PyAV (default, C-level FFmpeg bindings) or FFmpeg subprocess fallback — selected via `settings.app.video_decoder_backend`
+4. Scene detection → PySceneDetect (AdaptiveDetector + ContentDetector) when available
+5. Frame deduplication → perceptual hashing (imagehash) skips visually redundant frames
+6. Frame encoding → WebP (default, 25-35% smaller) or JPEG — configured via `settings.processing.frame_encoding_format`
+7. Vision analysis → GPT-4o (standard or batch API for 50% cost savings)
+8. Audio transcription → Azure Whisper (default) or faster-whisper (4× faster, INT8, Silero VAD) — configured via `settings.azure.whisper_backend`
+9. Parallel audio transcription → asyncio.gather + Semaphore-bounded concurrency
+10. Embeddings → text-embedding-3-large (configurable batch size, adaptive retry)
+11. Indexing → Neo4j Knowledge Graph
+
+### Video Decoder Architecture
+The `VideoDecoder` protocol (`services/video_decoder.py`) provides a unified interface:
+- `PyAVDecoder` — in-process, fastest CPU path (requires `av` package)
+- `FFmpegSubprocessDecoder` — universal fallback (requires `ffmpeg` on PATH)
+- Future: GPU decode via PyNvVideoCodec
+
+Use `get_best_decoder()` for automatic selection or `get_decoder_by_name("pyav")` for explicit choice.
 
 ## Environment Configuration
 
@@ -219,6 +278,21 @@ Optional memory/artifact runtime variables:
 - `ARTIFACT_CACHE_TTL_SECONDS`
 - `ARTIFACT_CACHE_KEY_PREFIX`
 - `ARTIFACT_BLOB_PREFIX`
+
+Video pipeline configuration (via `core.config.settings`):
+- `settings.app.video_decoder_backend` — `"pyav"` (default) or `"ffmpeg_subprocess"`
+- `settings.azure.whisper_backend` — `"azure"` (default) or `"faster_whisper"`
+- `settings.azure.faster_whisper_model` — model size (default: `"large-v3"`)
+- `settings.azure.faster_whisper_device` — `"auto"` | `"cpu"` | `"cuda"`
+- `settings.azure.faster_whisper_compute_type` — `"int8"` | `"float16"` | `"float32"`
+- `settings.azure.faster_whisper_batch_size` — batched inference size (default: 16)
+- `settings.processing.embedding_batch_size` — embedding API batch size (default: 512, adaptive retry halves on failure)
+- `settings.processing.max_extraction_workers` — FFmpeg thread pool size (`None` = auto-detect from CPU count)
+- `settings.processing.frame_encoding_format` — `"webp"` (default) or `"jpeg"`
+- `settings.processing.frame_encoding_quality` — 1-100 (default: 80)
+- `settings.processing.frame_max_dimension` — max pixel dimension for Vision API (default: 2048)
+- `settings.processing.streaming_pipeline_enabled` — opt-in async generator pipeline (default: false)
+- `settings.processing.streaming_batch_size` — frames per streaming batch (default: 32)
 
 Frontend: `frontend/.env.local` — requires NEXT_PUBLIC_API_URL=http://localhost:8000
 

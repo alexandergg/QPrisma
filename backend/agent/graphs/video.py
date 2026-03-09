@@ -32,7 +32,6 @@ Best Practices Applied (LangGraph v1.0+):
 
 import json
 import logging
-import os
 import traceback
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -55,6 +54,7 @@ from agent.state.agent_state import (
 )
 from agent.tools import SEARCH_TOOLS
 from agent.utils.formatting import format_timestamp
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -437,9 +437,7 @@ class VideoAgentGraph:
         model_deployment: str | None = None,
         checkpointer=None,
     ):
-        self.model_deployment = model_deployment or os.getenv(
-            "AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o"
-        )
+        self.model_deployment = model_deployment or settings.azure.openai_deployment_gpt
         self.checkpointer = checkpointer
         self._graph = None
 
@@ -548,7 +546,7 @@ class VideoAgentGraph:
             logger.error(f"Agent error: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             return {
-                "response": f"I encountered an error: {str(e)}",
+                "response": "I'm sorry, I encountered an unexpected error processing your request. Please try again.",
                 "sources": [],
                 "tool_calls_made": 0,
             }
@@ -767,10 +765,11 @@ class VideoAgentGraph:
 _graph_instance: VideoAgentGraph | None = None
 
 
-def get_video_agent_graph(checkpointer=None) -> VideoAgentGraph:
+def get_video_agent_graph() -> VideoAgentGraph:
     """Get or create the video agent graph singleton."""
     global _graph_instance
     if _graph_instance is None:
+        checkpointer = create_production_checkpointer()
         _graph_instance = VideoAgentGraph(checkpointer=checkpointer)
     return _graph_instance
 
@@ -784,7 +783,7 @@ def create_postgres_checkpointer():
     try:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-        database_url = os.getenv("DATABASE_URL")
+        database_url = settings.postgres.database_url
         if not database_url:
             logger.warning("DATABASE_URL not set, cannot create PostgreSQL checkpointer")
             return None
@@ -810,7 +809,7 @@ def create_redis_checkpointer():
     try:
         from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        redis_url = settings.redis.url
         saver = AsyncRedisSaver(redis_url=redis_url)
         logger.info("Async Redis checkpointer created successfully")
         return saver

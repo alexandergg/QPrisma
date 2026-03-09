@@ -17,13 +17,14 @@ Cost Savings:
 """
 
 import logging
-import os
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
 from azure.storage.blob import BlobServiceClient, StandardBlobTier
 from pydantic import BaseModel
+
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -97,10 +98,10 @@ class StorageTieringService:
             container_name: Container name for media (uses env var if not provided)
         """
         self.blob_service = blob_service
-        self.container_name = container_name or os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
+        self.container_name = container_name or settings.azure.storage_container_name
 
         if not self.blob_service:
-            conn_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+            conn_string = settings.azure.storage_connection_string
             if conn_string:
                 self.blob_service = BlobServiceClient.from_connection_string(conn_string)
 

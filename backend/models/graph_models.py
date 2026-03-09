@@ -7,7 +7,7 @@ Hierarchical structure: Video -> Chapter -> Scene -> Frame -> Entity
 Inspired by VideoRAG (HKUDS) for semantic video indexing.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from uuid import uuid4
 
@@ -82,8 +82,8 @@ class GraphNodeBase(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     node_type: NodeType
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Embeddings for vector search
     embedding: list[float] | None = None
@@ -101,7 +101,7 @@ class GraphRelationBase(BaseModel):
     target_id: str
     relation_type: RelationType
     weight: float = Field(default=1.0, ge=0.0, le=1.0)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Additional relationship properties
     properties: dict = Field(default_factory=dict)
@@ -433,7 +433,7 @@ class GraphStats(BaseModel):
     database_size_mb: float = 0.0
 
     # Time
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 # =============================================================================

@@ -380,6 +380,26 @@ class KnowledgeGraphService:
         """
         return self._execute_query(query, {"video_id": video_id}, single=True, unpack_key="v")
 
+    def get_video_summary(self, video_id: str) -> tuple[str | None, list[str]]:
+        """Get video summary and topics from the knowledge graph.
+
+        Returns:
+            Tuple of (summary, topics_list). Summary may be None if not found.
+        """
+        query = """
+        MATCH (v:Video)
+        WHERE v.video_id = $media_id OR v.id = $media_id
+        RETURN v.summary as summary, v.topics as topics
+        """
+        record = self._execute_query(query, {"media_id": video_id}, single=True)
+        if record:
+            summary = record.get("summary")
+            topics = record.get("topics", [])
+            if isinstance(topics, str):
+                topics = [t.strip() for t in topics.split(",") if t.strip()]
+            return summary, topics or []
+        return None, []
+
     def update_video_summary(self, video_id: str, summary: str, topics: list[str]):
         """Update the AI summary and topics for a video."""
         query = """
@@ -1487,10 +1507,10 @@ class KnowledgeGraphService:
         # the other types with a priority order that favours higher-level
         # structures (Chapters, Scenes) over dense leaves (Frames, Audio).
         label_configs = [
-            ("Chapter",      0.15),   # 15 % of budget
-            ("Scene",        0.25),   # 25 %
-            ("AudioSegment", 0.20),   # 20 %
-            ("Frame",        0.30),   # 30 %
+            ("Chapter", 0.15),  # 15 % of budget
+            ("Scene", 0.25),  # 25 %
+            ("AudioSegment", 0.20),  # 20 %
+            ("Frame", 0.30),  # 30 %
         ]
         if include_entities:
             label_configs.append(("Entity", 0.10))  # 10 %
@@ -1602,7 +1622,9 @@ class KnowledgeGraphService:
                 if not cypher:
                     continue
                 result = session.run(
-                    cypher, video_id=video_id, limit=limit,
+                    cypher,
+                    video_id=video_id,
+                    limit=limit,
                 )
                 for record in result:
                     node = dict(record["node"])

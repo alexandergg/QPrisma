@@ -5,9 +5,17 @@ Business logic for video structure (scenes, chapters) generation.
 Extracted from structure_routes.py to maintain proper layering.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from azure.storage.blob import BlobServiceClient
+
+    from services.knowledge_graph import KnowledgeGraphService
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +23,12 @@ logger = logging.getLogger(__name__)
 class StructureService:
     """Service for generating video structure from graph and legacy data."""
 
-    def __init__(self, graph_service, blob_service=None, storage_container: str = ""):
+    def __init__(
+        self,
+        graph_service: KnowledgeGraphService,
+        blob_service: BlobServiceClient | None = None,
+        storage_container: str = "",
+    ) -> None:
         self.graph_service = graph_service
         self.blob_service = blob_service
         self.storage_container = storage_container

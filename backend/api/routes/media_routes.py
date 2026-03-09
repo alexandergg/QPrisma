@@ -5,21 +5,36 @@ Handles media upload, listing, deletion, and retrieval.
 Uses PostgreSQL for metadata storage (replaces Cosmos DB).
 """
 
+import asyncio
 import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from functools import partial
 
 from azure.storage.blob import BlobSasPermissions, generate_blob_sas
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 
 from api.dependencies import (
     get_blob_service,
     get_current_user,
+    get_media_or_404,
     get_storage_account_info,
     get_storage_container_name,
     get_video_processor,
 )
+from api.rate_limit import limiter
+from core.errors import bad_request, forbidden, not_found, service_unavailable
+from core.exceptions import internal_error
 from models.user import User
 from services.database_service import get_database_service
 
@@ -52,13 +67,14 @@ def generate_sas_url(blob_name: str, expiry_hours: int = 1) -> str | None:
     return f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas_token}"
 
 
-def hydrate_data_from_blob(item: dict) -> dict:
+async def hydrate_data_from_blob(item: dict) -> dict:
     """Hydrate heavy data fields from blob storage."""
     blob_service = get_blob_service()
     if not blob_service:
         return item
 
     storage_container = get_storage_container_name()
+    loop = asyncio.get_running_loop()
 
     # 1. Hydrate Audio Data
     if item.get("audio_data_blob") and (
@@ -68,7 +84,9 @@ def hydrate_data_from_blob(item: dict) -> dict:
             blob_client = blob_service.get_blob_client(
                 container=storage_container, blob=item["audio_data_blob"]
             )
-            audio_json = blob_client.download_blob().readall()
+            audio_json = await loop.run_in_executor(
+                None, lambda: blob_client.download_blob().readall()
+            )
             item["audio_data"] = json.loads(audio_json)
         except Exception as e:
             logger.warning(f"Error hydrating audio data: {e}")
@@ -81,7 +99,9 @@ def hydrate_data_from_blob(item: dict) -> dict:
             blob_client = blob_service.get_blob_client(
                 container=storage_container, blob=item["objects_data_blob"]
             )
-            objects_json = blob_client.download_blob().readall()
+            objects_json = await loop.run_in_executor(
+                None, lambda: blob_client.download_blob().readall()
+            )
             item["objects_data"] = json.loads(objects_json)
         except Exception as e:
             logger.warning(f"Error hydrating objects data: {e}")
@@ -92,7 +112,9 @@ def hydrate_data_from_blob(item: dict) -> dict:
             blob_client = blob_service.get_blob_client(
                 container=storage_container, blob=item["frames_data_blob"]
             )
-            frames_json = blob_client.download_blob().readall()
+            frames_json = await loop.run_in_executor(
+                None, lambda: blob_client.download_blob().readall()
+            )
             frames_data = json.loads(frames_json)
             item["frames_data"] = frames_data
 
@@ -123,7 +145,9 @@ def hydrate_data_from_blob(item: dict) -> dict:
 
 
 @router.post("/upload")
+@limiter.limit("20/minute")
 async def upload_media(
+    request: Request,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     file: UploadFile = File(...),
@@ -138,7 +162,7 @@ async def upload_media(
     db = get_database_service()
 
     if not blob_service:
-        raise HTTPException(status_code=503, detail="Azure Blob Storage not configured")
+        raise service_unavailable("Azure Blob Storage not configured")
 
     try:
         # Generate unique ID
@@ -155,11 +179,16 @@ async def upload_media(
         container_name = get_storage_container_name()
         blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
         file_size = file.size or 0
-        blob_client.upload_blob(file.file, overwrite=True, length=file_size or None)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            partial(blob_client.upload_blob, file.file, overwrite=True, length=file_size or None),
+        )
 
         # Get actual size from blob if not known from the upload
         if not file_size:
-            file_size = blob_client.get_blob_properties().size
+            props = await loop.run_in_executor(None, blob_client.get_blob_properties)
+            file_size = props.size
 
         # Save metadata to PostgreSQL
         media_data = {
@@ -196,7 +225,8 @@ async def upload_media(
                 db.update_media(media_id, {"job_id": job_id})
 
             except Exception as e:
-                raise HTTPException(status_code=503, detail=f"Celery not available: {e}")
+                logger.error(f"Celery dispatch failed for {media_id}: {e}", exc_info=True)
+                raise service_unavailable("Task queue is unavailable")
 
         return {
             "media_id": media_id,
@@ -208,12 +238,17 @@ async def upload_media(
             "message": "File uploaded. Processing queued." if job_id else "File uploaded.",
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error uploading file: {str(e)}")
+        logger.error(f"Error uploading file: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/upload/optimized")
+@limiter.limit("20/minute")
 async def upload_media_optimized(
+    request: Request,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     file: UploadFile = File(...),
@@ -233,11 +268,11 @@ async def upload_media_optimized(
     db = get_database_service()
 
     if not blob_service:
-        raise HTTPException(status_code=503, detail="Azure Blob Storage not configured")
+        raise service_unavailable("Azure Blob Storage not configured")
 
     file_extension = file.filename.split(".")[-1].lower() if file.filename else ""
     if file_extension not in ["mp4", "avi", "mov", "mkv", "webm"]:
-        raise HTTPException(status_code=400, detail="Only videos (mp4, avi, mov, mkv, webm)")
+        raise bad_request("Only videos (mp4, avi, mov, mkv, webm)")
 
     try:
         media_id = str(uuid.uuid4())
@@ -247,11 +282,16 @@ async def upload_media_optimized(
         container_name = get_storage_container_name()
         blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
         file_size = file.size or 0
-        blob_client.upload_blob(file.file, overwrite=True, length=file_size or None)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            partial(blob_client.upload_blob, file.file, overwrite=True, length=file_size or None),
+        )
 
         # Get actual size from blob if not known
         if not file_size:
-            file_size = blob_client.get_blob_properties().size
+            props = await loop.run_in_executor(None, blob_client.get_blob_properties)
+            file_size = props.size
 
         file_size_mb = file_size / (1024 * 1024)
         logger.info(f"File size: {file_size_mb:.2f} MB")
@@ -300,7 +340,8 @@ async def upload_media_optimized(
             db.update_media(media_id, {"job_id": job_id})
 
         except Exception as e:
-            raise HTTPException(status_code=503, detail=f"Celery not available: {e}")
+            logger.error(f"Celery dispatch failed for {media_id}: {e}", exc_info=True)
+            raise service_unavailable("Task queue is unavailable")
 
         return {
             "media_id": media_id,
@@ -316,8 +357,8 @@ async def upload_media_optimized(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Upload error: {e}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logger.error(f"Upload error: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.get("/media")
@@ -347,8 +388,8 @@ async def list_all_media(
         return {"total": len(items), "media": items, "limit": limit, "offset": offset}
 
     except Exception as e:
-        logger.error(f"Error listing media: {e}")
-        return {"total": 0, "media": [], "limit": limit, "offset": offset}
+        logger.error(f"Error listing media: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.delete("/media/{media_id}")
@@ -364,19 +405,17 @@ async def delete_media(media_id: str, current_user: User = Depends(get_current_u
     video_processor = get_video_processor()
 
     if not blob_service:
-        raise HTTPException(status_code=503, detail="Azure Blob Storage not configured")
+        raise service_unavailable("Azure Blob Storage not configured")
 
     try:
         # Get media from PostgreSQL
         media = db.get_media(media_id)
         if not media:
-            raise HTTPException(status_code=404, detail="Media not found")
+            raise not_found("Media")
 
         # Verify ownership
         if media.user_id != current_user.id:
-            raise HTTPException(
-                status_code=403, detail="You don't have permission to delete this media"
-            )
+            raise forbidden("You don't have permission to delete this media")
 
         blob_name = media.blob_name
 
@@ -403,7 +442,8 @@ async def delete_media(media_id: str, current_user: User = Depends(get_current_u
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting media: {str(e)}")
+        logger.error(f"Error deleting media {media_id}: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.get("/media/{media_id}")
@@ -414,13 +454,11 @@ async def get_media_metadata(media_id: str, current_user: User = Depends(get_cur
     try:
         media = db.get_media(media_id)
         if not media:
-            raise HTTPException(status_code=404, detail="Media not found")
+            raise not_found("Media")
 
         # Verify ownership
         if media.user_id != current_user.id:
-            raise HTTPException(
-                status_code=403, detail="You don't have permission to access this media"
-            )
+            raise forbidden("You don't have permission to access this media")
 
         # Update last accessed time for storage tiering
         db.update_media(media_id, {"last_accessed_at": datetime.now(UTC)})
@@ -432,7 +470,7 @@ async def get_media_metadata(media_id: str, current_user: User = Depends(get_cur
             item["duration"] = item["video_metadata"]["duration"]
 
         # Hydrate heavy data from blob storage
-        item = hydrate_data_from_blob(item)
+        item = await hydrate_data_from_blob(item)
 
         # Generate URL with SAS token (valid for 1 hour)
         if item.get("blob_name"):
@@ -445,7 +483,8 @@ async def get_media_metadata(media_id: str, current_user: User = Depends(get_cur
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Media not found: {str(e)}")
+        logger.error(f"Media lookup failed for {media_id}: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.get("/media/{media_id}/status")
@@ -454,17 +493,19 @@ async def get_media_processing_status(
 ):
     """Get the processing status of a video."""
     db = get_database_service()
+    get_media_or_404(media_id, current_user)
 
     try:
         status = db.get_media_status(media_id)
         if not status:
-            raise HTTPException(status_code=404, detail="Media not found")
+            raise not_found("Media")
         return status
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Media not found: {str(e)}")
+        logger.error(f"Error fetching processing status for {media_id}: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.get("/media/{media_id}/audio")
@@ -483,7 +524,7 @@ async def get_video_audio_data(media_id: str, current_user: User = Depends(get_c
     try:
         media = db.get_media(media_id)
         if not media:
-            raise HTTPException(status_code=404, detail="Media not found")
+            raise not_found("Media")
 
         item = media.to_dict()
         audio_data = item.get("audio_data")
@@ -497,14 +538,17 @@ async def get_video_audio_data(media_id: str, current_user: User = Depends(get_c
                     blob_client = blob_service.get_blob_client(
                         container=storage_container, blob=item["audio_data_blob"]
                     )
-                    audio_json = blob_client.download_blob().readall()
+                    audio_json = await asyncio.get_running_loop().run_in_executor(
+                        None, lambda: blob_client.download_blob().readall()
+                    )
                     audio_data = json.loads(audio_json)
             except Exception as e:
                 logger.warning(f"Error hydrating audio data: {e}")
 
         if not audio_data:
-            raise HTTPException(
-                status_code=404, detail="This video has no audio data or hasn't been processed"
+            raise not_found(
+                "Audio data",
+                detail="This video has no audio data or hasn't been processed",
             )
 
         return {
@@ -519,7 +563,8 @@ async def get_video_audio_data(media_id: str, current_user: User = Depends(get_c
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logger.error(f"Error fetching audio data for {media_id}: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.get("/media/{media_id}/search")
@@ -531,6 +576,7 @@ async def search_in_video(
     Returns relevant frames with timestamps.
     """
     logger.info(f"Search request: media_id={media_id}, query='{query}', top={top}")
+    get_media_or_404(media_id, current_user)
 
     from models.graph_models import NodeType
     from services.graph_search_service import get_graph_search_service

@@ -4,8 +4,10 @@ Core utilities for QPrisma backend.
 This package contains:
 - config: Application configuration using Pydantic Settings
 - constants: Centralized constants
+- errors: Lightweight HTTP exception helpers for routes
 - exceptions: Custom exception classes
 - logging_config: Logging configuration
+- retry: Centralized async retry utilities
 """
 
 from .async_utils import (
@@ -25,6 +27,15 @@ from .constants import (
     MAX_SEARCH_LIMIT,
     WHISPER_MAX_FILE_SIZE_MB,
 )
+from .errors import (
+    bad_request,
+    conflict,
+    forbidden,
+    not_found,
+    service_unavailable,
+    unauthorized,
+)
+from .errors import internal_error as http_internal_error
 from .exceptions import (
     # Base exceptions
     AccessDeniedError,
@@ -47,6 +58,7 @@ from .exceptions import (
     validation_error,
 )
 from .logging_config import PipelineLogger, get_logger, setup_logging
+from .retry import retry_async, retry_on
 
 __all__ = [
     # Async Utilities
@@ -68,6 +80,14 @@ __all__ = [
     "MAX_PAGE_SIZE",
     "MAX_SEARCH_LIMIT",
     "WHISPER_MAX_FILE_SIZE_MB",
+    # Lightweight HTTP error helpers (for routes)
+    "not_found",
+    "bad_request",
+    "forbidden",
+    "unauthorized",
+    "http_internal_error",
+    "conflict",
+    "service_unavailable",
     # Structured API Errors (recommended for routes)
     "APIError",
     "not_found_error",
@@ -87,6 +107,9 @@ __all__ = [
     "ValidationError",
     "GraphError",
     "GraphConnectionError",
+    # Retry utilities
+    "retry_async",
+    "retry_on",
     # Logging
     "get_logger",
     "setup_logging",

@@ -38,6 +38,12 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
+# Create non-root user for security
+RUN adduser --disabled-password --gecos '' --uid 1001 appuser && \
+    chown -R appuser:appuser /app && \
+    mkdir -p /tmp/qprisma && chown appuser:appuser /tmp/qprisma
+USER appuser
+
 # Puerto de la API
 EXPOSE 8000
 

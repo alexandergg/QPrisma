@@ -280,19 +280,19 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
     if fresh:
         run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         output_dir = base_output / f"run_{run_id}"
-        print(f"Fresh run: {output_dir}")
+        logger.info("Fresh run: %s", output_dir)
     else:
         output_dir = base_output
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Auth
-    print("Authenticating...")
+    logger.info("Authenticating...")
     email = os.environ.get("QPRISMA_EVAL_EMAIL", "")
     password = os.environ.get("QPRISMA_EVAL_PASSWORD", "")
     if not email or not password:
         raise RuntimeError("Set QPRISMA_EVAL_EMAIL and QPRISMA_EVAL_PASSWORD environment variables")
     token = get_token(api_url, email, password)
-    print("  Token obtained.")
+    logger.info("  Token obtained.")
 
     # 2. Load benchmark
     bench_path = Path("data/benchmarks/qprisma_first_eval/benchmark.json")
@@ -305,7 +305,7 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
     else:
         entries = [e for e in all_entries if e.question_id in QUICK_QUESTION_IDS]
 
-    print(f"  Loaded {len(entries)} benchmark questions (expanded={expanded}).")
+    logger.info("  Loaded %d benchmark questions (expanded=%s).", len(entries), expanded)
 
     # 3. Create adapters
     qprisma = APIChatAdapter(api_url=api_url, token=token, method_name="qprisma-full")
@@ -318,28 +318,28 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
         resume=not fresh,
     )
 
-    print("\n" + "=" * 60)
-    print("RUNNING QPRISMA (Full Agent Pipeline)")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("RUNNING QPRISMA (Full Agent Pipeline)")
+    logger.info("=" * 60)
 
     for i, entry in enumerate(entries, 1):
-        print(f"  [{i}/{len(entries)}] {entry.question_id}: {entry.question[:60]}...")
+        logger.info("  [%d/%d] %s: %s...", i, len(entries), entry.question_id, entry.question[:60])
 
     qprisma_results = await runner.run_method(qprisma, entries, benchmark_name="first_eval")
 
-    print("\n" + "=" * 60)
-    print("RUNNING BASELINE (Direct Search)")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("RUNNING BASELINE (Direct Search)")
+    logger.info("=" * 60)
 
     for i, entry in enumerate(entries, 1):
-        print(f"  [{i}/{len(entries)}] {entry.question_id}: {entry.question[:60]}...")
+        logger.info("  [%d/%d] %s: %s...", i, len(entries), entry.question_id, entry.question[:60])
 
     baseline_results = await runner.run_method(baseline, entries, benchmark_name="first_eval")
 
     # 5. Compute metrics
-    print("\n" + "=" * 60)
-    print("COMPUTING METRICS")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("COMPUTING METRICS")
+    logger.info("=" * 60)
 
     qp_accuracy = compute_accuracy(qprisma_results, entries)
     bl_accuracy = compute_accuracy(baseline_results, entries)
@@ -351,36 +351,43 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
     bl_efficiency = runner.tracker.summarize("direct-search")
 
     # 6. Generate report
-    print("\n" + "=" * 60)
-    print("EVALUATION RESULTS")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("EVALUATION RESULTS")
+    logger.info("=" * 60)
 
-    print(f"\n{'Method':<25} {'Accuracy':>10} {'Avg Latency':>15} {'Avg Tool Calls':>15}")
-    print("-" * 65)
-    print(
-        f"{'QPrisma (Full Agent)':<25} "
-        f"{qp_accuracy:>9.1%} "
-        f"{qp_efficiency.get('latency_mean_ms', 0):>13,.0f}ms "
-        f"{qp_efficiency.get('tool_calls_mean', 0):>13.1f}"
+    logger.info("\n%-25s %10s %15s %15s", "Method", "Accuracy", "Avg Latency", "Avg Tool Calls")
+    logger.info("-" * 65)
+    logger.info(
+        "%-25s %9.1f%% %13,.0fms %13.1f",
+        "QPrisma (Full Agent)",
+        qp_accuracy * 100,
+        qp_efficiency.get("latency_mean_ms", 0),
+        qp_efficiency.get("tool_calls_mean", 0),
     )
-    print(
-        f"{'Direct Search (No Agent)':<25} "
-        f"{bl_accuracy:>9.1%} "
-        f"{bl_efficiency.get('latency_mean_ms', 0):>13,.0f}ms "
-        f"{bl_efficiency.get('tool_calls_mean', 0):>13.1f}"
+    logger.info(
+        "%-25s %9.1f%% %13,.0fms %13.1f",
+        "Direct Search (No Agent)",
+        bl_accuracy * 100,
+        bl_efficiency.get("latency_mean_ms", 0),
+        bl_efficiency.get("tool_calls_mean", 0),
     )
 
     # By category
     all_cats = sorted(set(list(qp_by_cat.keys()) + list(bl_by_cat.keys())))
     if all_cats:
-        print(f"\n{'Category':<25} {'QPrisma':>10} {'Baseline':>10}")
-        print("-" * 45)
+        logger.info("\n%-25s %10s %10s", "Category", "QPrisma", "Baseline")
+        logger.info("-" * 45)
         for cat in all_cats:
-            print(f"{cat:<25} " f"{qp_by_cat.get(cat, 0):>9.1%} " f"{bl_by_cat.get(cat, 0):>9.1%}")
+            logger.info(
+                "%-25s %9.1f%% %9.1f%%",
+                cat,
+                qp_by_cat.get(cat, 0) * 100,
+                bl_by_cat.get(cat, 0) * 100,
+            )
 
     # Per-question details
-    print(f"\n{'QID':<15} {'QPrisma':>10} {'Baseline':>10} {'Correct':>10}")
-    print("-" * 50)
+    logger.info("\n%-15s %10s %10s %10s", "QID", "QPrisma", "Baseline", "Correct")
+    logger.info("-" * 50)
     entry_map = {e.question_id: e for e in entries}
     for qr, br in zip(
         sorted(qprisma_results, key=lambda r: r.question_id),
@@ -393,11 +400,14 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
         bl_mark = (
             "OK" if br.predicted_choice and br.predicted_choice.upper() == correct.upper() else "X"
         )
-        print(
-            f"{qr.question_id:<15} "
-            f"{qr.predicted_choice or '?':>5} {qp_mark:>4} "
-            f"{br.predicted_choice or '?':>5} {bl_mark:>4} "
-            f"{correct:>5}"
+        logger.info(
+            "%-15s %5s %4s %5s %4s %5s",
+            qr.question_id,
+            qr.predicted_choice or "?",
+            qp_mark,
+            br.predicted_choice or "?",
+            bl_mark,
+            correct,
         )
 
     # Save report
@@ -423,7 +433,7 @@ async def run_first_eval(expanded: bool = False, fresh: bool = False):
 
     report_path = output_dir / "first_eval_report.json"
     report_path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
-    print(f"\nFull report saved to: {report_path}")
+    logger.info("\nFull report saved to: %s", report_path)
 
     return report
 
@@ -453,11 +463,10 @@ def main():
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     question_count = "30" if args.expanded else "10"
-    print("QPrisma First Evaluation")
-    print("========================")
-    print(f"Benchmark: {question_count} MC questions about Microsoft Ignite Keynote")
-    print("Methods: QPrisma (Full Agent) vs Direct Search (No Agent)")
-    print()
+    logger.info("QPrisma First Evaluation")
+    logger.info("========================")
+    logger.info("Benchmark: %s MC questions about Microsoft Ignite Keynote", question_count)
+    logger.info("Methods: QPrisma (Full Agent) vs Direct Search (No Agent)")
 
     asyncio.run(run_first_eval(expanded=args.expanded, fresh=args.fresh))
 

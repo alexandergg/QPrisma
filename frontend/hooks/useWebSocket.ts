@@ -16,7 +16,7 @@
  *   });
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 
 // =============================================================================
 // Types
@@ -346,15 +346,25 @@ export function useMultiJobWebSocket(
 ) {
   const [jobs, setJobs] = useState<MultiJobProgress>({});
 
+  // Stabilize the jobIds list so we can use it as a proper dependency
+  const jobIdsKey = jobIds.join(',');
+  const stableJobIds = useMemo(() => jobIds, [jobIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep callbacks in refs to avoid re-opening sockets when callbacks change
+  const optionsRef = useRef(options);
+  useEffect(() => {
+    optionsRef.current = options;
+  });
+
   // Crear un WebSocket por cada job
   // Nota: En producción, sería mejor usar un solo WebSocket y suscribirse a múltiples jobs
   useEffect(() => {
     const connections: WebSocket[] = [];
 
-    jobIds.forEach((jobId) => {
+    stableJobIds.forEach((jobId) => {
       if (!jobId) return;
 
-      const url = getWebSocketUrl(jobId, options.wsUrl);
+      const url = getWebSocketUrl(jobId, optionsRef.current.wsUrl);
       const ws = new WebSocket(url);
 
       ws.onopen = () => {
@@ -369,24 +379,30 @@ export function useMultiJobWebSocket(
           const data: WebSocketMessage = JSON.parse(event.data);
 
           if (data.type === 'job_progress') {
-            const progressData = data.payload as unknown as JobProgress;
+            const payload = data.payload;
+            const progressData: JobProgress = {
+              progress: typeof payload?.progress === 'number' ? payload.progress : 0,
+              stage: typeof payload?.stage === 'string' ? payload.stage : '',
+              message: typeof payload?.message === 'string' ? payload.message as string : undefined,
+              status: typeof payload?.status === 'string' ? payload.status as string : undefined,
+            };
             setJobs((prev) => ({
               ...prev,
               [jobId]: { ...progressData, status: 'connected' },
             }));
-            options.onJobProgress?.(jobId, progressData);
+            optionsRef.current.onJobProgress?.(jobId, progressData);
           } else if (data.type === 'job_completed') {
             setJobs((prev) => ({
               ...prev,
               [jobId]: { progress: 100, stage: 'completed', status: 'connected' },
             }));
-            options.onJobCompleted?.(jobId, data.payload.result as Record<string, unknown>);
+            optionsRef.current.onJobCompleted?.(jobId, data.payload.result as Record<string, unknown>);
           } else if (data.type === 'job_failed') {
             setJobs((prev) => ({
               ...prev,
               [jobId]: { progress: 0, stage: 'failed', status: 'error' },
             }));
-            options.onJobError?.(jobId, data.payload.error as string);
+            optionsRef.current.onJobError?.(jobId, data.payload.error as string);
           }
         } catch (e) {
           console.error('[WebSocket] Parse error:', e);
@@ -406,7 +422,7 @@ export function useMultiJobWebSocket(
     return () => {
       connections.forEach((ws) => ws.close());
     };
-  }, [jobIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stableJobIds]);
 
   return jobs;
 }

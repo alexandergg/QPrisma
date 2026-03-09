@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_current_user
+from core.errors import bad_request, internal_error, service_unavailable
 from models.user import User
 
 logger = logging.getLogger(__name__)
@@ -161,10 +162,7 @@ async def submit_job(request: JobSubmitRequest, current_user: User = Depends(get
     """Submits a processing job to Celery"""
     celery_app = get_celery_app()
     if not celery_app:
-        raise HTTPException(
-            status_code=503,
-            detail="Celery not available. Make sure the worker is running.",
-        )
+        raise service_unavailable("Celery not available. Make sure the worker is running.")
 
     try:
         from tasks.video_tasks import process_video_pipeline
@@ -192,8 +190,8 @@ async def submit_job(request: JobSubmitRequest, current_user: User = Depends(get
         )
 
     except Exception as e:
-        logger.error(f"Failed to submit job: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to submit job: {e}", exc_info=True)
+        raise internal_error(detail="Processing operation failed")
 
 
 @router.get(
@@ -206,7 +204,7 @@ async def get_job_status(job_id: str, current_user: User = Depends(get_current_u
     """Gets job status"""
     celery_app = get_celery_app()
     if not celery_app:
-        raise HTTPException(status_code=503, detail="Celery not available")
+        raise service_unavailable("Celery not available")
 
     try:
         from celery.result import AsyncResult
@@ -260,8 +258,8 @@ async def get_job_status(job_id: str, current_user: User = Depends(get_current_u
         )
 
     except Exception as e:
-        logger.error(f"Failed to get job status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get job status: {e}", exc_info=True)
+        raise internal_error(detail="Processing operation failed")
 
 
 @router.post(
@@ -273,7 +271,7 @@ async def cancel_job(job_id: str, current_user: User = Depends(get_current_user)
     """Cancels a running job"""
     celery_app = get_celery_app()
     if not celery_app:
-        raise HTTPException(status_code=503, detail="Celery not available")
+        raise service_unavailable("Celery not available")
 
     try:
         from celery.result import AsyncResult
@@ -309,8 +307,8 @@ async def cancel_job(job_id: str, current_user: User = Depends(get_current_user)
             }
 
     except Exception as e:
-        logger.error(f"Failed to cancel job: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to cancel job: {e}", exc_info=True)
+        raise internal_error(detail="Processing operation failed")
 
 
 @router.get(
@@ -322,7 +320,7 @@ async def get_job_result(job_id: str, current_user: User = Depends(get_current_u
     """Gets the result of a completed job"""
     celery_app = get_celery_app()
     if not celery_app:
-        raise HTTPException(status_code=503, detail="Celery not available")
+        raise service_unavailable("Celery not available")
 
     try:
         from celery.result import AsyncResult
@@ -334,15 +332,13 @@ async def get_job_result(job_id: str, current_user: User = Depends(get_current_u
         elif result.state == "FAILURE":
             return {"job_id": job_id, "status": "failure", "error": str(result.result)}
         else:
-            raise HTTPException(
-                status_code=400, detail=f"Job still in progress (state: {result.state})"
-            )
+            raise bad_request(f"Job still in progress (state: {result.state})")
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get job result: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get job result: {e}", exc_info=True)
+        raise internal_error(detail="Processing operation failed")
 
 
 @router.get(

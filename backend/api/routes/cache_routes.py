@@ -11,6 +11,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from api.dependencies import get_current_user
 from models.cache_models import (
     CacheBackend,
     CacheInvalidateRequest,
@@ -19,6 +20,7 @@ from models.cache_models import (
     CacheSettings,
     JobStatusCache,
 )
+from models.user import User
 from services.cache_service import CacheService, get_cache_service
 
 logger = logging.getLogger(__name__)
@@ -51,7 +53,9 @@ async def get_cache() -> CacheService:
     - Estimated cost savings
     """,
 )
-async def get_cache_metrics(cache: CacheService = Depends(get_cache)):
+async def get_cache_metrics(
+    current_user: User = Depends(get_current_user), cache: CacheService = Depends(get_cache)
+):
     """Gets current cache metrics"""
     metrics = cache.get_metrics()
 
@@ -73,7 +77,9 @@ async def get_cache_metrics(cache: CacheService = Depends(get_cache)):
     summary="Reset cache metrics",
     description="Resets the hits, misses, and savings counters to zero.",
 )
-async def reset_cache_metrics(cache: CacheService = Depends(get_cache)):
+async def reset_cache_metrics(
+    current_user: User = Depends(get_current_user), cache: CacheService = Depends(get_cache)
+):
     """Resets cache metrics"""
     cache.reset_metrics()
     return {"message": "Metrics reset successfully"}
@@ -116,7 +122,9 @@ async def cache_health(cache: CacheService = Depends(get_cache)):
     """,
 )
 async def invalidate_cache(
-    request: CacheInvalidateRequest, cache: CacheService = Depends(get_cache)
+    request: CacheInvalidateRequest,
+    current_user: User = Depends(get_current_user),
+    cache: CacheService = Depends(get_cache),
 ):
     """Invalidates cache according to criteria"""
     keys_deleted = 0
@@ -165,8 +173,8 @@ async def invalidate_cache(
         )
 
     except Exception as e:
-        logger.error(f"Cache invalidation error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Cache invalidation error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Cache operation failed")
 
 
 @router.delete(
@@ -175,7 +183,11 @@ async def invalidate_cache(
     summary="Invalidate cache for a video",
     description="Removes all cache entries related to a specific video.",
 )
-async def invalidate_video_cache(video_id: str, cache: CacheService = Depends(get_cache)):
+async def invalidate_video_cache(
+    video_id: str,
+    current_user: User = Depends(get_current_user),
+    cache: CacheService = Depends(get_cache),
+):
     """Invalidates cache for a specific video"""
     keys_deleted = await cache.invalidate_video(video_id)
 

@@ -2,19 +2,29 @@
 FFmpeg Video Processor
 Ultra-fast video processing system with FFmpeg.
 Inspired by Edconv for maximum customization and performance.
+
+Supports two decoder backends:
+- ``pyav`` (default): in-process decoding via PyAV for lower latency
+- ``ffmpeg_subprocess``: traditional subprocess-based extraction
 """
 
+import asyncio
 import base64
+import io
 import logging
 import os
 import subprocess
 import tempfile
 import time
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 import ffmpeg
+import imagehash
+import numpy as np
+from PIL import Image
 
 from models.ffmpeg_config import (
     FFmpegProcessingConfig,
@@ -22,8 +32,25 @@ from models.ffmpeg_config import (
     ProcessingPipeline,
     ProcessingStatus,
 )
+from services.scene_detect_service import SceneDetectService, map_ffmpeg_threshold
 
 logger = logging.getLogger(__name__)
+
+
+def _get_optimal_workers() -> int:
+    """Get optimal worker count based on available CPUs.
+
+    Container-aware: uses ``os.sched_getaffinity`` on Linux (respects
+    cgroup limits), falls back to ``os.cpu_count`` elsewhere.
+    """
+    try:
+        try:
+            cpu_count = len(os.sched_getaffinity(0))
+        except AttributeError:
+            cpu_count = os.cpu_count() or 4
+        return max(2, min(cpu_count - 1, 16))
+    except Exception:
+        return 4  # Safe default
 
 
 class FFmpegVideoProcessor:
@@ -43,6 +70,45 @@ class FFmpegVideoProcessor:
         self.config = config or FFmpegProcessingConfig()
         self.status = ProcessingStatus(status="pending")
         self._resolved_hwaccel = self._resolve_hwaccel()
+
+        # Determine decoder backend (pyav | ffmpeg_subprocess)
+        self._decoder_backend = self._resolve_decoder_backend()
+
+        # PySceneDetect integration — preferred over FFmpeg scene filter
+        self._use_pyscenedetect: bool = True
+        self._scene_detect_service = SceneDetectService()
+
+    def _resolve_decoder_backend(self) -> str:
+        """Pick the decoder backend from config → settings → fallback chain."""
+        # 1. Check frame_extraction config on the processing config
+        backend = getattr(self.config.frame_extraction, "decoder_backend", None)
+
+        # 2. Fall back to centralised settings
+        if not backend:
+            try:
+                from core.config import get_settings
+
+                backend = get_settings().app.video_decoder_backend
+            except Exception:
+                backend = None
+
+        backend = backend or "pyav"
+
+        # 3. If pyav is requested but unavailable, fall back silently
+        if backend == "pyav":
+            try:
+                from services.pyav_extractor import is_pyav_available
+
+                if not is_pyav_available():
+                    logger.info(
+                        "PyAV requested but not installed — falling back to ffmpeg_subprocess"
+                    )
+                    return "ffmpeg_subprocess"
+            except ImportError:
+                logger.info("pyav_extractor module not found — falling back to ffmpeg_subprocess")
+                return "ffmpeg_subprocess"
+
+        return backend
 
     @staticmethod
     def _detect_available_hwaccel() -> str | None:
@@ -421,7 +487,44 @@ class FFmpegVideoProcessor:
         self, video_path: str, threshold: float, max_scenes: int
     ) -> list[float]:
         """
-        Detect scene-change timestamps using FFmpeg.
+        Detect scene-change timestamps.
+
+        Uses PySceneDetect (adaptive detector) as the primary method, with
+        the legacy FFmpeg ``select='gt(scene,...)'`` filter as a fallback.
+
+        Args:
+            video_path: Path to the video file
+            threshold: Detection threshold (0-1, FFmpeg scale)
+            max_scenes: Maximum number of scenes to detect
+
+        Returns:
+            List of timestamps where scene changes occur
+        """
+        if not video_path or not os.path.exists(video_path):
+            return []
+
+        # --- Primary path: PySceneDetect ------------------------------------
+        if self._use_pyscenedetect:
+            psd_threshold = map_ffmpeg_threshold(threshold, method="adaptive")
+            timestamps = self._scene_detect_service.detect_scene_timestamps(
+                video_path, method="adaptive", threshold=psd_threshold
+            )
+            if timestamps:
+                return timestamps[:max_scenes]
+            # If PySceneDetect returned nothing, fall through to FFmpeg
+            logger.info(
+                "PySceneDetect returned no scenes for %s; falling back to FFmpeg",
+                video_path,
+            )
+
+        # --- Fallback: FFmpeg scene filter ----------------------------------
+        return self._detect_scene_timestamps_ffmpeg(video_path, threshold, max_scenes)
+
+    def _detect_scene_timestamps_ffmpeg(
+        self, video_path: str, threshold: float, max_scenes: int
+    ) -> list[float]:
+        """
+        Detect scene-change timestamps using the FFmpeg scene filter (legacy).
 
         Args:
             video_path: Path to the video file
@@ -431,9 +534,6 @@ class FFmpegVideoProcessor:
         Returns:
             List of timestamps where scene changes occur
         """
-        if not video_path or not os.path.exists(video_path):
-            return []
-
         try:
             # Use FFmpeg for scene detection
             cmd = [
@@ -527,6 +627,64 @@ class FFmpegVideoProcessor:
         start_time = time.time()
         frames: list[dict[str, Any]] = []
 
+        # ---- PyAV fast-path ---------------------------------------------------
+        if self._decoder_backend == "pyav":
+            try:
+                pyav_frames = self._extract_with_pyav(video_path, video_info)
+                if pyav_frames is not None:
+                    frames = pyav_frames
+
+                    # Load images as bytes if required
+                    if return_as_bytes:
+                        for frame in frames:
+                            if "file_path" in frame and "image_data" not in frame:
+                                with open(frame["file_path"], "rb") as f:
+                                    frame["image_data"] = f.read()
+                                if output_dir.startswith(tempfile.gettempdir()):
+                                    os.remove(frame["file_path"])
+
+                    elapsed = time.time() - start_time
+                    self.status.status = "completed"
+                    self.status.progress = 100.0
+                    self.status.frames_extracted = len(frames)
+                    self.status.fps = len(frames) / elapsed if elapsed > 0 else 0
+
+                    logger.info(
+                        "Frame extraction finished: %d frames in %.2fs (%.1f fps), decoder=%s",
+                        len(frames),
+                        elapsed,
+                        self.status.fps,
+                        self._decoder_backend,
+                        extra={"extraction_fps": self.status.fps, "decoder": self._decoder_backend},
+                    )
+
+                    # Deduplicate if enabled and frames have image_data
+                    if (
+                        self.config.frame_extraction.deduplication_enabled
+                        and return_as_bytes
+                        and frames
+                        and "image_data" in frames[0]
+                    ):
+                        pre_dedup = len(frames)
+                        frames = self._deduplicate_frames(
+                            frames,
+                            threshold=self.config.frame_extraction.deduplication_threshold,
+                        )
+                        self.status.frames_extracted = len(frames)
+                        if pre_dedup != len(frames):
+                            logger.info(
+                                "Deduplication: %d -> %d frames (removed %d)",
+                                pre_dedup,
+                                len(frames),
+                                pre_dedup - len(frames),
+                                extra={"dedup_before": pre_dedup, "dedup_after": len(frames)},
+                            )
+
+                    return frames
+            except Exception as e:
+                logger.warning("PyAV extraction failed — falling back to subprocess: %s", e)
+        # ---- end PyAV fast-path -----------------------------------------------
+
         try:
             extraction = self.config.frame_extraction
 
@@ -599,12 +757,369 @@ class FFmpegVideoProcessor:
             self.status.frames_extracted = len(frames)
             self.status.fps = len(frames) / elapsed if elapsed > 0 else 0
 
+            logger.info(
+                "Frame extraction finished: %d frames in %.2fs (%.1f fps), decoder=%s",
+                len(frames),
+                elapsed,
+                self.status.fps,
+                self._decoder_backend,
+                extra={"extraction_fps": self.status.fps, "decoder": self._decoder_backend},
+            )
+
+            # Deduplicate if enabled and frames have image_data
+            if (
+                self.config.frame_extraction.deduplication_enabled
+                and return_as_bytes
+                and frames
+                and "image_data" in frames[0]
+            ):
+                pre_dedup = len(frames)
+                frames = self._deduplicate_frames(
+                    frames,
+                    threshold=self.config.frame_extraction.deduplication_threshold,
+                )
+                self.status.frames_extracted = len(frames)
+                if pre_dedup != len(frames):
+                    logger.info(
+                        "Deduplication: %d -> %d frames (removed %d)",
+                        pre_dedup,
+                        len(frames),
+                        pre_dedup - len(frames),
+                        extra={"dedup_before": pre_dedup, "dedup_after": len(frames)},
+                    )
+
             return frames
 
         except Exception as e:
             self.status.status = "failed"
             self.status.error = str(e)
             raise RuntimeError(f"Error extracting frames: {str(e)}")
+
+    # ------------------------------------------------------------------
+    # Streaming frame extraction
+    # ------------------------------------------------------------------
+
+    async def extract_frames_stream(
+        self,
+        video_path: str,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream frames as they are extracted, yielding one at a time.
+
+        Each yielded dict contains::
+
+            {
+                "image_data": bytes,
+                "timestamp": float,
+                "frame_number": int,
+                "metadata": dict,
+            }
+
+        When the PyAV backend is available the method performs sequential
+        decode inside a single dedicated thread (via
+        :pymethod:`_pyav_frame_generator`) so the event-loop is never
+        blocked.  If PyAV is unavailable or fails, the method falls back
+        to the existing :pymethod:`extract_frames_ffmpeg` batch
+        extraction and yields frames one at a time — downstream consumers
+        still benefit from reduced peak memory.
+
+        The generator respects ``self.config.frame_extraction.max_frames``
+        for early termination.
+        """
+        video_info = await asyncio.to_thread(self.get_video_info, video_path)
+        logger.info(
+            "Streaming extraction started for %s (duration=%.1fs, %dx%d)",
+            video_path,
+            video_info.get("duration", 0),
+            video_info.get("width", 0),
+            video_info.get("height", 0),
+        )
+
+        # Update status metadata
+        self.status.video_duration = video_info.get("duration", 0)
+        self.status.video_fps = video_info.get("fps", 0)
+        self.status.video_width = video_info.get("width", 0)
+        self.status.video_height = video_info.get("height", 0)
+        self.status.status = "processing"
+
+        max_frames = self.config.frame_extraction.max_frames or 500
+        yielded = 0
+
+        # ---- PyAV streaming path -------------------------------------------
+        if self._decoder_backend == "pyav":
+            try:
+                async for frame_dict in self._stream_via_pyav(video_path, video_info):
+                    yield frame_dict
+                    yielded += 1
+                    if yielded >= max_frames:
+                        break
+
+                if yielded > 0:
+                    self.status.status = "completed"
+                    self.status.frames_extracted = yielded
+                    logger.info(
+                        "Streaming extraction completed (pyav): %d frames",
+                        yielded,
+                    )
+                    return
+            except Exception as exc:
+                logger.warning(
+                    "PyAV streaming failed — falling back to subprocess: %s",
+                    exc,
+                )
+
+        # ---- Fallback: batch extract then yield one-by-one -----------------
+        frames = await asyncio.to_thread(self.extract_frames_ffmpeg, video_path, None, True)
+        for frame in frames:
+            yield frame
+            yielded += 1
+            if yielded >= max_frames:
+                break
+
+        self.status.status = "completed"
+        self.status.frames_extracted = yielded
+        logger.info("Streaming extraction completed (fallback): %d frames", yielded)
+
+    # -- helpers for extract_frames_stream ----------------------------------
+
+    async def _stream_via_pyav(
+        self,
+        video_path: str,
+        video_info: dict[str, Any],
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Wrap the synchronous PyAV frame generator in an async iterator.
+
+        A single-worker :class:`ThreadPoolExecutor` is used so that all
+        PyAV container state stays on the same OS thread throughout the
+        decode session.
+        """
+        sync_gen = self._pyav_frame_generator(video_path, video_info)
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pyav_stream")
+
+        def _next_frame():
+            try:
+                return next(sync_gen)
+            except StopIteration:
+                return None
+
+        loop = asyncio.get_running_loop()
+        try:
+            while True:
+                frame = await loop.run_in_executor(executor, _next_frame)
+                if frame is None:
+                    break
+                yield frame
+        finally:
+            executor.shutdown(wait=False)
+
+    def _pyav_frame_generator(
+        self,
+        video_path: str,
+        video_info: dict[str, Any],
+    ):
+        """Synchronous generator: decode video via PyAV, yield frames at
+        target timestamps computed from ``self.config.frame_extraction``.
+
+        For ``KEYFRAMES`` extraction the generator iterates demuxed
+        packets and only decodes I-frames.  For all other methods it
+        performs sequential ``container.decode(video=0)`` and selects the
+        frames closest to each target timestamp.
+        """
+        from services.pyav_extractor import (
+            _AV_AVAILABLE,
+            _frame_to_rgb_ndarray,
+            _open_container,
+        )
+
+        if not _AV_AVAILABLE:
+            return
+
+        import cv2
+
+        extraction = self.config.frame_extraction
+        max_frames = extraction.max_frames or 500
+
+        # --- Keyframe-only path ---------------------------------------------
+        if extraction.method == FrameExtractionMethod.KEYFRAMES:
+            yield from self._pyav_keyframe_generator(video_path, max_frames)
+            return
+
+        # --- Timestamp-based methods ----------------------------------------
+        video_info_copy = {**video_info, "path": video_path}
+        timestamps = self._calculate_frame_timestamps(video_info_copy)
+        if not timestamps:
+            return
+        timestamps = sorted(timestamps[:max_frames])
+
+        try:
+            with _open_container(video_path) as container:
+                stream = container.streams.video[0]
+                stream.thread_type = "AUTO"
+                time_base = stream.time_base
+                fps = float(stream.average_rate) if stream.average_rate else 25.0
+                tolerance = 0.5 / fps  # half-frame tolerance
+
+                ts_idx = 0
+                frame_count = 0
+
+                for av_frame in container.decode(video=0):
+                    if ts_idx >= len(timestamps):
+                        break
+
+                    current_ts = (
+                        float(av_frame.pts * time_base) if av_frame.pts is not None else 0.0
+                    )
+                    target_ts = timestamps[ts_idx]
+
+                    if current_ts >= target_ts - tolerance:
+                        rgb = _frame_to_rgb_ndarray(av_frame)
+                        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                        ok, buf = cv2.imencode(
+                            ".jpg",
+                            bgr,
+                            [cv2.IMWRITE_JPEG_QUALITY, 95],
+                        )
+                        if ok:
+                            yield {
+                                "frame_number": frame_count,
+                                "timestamp": current_ts,
+                                "image_data": buf.tobytes(),
+                                "metadata": {
+                                    "width": av_frame.width,
+                                    "height": av_frame.height,
+                                    "extraction_mode": "streaming_pyav",
+                                },
+                            }
+                            frame_count += 1
+                        ts_idx += 1
+        except Exception:
+            logger.exception(
+                "Error in PyAV streaming frame generator for %s",
+                video_path,
+            )
+
+    def _pyav_keyframe_generator(self, video_path: str, max_frames: int):
+        """Yield only I-frames (keyframes) via PyAV demux."""
+        import cv2
+
+        from services.pyav_extractor import (
+            _frame_to_rgb_ndarray,
+            _open_container,
+        )
+
+        try:
+            with _open_container(video_path) as container:
+                stream = container.streams.video[0]
+                stream.thread_type = "AUTO"
+                time_base = stream.time_base
+                frame_count = 0
+
+                for packet in container.demux(stream):
+                    if packet.dts is None or not packet.is_keyframe:
+                        continue
+                    for frame in packet.decode():
+                        ts = float(frame.pts * time_base) if frame.pts is not None else 0.0
+                        rgb = _frame_to_rgb_ndarray(frame)
+                        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                        ok, buf = cv2.imencode(
+                            ".jpg",
+                            bgr,
+                            [cv2.IMWRITE_JPEG_QUALITY, 95],
+                        )
+                        if ok:
+                            yield {
+                                "frame_number": frame_count,
+                                "timestamp": ts,
+                                "image_data": buf.tobytes(),
+                                "metadata": {
+                                    "width": frame.width,
+                                    "height": frame.height,
+                                    "extraction_mode": ("streaming_pyav_keyframes"),
+                                },
+                            }
+                            frame_count += 1
+                            if frame_count >= max_frames:
+                                return
+        except Exception:
+            logger.exception("Error in PyAV keyframe generator for %s", video_path)
+
+    # ------------------------------------------------------------------
+    # PyAV backend delegation
+    # ------------------------------------------------------------------
+
+    def _extract_with_pyav(
+        self, video_path: str, video_info: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        """Delegate frame extraction to :class:`PyAVFrameExtractor`.
+
+        Returns a list of frame dicts compatible with the subprocess path,
+        or ``None`` when extraction cannot be handled (caller should fall back).
+        """
+        from services.pyav_extractor import PyAVFrameExtractor
+
+        extraction = self.config.frame_extraction
+        method = extraction.method
+        max_frames = extraction.max_frames
+        raw_frames: list[tuple[float, np.ndarray]] = []
+
+        if method == FrameExtractionMethod.KEYFRAMES:
+            raw_frames = PyAVFrameExtractor.extract_keyframes(video_path, max_frames=max_frames)
+
+        elif method == FrameExtractionMethod.SCENE_DETECT:
+            scene_ts = PyAVFrameExtractor.detect_scenes_basic(
+                video_path, threshold=extraction.scene_threshold or 0.4
+            )
+            if scene_ts:
+                raw_frames = PyAVFrameExtractor.extract_frames(
+                    video_path, scene_ts, max_frames=max_frames
+                )
+
+        elif method == FrameExtractionMethod.UNIFORM:
+            num = min(extraction.num_frames or 10, max_frames or 1000)
+            raw_frames = PyAVFrameExtractor.extract_frames_uniform(video_path, num)
+
+        elif method == FrameExtractionMethod.FPS:
+            raw_frames = PyAVFrameExtractor.extract_frames_fps(
+                video_path, fps=extraction.fps or 1.0, max_frames=max_frames
+            )
+
+        elif method in (
+            FrameExtractionMethod.INTERVAL,
+            FrameExtractionMethod.ADAPTIVE,
+            FrameExtractionMethod.HYBRID,
+        ):
+            timestamps = self._calculate_frame_timestamps(video_info)
+            self.status.total_frames = len(timestamps)
+            if timestamps:
+                raw_frames = PyAVFrameExtractor.extract_frames(
+                    video_path, timestamps, max_frames=max_frames
+                )
+        else:
+            # Unknown method — let the subprocess path handle it
+            return None
+
+        if not raw_frames:
+            logger.debug("PyAV returned no frames for method=%s", method)
+            return []
+
+        # Convert (ts, ndarray) tuples → frame dicts expected downstream
+        import cv2
+
+        results: list[dict[str, Any]] = []
+        for idx, (ts, rgb_array) in enumerate(raw_frames):
+            # Encode ndarray → JPEG bytes
+            bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+            ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            if not ok:
+                continue
+            results.append(
+                {
+                    "frame_number": idx,
+                    "timestamp": ts,
+                    "image_data": buf.tobytes(),
+                }
+            )
+
+        return results
 
     def _extract_with_select_filter(
         self,
@@ -661,8 +1176,23 @@ class FFmpegVideoProcessor:
                 100.0,
             )
 
-    # Max parallel FFmpeg workers for frame extraction
-    MAX_EXTRACTION_WORKERS = 8
+    @property
+    def _max_extraction_workers(self) -> int:
+        """Resolve effective extraction worker count.
+
+        Priority:
+        1. ``settings.processing.max_extraction_workers`` if explicitly set
+        2. Dynamic calculation via ``_get_optimal_workers()``
+        """
+        try:
+            from core.config import get_settings
+
+            configured = get_settings().processing.max_extraction_workers
+            if configured is not None:
+                return configured
+        except Exception:
+            pass
+        return _get_optimal_workers()
 
     def _extract_single_frame(
         self,
@@ -746,9 +1276,8 @@ class FFmpegVideoProcessor:
             frames: List to append extracted frames to.
         """
         total = len(timestamps)
-        logger.info(
-            f"Extracting {total} frames in parallel (max {self.MAX_EXTRACTION_WORKERS} workers)"
-        )
+        max_workers = self._max_extraction_workers
+        logger.info(f"Extracting {total} frames in parallel (max {max_workers} workers)")
         logger.debug(f"Video: {video_path}")
         if total > 5:
             logger.debug(f"Timestamps: {timestamps[:5]}...")
@@ -764,7 +1293,7 @@ class FFmpegVideoProcessor:
             logger.debug(f"Comando FFmpeg (ejemplo): {cmd_preview}")
 
         extracted_count = 0
-        workers = min(self.MAX_EXTRACTION_WORKERS, total)
+        workers = min(max_workers, total)
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
@@ -807,6 +1336,52 @@ class FFmpegVideoProcessor:
             Base64-encoded string
         """
         return base64.b64encode(frame_data).decode("utf-8")
+
+    def _deduplicate_frames(
+        self,
+        frames: list[dict[str, Any]],
+        threshold: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Remove near-duplicate frames using perceptual hashing.
+
+        Compares each frame's phash against previously accepted frames.
+        A Hamming distance below ``threshold`` is considered a duplicate.
+
+        Args:
+            frames: List of frame dicts containing ``image_data`` bytes.
+            threshold: Hamming distance threshold (lower = stricter).
+
+        Returns:
+            Filtered list with duplicates removed.
+        """
+        if not frames:
+            return frames
+
+        seen_hashes: list[imagehash.ImageHash] = []
+        unique_frames: list[dict[str, Any]] = []
+
+        for frame in frames:
+            img = Image.open(io.BytesIO(frame["image_data"]))
+            frame_hash = imagehash.phash(img)
+
+            is_duplicate = any((frame_hash - seen) < threshold for seen in seen_hashes)
+
+            if not is_duplicate:
+                seen_hashes.append(frame_hash)
+                unique_frames.append(frame)
+
+        if len(frames) != len(unique_frames):
+            removed = len(frames) - len(unique_frames)
+            reduction = (1 - len(unique_frames) / len(frames)) * 100
+            logger.info(
+                "Frame deduplication: %d → %d " "(%d duplicates removed, %.1f%% reduction)",
+                len(frames),
+                len(unique_frames),
+                removed,
+                reduction,
+            )
+
+        return unique_frames
 
     def get_processing_pipeline(self) -> ProcessingPipeline:
         """

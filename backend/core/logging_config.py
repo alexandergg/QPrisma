@@ -14,7 +14,6 @@ Usage:
 """
 
 import logging
-import os
 import sys
 from datetime import UTC, datetime
 
@@ -232,6 +231,6 @@ class PipelineLogger:
 
 # Initialize logging on import if not already configured
 if not logging.getLogger().handlers:
-    log_level = os.getenv("LOG_LEVEL", "INFO")
-    log_file = os.getenv("LOG_FILE")
-    setup_logging(level=log_level, log_file=log_file)
+    from core.config import settings
+
+    setup_logging(level=settings.app.log_level, log_file=settings.app.log_file)

@@ -55,63 +55,104 @@ class TestJWTTokens:
         assert isinstance(token, str)
         assert len(token) > 20
 
-    def test_verify_valid_access_token(self, auth_service):
+    async def test_verify_valid_access_token(self, auth_service):
         token = auth_service.create_access_token({"sub": "user_123", "email": "a@b.com"})
-        data = auth_service.verify_token(token)
+        data = await auth_service.verify_token(token)
         assert data.user_id == "user_123"
         assert data.email == "a@b.com"
 
-    def test_create_refresh_token(self, auth_service):
+    async def test_create_refresh_token(self, auth_service):
         token = auth_service.create_refresh_token({"sub": "user_123", "email": "a@b.com"})
-        data = auth_service.verify_token(token, token_type="refresh")
+        data = await auth_service.verify_token(token, token_type="refresh")
         assert data.user_id == "user_123"
 
-    def test_verify_expired_token_raises_401(self, auth_service):
+    async def test_verify_expired_token_raises_401(self, auth_service):
         with freeze_time("2024-01-01"):
             token = auth_service.create_access_token(
                 {"sub": "user_123"}, expires_delta=timedelta(minutes=1)
             )
         with freeze_time("2024-01-02"):
             with pytest.raises(HTTPException) as exc_info:
-                auth_service.verify_token(token)
+                await auth_service.verify_token(token)
             assert exc_info.value.status_code == 401
 
-    def test_verify_wrong_token_type_raises_401(self, auth_service):
+    async def test_verify_wrong_token_type_raises_401(self, auth_service):
         # Create refresh token, verify as access
         token = auth_service.create_refresh_token({"sub": "user_123"})
         with pytest.raises(HTTPException) as exc_info:
-            auth_service.verify_token(token, token_type="access")
+            await auth_service.verify_token(token, token_type="access")
         assert exc_info.value.status_code == 401
 
-    def test_verify_tampered_token_raises_401(self, auth_service):
+    async def test_verify_tampered_token_raises_401(self, auth_service):
         token = auth_service.create_access_token({"sub": "user_123"})
         tampered = token[:-5] + "XXXXX"
         with pytest.raises(HTTPException) as exc_info:
-            auth_service.verify_token(tampered)
+            await auth_service.verify_token(tampered)
         assert exc_info.value.status_code == 401
 
-    def test_verify_token_missing_sub_raises_401(self, auth_service):
+    async def test_verify_token_missing_sub_raises_401(self, auth_service):
         # Token without "sub" claim
         token = auth_service.create_access_token({"email": "a@b.com"})
         with pytest.raises(HTTPException) as exc_info:
-            auth_service.verify_token(token)
+            await auth_service.verify_token(token)
         assert exc_info.value.status_code == 401
 
-    def test_custom_expiry_delta(self, auth_service):
+    async def test_custom_expiry_delta(self, auth_service):
         token = auth_service.create_access_token(
             {"sub": "user_123"}, expires_delta=timedelta(hours=2)
         )
-        data = auth_service.verify_token(token)
+        data = await auth_service.verify_token(token)
         assert data.user_id == "user_123"
 
     def test_get_token_expiry_seconds(self, auth_service):
         expected = auth_service.access_token_expire_minutes * 60
         assert auth_service.get_token_expiry_seconds() == expected
 
-    def test_verify_garbage_string_raises_401(self, auth_service):
+    async def test_verify_garbage_string_raises_401(self, auth_service):
         with pytest.raises(HTTPException) as exc_info:
-            auth_service.verify_token("not.a.jwt")
+            await auth_service.verify_token("not.a.jwt")
         assert exc_info.value.status_code == 401
+
+    def test_access_token_contains_jti(self, auth_service):
+        """Verify that access tokens include a JTI (JWT ID) claim."""
+        from jose import jwt as jose_jwt
+
+        token = auth_service.create_access_token({"sub": "user_123", "email": "a@b.com"})
+        payload = jose_jwt.decode(
+            token, auth_service.secret_key, algorithms=[auth_service.algorithm]
+        )
+        assert "jti" in payload
+        # JTI should be a valid UUID4 string
+        import uuid
+
+        uuid.UUID(payload["jti"], version=4)
+
+    def test_refresh_token_contains_jti(self, auth_service):
+        """Verify that refresh tokens include a JTI (JWT ID) claim."""
+        from jose import jwt as jose_jwt
+
+        token = auth_service.create_refresh_token({"sub": "user_123", "email": "a@b.com"})
+        payload = jose_jwt.decode(
+            token, auth_service.secret_key, algorithms=[auth_service.algorithm]
+        )
+        assert "jti" in payload
+        import uuid
+
+        uuid.UUID(payload["jti"], version=4)
+
+    def test_each_token_has_unique_jti(self, auth_service):
+        """Verify that each token gets a unique JTI."""
+        from jose import jwt as jose_jwt
+
+        token1 = auth_service.create_access_token({"sub": "user_123"})
+        token2 = auth_service.create_access_token({"sub": "user_123"})
+        payload1 = jose_jwt.decode(
+            token1, auth_service.secret_key, algorithms=[auth_service.algorithm]
+        )
+        payload2 = jose_jwt.decode(
+            token2, auth_service.secret_key, algorithms=[auth_service.algorithm]
+        )
+        assert payload1["jti"] != payload2["jti"]
 
 
 # =============================================================================
@@ -260,19 +301,38 @@ class TestLogin:
         mock_db = MagicMock()
         mock_db.get_user_by_email.return_value = None
         mock_created = MagicMock()
-        mock_created.id = "test@dev.com"
+        mock_created.id = "user_demo_uuid"
         mock_db.create_user.return_value = mock_created
 
         with (
             patch("services.database_service.get_database_service", return_value=mock_db),
             patch("services.auth_service.settings") as mock_settings,
         ):
-            mock_settings.app.environment = "development"
+            mock_settings.app.allow_dev_autologin = True
             result = auth_service.login("test@dev.com", "anypassword123")
 
         assert "access_token" in result
 
-    def test_production_rejects_auto_login(self, auth_service):
+    def test_auto_login_uses_uuid_not_email(self, auth_service):
+        mock_db = MagicMock()
+        mock_db.get_user_by_email.return_value = None
+        mock_created = MagicMock()
+        mock_created.id = "uuid-based-id"
+        mock_db.create_user.return_value = mock_created
+
+        with (
+            patch("services.database_service.get_database_service", return_value=mock_db),
+            patch("services.auth_service.settings") as mock_settings,
+        ):
+            mock_settings.app.allow_dev_autologin = True
+            auth_service.login("test@dev.com", "anypassword123")
+
+        # Verify user_id passed to create_user is a UUID, not the email
+        call_kwargs = mock_db.create_user.call_args
+        user_id_arg = call_kwargs.kwargs.get("user_id") or call_kwargs[1].get("user_id")
+        assert user_id_arg != "test@dev.com"
+
+    def test_rejects_auto_login_when_flag_disabled(self, auth_service):
         mock_db = MagicMock()
         mock_db.get_user_by_email.return_value = None
 
@@ -280,7 +340,7 @@ class TestLogin:
             patch("services.database_service.get_database_service", return_value=mock_db),
             patch("services.auth_service.settings") as mock_settings,
         ):
-            mock_settings.app.environment = "production"
+            mock_settings.app.allow_dev_autologin = False
             result = auth_service.login("test@dev.com", "anypassword123")
 
         assert "error" in result

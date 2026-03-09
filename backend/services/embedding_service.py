@@ -7,10 +7,11 @@ Provides embedding cache and batch processing.
 
 import hashlib
 import logging
-import os
 
 from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +50,9 @@ class EmbeddingService:
             api_version: API version
             cache_service: Optional cache service
         """
-        self.api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
-        self.endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
-        self.deployment = deployment or os.getenv(
-            "AZURE_OPENAI_DEPLOYMENT_EMBEDDING", "text-embedding-3-large"
-        )
+        self.api_key = api_key or settings.azure.openai_api_key
+        self.endpoint = endpoint or settings.azure.openai_endpoint
+        self.deployment = deployment or settings.azure.openai_deployment_embedding
         self.api_version = api_version
         self.cache_service = cache_service
 

@@ -17,7 +17,6 @@ Features:
 """
 
 import logging
-import os
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -267,9 +266,9 @@ class EditorAgentGraph:
         checkpointer=None,
     ):
         """Initialize the editor agent."""
-        self.model_deployment = model_deployment or os.getenv(
-            "AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o"
-        )
+        from core.config import settings
+
+        self.model_deployment = model_deployment or settings.azure.openai_deployment_gpt
         self.checkpointer = checkpointer
         self._graph = None
 
@@ -623,9 +622,12 @@ class EditorAgentGraph:
 _editor_graph_instance: EditorAgentGraph | None = None
 
 
-def get_editor_agent_graph(checkpointer=None) -> EditorAgentGraph:
+def get_editor_agent_graph() -> EditorAgentGraph:
     """Get or create the editor agent graph singleton."""
     global _editor_graph_instance
     if _editor_graph_instance is None:
+        from agent.graphs.video import create_production_checkpointer
+
+        checkpointer = create_production_checkpointer()
         _editor_graph_instance = EditorAgentGraph(checkpointer=checkpointer)
     return _editor_graph_instance

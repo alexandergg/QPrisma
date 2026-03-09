@@ -12,7 +12,6 @@ on:
 permissions:
   id-token: write
   contents: read
-  actions: write
 
 jobs:
   detect-changes:
@@ -146,6 +145,8 @@ jobs:
 
   trigger-deploy:
     needs: [build-api, build-worker, build-frontend]
+    permissions:
+      actions: write
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
     env:

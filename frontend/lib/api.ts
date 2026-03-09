@@ -441,13 +441,6 @@ export const apiClient = {
     return handleResponse<MediaItem>(response);
   },
 
-  async getVideoMetadata(videoId: string): Promise<MediaItem> {
-    const response = await fetch(`${API_URL}/media/${videoId}`, {
-      headers: getAuthHeaders(),
-    });
-    return handleResponse<MediaItem>(response);
-  },
-
   async deleteMedia(mediaId: string): Promise<void> {
     const response = await fetch(`${API_URL}/media/${mediaId}`, {
       method: 'DELETE',

@@ -3,6 +3,9 @@
  * Re-exports all components for cleaner imports
  */
 
+// UI design system
+export * from './ui';
+
 // Editor components
 export * from './editor';
 

@@ -70,9 +70,26 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 | Backend | FastAPI, Python 3.11+, Pydantic |
 | Agent Runtime | LangGraph (video + editor agents) |
 | AI | Azure OpenAI multimodal/chat/embedding/transcription models |
+| Video Decode | PyAV (C-level FFmpeg bindings), FFmpeg subprocess fallback |
+| Scene Detection | PySceneDetect (AdaptiveDetector + ContentDetector) |
+| Transcription | Azure Whisper (default), faster-whisper (optional, 4× faster, INT8/Silero VAD) |
 | Data | PostgreSQL, Neo4j, Redis |
 | Storage | Azure Blob Storage |
 | Infrastructure | Bicep, GitHub Actions, Azure Container Apps |
+
+## Security
+
+QPrisma includes multiple layers of security hardening:
+
+- **JWT authentication** on all REST, WebSocket (query param + first-message), and cache endpoints
+- **Token revocation** via Redis-backed JTI denylist and `POST /auth/logout`
+- **Rate limiting** (slowapi) on auth, A2A, and media endpoints
+- **Security headers** middleware (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, etc.)
+- **Error sanitization** — no internal details leaked in API error responses
+- **Non-root Docker containers** (`appuser`, UID 1001)
+- **Parameterized credentials** in docker-compose (`${VAR:-default}`)
+- **CI security scanning** with `pip-audit` and `npm audit`
+- **CI/CD least-privilege permissions** scoped per workflow
 
 ## Quick Start (Local)
 
@@ -138,6 +155,7 @@ npm run dev
 backend/
   api/           # FastAPI routes and dependency wiring
   agent/         # LangGraph graphs, nodes, tools, prompts
+  core/          # Config, errors, retry, concurrency, logging
   services/      # Business logic services
   models/        # Pydantic/DB models
   tasks/         # Celery workers

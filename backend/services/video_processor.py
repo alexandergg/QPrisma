@@ -4,18 +4,22 @@ Extracts frames from videos, analyzes them with GPT-4o Vision, and generates emb
 Uses ultra-fast FFmpeg and Azure OpenAI Batch API (50% cheaper).
 """
 
+import asyncio
 import base64
+import io
 import logging
 import os
 import subprocess
 import tempfile
 import time
+from collections.abc import AsyncIterator
 from typing import Any
 
 import cv2
 import numpy as np
 from azure.storage.blob import BlobServiceClient
 from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
+from PIL import Image
 
 from core.config import settings
 from models.ffmpeg_config import (
@@ -27,6 +31,7 @@ from models.ffmpeg_config import (
 from services.audio_processor import AudioProcessor
 from services.batch_processor import BatchProcessor
 from services.ffmpeg_processor import FFmpegVideoProcessor
+from services.processing_metrics import PipelineMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +49,6 @@ class VideoProcessor:
     # Processing constants
     BATCH_CHECK_INTERVAL_SECONDS = 10  # Start at 10s, exponential backoff
     BATCH_MAX_WAIT_TIME_SECONDS = 600  # 10 minutes
-    EMBEDDING_BATCH_SIZE = 16
     DEFAULT_PARALLEL_WORKERS = 4
 
     # Adaptive token budget thresholds (image entropy)
@@ -148,6 +152,62 @@ class VideoProcessor:
         _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
         return base64.b64encode(buffer).decode("utf-8")
 
+    def _encode_frame_optimized(
+        self,
+        frame_data: bytes | np.ndarray,
+        max_dimension: int | None = None,
+        use_webp: bool | None = None,
+        quality: int | None = None,
+    ) -> tuple[str, str]:
+        """Encode frame with optimal settings for Vision API.
+
+        Uses WebP by default for 25-35% smaller payloads, with automatic
+        resize when frames exceed ``max_dimension``.  Falls back to JPEG
+        when ``use_webp`` is ``False`` or the format is set to ``"jpeg"``
+        in processing settings.
+
+        Args:
+            frame_data: Raw image bytes or numpy array.
+            max_dimension: Cap on the largest side (px). ``None`` reads
+                from ``settings.processing.frame_max_dimension``.
+            use_webp: Explicit override.  ``None`` reads from
+                ``settings.processing.frame_encoding_format``.
+            quality: Encoding quality 1-100.  ``None`` reads from
+                ``settings.processing.frame_encoding_quality``.
+
+        Returns:
+            Tuple of ``(base64_data, media_type)`` where *media_type* is
+            ``"image/webp"`` or ``"image/jpeg"``.
+        """
+        proc = settings.processing
+        if max_dimension is None:
+            max_dimension = proc.frame_max_dimension
+        if use_webp is None:
+            use_webp = proc.frame_encoding_format.lower() == "webp"
+        if quality is None:
+            quality = proc.frame_encoding_quality
+
+        if isinstance(frame_data, np.ndarray):
+            img = Image.fromarray(frame_data)
+        else:
+            img = Image.open(io.BytesIO(frame_data))
+
+        # Resize if needed
+        if max(img.size) > max_dimension:
+            ratio = max_dimension / max(img.size)
+            new_size = (int(img.width * ratio), int(img.height * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+
+        buffer = io.BytesIO()
+        if use_webp:
+            img.save(buffer, format="WebP", quality=quality)
+            media_type = "image/webp"
+        else:
+            img.save(buffer, format="JPEG", quality=quality)
+            media_type = "image/jpeg"
+
+        return base64.b64encode(buffer.getvalue()).decode(), media_type
+
     async def analyze_frame_with_gpt4v(
         self,
         frame: np.ndarray,
@@ -168,8 +228,8 @@ class VideoProcessor:
         Returns:
             Dictionary with the frame analysis
         """
-        # Convert frame to base64
-        base64_image = self.frame_to_base64(frame)
+        # Convert frame to optimized base64
+        base64_image, media_type = self._encode_frame_optimized(frame)
 
         # Default prompt - optimized for semantic search and RAG
         default_prompt = """You are analyzing a video frame at timestamp {timestamp}s. Provide a comprehensive analysis optimized for semantic search and RAG retrieval.
@@ -237,7 +297,7 @@ Be thorough but factual. Prioritize information that would help users find this 
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{base64_image}",
+                                    "url": f"data:{media_type};base64,{base64_image}",
                                     "detail": detail_level,
                                 },
                             },
@@ -290,16 +350,18 @@ Be thorough but factual. Prioritize information that would help users find this 
             return []
 
     async def generate_embeddings_batch(
-        self, texts: list[str], batch_size: int = 16
+        self, texts: list[str], batch_size: int | None = None
     ) -> list[list[float]]:
         """
         Generate embeddings for multiple texts in batches.
 
-        Azure OpenAI supports up to 2048 texts per request; we use batches of 16 for safety.
+        Azure OpenAI supports up to 2048 texts per request.  The batch size
+        defaults to ``settings.processing.embedding_batch_size`` (512).  On
+        API errors the batch is automatically retried at half size.
 
         Args:
             texts: List of texts to convert into embeddings.
-            batch_size: Batch size for each request.
+            batch_size: Override batch size (``None`` → use settings).
 
         Returns:
             List of embeddings, one per input text.
@@ -308,6 +370,9 @@ Be thorough but factual. Prioritize information that would help users find this 
             logger.warning("generate_embeddings_batch: empty text list")
             return []
 
+        if batch_size is None:
+            batch_size = settings.processing.embedding_batch_size
+
         logger.info(f"Generating embeddings for {len(texts)} texts in batches of {batch_size}")
         embeddings: list[list[float]] = []
         total_batches = (len(texts) + batch_size - 1) // batch_size
@@ -315,9 +380,12 @@ Be thorough but factual. Prioritize information that would help users find this 
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
             batch_num = i // batch_size + 1
+            effective_size = len(batch)
 
             try:
-                logger.debug(f"Processing batch {batch_num}/{total_batches} ({len(batch)} texts)")
+                logger.debug(
+                    f"Processing batch {batch_num}/{total_batches} ({effective_size} texts)"
+                )
 
                 response = await self.openai_client.embeddings.create(
                     model=self.embedding_deployment, input=batch
@@ -331,8 +399,30 @@ Be thorough but factual. Prioritize information that would help users find this 
                 )
 
             except (APIError, APIConnectionError, RateLimitError) as e:
-                logger.error(f"OpenAI API error in batch {batch_num}/{total_batches}: {e}")
-                embeddings.extend([[] for _ in batch])
+                logger.warning(
+                    f"API error in batch {batch_num}/{total_batches} "
+                    f"(size={effective_size}): {e} — retrying with half batch size"
+                )
+                # Adaptive retry: split the failed batch in half and retry
+                half = max(1, effective_size // 2)
+                logger.info(f"Retrying batch {batch_num} with batch_size={half}")
+                for sub_start in range(0, effective_size, half):
+                    sub_batch = batch[sub_start : sub_start + half]
+                    try:
+                        response = await self.openai_client.embeddings.create(
+                            model=self.embedding_deployment, input=sub_batch
+                        )
+                        sub_embeddings = [item.embedding for item in response.data]
+                        embeddings.extend(sub_embeddings)
+                        logger.debug(f"Retry sub-batch succeeded: {len(sub_embeddings)} embeddings")
+                    except (APIError, APIConnectionError, RateLimitError) as retry_err:
+                        logger.error(
+                            f"Retry sub-batch also failed (size={len(sub_batch)}): {retry_err}"
+                        )
+                        embeddings.extend([[] for _ in sub_batch])
+                    except Exception as retry_err:
+                        logger.exception(f"Unexpected error in retry sub-batch: {retry_err}")
+                        embeddings.extend([[] for _ in sub_batch])
             except Exception as e:
                 logger.exception(f"Unexpected error in batch {batch_num}/{total_batches}: {e}")
                 embeddings.extend([[] for _ in batch])
@@ -343,6 +433,38 @@ Be thorough but factual. Prioritize information that would help users find this 
     # =========================================================================
     # PROCESSING WITH FFMPEG + BATCH API
     # =========================================================================
+
+    async def _safe_process_audio(
+        self,
+        video_path: str,
+        language: str | None,
+        metrics: "PipelineMetrics",
+    ) -> dict[str, Any] | None:
+        """Process audio, returning ``None`` on failure (non-fatal).
+
+        Wrapped for safe use inside ``asyncio.TaskGroup`` — exceptions
+        are caught so audio failure does not cancel the vision batch
+        pipeline.
+        """
+        metrics.start_stage("transcription")
+        try:
+            logger.info("Processing audio while batch API analyzes frames...")
+            audio_data = await self.audio_processor.process_video_audio(
+                video_path=video_path,
+                language=language,
+                video_descriptions=None,
+            )
+            word_count = (audio_data or {}).get("stats", {}).get("total_words", 0)
+            metrics.end_stage("transcription", items_processed=word_count)
+            return audio_data
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.warning(f"Error processing audio (continuing without audio): {e}")
+            metrics.end_stage("transcription", items_failed=1, error=str(e))
+            return None
+        except Exception as e:
+            logger.warning(f"Unexpected error processing audio: {e}")
+            metrics.end_stage("transcription", items_failed=1, error=str(e))
+            return None
 
     async def process_video_ffmpeg(
         self,
@@ -387,28 +509,62 @@ Be thorough but factual. Prioritize information that would help users find this 
                 config = FFmpegProcessingConfig()
 
         ffmpeg_proc = FFmpegVideoProcessor(config)
+        metrics = PipelineMetrics(media_id=media_id or blob_name)
+        metrics.pipeline_start = time.monotonic()
 
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
             tmp_path = tmp_file.name
 
         try:
             # 1. Download video
+            metrics.start_stage("download")
             logger.info(f"Downloading video: {blob_name}")
             await self._download_blob_streaming(blob_name, tmp_path)
+            metrics.end_stage("download")
 
             # 2. Analyze metadata
             logger.info("Analyzing video information...")
             video_info = ffmpeg_proc.get_video_info(tmp_path)
 
             # 3. Extract frames
-            logger.info("Extracting frames with FFmpeg...")
-            frames = ffmpeg_proc.extract_frames_ffmpeg(video_path=tmp_path, return_as_bytes=True)
-            logger.info(f"{len(frames)} frames extracted")
+            metrics.start_stage("frame_extraction")
+            if settings.processing.streaming_pipeline_enabled:
+                logger.info("Extracting frames with streaming pipeline...")
+                frame_stream = ffmpeg_proc.extract_frames_stream(
+                    video_path=tmp_path,
+                )
+                frame_count, frames_for_batch = await self._process_frames_streaming(
+                    frame_stream,
+                    settings.processing.streaming_batch_size,
+                )
+                # Lightweight list for downstream len() compatibility
+                frames = [
+                    {
+                        "frame_number": fb["frame_number"],
+                        "timestamp": fb.get("timestamp"),
+                    }
+                    for fb in frames_for_batch
+                ]
+                logger.info(f"{frame_count} frames extracted (streaming pipeline)")
+            else:
+                logger.info("Extracting frames with FFmpeg...")
+                frames = ffmpeg_proc.extract_frames_ffmpeg(
+                    video_path=tmp_path, return_as_bytes=True
+                )
+                logger.info(f"{len(frames)} frames extracted")
+            resolution = f"{video_info.get('width', '?')}x{video_info.get('height', '?')}"
+            metrics.end_stage(
+                "frame_extraction",
+                items_processed=len(frames),
+                method=ffmpeg_proc._decoder_backend,
+                resolution=resolution,
+            )
 
             # 4. Submit batch job FIRST (non-blocking), then process audio
             #    during batch wait — saves 30-60s by overlapping I/O
             batch_proc = BatchProcessor(self.openai_client)
-            frames_for_batch = self._prepare_frames_for_batch(frames)
+            if not settings.processing.streaming_pipeline_enabled:
+                frames_for_batch = self._prepare_frames_for_batch(frames)
 
             logger.info(f"Submitting batch job for analysis of {len(frames)} frames")
             vision_requests = batch_proc.create_vision_batch_requests(
@@ -420,34 +576,52 @@ Be thorough but factual. Prioritize information that would help users find this 
             )
             logger.info(f"Batch job submitted: {vision_batch_id} — processing audio in parallel")
 
-            # 5. Process audio DURING batch wait (overlapping I/O)
-            audio_data = None
-            if process_audio:
-                try:
-                    logger.info("Processing audio while batch API analyzes frames...")
-                    audio_data = await self.audio_processor.process_video_audio(
-                        video_path=tmp_path,
-                        language=audio_language,
-                        video_descriptions=None,
+            # 5+6. Run audio transcription and batch wait concurrently
+            #      using structured concurrency (TaskGroup).
+            #
+            # Benefits over the previous sequential approach:
+            #   - If batch completes first, result retrieval and embedding
+            #     generation start immediately (truly concurrent).
+            #   - If batch FAILS, audio transcription is cancelled
+            #     immediately — no wasted work.
+            #   - Audio is wrapped in _safe_process_audio so its failure
+            #     does NOT cancel the batch pipeline (non-fatal).
+            async with asyncio.TaskGroup() as tg:
+                audio_task = (
+                    tg.create_task(
+                        self._safe_process_audio(tmp_path, audio_language, metrics),
+                        name="audio-transcription",
                     )
-                except (OSError, subprocess.SubprocessError) as e:
-                    logger.warning(f"Error processing audio (continuing without audio): {e}")
-                    audio_data = None
-                except Exception as e:
-                    logger.warning(f"Unexpected error processing audio: {e}")
-                    audio_data = None
+                    if process_audio
+                    else None
+                )
+                batch_task = tg.create_task(
+                    self._wait_and_finalize_batch(
+                        batch_proc=batch_proc,
+                        vision_batch_id=vision_batch_id,
+                        frames=frames,
+                        frames_for_batch=frames_for_batch,
+                        video_info=video_info,
+                        blob_name=blob_name,
+                        ffmpeg_proc=ffmpeg_proc,
+                        audio_data=None,  # merged after TaskGroup
+                        pipeline_metrics=metrics,
+                    ),
+                    name="batch-finalize",
+                )
 
-            # 6. Now wait for batch completion (may already be done if audio was slow)
-            return await self._wait_and_finalize_batch(
-                batch_proc=batch_proc,
-                vision_batch_id=vision_batch_id,
-                frames=frames,
-                frames_for_batch=frames_for_batch,
-                video_info=video_info,
-                blob_name=blob_name,
-                ffmpeg_proc=ffmpeg_proc,
-                audio_data=audio_data,
+            result = batch_task.result()
+            audio_data = audio_task.result() if audio_task else None
+
+            # Merge audio data into the combined result
+            result["audio_data"] = audio_data
+            result["processing_stats"]["audio_processed"] = (
+                audio_data is not None and audio_data.get("stats", {}).get("has_audio", False)
             )
+            if audio_data and audio_data.get("stats", {}).get("has_audio"):
+                logger.info(f"Audio transcribed: {audio_data['stats']['total_words']} words")
+
+            return result
 
         finally:
             if os.path.exists(tmp_path):
@@ -457,29 +631,93 @@ Be thorough but factual. Prioritize information that would help users find this 
         """
         Prepare extracted frames for Batch API submission.
 
-        Encodes images to base64 and estimates visual complexity for
-        adaptive token budgets.
+        Encodes images using the optimized encoder (WebP or JPEG, with
+        resize) and estimates visual complexity for adaptive token budgets.
 
         Args:
             frames: Raw frames with image_data bytes.
 
         Returns:
-            List of frame dicts with image_base64 and max_tokens for batch API.
+            List of frame dicts with image_base64, media_type, and
+            max_tokens for batch API.
         """
         frames_for_batch: list[dict[str, Any]] = []
         for frame_info in frames:
             image_bytes = frame_info["image_data"]
-            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+            image_base64, media_type = self._encode_frame_optimized(image_bytes)
             max_tokens = self._estimate_token_budget(image_bytes)
             frames_for_batch.append(
                 {
                     "frame_number": frame_info["frame_number"],
                     "timestamp": frame_info.get("timestamp"),
                     "image_base64": image_base64,
+                    "media_type": media_type,
                     "max_tokens": max_tokens,
                 }
             )
         return frames_for_batch
+
+    async def _process_frames_streaming(
+        self,
+        frame_stream: AsyncIterator[dict[str, Any]],
+        batch_size: int = 32,
+    ) -> tuple[int, list[dict[str, Any]]]:
+        """Consume a streaming frame iterator in configurable batches.
+
+        Collects frames into batches of *batch_size*, prepares each batch
+        (base64 encoding + complexity estimation) via
+        :pymethod:`_prepare_frames_for_batch`, then releases the raw bytes
+        before collecting the next batch.  This reduces peak memory from
+        ``O(all_frames)`` to ``O(batch_size)`` during the preparation
+        phase.
+
+        Args:
+            frame_stream: Async iterator yielding frame dicts with
+                ``image_data`` bytes.
+            batch_size: Number of frames per processing batch.
+
+        Returns:
+            Tuple of ``(total_frame_count, prepared_frames_for_batch)``
+            where *prepared_frames_for_batch* is the full list of frame
+            dicts ready for batch API submission.
+        """
+        all_prepared: list[dict[str, Any]] = []
+        batch: list[dict[str, Any]] = []
+        total_count = 0
+        peak_batch_bytes = 0
+
+        async for frame in frame_stream:
+            batch.append(frame)
+            total_count += 1
+
+            if len(batch) >= batch_size:
+                batch_bytes = sum(len(f.get("image_data", b"")) for f in batch)
+                peak_batch_bytes = max(peak_batch_bytes, batch_bytes)
+
+                prepared = self._prepare_frames_for_batch(batch)
+                all_prepared.extend(prepared)
+                batch = []  # release raw image_data bytes
+                logger.debug(
+                    "Streaming batch processed: %d frames prepared so far " "(batch %.1f MB)",
+                    len(all_prepared),
+                    batch_bytes / (1024 * 1024),
+                )
+
+        # Flush remaining frames
+        if batch:
+            batch_bytes = sum(len(f.get("image_data", b"")) for f in batch)
+            peak_batch_bytes = max(peak_batch_bytes, batch_bytes)
+            prepared = self._prepare_frames_for_batch(batch)
+            all_prepared.extend(prepared)
+            batch = []
+
+        logger.info(
+            "Streaming pipeline complete: %d frames, " "peak batch memory ≈ %.1f MB",
+            total_count,
+            peak_batch_bytes / (1024 * 1024),
+        )
+
+        return total_count, all_prepared
 
     def _estimate_token_budget(self, image_bytes: bytes) -> int:
         """Estimate token budget based on image entropy (visual complexity)."""
@@ -512,6 +750,7 @@ Be thorough but factual. Prioritize information that would help users find this 
         blob_name: str,
         ffmpeg_proc: FFmpegVideoProcessor,
         audio_data: dict[str, Any] | None = None,
+        pipeline_metrics: PipelineMetrics | None = None,
     ) -> dict[str, Any]:
         """
         Wait for batch completion and finalize results with embeddings.
@@ -535,6 +774,8 @@ Be thorough but factual. Prioritize information that would help users find this 
         """
         logger.info(f"Waiting for analysis completion (batch: {vision_batch_id})")
 
+        if pipeline_metrics:
+            pipeline_metrics.start_stage("vision_analysis")
         start_analysis = time.time()
         success = await batch_proc.wait_for_batch_completion(
             vision_batch_id,
@@ -544,6 +785,8 @@ Be thorough but factual. Prioritize information that would help users find this 
         analysis_time = time.time() - start_analysis
 
         if not success:
+            if pipeline_metrics:
+                pipeline_metrics.end_stage("vision_analysis", items_failed=len(frames))
             raise RuntimeError(f"Batch analysis failed or timed out: {vision_batch_id}")
 
         logger.info(f"Analysis completed in {analysis_time:.2f}s")
@@ -552,6 +795,15 @@ Be thorough but factual. Prioritize information that would help users find this 
         logger.info("Retrieving analysis results")
         vision_results = await batch_proc.get_batch_results(vision_batch_id)
         parsed_analyses = batch_proc.parse_vision_results(vision_results)
+        analyzed_count = sum(1 for v in parsed_analyses.values() if v.get("success"))
+        failed_count = len(frames) - analyzed_count
+        if pipeline_metrics:
+            pipeline_metrics.end_stage(
+                "vision_analysis",
+                items_processed=analyzed_count,
+                items_failed=failed_count,
+                batch_id=vision_batch_id,
+            )
 
         # 5. Prepare texts for embeddings
         logger.info("Preparing texts for batch embeddings")
@@ -571,35 +823,17 @@ Be thorough but factual. Prioritize information that would help users find this 
         # 6. Generate embeddings in standard mode (Batch API does not support /embeddings)
         embeddings_dict: dict[str, list[float]] = {}
         if texts_to_embed:
+            if pipeline_metrics:
+                pipeline_metrics.start_stage("embedding")
             logger.info("Generating embeddings in parallel")
             start_embeddings = time.time()
 
-            all_embeddings: list[list[float]] = []
-
-            for i in range(0, len(texts_to_embed), self.EMBEDDING_BATCH_SIZE):
-                batch_texts = texts_to_embed[i : i + self.EMBEDDING_BATCH_SIZE]
-                try:
-                    response = await self.openai_client.embeddings.create(
-                        input=batch_texts, model=self.embedding_deployment
-                    )
-                    batch_embeddings = [item.embedding for item in response.data]
-                    all_embeddings.extend(batch_embeddings)
-                    logger.debug(
-                        f"{len(all_embeddings)}/{len(texts_to_embed)} embeddings generated"
-                    )
-                except (APIError, APIConnectionError, RateLimitError) as e:
-                    logger.error(
-                        f"OpenAI API error in batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}"
-                    )
-                    all_embeddings.extend([[] for _ in range(len(batch_texts))])
-                except Exception as e:
-                    logger.exception(
-                        f"Unexpected error in batch {i//self.EMBEDDING_BATCH_SIZE + 1}: {e}"
-                    )
-                    all_embeddings.extend([[] for _ in range(len(batch_texts))])
+            all_embeddings = await self.generate_embeddings_batch(texts_to_embed)
 
             embeddings_time = time.time() - start_embeddings
             logger.info(f"Embeddings generated in {embeddings_time:.2f}s")
+            if pipeline_metrics:
+                pipeline_metrics.end_stage("embedding", items_processed=len(all_embeddings))
 
             # Build embeddings dictionary
             for idx, embedding in enumerate(all_embeddings):
@@ -642,6 +876,10 @@ Be thorough but factual. Prioritize information that would help users find this 
         status = ffmpeg_proc.get_status()
         pipeline = ffmpeg_proc.get_processing_pipeline()
 
+        # Finalize pipeline metrics
+        if pipeline_metrics:
+            pipeline_metrics.pipeline_end = time.monotonic()
+
         result = {
             "video_metadata": video_info,
             "frames_data": frames_data,
@@ -660,6 +898,7 @@ Be thorough but factual. Prioritize information that would help users find this 
                 "vision_batch_id": vision_batch_id,
                 "audio_processed": audio_data is not None
                 and audio_data.get("stats", {}).get("has_audio", False),
+                "pipeline_metrics": pipeline_metrics.to_dict() if pipeline_metrics else None,
             },
             "status": status.dict(),
             "pipeline": pipeline.dict(),
@@ -672,6 +911,9 @@ Be thorough but factual. Prioritize information that would help users find this 
         )
         if audio_data and audio_data.get("stats", {}).get("has_audio"):
             logger.info(f"Audio transcribed: {audio_data['stats']['total_words']} words")
+
+        if pipeline_metrics:
+            pipeline_metrics.log_summary()
 
         return result
 

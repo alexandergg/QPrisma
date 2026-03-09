@@ -27,7 +27,6 @@ Usage:
 import hashlib
 import json
 import logging
-import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -202,7 +201,9 @@ class CacheService:
     """
 
     def __init__(self, redis_url: str | None = None, config: CacheConfig | None = None):
-        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
+        from core.config import settings
+
+        self.redis_url = redis_url or settings.redis.url
         self.config = config or CacheConfig()
         self.metrics = CacheMetrics()
 

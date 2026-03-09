@@ -14,8 +14,9 @@ from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker, subqueryload
 
+from core.config import settings
 from models.database import (
     A2ATaskModel,
     Base,
@@ -47,9 +48,7 @@ class DatabaseService:
             database_url: PostgreSQL connection URL. If not provided,
                          reads from DATABASE_URL environment variable.
         """
-        self.database_url = database_url or os.getenv(
-            "DATABASE_URL", "postgresql://qprisma:qprisma123@localhost:5432/qprisma"
-        )
+        self.database_url = database_url or settings.postgres.database_url
 
         # Create engine with connection pooling
         self.engine = create_engine(
@@ -561,14 +560,13 @@ class DatabaseService:
             projects = (
                 session.query(EditorProjectModel)
                 .filter(EditorProjectModel.user_id == user_id)
+                .options(subqueryload(EditorProjectModel.clips))
                 .order_by(EditorProjectModel.updated_at.desc())
                 .limit(limit)
                 .offset(offset)
                 .all()
             )
             for project in projects:
-                # Force load clips count
-                _ = project.clips
                 session.expunge(project)
             return projects
 
@@ -681,14 +679,13 @@ class DatabaseService:
             session.flush()
 
             # Reorder remaining clips
-            remaining_clips = (
-                session.query(ClipModel)
-                .filter(ClipModel.project_id == project_id)
-                .filter(ClipModel.order > deleted_order)
-                .all()
+            session.query(ClipModel).filter(
+                ClipModel.project_id == project_id,
+                ClipModel.order > deleted_order,
+            ).update(
+                {ClipModel.order: ClipModel.order - 1},
+                synchronize_session=False,
             )
-            for remaining_clip in remaining_clips:
-                remaining_clip.order -= 1
 
             return True
 

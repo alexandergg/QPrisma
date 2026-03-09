@@ -196,11 +196,8 @@ async def process_video_ffmpeg_background(
         logger.info(f"FFmpeg processing completed for {media_id}")
 
     except Exception as e:
-        logger.error(f"Error processing video FFmpeg {media_id}: {e}")
-        import traceback
-
-        traceback.print_exc()
-        update_processing_status("failed", f"Error in processing: {str(e)[:100]}", 0)
+        logger.error(f"Error processing video FFmpeg {media_id}: {e}", exc_info=True)
+        update_processing_status("failed", "Processing failed unexpectedly", 0)
 
 
 # =============================================================================
@@ -274,7 +271,10 @@ async def process_video_with_ffmpeg(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logger.error(
+            f"FFmpeg processing request failed for media_id={media_id}: {e}", exc_info=True
+        )
+        raise HTTPException(status_code=500, detail="Processing operation failed")
 
 
 @router.post("/process/video/ffmpeg/batch")
@@ -352,7 +352,8 @@ async def process_video_with_ffmpeg_batch(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logger.error(f"FFmpeg batch processing failed for media_id={media_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Processing operation failed")
 
 
 @router.get("/batch/status")
@@ -377,7 +378,8 @@ async def get_batch_status(batch_id: str, current_user: User = Depends(get_curre
         return {"batch_id": batch_id, **status}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting status: {str(e)}")
+        logger.error(f"Batch status check failed for batch_id={batch_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Processing operation failed")
 
 
 @router.post("/batch/cancel")
@@ -397,7 +399,8 @@ async def cancel_batch(batch_id: str, current_user: User = Depends(get_current_u
         return {"batch_id": batch_id, "message": "Batch cancelled successfully", "result": result}
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error cancelling batch: {str(e)}")
+        logger.error(f"Batch cancel failed for batch_id={batch_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Processing operation failed")
 
 
 @router.get("/pipeline/preview")
@@ -450,7 +453,8 @@ async def get_pipeline_preview(
         return pipeline.dict()
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logger.error(f"Pipeline preview failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Processing operation failed")
 
 
 @router.get("/presets")
@@ -518,7 +522,10 @@ async def search_media(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+        logger.error(
+            f"Knowledge graph search failed for query={request.query!r}: {e}", exc_info=True
+        )
+        raise HTTPException(status_code=500, detail="Processing operation failed")
 
 
 @router.post("/search/enhanced")
@@ -552,4 +559,5 @@ async def enhanced_search_endpoint(
         return result.to_dict()
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+        logger.error(f"Enhanced search failed for query={request.query!r}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Processing operation failed")

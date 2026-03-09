@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "mkdir -p .github/hooks/logs && cat >> .github/hooks/logs/session-events.jsonl",
+        "powershell": "New-Item -ItemType Directory -Path .github/hooks/logs -Force | Out-Null; $inputData = [Console]::In.ReadToEnd(); Add-Content -Path .github/hooks/logs/session-events.jsonl -Value $inputData",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "bash .github/hooks/scripts/pre-tool-guardrail.sh",
+        "powershell": ".github/hooks/scripts/pre-tool-guardrail.ps1",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "mkdir -p .github/hooks/logs && cat >> .github/hooks/logs/tool-events.jsonl",
+        "powershell": "New-Item -ItemType Directory -Path .github/hooks/logs -Force | Out-Null; $inputData = [Console]::In.ReadToEnd(); Add-Content -Path .github/hooks/logs/tool-events.jsonl -Value $inputData",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "mkdir -p .github/hooks/logs && cat >> .github/hooks/logs/error-events.jsonl",
+        "powershell": "New-Item -ItemType Directory -Path .github/hooks/logs -Force | Out-Null; $inputData = [Console]::In.ReadToEnd(); Add-Content -Path .github/hooks/logs/error-events.jsonl -Value $inputData",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "mkdir -p .github/hooks/logs && cat >> .github/hooks/logs/session-events.jsonl",
+        "powershell": "New-Item -ItemType Directory -Path .github/hooks/logs -Force | Out-Null; $inputData = [Console]::In.ReadToEnd(); Add-Content -Path .github/hooks/logs/session-events.jsonl -Value $inputData",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

@@ -10,6 +10,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependencies import get_async_openai_client, get_current_user, get_graph_search_service
+from core.exceptions import internal_error
 from models.api_schemas import (
     ChatRequest,
     ChatResponse,
@@ -57,8 +58,8 @@ async def chat(request: ChatRequest, current_user: User = Depends(get_current_us
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Chat error: {e}")
-        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
+        logger.error(f"Chat request failed for media_id={request.media_id}: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -123,8 +124,8 @@ async def search(request: SearchRequest, current_user: User = Depends(get_curren
         )
 
     except Exception as e:
-        logger.error(f"Search error: {e}")
-        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+        logger.error(f"Hybrid search failed for query={request.query!r}: {e}", exc_info=True)
+        raise internal_error()
 
 
 # =============================================================================
@@ -169,12 +170,11 @@ async def agent_chat(
     """
     import uuid
 
-    from agent import create_redis_checkpointer, get_video_agent_graph
+    from agent import get_video_agent_graph
 
     try:
-        # Create agent with Redis checkpointer
-        checkpointer = create_redis_checkpointer()
-        agent = get_video_agent_graph(checkpointer=checkpointer)
+        # Get singleton agent (uses production checkpointer internally)
+        agent = get_video_agent_graph()
 
         # Generate session ID if not provided
         session_id = request.session_id or str(uuid.uuid4())
@@ -245,5 +245,5 @@ async def agent_chat(
         )
 
     except Exception as e:
-        logger.error(f"Agent chat error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
+        logger.error(f"Agent chat failed for media_id={request.media_id}: {e}", exc_info=True)
+        raise internal_error()

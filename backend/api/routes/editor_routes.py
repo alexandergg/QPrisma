@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_current_user
+from core.errors import bad_request, forbidden, internal_error, not_found
 from models.editor import (
     ClipCreate,
     ClipReorder,
@@ -97,9 +98,9 @@ async def create_project(
     # Verify source media exists and belongs to user
     media = db.get_media(project_data.source_media_id)
     if not media:
-        raise HTTPException(status_code=404, detail="Source media not found")
+        raise not_found("Source media")
     if media.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to use this media")
+        raise forbidden("Not authorized to use this media")
 
     # Create project
     project = db.create_project(
@@ -139,9 +140,9 @@ async def get_project(
         project = db.get_project_with_clips(project_id)
 
         if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+            raise not_found("Project")
         if project.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Not authorized")
+            raise forbidden("Not authorized")
 
         result = project.to_dict()
         result["clips"] = [clip.to_dict() for clip in project.clips]
@@ -157,7 +158,7 @@ async def get_project(
         raise
     except Exception as e:
         logger.exception(f"Error getting project {project_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(detail="Failed to process media request")
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectResponse)
@@ -171,9 +172,9 @@ async def update_project(
     project = db.get_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise not_found("Project")
     if project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     # Build update dict excluding None values
     update_dict = {}
@@ -202,9 +203,9 @@ async def delete_project(
     project = db.get_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise not_found("Project")
     if project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     db.delete_project(project_id)
     logger.info(f"Deleted project {project_id}")
@@ -230,22 +231,21 @@ async def create_clip(
     project = db.get_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise not_found("Project")
     if project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     # Validate times
     if clip_data.end_time <= clip_data.start_time:
-        raise HTTPException(status_code=400, detail="end_time must be greater than start_time")
+        raise bad_request("end_time must be greater than start_time")
 
     # Get source video duration to validate
     media = db.get_media(project.source_media_id)
     if media and media.video_metadata:
         duration = media.video_metadata.get("duration", 0)
         if duration > 0 and clip_data.end_time > duration:
-            raise HTTPException(
-                status_code=400,
-                detail=f"end_time ({clip_data.end_time}s) exceeds video duration ({duration}s)",
+            raise bad_request(
+                f"end_time ({clip_data.end_time}s) exceeds video duration ({duration}s)"
             )
 
     clip = db.create_clip(
@@ -277,9 +277,9 @@ async def list_clips(
     project = db.get_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise not_found("Project")
     if project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     clips = db.get_clips_by_project(project_id)
     return [clip.to_dict() for clip in clips]
@@ -295,12 +295,12 @@ async def get_clip(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership through project
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     return clip.to_dict()
 
@@ -316,12 +316,12 @@ async def update_clip(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership through project
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     # Build update dict
     update_dict = {}
@@ -340,7 +340,7 @@ async def update_clip(
     new_start = update_dict.get("start_time", clip.start_time)
     new_end = update_dict.get("end_time", clip.end_time)
     if new_end <= new_start:
-        raise HTTPException(status_code=400, detail="end_time must be greater than start_time")
+        raise bad_request("end_time must be greater than start_time")
 
     if update_dict:
         clip = db.update_clip(clip_id, update_dict)
@@ -359,12 +359,12 @@ async def update_clip_subtitles(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     update_dict = {
         "subtitles_enabled": subtitle_config.subtitles_enabled,
@@ -387,12 +387,12 @@ async def delete_clip(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     db.delete_clip(clip_id)
     logger.info(f"Deleted clip {clip_id}")
@@ -413,9 +413,9 @@ async def reorder_clips(
     project = db.get_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise not_found("Project")
     if project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     # Verify all clip IDs belong to this project
     existing_clips = db.get_clips_by_project(project_id)
@@ -423,7 +423,7 @@ async def reorder_clips(
 
     for clip_id in reorder_data.clip_ids:
         if clip_id not in existing_ids:
-            raise HTTPException(status_code=400, detail=f"Clip {clip_id} not found in project")
+            raise bad_request(f"Clip {clip_id} not found in project")
 
     clips = db.reorder_clips(project_id, reorder_data.clip_ids)
     return [clip.to_dict() for clip in clips]
@@ -453,17 +453,14 @@ async def bulk_create_clips(
     project = db.get_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise not_found("Project")
     if project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     # Validate all clips
     for clip_data in clips:
         if clip_data.end_time <= clip_data.start_time:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid clip: end_time must be greater than start_time",
-            )
+            raise bad_request("Invalid clip: end_time must be greater than start_time")
 
     # Convert to dicts
     clips_data = [
@@ -538,21 +535,18 @@ async def generate_clip_subtitles(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     service = get_subtitle_service()
     result = service.generate_subtitles_for_clip(clip_id, request.style)
 
     if not result.get("success"):
-        raise HTTPException(
-            status_code=400,
-            detail=result.get("error", "Failed to generate subtitles"),
-        )
+        raise bad_request(result.get("error", "Failed to generate subtitles"))
 
     return result
 
@@ -571,12 +565,12 @@ async def get_clip_subtitles(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     if not clip.subtitles_enabled or not clip.subtitles_data:
         return {
@@ -609,21 +603,18 @@ async def update_subtitle_cue(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     service = get_subtitle_service()
     result = service.update_subtitle_text(clip_id, request.cue_id, request.text)
 
     if not result.get("success"):
-        raise HTTPException(
-            status_code=400,
-            detail=result.get("error", "Failed to update cue"),
-        )
+        raise bad_request(result.get("error", "Failed to update cue"))
 
     return result
 
@@ -646,15 +637,15 @@ async def export_subtitles_srt(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     if not clip.subtitles_data:
-        raise HTTPException(status_code=400, detail="No subtitles on this clip")
+        raise bad_request("No subtitles on this clip")
 
     service = get_subtitle_service()
     srt_content = service.generate_srt(clip.subtitles_data)
@@ -770,12 +761,12 @@ async def export_clip(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     # Mark clip as processing
     db.update_clip(clip_id, {"export_status": "processing"})
@@ -803,7 +794,7 @@ async def export_clip(
     except Exception as e:
         logger.error(f"Export error: {e}", exc_info=True)
         db.update_clip(clip_id, {"export_status": "failed"})
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(detail="Failed to process media request")
 
 
 @router.post("/projects/{project_id}/export/batch")
@@ -824,9 +815,9 @@ async def batch_export_clips(
     project = db.get_project(project_id)
 
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise not_found("Project")
     if project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     service = get_export_service()
     results = await service.export_clips_batch(
@@ -873,12 +864,12 @@ async def get_export_status(
     clip = db.get_clip(clip_id)
 
     if not clip:
-        raise HTTPException(status_code=404, detail="Clip not found")
+        raise not_found("Clip")
 
     # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized")
+        raise forbidden("Not authorized")
 
     return {
         "clip_id": clip_id,

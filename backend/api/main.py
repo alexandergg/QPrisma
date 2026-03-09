@@ -3,14 +3,22 @@ QPrisma API - FastAPI Application
 Intelligent multimedia content processing with Azure
 """
 
+import importlib.metadata
 import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
+try:
+    _VERSION = importlib.metadata.version("qprisma-backend")
+except importlib.metadata.PackageNotFoundError:
+    _VERSION = "0.0.0-dev"
+
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -49,7 +57,7 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("=" * 50)
-    logger.info("QPrisma API v0.3.0")
+    logger.info("QPrisma API v%s", _VERSION)
     logger.info("=" * 50)
     logger.info("Environment: %s", settings.app.environment)
     disable_startup_checks = os.getenv("DISABLE_STARTUP_HEALTHCHECKS", "").lower() in {
@@ -117,9 +125,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="QPrisma API",
     description="Intelligent Multimedia Content Processing",
-    version="0.2.0",
+    version=_VERSION,
     lifespan=lifespan,
 )
+
+# Rate Limiting
+from api.rate_limit import limiter
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS Configuration
 allowed_origins = settings.app.cors_origins
@@ -127,9 +141,28 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["Content-Type", "Authorization"],
+    max_age=600,
 )
+
+
+# Security Headers Middleware
+# NOTE: Placed after CORS middleware so it executes before CORS in the
+# middleware stack (FastAPI middleware order is LIFO).
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Add security headers to every response."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if settings.app.environment.lower() not in ("dev", "development", "test", "local"):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
 
 # =============================================================================
 # Include Routers
@@ -180,7 +213,7 @@ async def root():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "version": "0.2.0",
+        "version": _VERSION,
         "azure_configured": bool(get_openai_client() and get_blob_service()),
     }
 

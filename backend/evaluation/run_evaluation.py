@@ -468,7 +468,7 @@ def generate_report(
                     lines.append("**Win Rates (vs baseline):**")
                     lines.append("")
                     for dim, rate in winrates.items():
-                        if isinstance(rate, (int, float)):
+                        if isinstance(rate, int | float):
                             lines.append(f"- {dim}: {rate:.1%}")
                     lines.append("")
 
@@ -478,7 +478,7 @@ def generate_report(
                     lines.append("**Quantitative Scores (1-5, 3=baseline):**")
                     lines.append("")
                     for dim, score in quant.items():
-                        if isinstance(score, (int, float)):
+                        if isinstance(score, int | float):
                             lines.append(f"- {dim}: {score:.2f}")
                     lines.append("")
 
@@ -661,9 +661,8 @@ def build_config_from_args(args: argparse.Namespace) -> EvalConfig:
         return EvalConfig.model_validate_json(config_path.read_text(encoding="utf-8"))
 
     if not args.benchmark or not args.data_path or not args.methods:
-        print(
-            "Error: --benchmark, --data-path, and --methods required when not using --config",
-            file=sys.stderr,
+        logger.error(
+            "--benchmark, --data-path, and --methods required when not using --config",
         )
         sys.exit(1)
 
@@ -722,19 +721,19 @@ def main():
     results = asyncio.run(run_evaluation(config, fresh=args.fresh))
 
     # Print summary
-    print("\n" + "=" * 60)
-    print("EVALUATION COMPLETE")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("EVALUATION COMPLETE")
+    logger.info("=" * 60)
 
     aggregated = results.get("aggregated", {})
     for key, agg in aggregated.items():
-        print(f"\n{key}:")
+        logger.info("\n%s:", key)
         if agg.get("accuracy") is not None:
-            print(f"  Accuracy: {agg['accuracy']:.1%}")
+            logger.info("  Accuracy: %.1f%%", agg["accuracy"] * 100)
         if agg.get("avg_latency_ms") is not None:
-            print(f"  Avg Latency: {agg['avg_latency_ms']:,.0f}ms")
+            logger.info("  Avg Latency: %,.0fms", agg["avg_latency_ms"])
 
-    print(f"\nFull results: {config.output_dir}/")
+    logger.info("\nFull results: %s/", config.output_dir)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,6 @@ Reference: https://a2a-protocol.org/latest/specification/
 
 import asyncio
 import inspect
-import logging
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -27,7 +26,6 @@ from agent.graphs.editor import create_editor_agent_graph
 from agent.graphs.video import create_production_checkpointer, create_video_agent_graph
 from agent.state.agent_state import create_agent_state
 from agent.utils.observability import Metrics, get_logger
-from services.database_service import DatabaseService, get_database_service
 from models.a2a_models import (
     Artifact,
     Message,
@@ -41,6 +39,7 @@ from models.a2a_models import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
+from services.database_service import DatabaseService, get_database_service
 
 logger = get_logger(__name__)
 
@@ -388,9 +387,7 @@ def get_task_store() -> TaskStore | PersistentTaskStore:
                 _task_store = PersistentTaskStore(db)
                 logger.info("Using persistent PostgreSQL A2A TaskStore")
             else:
-                logger.warning(
-                    "Database not healthy, using in-memory A2A TaskStore fallback"
-                )
+                logger.warning("Database not healthy, using in-memory A2A TaskStore fallback")
                 _task_store = TaskStore()
         except Exception as exc:
             logger.warning(f"Failed to initialize persistent A2A TaskStore: {exc}")

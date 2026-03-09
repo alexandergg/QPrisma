@@ -18,5 +18,7 @@ Describe tests performed.
 - [ ] Self-reviewed the code
 - [ ] Added comments for complex logic
 - [ ] Updated documentation if needed
+- [ ] Updated API and architecture docs for behavior/contract changes
+- [ ] Updated relevant Copilot instructions/skills for workflow changes
 - [ ] Tests pass locally
 - [ ] No new warnings introduced

@@ -19,6 +19,7 @@ from typing import Any
 
 from azure.storage.blob import BlobServiceClient, ContentSettings
 
+from core.config import settings
 from models.export_config import (
     PLATFORM_PRESETS,
     QUALITY_PRESETS,
@@ -54,14 +55,14 @@ class ExportService:
         self.db = get_database_service()
         self.subtitle_service = get_subtitle_service()
         self._blob_service: BlobServiceClient | None = None
-        self._container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "media")
+        self._container_name = settings.azure.storage_container_name
         self._exports_folder = "exports"  # Subfolder in container for exports
 
     @property
     def blob_service(self) -> BlobServiceClient | None:
         """Lazy-load blob service client."""
         if self._blob_service is None:
-            conn_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+            conn_string = settings.azure.storage_connection_string
             if conn_string:
                 self._blob_service = BlobServiceClient.from_connection_string(conn_string)
         return self._blob_service

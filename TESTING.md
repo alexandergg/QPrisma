@@ -22,6 +22,28 @@ frontend/
     └── integration/         # Integration tests
 ```
 
+### Notable Test Modules
+
+| Test file | Coverage area |
+|---|---|
+| `test_security_headers.py` | Security headers middleware |
+| `test_token_revocation.py` | JWT revocation via Redis JTI denylist |
+| `test_websocket_auth.py` | WebSocket JWT authentication |
+| `test_a2a_rate_limits.py` | A2A endpoint rate limiting |
+| `test_error_sanitization.py` | Error message sanitization |
+| `test_cache_routes.py` | Cache endpoint auth and operations |
+| `test_pyav_extractor.py` | PyAV frame extraction |
+| `test_scene_detect_service.py` | PySceneDetect integration |
+| `test_faster_whisper_service.py` | faster-whisper transcription backend |
+| `test_video_decoder.py` | Unified VideoDecoder protocol |
+| `test_streaming_pipeline.py` | Streaming pipeline architecture |
+| `test_audio_parallel_transcription.py` | Parallel audio transcription |
+| `test_video_perf_optimizations.py` | Frame dedup, WebP encoding, batch sizing |
+| `test_errors.py` | Standardized HTTP error helpers |
+| `test_retry.py` | Centralized retry with exponential backoff |
+| `test_concurrency.py` | TaskGroup-based structured concurrency |
+| `test_processing_metrics.py` | Pipeline observability and stage timing |
+
 ## Backend Testing (Python)
 
 ### Testing Framework

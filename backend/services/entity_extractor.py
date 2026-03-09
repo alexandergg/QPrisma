@@ -8,7 +8,6 @@ Detects people, objects, locations, actions, text (OCR), brands, and events.
 import base64
 import json
 import logging
-import os
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -16,6 +15,7 @@ import httpx
 from openai import APIConnectionError, APIError, AzureOpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from core.config import settings
 from models.graph_models import (
     EntityNode,
     EntityType,
@@ -121,9 +121,9 @@ class EntityExtractor:
             deployment: GPT-4o deployment name.
             api_version: API version.
         """
-        self.api_key = api_key or os.getenv("AZURE_OPENAI_API_KEY")
-        self.endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
-        self.deployment = deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
+        self.api_key = api_key or settings.azure.openai_api_key
+        self.endpoint = endpoint or settings.azure.openai_endpoint
+        self.deployment = deployment or settings.azure.openai_deployment_gpt
         self.api_version = api_version
 
         self._client: AzureOpenAI | None = None

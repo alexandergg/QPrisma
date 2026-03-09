@@ -16,7 +16,7 @@ Reference: https://a2a-protocol.org/latest/specification/
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -130,7 +130,7 @@ class TaskStatus(BaseModel):
 
     state: TaskState = TaskState.SUBMITTED
     message: Message | None = None
-    timestamp: datetime | None = Field(default_factory=datetime.utcnow)
+    timestamp: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class Task(BaseModel):
@@ -338,7 +338,7 @@ class A2AError(BaseModel):
     status: int
     detail: str
     taskId: str | None = None
-    timestamp: datetime | None = Field(default_factory=datetime.utcnow)
+    timestamp: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class TaskNotFoundError(A2AError):

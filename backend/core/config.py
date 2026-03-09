@@ -5,21 +5,43 @@ Centralized configuration using Pydantic Settings.
 All environment variables are loaded and validated here.
 """
 
+import importlib.metadata
 import os
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
 
 if TYPE_CHECKING:
     from openai import AsyncAzureOpenAI, AzureOpenAI
+
+try:
+    _PKG_VERSION = importlib.metadata.version("qprisma-backend")
+except importlib.metadata.PackageNotFoundError:
+    _PKG_VERSION = "0.0.0-dev"
 
 
 def _is_production() -> bool:
     """Check if running in production environment."""
     env = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "dev"))
     return env.lower() in ("production", "prod")
+
+
+class _GracefulEnvSource(EnvSettingsSource):
+    """Env source that falls back to raw strings when JSON parsing fails.
+
+    pydantic-settings tries to JSON-decode complex types (list, dict) from
+    env vars. Comma-separated values like ``http://a.com,http://b.com`` are
+    not valid JSON and would raise. This subclass catches the decode error
+    and passes the raw string through so field validators can handle it.
+    """
+
+    def decode_complex_value(self, field_name, field_info, value):  # type: ignore[override]
+        try:
+            return super().decode_complex_value(field_name, field_info, value)
+        except ValueError:
+            return value
 
 
 class AzureSettings(BaseSettings):
@@ -39,10 +61,37 @@ class AzureSettings(BaseSettings):
     openai_deployment_embedding: str = Field(default="text-embedding-3-large")
     openai_deployment_whisper: str = Field(default="whisper")
     openai_whisper_rpm: int = Field(default=3, description="Whisper requests per minute limit")
+    max_concurrent_transcriptions: int = Field(
+        default=3,
+        description="Maximum concurrent Whisper transcription requests (match RPM limit)",
+    )
     # Global Batch deployment for 50% cost savings on bulk processing
     openai_deployment_gpt_batch: str | None = Field(
         default=None,
         description="Azure OpenAI Global Batch deployment name (e.g., 'gpt-4o-global-batch')",
+    )
+
+    # Whisper backend: "azure" (default) or "faster_whisper" (local CTranslate2)
+    whisper_backend: str = Field(
+        default="azure",
+        description="Transcription backend: 'azure' for Azure OpenAI Whisper API, "
+        "'faster_whisper' for local CTranslate2-based inference",
+    )
+    faster_whisper_model: str = Field(
+        default="large-v3",
+        description="faster-whisper model size (e.g., 'tiny', 'base', 'small', 'medium', 'large-v3')",
+    )
+    faster_whisper_device: str = Field(
+        default="auto",
+        description="Device for faster-whisper: 'auto', 'cpu', or 'cuda'",
+    )
+    faster_whisper_compute_type: str = Field(
+        default="int8",
+        description="Compute type for faster-whisper: 'int8', 'float16', or 'float32'",
+    )
+    faster_whisper_batch_size: int = Field(
+        default=16,
+        description="Batch size for faster-whisper batched inference pipeline",
     )
 
     @property
@@ -74,16 +123,16 @@ class PostgresSettings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore")
 
-    # In production, DATABASE_URL must be set via environment variable
+    # DATABASE_URL must be set via environment variable or .env file
     database_url: str = Field(
         default="postgresql://qprisma:qprisma123@localhost:5432/qprisma",
-        description="PostgreSQL connection URL. Override in production!",
+        description="PostgreSQL connection URL. Must be set via DATABASE_URL env var.",
     )
 
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, v: str) -> str:
-        """Warn about default credentials in production."""
+        """Reject hardcoded default credentials in production."""
         if _is_production() and "qprisma123" in v:
             raise ValueError(
                 "Default database credentials detected in production. "
@@ -103,10 +152,10 @@ class Neo4jSettings(BaseSettings):
 
     uri: str = Field(default="bolt://localhost:7687")
     user: str = Field(default="neo4j")
-    # Password should be set via NEO4J_PASSWORD environment variable
+    # Password must be set via NEO4J_PASSWORD environment variable or .env file
     password: str = Field(
-        default="qprisma123",
-        description="Neo4j password. Override via NEO4J_PASSWORD in production!",
+        default="",
+        description="Neo4j password. Must be set via NEO4J_PASSWORD env var.",
     )
     database: str = Field(default="neo4j")
 
@@ -138,6 +187,55 @@ class RedisSettings(BaseSettings):
         return bool(self.url)
 
 
+class ProcessingSettings(BaseSettings):
+    """Video processing performance configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="PROCESSING_", extra="ignore")
+
+    # Embedding batching
+    embedding_batch_size: int = Field(
+        default=512,
+        description="Batch size for embedding API calls (adaptive retry halves on failure)",
+    )
+
+    # Thread pool sizing for FFmpeg extraction
+    max_extraction_workers: int | None = Field(
+        default=None,
+        description="Max FFmpeg extraction workers. None = auto-detect from CPU count.",
+    )
+
+    # Frame encoding for Vision API
+    frame_encoding_format: str = Field(
+        default="webp",
+        description="Frame encoding format for Vision API: 'webp' (smaller) or 'jpeg'",
+    )
+    frame_encoding_quality: int = Field(
+        default=80,
+        description="Frame encoding quality (1-100)",
+        ge=1,
+        le=100,
+    )
+    frame_max_dimension: int = Field(
+        default=2048,
+        description="Maximum dimension (width or height) for frames sent to Vision API",
+        gt=0,
+    )
+
+    # Streaming pipeline (opt-in; batch extraction remains default)
+    streaming_pipeline_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable async-generator streaming pipeline for frame extraction. "
+            "Reduces peak memory from O(all_frames) to O(streaming_batch_size)."
+        ),
+    )
+    streaming_batch_size: int = Field(
+        default=32,
+        description="Number of frames to accumulate before processing a batch in streaming mode.",
+        gt=0,
+    )
+
+
 class ArtifactSettings(BaseSettings):
     """Tool artifact storage configuration."""
 
@@ -163,10 +261,10 @@ class AuthSettings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore")
 
-    # JWT secret MUST be set via JWT_SECRET_KEY environment variable in production
+    # JWT secret MUST be set via JWT_SECRET_KEY environment variable
     jwt_secret_key: str = Field(
-        default="your-secret-key-change-in-production",
-        description="JWT signing secret. MUST be changed in production!",
+        default="",
+        description="JWT signing secret. Must be set via JWT_SECRET_KEY env var.",
     )
     jwt_algorithm: str = Field(default="HS256")
     jwt_access_token_expire_minutes: int = Field(default=1440)  # 24 hours
@@ -177,21 +275,13 @@ class AuthSettings(BaseSettings):
     def validate_jwt_secret(cls, v: str) -> str:
         """Enforce secure JWT secret in production."""
         if _is_production():
-            if v == "your-secret-key-change-in-production":
+            if not v or v == "your-secret-key-change-in-production":
                 raise ValueError(
-                    "Default JWT secret detected in production. "
+                    "JWT secret not configured. "
                     "Set JWT_SECRET_KEY environment variable with a secure random string."
                 )
             if len(v) < 32:
                 raise ValueError("JWT_SECRET_KEY must be at least 32 characters in production.")
-        elif v == "your-secret-key-change-in-production":
-            import warnings
-
-            warnings.warn(
-                "Using default JWT secret key. Set JWT_SECRET_KEY in production!",
-                UserWarning,
-                stacklevel=2,
-            )
         return v
 
 
@@ -202,22 +292,47 @@ class AppSettings(BaseSettings):
 
     # App info
     app_name: str = Field(default="QPrisma API")
-    app_version: str = Field(default="0.2.0")
-    environment: str = Field(default="dev")
+    app_version: str = Field(default=_PKG_VERSION)
+    environment: str = Field(
+        default="dev",
+        validation_alias=AliasChoices("app_env", "environment"),
+    )
     log_level: str = Field(default="INFO")
     debug: bool = Field(default=False)
 
     # Server
     host: str = Field(default="0.0.0.0")
-    port: int = Field(default=8000)
+    port: int = Field(
+        default=8000,
+        validation_alias=AliasChoices("api_port", "port"),
+    )
 
     # Processing defaults
     default_max_frames: int = Field(default=20)
     default_frame_interval: int = Field(default=30)
+    video_decoder_backend: str = Field(
+        default="pyav",
+        description="Video decoder backend: 'pyav' (in-process) or 'ffmpeg_subprocess'",
+    )
+
+    # Dev auth
+    allow_dev_autologin: bool = Field(
+        default=False, description="Enable dev auto-login. NEVER set to True in production!"
+    )
+
+    # API base URL (used for A2A agent cards, etc.)
+    api_base_url: str = Field(
+        default="http://localhost:8000",
+        validation_alias=AliasChoices("a2a_base_url", "api_base_url"),
+    )
+
+    # Logging
+    log_file: str | None = Field(default=None)
 
     # CORS
     cors_origins: list[str] = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
+        validation_alias=AliasChoices("allowed_origins", "cors_origins"),
     )
 
     @field_validator("cors_origins", mode="before")
@@ -226,6 +341,17 @@ class AppSettings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",")]
         return v
+
+    @classmethod
+    def settings_customise_sources(
+        cls, settings_cls, init_settings, env_settings, dotenv_settings, file_secret_settings
+    ):  # type: ignore[override]
+        return (
+            init_settings,
+            _GracefulEnvSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
 
 
 class Settings(BaseSettings):
@@ -236,6 +362,7 @@ class Settings(BaseSettings):
     app: AppSettings = Field(default_factory=AppSettings)
     azure: AzureSettings = Field(default_factory=AzureSettings)
     batch: BatchAPISettings = Field(default_factory=BatchAPISettings)
+    processing: ProcessingSettings = Field(default_factory=ProcessingSettings)
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
@@ -243,30 +370,26 @@ class Settings(BaseSettings):
     mem0: Mem0Settings = Field(default_factory=Mem0Settings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
 
-    def apply_env_overrides(self) -> None:
-        env = os.getenv("APP_ENV") or os.getenv("ENVIRONMENT")
-        if env:
-            self.app.environment = env
-        log_level = os.getenv("LOG_LEVEL")
-        if log_level:
-            self.app.log_level = log_level
-        port = os.getenv("API_PORT") or os.getenv("PORT")
-        if port:
-            try:
-                self.app.port = int(port)
-            except ValueError:
-                pass
-        env_origins = os.getenv("ALLOWED_ORIGINS") or os.getenv("CORS_ORIGINS")
-        if env_origins:
-            self.app.cors_origins = [
-                origin.strip() for origin in env_origins.split(",") if origin.strip()
-            ]
-        neo4j_uri = os.getenv("NEO4J_URI")
-        if neo4j_uri:
-            self.neo4j.uri = neo4j_uri
-        redis_url = os.getenv("REDIS_URL")
-        if redis_url:
-            self.redis.url = redis_url
+    @model_validator(mode="after")
+    def _check_required_secrets(self) -> "Settings":
+        """Reject empty credentials in production and staging environments."""
+        env = self.app.environment.lower()
+        if env not in ("production", "prod", "staging"):
+            return self
+
+        errors: list[str] = []
+        if not self.postgres.database_url:
+            errors.append("DATABASE_URL must be set")
+        if not self.neo4j.password:
+            errors.append("NEO4J_PASSWORD must be set")
+        if not self.auth.jwt_secret_key:
+            errors.append("JWT_SECRET_KEY must be set")
+
+        if errors:
+            raise ValueError(
+                f"Missing required secrets for '{env}' environment: " + "; ".join(errors)
+            )
+        return self
 
 
 @lru_cache
@@ -276,9 +399,7 @@ def get_settings() -> Settings:
 
     Uses lru_cache to ensure settings are only loaded once.
     """
-    settings_obj = Settings()
-    settings_obj.apply_env_overrides()
-    return settings_obj
+    return Settings()
 
 
 def create_azure_openai_client() -> "AzureOpenAI":

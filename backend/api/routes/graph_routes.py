@@ -10,7 +10,14 @@ import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-from api.dependencies import get_current_user
+from api.dependencies import (
+    get_current_user,
+    get_graph_search_service,
+    get_hierarchical_context_service,
+    get_knowledge_graph_service,
+    get_media_or_404,
+)
+from core.exceptions import internal_error, not_found_error
 from models.graph_models import (
     GraphSearchQuery,
     GraphSearchResponse,
@@ -51,57 +58,10 @@ from models.graph_route_schemas import (
 from models.user import User
 from services.embedding_service import get_embedding_service
 from services.entity_extractor import get_entity_extractor
-from services.graph_search_service import GraphSearchService, get_graph_search_service
-from services.hierarchical_context_service import (
-    HierarchicalContextService,
-    get_hierarchical_context_service,
-)
-from services.knowledge_graph import KnowledgeGraphService, get_knowledge_graph_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/graph", tags=["Knowledge Graph"])
-
-
-# =============================================================================
-# Lazy service initialization
-# =============================================================================
-
-_graph_service: KnowledgeGraphService | None = None
-_search_service: GraphSearchService | None = None
-_hierarchical_service: HierarchicalContextService | None = None
-
-
-def get_graph_service() -> KnowledgeGraphService:
-    """Gets the Knowledge Graph service, initializing it if necessary."""
-    global _graph_service
-    if _graph_service is None:
-        _graph_service = get_knowledge_graph_service()
-        if not _graph_service.is_connected:
-            _graph_service.connect()
-    return _graph_service
-
-
-def get_search_service() -> GraphSearchService:
-    """Gets the Graph Search service, initializing it if necessary."""
-    global _search_service
-    if _search_service is None:
-        graph_svc = get_graph_service()
-        _search_service = get_graph_search_service()
-        _search_service.graph_service = graph_svc
-    return _search_service
-
-
-def get_hierarchy_service() -> HierarchicalContextService:
-    """Gets the Hierarchical Context service, initializing it if necessary."""
-    global _hierarchical_service
-    if _hierarchical_service is None:
-        graph_svc = get_graph_service()
-        embedding_svc = get_embedding_service()
-        _hierarchical_service = get_hierarchical_context_service(
-            graph_service=graph_svc, embedding_service=embedding_svc
-        )
-    return _hierarchical_service
 
 
 # =============================================================================
@@ -115,7 +75,7 @@ async def graph_health_check(current_user: User = Depends(get_current_user)):
     Verifies the connection status with Neo4j.
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         connected = service.is_connected
 
         if not connected:
@@ -128,12 +88,12 @@ async def graph_health_check(current_user: User = Depends(get_current_user)):
             message="Neo4j connection is active" if connected else "Failed to connect to Neo4j",
         )
     except Exception as e:
-        logger.error(f"Graph health check failed: {e}")
+        logger.error(f"Graph health check failed: {e}", exc_info=True)
         return GraphHealthResponse(
             status="error",
             connected=False,
             uri="unknown",
-            message=str(e),
+            message="Unexpected error during health check",
         )
 
 
@@ -148,12 +108,12 @@ async def get_graph_stats(current_user: User = Depends(get_current_user)):
     - Graph metrics
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         stats = service.get_stats()
         return stats
     except Exception as e:
-        logger.error(f"Failed to get graph stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get graph stats: {e}", exc_info=True)
+        raise internal_error()
 
 
 # =============================================================================
@@ -171,7 +131,7 @@ async def search_entities(
     Supports filters by entity type and video.
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         results = service.search_entities(
             query_text=request.query,
             entity_types=request.entity_types,
@@ -185,8 +145,8 @@ async def search_entities(
             "results": results,
         }
     except Exception as e:
-        logger.error(f"Entity search failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Entity search failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/search/frames")
@@ -199,7 +159,7 @@ async def search_frames(
     Supports filters by video and temporal range.
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
 
         time_range = None
         if request.time_start is not None and request.time_end is not None:
@@ -218,8 +178,8 @@ async def search_frames(
             "results": results,
         }
     except Exception as e:
-        logger.error(f"Frame search failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Frame search failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/search/advanced", response_model=GraphSearchResponse)
@@ -235,7 +195,7 @@ async def advanced_graph_search(
     - Context expansion in the graph
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         start_time = __import__("time").time()
 
         # 1. Base search (full-text)
@@ -324,8 +284,8 @@ async def advanced_graph_search(
         )
 
     except Exception as e:
-        logger.error(f"Advanced search failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Advanced search failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 # =============================================================================
@@ -349,7 +309,7 @@ async def hybrid_search(
     Includes re-ranking with expanded context for better results.
     """
     try:
-        search_service = get_search_service()
+        search_service = get_graph_search_service()
 
         time_range = None
         if request.time_start is not None and request.time_end is not None:
@@ -368,8 +328,8 @@ async def hybrid_search(
         return response
 
     except Exception as e:
-        logger.error(f"Hybrid search failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Hybrid search failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/search/cross-video", response_model=CrossVideoSearchResponse)
@@ -385,7 +345,7 @@ async def cross_video_search(
     - Creating SAME_ENTITY relationships cross-video
     """
     try:
-        search_service = get_search_service()
+        search_service = get_graph_search_service()
 
         similar_nodes = search_service.find_similar_across_videos(
             reference_node_id=request.reference_node_id,
@@ -409,8 +369,8 @@ async def cross_video_search(
         )
 
     except Exception as e:
-        logger.error(f"Cross-video search failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Cross-video search failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 # =============================================================================
@@ -433,7 +393,7 @@ async def generate_embeddings(
     Note: For large quantities, consider running in background.
     """
     try:
-        search_service = get_search_service()
+        search_service = get_graph_search_service()
 
         # Determine text field based on node type
         text_field = "description"
@@ -456,8 +416,8 @@ async def generate_embeddings(
         )
 
     except Exception as e:
-        logger.error(f"Failed to generate embeddings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to generate embeddings: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.get("/embeddings/stats", response_model=EmbeddingStatsResponse)
@@ -482,8 +442,8 @@ async def get_embedding_stats(current_user: User = Depends(get_current_user)):
         )
 
     except Exception as e:
-        logger.error(f"Failed to get embedding stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get embedding stats: {e}", exc_info=True)
+        raise internal_error()
 
 
 # =============================================================================
@@ -502,7 +462,7 @@ async def expand_context(
     Useful for enriching context in RAG queries.
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         result = service.expand_context(
             node_id=request.node_id,
             hops=request.hops,
@@ -517,8 +477,8 @@ async def expand_context(
             nodes_by_distance=result["nodes_by_distance"],
         )
     except Exception as e:
-        logger.error(f"Context expansion failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Context expansion failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/timeline", response_model=EntityTimelineResponse)
@@ -531,7 +491,7 @@ async def get_entity_timeline(
     Useful for understanding when and where an entity appears.
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         occurrences = service.get_entity_timeline(
             entity_name=request.entity_name,
             video_id=request.video_id,
@@ -544,8 +504,8 @@ async def get_entity_timeline(
             total_occurrences=len(occurrences),
         )
     except Exception as e:
-        logger.error(f"Failed to get entity timeline: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get entity timeline: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/related")
@@ -558,7 +518,7 @@ async def get_related_entities(
     Supports filters by relationship type.
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         results = service.get_related_entities(
             entity_id=request.entity_id,
             relation_types=request.relation_types,
@@ -571,8 +531,8 @@ async def get_related_entities(
             "related_entities": results,
         }
     except Exception as e:
-        logger.error(f"Failed to get related entities: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get related entities: {e}", exc_info=True)
+        raise internal_error()
 
 
 # =============================================================================
@@ -588,12 +548,12 @@ async def get_video_graph(video_id: str, current_user: User = Depends(get_curren
     Includes scenes, frames, entities, and relationships.
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
 
         # Get video node
         video = service.get_video_node(video_id)
         if not video:
-            raise HTTPException(status_code=404, detail=f"Video {video_id} not found in graph")
+            raise not_found_error("Video", video_id)
 
         # Get scenes
         scenes = service.get_video_scenes(video_id)
@@ -610,8 +570,8 @@ async def get_video_graph(video_id: str, current_user: User = Depends(get_curren
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get video graph: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get video graph: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.delete("/video/{video_id}")
@@ -622,7 +582,8 @@ async def delete_video_graph(video_id: str, current_user: User = Depends(get_cur
     Includes scenes, frames, entities, and relationships.
     """
     try:
-        service = get_graph_service()
+        get_media_or_404(video_id, current_user)
+        service = get_knowledge_graph_service()
         deleted_count = service.delete_video_graph(video_id)
 
         return {
@@ -630,9 +591,11 @@ async def delete_video_graph(video_id: str, current_user: User = Depends(get_cur
             "video_id": video_id,
             "deleted_nodes": deleted_count,
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to delete video graph: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to delete video graph: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.get("/video/{video_id}/summary", response_model=VideoGraphSummary)
@@ -683,8 +646,8 @@ async def extract_entities_from_frame(
             "analysis_time_ms": result.analysis_time_ms,
         }
     except Exception as e:
-        logger.error(f"Entity extraction failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Entity extraction failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/extract/description")
@@ -717,8 +680,8 @@ async def extract_entities_from_description(
             "analysis_time_ms": result.analysis_time_ms,
         }
     except Exception as e:
-        logger.error(f"Entity extraction from description failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Entity extraction from description failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 # =============================================================================
@@ -746,7 +709,7 @@ async def process_video_hierarchy(
     hierarchical navigation and drill-down search.
     """
     try:
-        hierarchy_service = get_hierarchy_service()
+        hierarchy_service = get_hierarchical_context_service()
 
         video_metadata = {
             "media_id": request.video_id,
@@ -774,8 +737,8 @@ async def process_video_hierarchy(
         )
 
     except Exception as e:
-        logger.error(f"Hierarchy processing failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Hierarchy processing failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/hierarchy/search/drill-down", response_model=DrillDownSearchResponse)
@@ -799,7 +762,7 @@ async def drill_down_search(
     3. Find specific scenes within those chapters
     """
     try:
-        hierarchy_service = get_hierarchy_service()
+        hierarchy_service = get_hierarchical_context_service()
 
         results = await hierarchy_service.drill_down_search(
             query_text=request.query,
@@ -847,8 +810,8 @@ async def drill_down_search(
         )
 
     except Exception as e:
-        logger.error(f"Drill-down search failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Drill-down search failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/hierarchy/children", response_model=LoadChildrenResponse)
@@ -864,7 +827,7 @@ async def load_children(
     Supports pagination for levels with many children.
     """
     try:
-        hierarchy_service = get_hierarchy_service()
+        hierarchy_service = get_hierarchical_context_service()
 
         children = await hierarchy_service.load_children(
             node_id=request.node_id,
@@ -897,8 +860,8 @@ async def load_children(
         )
 
     except Exception as e:
-        logger.error(f"Load children failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Load children failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.get("/hierarchy/stats/{video_id}", response_model=HierarchyStatsResponse)
@@ -912,11 +875,11 @@ async def get_hierarchy_stats(video_id: str, current_user: User = Depends(get_cu
     - Video duration and title
     """
     try:
-        hierarchy_service = get_hierarchy_service()
+        hierarchy_service = get_hierarchical_context_service()
         stats = await hierarchy_service.get_hierarchy_stats(video_id)
 
         if "error" in stats:
-            raise HTTPException(status_code=404, detail=stats["error"])
+            raise not_found_error("Video hierarchy", video_id)
 
         return HierarchyStatsResponse(
             video_id=stats["video_id"],
@@ -929,8 +892,8 @@ async def get_hierarchy_stats(video_id: str, current_user: User = Depends(get_cu
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Get hierarchy stats failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Get hierarchy stats failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.get("/hierarchy/path/{node_id}", response_model=HierarchyPathResponse)
@@ -948,7 +911,7 @@ async def get_hierarchy_path(
     - Building navigation URLs
     """
     try:
-        hierarchy_service = get_hierarchy_service()
+        hierarchy_service = get_hierarchical_context_service()
         path = await hierarchy_service.get_hierarchy_path(node_id, node_type)
 
         return HierarchyPathResponse(
@@ -969,8 +932,8 @@ async def get_hierarchy_path(
         )
 
     except Exception as e:
-        logger.error(f"Get hierarchy path failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Get hierarchy path failed: {e}", exc_info=True)
+        raise internal_error()
 
 
 # =============================================================================
@@ -995,12 +958,12 @@ async def clear_all_graph_data(
         )
 
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         service.clear_all()
         return {"status": "success", "message": "All graph data has been deleted"}
     except Exception as e:
-        logger.error(f"Failed to clear graph: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to clear graph: {e}", exc_info=True)
+        raise internal_error()
 
 
 # =============================================================================
@@ -1009,13 +972,13 @@ async def clear_all_graph_data(
 
 # Visual mapping: NodeType -> (color, size)
 _NODE_VISUAL_MAP: dict[str, tuple[str, int]] = {
-    "Video": ("#4F46E5", 40),       # indigo-600
-    "Chapter": ("#7C3AED", 30),     # violet-600
-    "Scene": ("#6366F1", 25),       # indigo-500
-    "Frame": ("#06B6D4", 15),       # cyan-500
-    "Entity": ("#8B5CF6", 18),      # violet-500 (default, overridden per entity type)
-    "AudioSegment": ("#10B981", 15),# emerald-500
-    "Topic": ("#F59E0B", 20),       # amber-500
+    "Video": ("#4F46E5", 40),  # indigo-600
+    "Chapter": ("#7C3AED", 30),  # violet-600
+    "Scene": ("#6366F1", 25),  # indigo-500
+    "Frame": ("#06B6D4", 15),  # cyan-500
+    "Entity": ("#8B5CF6", 18),  # violet-500 (default, overridden per entity type)
+    "AudioSegment": ("#10B981", 15),  # emerald-500
+    "Topic": ("#F59E0B", 20),  # amber-500
 }
 
 _ENTITY_COLOR_MAP: dict[str, str] = {
@@ -1109,7 +1072,7 @@ async def get_video_visualization(
     - Relationships have id, from, to, caption, type, properties
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         subgraph = service.get_video_subgraph(
             video_id=video_id,
             depth=depth,
@@ -1121,10 +1084,7 @@ async def get_video_visualization(
         raw_rels = subgraph.get("relationships", [])
 
         if not raw_nodes:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Video {video_id} not found in the Knowledge Graph",
-            )
+            raise not_found_error("Video", video_id)
 
         nvl_nodes = [_raw_to_nvl_node(n) for n in raw_nodes]
         nvl_rels = [_raw_to_nvl_rel(r) for r in raw_rels]
@@ -1140,8 +1100,8 @@ async def get_video_visualization(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get video visualization: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to get video visualization: {e}", exc_info=True)
+        raise internal_error()
 
 
 @router.post("/expand-subgraph")
@@ -1155,7 +1115,7 @@ async def expand_subgraph(
     Returns additional NVL nodes and relationships around the given node.
     """
     try:
-        service = get_graph_service()
+        service = get_knowledge_graph_service()
         subgraph = service.expand_node_subgraph(
             node_id=request.node_id,
             hops=request.hops,
@@ -1176,5 +1136,5 @@ async def expand_subgraph(
             "total_relationships": len(nvl_rels),
         }
     except Exception as e:
-        logger.error(f"Failed to expand subgraph: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to expand subgraph: {e}", exc_info=True)
+        raise internal_error()

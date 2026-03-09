@@ -32,6 +32,8 @@ const config: Config = {
     '!**/*.d.ts',
     '!**/node_modules/**',
     '!**/__tests__/**',
+    '!**/*.test.{js,jsx,ts,tsx}',
+    '!**/*.spec.{js,jsx,ts,tsx}',
   ],
   
   // Coverage thresholds — will increase as test coverage grows

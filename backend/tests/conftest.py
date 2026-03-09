@@ -106,6 +106,9 @@ def app(reset_settings):
     deps._async_openai_client = None
     deps._video_processor = None
     deps._auth_service = None
+    deps._pyav_extractor = None
+    deps._faster_whisper_transcriber = None
+    deps._video_decoder = None
     deps._graph_search_service = None
 
     from api.main import app as fastapi_app

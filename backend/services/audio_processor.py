@@ -16,6 +16,8 @@ from typing import Any
 
 from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 
+from core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Azure Whisper has a 25MB limit
@@ -40,10 +42,13 @@ class AudioProcessor:
 
     def __init__(self, openai_client: AzureOpenAI | AsyncAzureOpenAI, rate_limit_rpm: int = 3):
         self.openai_client = openai_client
-        self.whisper_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_WHISPER", "whisper")
-        self.gpt_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o")
+        self.whisper_deployment = settings.azure.openai_deployment_whisper
+        self.gpt_deployment = settings.azure.openai_deployment_gpt
         self.rate_limit_rpm = rate_limit_rpm
         self._last_request_time = 0.0
+        self._transcription_semaphore = asyncio.Semaphore(
+            settings.azure.max_concurrent_transcriptions
+        )
 
     async def _wait_for_rate_limit(self) -> None:
         """Wait if necessary to respect the rate limit."""
@@ -361,6 +366,11 @@ class AudioProcessor:
 
         For large files, automatically splits into chunks.
 
+        When ``settings.azure.whisper_backend`` is ``"faster_whisper"``, the
+        local CTranslate2-based engine is used instead of the Azure API.
+        faster-whisper has its own Silero VAD so external chunking /
+        silence detection is skipped.
+
         Args:
             audio_path: Path to the audio file.
             language: Language code (es, en, etc.) - None for automatic detection.
@@ -370,6 +380,25 @@ class AudioProcessor:
         Returns:
             Dictionary with transcription and metadata.
         """
+        # ----- faster-whisper local backend (opt-in) -----
+        if settings.azure.whisper_backend == "faster_whisper":
+            from services.faster_whisper_service import FasterWhisperTranscriber
+
+            transcriber = FasterWhisperTranscriber(
+                model_size=settings.azure.faster_whisper_model,
+                device=settings.azure.faster_whisper_device,
+                compute_type=settings.azure.faster_whisper_compute_type,
+                batch_size=settings.azure.faster_whisper_batch_size,
+            )
+            result = await transcriber.transcribe(audio_path, language=language)
+            logger.info(
+                "faster-whisper transcription complete: %d chars, %d segments",
+                len(result.get("text", "")),
+                len(result.get("segments", [])),
+            )
+            return result
+
+        # ----- Azure Whisper API (default) -----
         logger.info("Transcribing audio with Whisper")
 
         if timestamp_granularities is None:
@@ -451,6 +480,45 @@ class AudioProcessor:
             logger.error(f"File error in transcription: {e}")
             raise
 
+    async def _transcribe_chunks_parallel(
+        self,
+        chunks: list[dict[str, Any]],
+        language: str | None,
+        response_format: str,
+        timestamp_granularities: list[str],
+    ) -> list[dict[str, Any] | BaseException]:
+        """Transcribe audio chunks with bounded concurrency.
+
+        Uses ``asyncio.Semaphore`` to cap the number of simultaneous Whisper
+        API calls, matching the configured ``max_concurrent_transcriptions``
+        setting (typically aligned with the Azure RPM limit).
+
+        Args:
+            chunks: Chunk metadata dicts from :meth:`split_audio_into_chunks`.
+            language: Language code forwarded to Whisper.
+            response_format: Whisper response format.
+            timestamp_granularities: Timestamp granularity list.
+
+        Returns:
+            Ordered list where each element is either a transcription dict or
+            the ``BaseException`` raised for that chunk.
+        """
+
+        async def _transcribe_one(chunk: dict[str, Any]) -> dict[str, Any]:
+            async with self._transcription_semaphore:
+                return await self._transcribe_single_file(
+                    chunk["path"],
+                    language,
+                    response_format,
+                    timestamp_granularities,
+                    time_offset=chunk["start_time"],
+                )
+
+        return await asyncio.gather(
+            *[_transcribe_one(chunk) for chunk in chunks],
+            return_exceptions=True,
+        )
+
     async def _transcribe_with_chunking(
         self,
         audio_path: str,
@@ -459,7 +527,11 @@ class AudioProcessor:
         timestamp_granularities: list[str],
     ) -> dict[str, Any]:
         """
-        Transcribe large audio by splitting it into chunks.
+        Transcribe large audio by splitting into chunks and processing in parallel.
+
+        Chunks are transcribed concurrently up to the configured concurrency
+        limit.  Individual chunk failures are logged and skipped so that partial
+        results are still returned.
 
         Args:
             audio_path: Path to the audio file.
@@ -472,61 +544,69 @@ class AudioProcessor:
         """
         chunks = self.split_audio_into_chunks(audio_path)
 
+        max_concurrency = settings.azure.max_concurrent_transcriptions
+        logger.info(
+            f"Processing {len(chunks)} chunks in parallel " f"(max concurrency: {max_concurrency})"
+        )
+
+        # ---- parallel transcription ----
+        start_time = time.time()
+        results = await self._transcribe_chunks_parallel(
+            chunks, language, response_format, timestamp_granularities
+        )
+        elapsed = time.time() - start_time
+
+        # ---- aggregate results in original order ----
         all_segments: list[dict[str, Any]] = []
         all_words: list[dict[str, Any]] = []
         full_text_parts: list[str] = []
         detected_language: str | None = None
         total_duration = 0.0
+        succeeded = 0
+        failed = 0
 
-        logger.info(f"Processing {len(chunks)} chunks")
+        for i, (chunk, result) in enumerate(zip(chunks, results)):
+            # Clean up temporary chunk file regardless of outcome
+            if chunk.get("path") != audio_path and os.path.exists(chunk["path"]):
+                try:
+                    os.unlink(chunk["path"])
+                except OSError:
+                    pass
 
-        for i, chunk in enumerate(chunks):
+            if isinstance(result, BaseException):
+                failed += 1
+                logger.error(
+                    f"Chunk {i} ({chunk['start_time']:.1f}s-{chunk['end_time']:.1f}s) "
+                    f"failed: {result}"
+                )
+                continue
+
+            succeeded += 1
+
+            if result.get("text"):
+                full_text_parts.append(result["text"])
+
+            if result.get("segments"):
+                all_segments.extend(result["segments"])
+
+            if result.get("words"):
+                all_words.extend(result["words"])
+
+            if not detected_language and result.get("language"):
+                detected_language = result["language"]
+
+            chunk_duration = result.get("duration", chunk["end_time"] - chunk["start_time"])
+            total_duration = max(total_duration, chunk["start_time"] + chunk_duration)
+
             logger.debug(
-                f"Chunk {i+1}/{len(chunks)}: {chunk['start_time']:.1f}s - {chunk['end_time']:.1f}s"
+                f"Chunk {i+1}: {len(result.get('text', ''))} chars, "
+                f"{len(result.get('segments', []))} segments"
             )
 
-            try:
-                result = await self._transcribe_single_file(
-                    chunk["path"],
-                    language,
-                    response_format,
-                    timestamp_granularities,
-                    time_offset=chunk["start_time"],
-                )
-
-                # Accumulate results
-                if result.get("text"):
-                    full_text_parts.append(result["text"])
-
-                if result.get("segments"):
-                    all_segments.extend(result["segments"])
-
-                if result.get("words"):
-                    all_words.extend(result["words"])
-
-                if not detected_language and result.get("language"):
-                    detected_language = result["language"]
-
-                chunk_duration = result.get("duration", chunk["end_time"] - chunk["start_time"])
-                total_duration = max(total_duration, chunk["start_time"] + chunk_duration)
-
-                logger.debug(
-                    f"Chunk {i+1}: {len(result.get('text', ''))} chars, {len(result.get('segments', []))} segments"
-                )
-
-            except (APIError, APIConnectionError, RateLimitError) as e:
-                logger.error(f"OpenAI API error in chunk {i}: {e}")
-                continue
-            except Exception as e:
-                logger.exception(f"Unexpected error in chunk {i}: {e}")
-                continue
-            finally:
-                # Clean up temporary chunk
-                if chunk.get("path") != audio_path and os.path.exists(chunk["path"]):
-                    try:
-                        os.unlink(chunk["path"])
-                    except OSError:
-                        pass
+        logger.info(
+            f"Parallel transcription completed: {succeeded}/{len(chunks)} chunks "
+            f"succeeded, {failed} failed, {elapsed:.1f}s elapsed"
+        )
 
         # Combine results
         combined_result: dict[str, Any] = {

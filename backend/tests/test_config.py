@@ -70,11 +70,14 @@ class TestAzureSettings:
 class TestPostgresSettings:
     def test_default_url(self):
         s = PostgresSettings()
-        assert "qprisma" in s.database_url
-        assert "postgresql://" in s.database_url
+        assert s.database_url == "postgresql://qprisma:qprisma123@localhost:5432/qprisma"
 
     def test_is_configured(self):
         s = PostgresSettings()
+        assert s.is_configured is True
+
+    def test_is_configured_when_set(self):
+        s = PostgresSettings(database_url="postgresql://user:pass@localhost/db")
         assert s.is_configured is True
 
     def test_production_rejects_default_credentials(self):
@@ -138,9 +141,16 @@ class TestAuthSettings:
     def test_production_rejects_default_secret(self):
         with (
             patch.dict(os.environ, {"APP_ENV": "production"}),
-            pytest.raises(ValueError, match="Default JWT secret"),
+            pytest.raises(ValueError, match="JWT secret not configured"),
         ):
             AuthSettings(jwt_secret_key="your-secret-key-change-in-production")
+
+    def test_production_rejects_empty_secret(self):
+        with (
+            patch.dict(os.environ, {"APP_ENV": "production"}),
+            pytest.raises(ValueError, match="JWT secret not configured"),
+        ):
+            AuthSettings(jwt_secret_key="")
 
     def test_production_rejects_short_secret(self):
         with (
@@ -155,10 +165,6 @@ class TestAuthSettings:
             s = AuthSettings(jwt_secret_key=secret)
             assert s.jwt_secret_key == secret
 
-    def test_dev_mode_warns_on_default_secret(self):
-        with pytest.warns(UserWarning, match="default JWT secret"):
-            AuthSettings(jwt_secret_key="your-secret-key-change-in-production")
-
 
 # =============================================================================
 # AppSettings
@@ -168,11 +174,15 @@ class TestAuthSettings:
 @pytest.mark.unit
 class TestAppSettings:
     def test_defaults(self):
-        s = AppSettings()
+        with patch.dict(os.environ, {}, clear=True):
+            s = AppSettings()
         assert s.app_name == "QPrisma API"
         assert s.environment == "dev"
         assert s.port == 8000
         assert s.debug is False
+        assert s.allow_dev_autologin is False
+        assert s.api_base_url == "http://localhost:8000"
+        assert s.log_file is None
 
     def test_cors_origins_default(self):
         s = AppSettings()
@@ -185,6 +195,44 @@ class TestAppSettings:
     def test_cors_origins_from_list(self):
         s = AppSettings(cors_origins=["http://a.com", "http://b.com"])
         assert len(s.cors_origins) == 2
+
+    def test_env_vars_loaded_natively(self):
+        with patch.dict(
+            os.environ, {"APP_ENV": "staging", "LOG_LEVEL": "DEBUG", "API_PORT": "9000"}
+        ):
+            s = AppSettings()
+        assert s.environment == "staging"
+        assert s.log_level == "DEBUG"
+        assert s.port == 9000
+
+    def test_env_var_cors_alias(self):
+        with patch.dict(os.environ, {"ALLOWED_ORIGINS": "http://x.com,http://y.com"}):
+            s = AppSettings()
+        assert "http://x.com" in s.cors_origins
+
+    def test_invalid_port_raises_validation_error(self):
+        from pydantic import ValidationError
+
+        with (
+            patch.dict(os.environ, {"API_PORT": "notanumber"}),
+            pytest.raises(ValidationError),
+        ):
+            AppSettings()
+
+    def test_api_base_url_from_a2a_base_url_env(self):
+        with patch.dict(os.environ, {"A2A_BASE_URL": "https://a2a.example.com"}):
+            s = AppSettings()
+        assert s.api_base_url == "https://a2a.example.com"
+
+    def test_api_base_url_from_api_base_url_env(self):
+        with patch.dict(os.environ, {"API_BASE_URL": "https://api.example.com"}):
+            s = AppSettings()
+        assert s.api_base_url == "https://api.example.com"
+
+    def test_log_file_from_env(self):
+        with patch.dict(os.environ, {"LOG_FILE": "/tmp/app.log"}):
+            s = AppSettings()
+        assert s.log_file == "/tmp/app.log"
 
 
 # =============================================================================
@@ -216,33 +264,48 @@ class TestSettings:
         assert s.azure is not None
         assert s.auth is not None
 
-    def test_apply_env_overrides(self):
-        s = Settings()
-        with patch.dict(
-            os.environ, {"APP_ENV": "staging", "LOG_LEVEL": "DEBUG", "API_PORT": "9000"}
-        ):
-            s.apply_env_overrides()
-        assert s.app.environment == "staging"
-        assert s.app.log_level == "DEBUG"
-        assert s.app.port == 9000
-
-    def test_apply_env_overrides_cors(self):
-        s = Settings()
-        with patch.dict(os.environ, {"ALLOWED_ORIGINS": "http://x.com,http://y.com"}):
-            s.apply_env_overrides()
-        assert "http://x.com" in s.app.cors_origins
-
-    def test_apply_env_overrides_invalid_port(self):
-        s = Settings()
-        original_port = s.app.port
-        with patch.dict(os.environ, {"API_PORT": "notanumber"}):
-            s.apply_env_overrides()
-        assert s.app.port == original_port  # unchanged
-
     def test_get_settings_cached(self, reset_settings):
         s1 = get_settings()
         s2 = get_settings()
         assert s1 is s2
+
+    def test_production_rejects_empty_secrets(self):
+        with pytest.raises(ValueError, match="Missing required secrets"):
+            Settings(
+                app=AppSettings(environment="production"),
+                postgres=PostgresSettings(database_url=""),
+                neo4j=Neo4jSettings(password=""),
+                auth=AuthSettings(jwt_secret_key="a" * 32),
+            )
+
+    def test_staging_rejects_empty_secrets(self):
+        with pytest.raises(ValueError, match="Missing required secrets"):
+            Settings(
+                app=AppSettings(environment="staging"),
+                postgres=PostgresSettings(database_url="postgresql://u:p@h/d"),
+                neo4j=Neo4jSettings(password=""),
+                auth=AuthSettings(jwt_secret_key="a" * 32),
+            )
+
+    def test_production_accepts_all_secrets_set(self):
+        s = Settings(
+            app=AppSettings(environment="production"),
+            postgres=PostgresSettings(database_url="postgresql://prod:secure@host/db"),
+            neo4j=Neo4jSettings(password="secure-neo4j-password"),
+            auth=AuthSettings(jwt_secret_key="a" * 32),
+        )
+        assert s.app.environment == "production"
+
+    def test_dev_allows_empty_secrets(self):
+        # Explicitly pass empty secrets to verify dev mode doesn't reject them
+        s = Settings(
+            postgres=PostgresSettings(database_url=""),
+            neo4j=Neo4jSettings(password=""),
+            auth=AuthSettings(jwt_secret_key=""),
+        )
+        assert s.postgres.database_url == ""
+        assert s.neo4j.password == ""
+        assert s.auth.jwt_secret_key == ""
 
 
 # =============================================================================

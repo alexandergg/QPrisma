@@ -4,7 +4,9 @@ Uses PostgreSQL for user storage (replaces Cosmos DB).
 """
 
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from jose import JWTError, jwt
@@ -13,14 +15,20 @@ from passlib.context import CryptContext
 from core.config import settings
 from models.user import TokenData, UserCreate, UserInDB
 
+# Redis async client for token revocation
+try:
+    import redis.asyncio as aioredis
+
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    aioredis = None
+
 logger = logging.getLogger(__name__)
 
 
 class AuthService:
     """Service for handling authentication operations."""
-
-    # Default secret for development only
-    _DEFAULT_DEV_SECRET = "your-secret-key-change-in-production"
 
     def __init__(self):
         """Initialize authentication service with configuration from centralized settings."""
@@ -31,6 +39,15 @@ class AuthService:
 
         # Password hashing context
         self.pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+        # Redis client for token revocation (lazy init)
+        self._redis: aioredis.Redis | None = None
+
+        if settings.app.allow_dev_autologin:
+            logger.warning(
+                "Dev auto-login is ENABLED (ALLOW_DEV_AUTOLOGIN=True). "
+                "Do NOT use this setting in production!"
+            )
 
     def hash_password(self, password: str) -> str:
         """
@@ -75,7 +92,9 @@ class AuthService:
         else:
             expire = datetime.now(UTC) + timedelta(minutes=self.access_token_expire_minutes)
 
-        to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "access"})
+        to_encode.update(
+            {"exp": expire, "iat": datetime.now(UTC), "type": "access", "jti": str(uuid4())}
+        )
 
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt
@@ -93,12 +112,105 @@ class AuthService:
         to_encode = data.copy()
         expire = datetime.now(UTC) + timedelta(days=self.refresh_token_expire_days)
 
-        to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "refresh"})
+        to_encode.update(
+            {"exp": expire, "iat": datetime.now(UTC), "type": "refresh", "jti": str(uuid4())}
+        )
 
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt
 
-    def verify_token(self, token: str, token_type: str = "access") -> TokenData:
+    async def _get_redis(self):
+        """Get or create Redis client for token revocation (lazy init)."""
+        if not REDIS_AVAILABLE:
+            return None
+        if self._redis is None:
+            try:
+                self._redis = aioredis.from_url(
+                    settings.redis.url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create Redis client for token revocation: {e}")
+                return None
+        return self._redis
+
+    async def revoke_token(self, token: str) -> bool:
+        """
+        Revoke a JWT by storing its JTI in Redis with TTL matching token expiry.
+
+        Args:
+            token: JWT token string to revoke
+
+        Returns:
+            True if token was successfully revoked, False otherwise
+        """
+        try:
+            # Decode without verifying expiry — user might logout with near-expired token
+            payload = jwt.decode(
+                token,
+                self.secret_key,
+                algorithms=[self.algorithm],
+                options={"verify_exp": False},
+            )
+
+            jti = payload.get("jti")
+            if not jti:
+                logger.warning("Token has no JTI claim, cannot revoke")
+                return False
+
+            exp = payload.get("exp")
+            if not exp:
+                logger.warning("Token has no EXP claim, cannot determine TTL")
+                return False
+
+            # Calculate TTL: time until token expires
+            now = datetime.now(UTC).timestamp()
+            ttl = int(exp - now)
+
+            if ttl <= 0:
+                # Token already expired, no need to revoke
+                logger.debug("Token already expired, skipping revocation")
+                return True
+
+            redis_client = await self._get_redis()
+            if redis_client is None:
+                logger.warning("Redis unavailable, token revocation skipped")
+                return False
+
+            await redis_client.set(f"revoked:{jti}", "1", ex=ttl)
+            logger.info(f"Token revoked: jti={jti}, ttl={ttl}s")
+            return True
+
+        except JWTError as e:
+            logger.error(f"Failed to decode token for revocation: {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"Token revocation failed: {e}")
+            return False
+
+    async def is_token_revoked(self, jti: str) -> bool:
+        """
+        Check if a token has been revoked.
+
+        Args:
+            jti: JWT ID to check
+
+        Returns:
+            True if token is revoked, False otherwise (fails open if Redis unavailable)
+        """
+        try:
+            redis_client = await self._get_redis()
+            if redis_client is None:
+                return False  # Fail open if Redis unavailable
+
+            result = await redis_client.exists(f"revoked:{jti}")
+            return bool(result)
+        except Exception as e:
+            logger.warning(f"Token revocation check failed: {e}")
+            return False  # Fail open
+
+    async def verify_token(self, token: str, token_type: str = "access") -> TokenData:
         """
         Verify and decode a JWT token.
 
@@ -131,8 +243,19 @@ class AuthService:
             if user_id is None:
                 raise credentials_exception
 
+            # Check if token has been revoked (backward compatible — tokens without JTI still work)
+            jti = payload.get("jti")
+            if jti and await self.is_token_revoked(jti):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has been revoked",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+
             return TokenData(user_id=user_id, email=email)
 
+        except HTTPException:
+            raise
         except JWTError:
             raise credentials_exception
 
@@ -231,22 +354,21 @@ class AuthService:
             token = self.create_access_token({"sub": user.id, "email": user.email})
             return {"access_token": token}
 
-        # Development mode only: create token for any valid email format
-        app_env = settings.app.environment.lower()
-        if app_env not in ("development", "dev", "local"):
+        # Dev auto-login: only when explicitly enabled via config flag
+        if not settings.app.allow_dev_autologin:
             return {"error": "Invalid email or password"}
 
         if "@" not in email or len(password) < 6:
             return {"error": "Invalid email or password"}
 
-        logger.warning(f"Dev-mode auto-login for {email} (APP_ENV={app_env})")
+        logger.warning(f"Dev-mode auto-login for {email}")
 
         # Auto-create demo user in database to satisfy FK constraints
         from services.database_service import get_database_service
 
         try:
             db = get_database_service()
-            demo_user_id = email  # Use email as user_id for simplicity
+            demo_user_id = str(uuid.uuid4())
 
             # Check if demo user already exists
             existing = db.get_user_by_email(email)

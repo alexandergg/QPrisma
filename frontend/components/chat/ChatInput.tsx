@@ -82,6 +82,7 @@ export default function ChatInput({
                   <button
                     onClick={() => onRemoveVideo(video.id)}
                     className="p-0.5 hover:bg-indigo-100 rounded-full transition-colors"
+                    aria-label={`Remove ${video.name}`}
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -100,6 +101,7 @@ export default function ChatInput({
                 onClick={onAttachVideo}
                 disabled={isDisabled}
                 className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                aria-label="Attach video"
                 title="Attach video"
               >
                 <Plus className="w-5 h-5" />
@@ -123,6 +125,7 @@ export default function ChatInput({
             <button
               onClick={onSend}
               disabled={isDisabled || isLoading || !value.trim()}
+              aria-label={isLoading ? 'Sending message' : 'Send message'}
               className={`p-3 rounded-xl transition-all ${
                 value.trim() && !isDisabled && !isLoading
                   ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-lg shadow-indigo-500/30'
@@ -140,6 +143,7 @@ export default function ChatInput({
               <button
                 onClick={onCancel}
                 className="p-3 rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                aria-label="Stop response"
                 title="Stop response"
               >
                 <Square className="w-4 h-4" />

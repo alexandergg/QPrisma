@@ -4,9 +4,10 @@ Authentication Routes
 Handles user registration, login, and token management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from api.dependencies import get_auth_service, get_current_user
+from api.dependencies import get_auth_service, get_current_user, get_token_from_header
+from api.rate_limit import limiter
 from models.api_schemas import (
     LoginRequest,
     RegisterRequest,
@@ -24,7 +25,8 @@ router = APIRouter(tags=["Authentication"])
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(request: RegisterRequest):
+@limiter.limit("5/minute")
+async def register(request: Request, body: RegisterRequest):
     """
     Register a new user.
 
@@ -33,9 +35,9 @@ async def register(request: RegisterRequest):
     auth_service = get_auth_service()
 
     result = auth_service.register(
-        email=request.email,
-        password=request.password,
-        name=request.name,
+        email=body.email,
+        password=body.password,
+        name=body.name,
     )
 
     if "error" in result:
@@ -45,7 +47,8 @@ async def register(request: RegisterRequest):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest):
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginRequest):
     """
     Authenticate user and get access token.
 
@@ -54,14 +57,31 @@ async def login(request: LoginRequest):
     auth_service = get_auth_service()
 
     result = auth_service.login(
-        email=request.email,
-        password=request.password,
+        email=body.email,
+        password=body.password,
     )
 
     if "error" in result:
         raise HTTPException(status_code=401, detail=result["error"])
 
     return TokenResponse(access_token=result["access_token"])
+
+
+@router.post("/logout")
+@limiter.limit("10/minute")
+async def logout(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    token: str = Depends(get_token_from_header),
+):
+    """
+    Logout and revoke the current JWT token.
+
+    Invalidates the token so it can no longer be used for authentication.
+    """
+    auth_service = get_auth_service()
+    await auth_service.revoke_token(token)
+    return {"message": "Successfully logged out"}
 
 
 @router.get("/me", response_model=UserResponse)

@@ -45,15 +45,11 @@ class TestEmbeddingServiceInit:
         assert service.endpoint == "https://custom.openai.azure.com"
         assert service.deployment == "custom_deployment"
 
-    def test_falls_back_to_environment_variables(self) -> None:
-        with patch.dict(
-            "os.environ",
-            {
-                "AZURE_OPENAI_API_KEY": "env_key",
-                "AZURE_OPENAI_ENDPOINT": "https://env.openai.azure.com",
-                "AZURE_OPENAI_DEPLOYMENT_EMBEDDING": "env_deployment",
-            },
-        ):
+    def test_falls_back_to_settings(self) -> None:
+        with patch("services.embedding_service.settings") as mock_settings:
+            mock_settings.azure.openai_api_key = "env_key"
+            mock_settings.azure.openai_endpoint = "https://env.openai.azure.com"
+            mock_settings.azure.openai_deployment_embedding = "env_deployment"
             service = EmbeddingService()
 
         assert service.api_key == "env_key"

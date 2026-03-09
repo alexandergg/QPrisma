@@ -109,6 +109,24 @@ class FrameExtractionConfig(BaseModel):
         gt=0,
     )
 
+    # Decoder backend
+    decoder_backend: str = Field(
+        default="pyav",
+        description="Decoder backend: 'pyav' (in-process) or 'ffmpeg_subprocess'",
+    )
+
+    # Frame deduplication (perceptual hashing)
+    deduplication_enabled: bool = Field(
+        default=True,
+        description="Remove near-duplicate frames using perceptual hashing",
+    )
+    deduplication_threshold: int = Field(
+        default=5,
+        description="Hamming distance threshold for phash dedup (lower = stricter)",
+        ge=0,
+        le=64,
+    )
+
     # General limits
     max_frames: int | None = Field(
         default=100, description="Maximum number of frames to extract", gt=0

@@ -2,44 +2,13 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { InteractiveNvlWrapper } from '@neo4j-nvl/react';
-import type { Node, Relationship, HitTargets } from '@neo4j-nvl/base';
+import type { Node, HitTargets } from '@neo4j-nvl/base';
 import type { MouseEventCallbacks } from '@neo4j-nvl/react';
-import useSWR from 'swr';
 import { Loader2, AlertCircle, Maximize2, Minimize2, Share2 } from 'lucide-react';
-import { apiClient } from '@/lib/api';
-import type {
-  GraphVisualizationData,
-  GraphExpandResult,
-  GraphNode,
-  GraphRelationship,
-} from '@/types';
 import { GraphControls } from './GraphControls';
 import { GraphLegend } from './GraphLegend';
-
-// ============================================================================
-// Helpers: Map backend data → NVL types
-// ============================================================================
-
-function toNvlNode(g: GraphNode): Node {
-  return {
-    id: g.id,
-    caption: g.caption,
-    color: g.color,
-    size: g.size,
-    pinned: false,
-  };
-}
-
-function toNvlRel(g: GraphRelationship): Relationship {
-  return {
-    id: g.id,
-    from: g.from,
-    to: g.to,
-    caption: g.caption,
-    type: g.type,
-    color: g.color || '#94A3B8',
-  };
-}
+import { NodeDetailPanel } from './NodeDetailPanel';
+import { useGraphData } from './useGraphData';
 
 // ============================================================================
 // Props
@@ -65,44 +34,22 @@ export default function KnowledgeGraphViewer({
   const [layout, setLayout] = useState<'forceDirected' | 'd3Force'>('forceDirected');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-
-  // Extra nodes/rels added via expand-on-click
-  const [extraNodes, setExtraNodes] = useState<GraphNode[]>([]);
-  const [extraRels, setExtraRels] = useState<GraphRelationship[]>([]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nvlRef = useRef<any>(null);
 
-  // Map from node id → backend GraphNode for property lookups
-  const nodeMapRef = useRef<Map<string, GraphNode>>(new Map());
-
-  // ── Data Fetching ────────────────────────────────────────────────────────
-  const { data, error, isLoading } = useSWR<GraphVisualizationData>(
-    videoId ? `graph-viz-${videoId}-${depth}` : null,
-    () => apiClient.getVideoVisualization(videoId, { depth }),
-    { revalidateOnFocus: false }
-  );
-
-  // Build combined NVL nodes & rels (initial + expanded)
-  const allGraphNodes = [...(data?.nodes ?? []), ...extraNodes];
-  const allGraphRels = [...(data?.relationships ?? []), ...extraRels];
-
-  // Deduplicate by id
-  const nodeById = new Map<string, GraphNode>();
-  for (const n of allGraphNodes) nodeById.set(n.id, n);
-  const relById = new Map<string, GraphRelationship>();
-  for (const r of allGraphRels) relById.set(r.id, r);
-
-  const nvlNodes: Node[] = Array.from(nodeById.values()).map(toNvlNode);
-  const nvlRels: Relationship[] = Array.from(relById.values()).map(toNvlRel);
-
-  // Update node lookup map
-  useEffect(() => {
-    nodeMapRef.current = nodeById;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allGraphNodes.length]);
+  // ── Data ─────────────────────────────────────────────────────────────────
+  const {
+    data,
+    error,
+    isLoading,
+    nvlNodes,
+    nvlRels,
+    nodeMapRef,
+    expandNode,
+    resetExpanded,
+  } = useGraphData(videoId, depth);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -125,28 +72,14 @@ export default function KnowledgeGraphViewer({
         onSeek(timestamp);
       }
     },
-    [onSeek]
+    [onSeek, nodeMapRef],
   );
 
   const handleNodeDoubleClick = useCallback(
     async (node: Node) => {
-      if (expandedNodes.has(node.id)) return;
-
-      try {
-        const result: GraphExpandResult = await apiClient.expandGraphNode(
-          node.id,
-          1,
-          50
-        );
-
-        setExtraNodes((prev) => [...prev, ...result.nodes]);
-        setExtraRels((prev) => [...prev, ...result.relationships]);
-        setExpandedNodes((prev) => new Set([...prev, node.id]));
-      } catch (err) {
-        console.error('Graph expand failed:', err);
-      }
+      await expandNode(node.id);
     },
-    [expandedNodes]
+    [expandNode],
   );
 
   const mouseCallbacks: MouseEventCallbacks = {
@@ -159,9 +92,7 @@ export default function KnowledgeGraphViewer({
     onCanvasClick: () => {
       setSelectedNodeId(null);
     },
-    // Enable drag-to-move nodes (pass true to use default behavior)
     onDrag: true,
-    // Enable hover highlight
     onHover: true,
   };
 
@@ -184,11 +115,9 @@ export default function KnowledgeGraphViewer({
   // ── Depth change (resets expanded state) ─────────────────────────────────
   const handleDepthChange = useCallback((newDepth: number) => {
     setDepth(newDepth);
-    setExtraNodes([]);
-    setExtraRels([]);
-    setExpandedNodes(new Set());
+    resetExpanded();
     setSelectedNodeId(null);
-  }, []);
+  }, [resetExpanded]);
 
   // ── Layout change ────────────────────────────────────────────────────────
   const handleLayoutChange = useCallback((newLayout: 'forceDirected' | 'd3Force') => {
@@ -304,58 +233,7 @@ export default function KnowledgeGraphViewer({
 
         {/* Selected node detail panel */}
         {selectedNode && (
-          <div className="absolute top-2 right-2 w-56 bg-white/95 backdrop-blur rounded-lg shadow-lg border border-gray-200 p-3 text-xs">
-            <div className="flex items-center gap-2 mb-2">
-              <div
-                className="w-3 h-3 rounded-full shrink-0"
-                style={{ backgroundColor: selectedNode.color }}
-              />
-              <span className="font-semibold text-gray-900 truncate">
-                {selectedNode.caption}
-              </span>
-            </div>
-            <div className="space-y-1 text-gray-500">
-              <p>
-                <span className="text-gray-700 font-medium">Type:</span>{' '}
-                {selectedNode.node_type}
-                {selectedNode.entity_type ? ` (${selectedNode.entity_type})` : ''}
-              </p>
-              {selectedNode.properties.description != null && (
-                <p className="line-clamp-3">
-                  {String(selectedNode.properties.description)}
-                </p>
-              )}
-              {selectedNode.properties.timestamp != null && (
-                <p>
-                  <span className="text-gray-700 font-medium">Time:</span>{' '}
-                  {Number(selectedNode.properties.timestamp).toFixed(1)}s
-                </p>
-              )}
-              {selectedNode.properties.start_time != null && (
-                <p>
-                  <span className="text-gray-700 font-medium">Range:</span>{' '}
-                  {Number(selectedNode.properties.start_time).toFixed(1)}s –{' '}
-                  {Number(selectedNode.properties.end_time).toFixed(1)}s
-                </p>
-              )}
-            </div>
-            {onSeek && selectedNode.properties.timestamp != null && (
-              <button
-                onClick={() => onSeek(Number(selectedNode.properties.timestamp))}
-                className="mt-2 w-full text-center text-indigo-600 hover:text-indigo-700 font-medium"
-              >
-                Seek to timestamp →
-              </button>
-            )}
-            {onSeek && selectedNode.properties.start_time != null && !selectedNode.properties.timestamp && (
-              <button
-                onClick={() => onSeek(Number(selectedNode.properties.start_time))}
-                className="mt-2 w-full text-center text-indigo-600 hover:text-indigo-700 font-medium"
-              >
-                Seek to start →
-              </button>
-            )}
-          </div>
+          <NodeDetailPanel selectedNode={selectedNode} onSeek={onSeek} />
         )}
       </div>
     </div>

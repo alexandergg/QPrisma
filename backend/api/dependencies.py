@@ -5,6 +5,7 @@ This module contains shared dependencies, utilities, and service getters
 that are used across multiple route modules.
 """
 
+import logging
 import re
 
 from azure.storage.blob import BlobServiceClient
@@ -16,6 +17,8 @@ from core.config import settings
 from models.user import User
 from services.auth_service import AuthService
 from services.database_service import get_database_service
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Security
@@ -33,6 +36,7 @@ _openai_client: AzureOpenAI | None = None
 _async_openai_client: AsyncAzureOpenAI | None = None
 _video_processor = None
 _auth_service: AuthService | None = None
+_pyav_extractor = None
 
 
 def get_blob_service() -> BlobServiceClient | None:
@@ -97,6 +101,25 @@ def get_video_processor():
     return _video_processor
 
 
+def get_pyav_extractor():
+    """Get or create PyAVFrameExtractor singleton.
+
+    Returns ``None`` when the ``av`` package is not installed.
+    """
+    global _pyav_extractor
+    if _pyav_extractor is None:
+        try:
+            from services.pyav_extractor import PyAVFrameExtractor, is_pyav_available
+
+            if is_pyav_available():
+                _pyav_extractor = PyAVFrameExtractor()
+            else:
+                logger.debug("PyAV not available — get_pyav_extractor() returning None")
+        except ImportError:
+            logger.debug("pyav_extractor module not found — returning None")
+    return _pyav_extractor
+
+
 def get_auth_service() -> AuthService:
     """Get or create Auth Service."""
     global _auth_service
@@ -105,7 +128,113 @@ def get_auth_service() -> AuthService:
     return _auth_service
 
 
+_knowledge_graph_service = None
+
+_scene_detect_service = None
+
+_video_decoder = None
+
+
+def get_video_decoder():
+    """Get or create a :class:`VideoDecoder` singleton.
+
+    The decoder backend is selected from ``settings.app.video_decoder_backend``
+    (default ``"pyav"``).  If the requested backend is unavailable the best
+    available decoder is returned instead.
+
+    Returns ``None`` only when **no** decoder can be instantiated (both
+    PyAV and FFmpeg missing).
+    """
+    global _video_decoder
+    if _video_decoder is None:
+        from services.video_decoder import get_best_decoder, get_decoder_by_name
+
+        try:
+            backend = settings.app.video_decoder_backend
+        except Exception:
+            backend = "pyav"
+
+        try:
+            _video_decoder = get_decoder_by_name(backend)
+        except (ValueError, RuntimeError):
+            logger.warning(
+                "Configured decoder %r unavailable — falling back to best available",
+                backend,
+            )
+            try:
+                _video_decoder = get_best_decoder()
+            except RuntimeError:
+                logger.error("No video decoder backend available")
+                return None
+    return _video_decoder
+
+
+def get_scene_detect_service():
+    """Get or create SceneDetectService singleton."""
+    global _scene_detect_service
+    if _scene_detect_service is None:
+        from services.scene_detect_service import SceneDetectService
+
+        _scene_detect_service = SceneDetectService()
+    return _scene_detect_service
+
+
+def get_knowledge_graph_service():
+    """Get or create Knowledge Graph Service, ensuring it is connected."""
+    global _knowledge_graph_service
+    if _knowledge_graph_service is None:
+        from services.knowledge_graph import (
+            get_knowledge_graph_service as _get_kg_service,
+        )
+
+        _knowledge_graph_service = _get_kg_service()
+        if not _knowledge_graph_service.is_connected:
+            _knowledge_graph_service.connect()
+    return _knowledge_graph_service
+
+
 _graph_search_service = None
+
+_faster_whisper_transcriber = None
+
+
+def get_faster_whisper_transcriber():
+    """Get or create FasterWhisperTranscriber singleton.
+
+    Returns ``None`` when the ``faster-whisper`` package is not installed
+    or the backend is not configured.
+    """
+    global _faster_whisper_transcriber
+    if _faster_whisper_transcriber is None:
+        if settings.azure.whisper_backend != "faster_whisper":
+            logger.debug(
+                "faster-whisper backend not selected (whisper_backend=%s)",
+                settings.azure.whisper_backend,
+            )
+            return None
+        try:
+            from services.faster_whisper_service import (
+                FasterWhisperTranscriber,
+                is_faster_whisper_available,
+            )
+
+            if not is_faster_whisper_available():
+                logger.warning(
+                    "whisper_backend is 'faster_whisper' but the package is not installed. "
+                    "Install with: pip install 'qprisma-backend[gpu]'"
+                )
+                return None
+
+            _faster_whisper_transcriber = FasterWhisperTranscriber(
+                model_size=settings.azure.faster_whisper_model,
+                device=settings.azure.faster_whisper_device,
+                compute_type=settings.azure.faster_whisper_compute_type,
+                batch_size=settings.azure.faster_whisper_batch_size,
+            )
+        except Exception:
+            logger.exception("Failed to create FasterWhisperTranscriber")
+            return None
+    return _faster_whisper_transcriber
 
 
 def get_graph_search_service():
@@ -115,12 +244,33 @@ def get_graph_search_service():
         from services.graph_search_service import GraphSearchService
 
         _graph_search_service = GraphSearchService()
+        _graph_search_service.graph_service = get_knowledge_graph_service()
         # Initialize vector indexes on first use
         try:
             _graph_search_service.initialize_vector_indexes()
-        except Exception:
-            pass  # Neo4j may not be connected yet
+        except Exception as e:
+            logger.warning(f"Failed to initialize vector indexes (Neo4j may not be connected): {e}")
     return _graph_search_service
+
+
+_hierarchical_context_service = None
+
+
+def get_hierarchical_context_service():
+    """Get or create Hierarchical Context Service."""
+    global _hierarchical_context_service
+    if _hierarchical_context_service is None:
+        from services.embedding_service import get_embedding_service
+        from services.hierarchical_context_service import (
+            get_hierarchical_context_service as _get_hcs,
+        )
+
+        graph_svc = get_knowledge_graph_service()
+        embedding_svc = get_embedding_service()
+        _hierarchical_context_service = _get_hcs(
+            graph_service=graph_svc, embedding_service=embedding_svc
+        )
+    return _hierarchical_context_service
 
 
 async def get_tool_artifact_service():
@@ -180,6 +330,18 @@ def get_media_or_404(
 security_optional = HTTPBearer(auto_error=False)
 
 
+async def get_token_from_header(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> str:
+    """
+    Extract raw JWT token string from Authorization header.
+
+    Returns:
+        Raw JWT token string
+    """
+    return credentials.credentials
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> User:
@@ -194,7 +356,7 @@ async def get_current_user(
     auth_service = get_auth_service()
 
     try:
-        token_data = auth_service.verify_token(credentials.credentials)
+        token_data = await auth_service.verify_token(credentials.credentials)
         # Create User from token data
         now = datetime.now(UTC)
         return User(
@@ -229,7 +391,7 @@ async def get_current_user_optional(
     auth_service = get_auth_service()
 
     try:
-        token_data = auth_service.verify_token(credentials.credentials)
+        token_data = await auth_service.verify_token(credentials.credentials)
         now = datetime.now(UTC)
         return User(
             id=token_data.user_id,

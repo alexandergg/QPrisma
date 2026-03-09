@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { Sparkles, Upload, Library, MessageSquare, ArrowRight } from 'lucide-react';
 
 interface QuickSuggestion {
@@ -30,7 +30,7 @@ const LIBRARY_SUGGESTIONS: QuickSuggestion[] = [
   { text: 'What are my most discussed subjects?' },
 ];
 
-export default function WelcomeScreen({
+function WelcomeScreen({
   onUploadVideo,
   onBrowseLibrary,
   onQuickSuggestion,
@@ -121,3 +121,5 @@ export default function WelcomeScreen({
     </div>
   );
 }
+
+export default memo(WelcomeScreen);

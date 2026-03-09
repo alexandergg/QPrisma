@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_call:          # Allow release.yml to call this workflow
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -136,3 +139,33 @@ jobs:
 
       - name: Run Jest tests
         run: npm test -- --ci --coverage
+
+  security:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup backend
+        uses: ./.github/actions/setup-backend
+        with:
+          working-directory: backend
+
+      - name: Setup frontend
+        uses: ./.github/actions/setup-frontend
+        with:
+          working-directory: frontend
+
+      - name: Audit Python dependencies
+        working-directory: backend
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --fix --dry-run || true
+
+      - name: Audit npm dependencies
+        working-directory: frontend
+        continue-on-error: true
+        run: npm audit --audit-level=high || true

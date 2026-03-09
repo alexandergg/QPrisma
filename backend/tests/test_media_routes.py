@@ -8,6 +8,7 @@ from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 
 @pytest.mark.unit
@@ -179,8 +180,10 @@ class TestDeleteMedia:
 @pytest.mark.unit
 class TestMediaStatus:
     def test_not_found(self, authenticated_client, mock_db_service):
-        mock_db_service.get_media_status.return_value = None
-        with patch("api.routes.media_routes.get_database_service", return_value=mock_db_service):
+        with patch(
+            "api.routes.media_routes.get_media_or_404",
+            side_effect=HTTPException(status_code=404, detail="Media not found"),
+        ):
             resp = authenticated_client.get("/media/nonexistent/status")
 
         assert resp.status_code == 404
@@ -190,7 +193,11 @@ class TestMediaStatus:
             "status": "completed",
             "progress": 100,
         }
-        with patch("api.routes.media_routes.get_database_service", return_value=mock_db_service):
+        mock_media = MagicMock(user_id="user_test123")
+        with (
+            patch("api.routes.media_routes.get_media_or_404", return_value=mock_media),
+            patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
+        ):
             resp = authenticated_client.get("/media/some_id/status")
 
         assert resp.status_code == 200

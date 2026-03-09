@@ -7,7 +7,7 @@ Replaces Cosmos DB with PostgreSQL for:
 - Job tracking
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -33,8 +33,12 @@ class UserModel(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
     # Relationships
     media = relationship("MediaModel", back_populates="user", cascade="all, delete-orphan")
@@ -87,9 +91,15 @@ class MediaModel(Base):
     frames_data_blob = Column(String(512), nullable=True)
 
     # Timestamps
-    upload_date = Column(DateTime, default=datetime.utcnow)
-    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_accessed_at = Column(DateTime, default=datetime.utcnow)  # For storage tiering
+    upload_date = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    last_updated = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+    last_accessed_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )  # For storage tiering
 
     # Storage tiering
     storage_tier = Column(String(32), default="Hot")  # Hot, Cool, Cold, Archive
@@ -148,7 +158,7 @@ class JobModel(Base):
     message = Column(Text, nullable=True)
     result = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
@@ -197,8 +207,12 @@ class EditorProjectModel(Base):
     export_url = Column(String(512), nullable=True)  # Final exported video URL
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
     # Relationships
     clips = relationship(
@@ -281,8 +295,12 @@ class ClipModel(Base):
     export_format = Column(String(32), nullable=True)  # tiktok, reels, etc.
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
     # Relationships
     project = relationship("EditorProjectModel", back_populates="clips")
@@ -358,7 +376,7 @@ class BatchJobModel(Base):
     batch_metadata = Column(JSON, nullable=True)  # Custom metadata
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)  # 24h window
@@ -431,9 +449,15 @@ class ToolArtifactModel(Base):
     artifact_metadata = Column(JSON, nullable=True)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_accessed_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+    last_accessed_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -476,8 +500,12 @@ class A2ATaskModel(Base):
     history = Column(JSON, nullable=True)
     task_metadata = Column(JSON, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {

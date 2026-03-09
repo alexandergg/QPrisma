@@ -6,6 +6,20 @@ LangGraph tools for video search and editor functionality.
 All tools use the @tool decorator and InjectedState for context.
 """
 
+# Analysis tools (split from general.py)
+from .analysis_tools import (
+    compare_moments,
+    get_entity_timeline,
+    get_related_content,
+)
+
+# Context tools (split from general.py)
+from .context_tools import (
+    get_scene_context,
+    get_summary,
+    get_video_info,
+    list_chapters,
+)
 from .editor import (
     EDITOR_TOOLS,
     add_subtitles,
@@ -24,24 +38,27 @@ from .editor import (
     remove_subtitles,
     reorder_clips,
 )
-from .general import (
+
+# Aggregated collection (re-exported from general.py for backward compat)
+from .general import SEARCH_TOOLS  # noqa: F401
+
+# Highlight tools (split from general.py)
+from .highlight_tools import find_highlights
+
+# Multi-video tools (split from general.py)
+from .multi_video_tools import (
     MULTI_VIDEO_TOOLS,
-    SEARCH_TOOLS,
-    compare_moments,
     compare_videos,
-    describe_scene,
     find_common_entities,
-    find_entity,
-    find_highlights,
-    get_entity_timeline,
     get_library_overview,
-    get_related_content,
-    get_scene_context,
-    get_summary,
-    get_transcript,
-    get_video_info,
-    list_chapters,
     search_across_videos,
+)
+
+# Search tools (split from general.py)
+from .search_tools import (
+    describe_scene,
+    find_entity,
+    get_transcript,
     search_video,
 )
 

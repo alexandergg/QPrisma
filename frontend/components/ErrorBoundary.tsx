@@ -2,6 +2,7 @@
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { Button } from '@/components/ui';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -88,20 +89,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             )}
 
             <div className="flex gap-3 justify-center">
-              <button
-                onClick={this.handleRetry}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
+              <Button variant="primary" onClick={this.handleRetry}>
                 <RefreshCw className="w-4 h-4" />
                 Try Again
-              </button>
-              <button
-                onClick={this.handleGoHome}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-              >
+              </Button>
+              <Button variant="secondary" onClick={this.handleGoHome}>
                 <Home className="w-4 h-4" />
                 Go Home
-              </button>
+              </Button>
             </div>
           </div>
         </div>

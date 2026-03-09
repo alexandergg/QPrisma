@@ -3,7 +3,7 @@ User models for authentication and authorization.
 """
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -73,8 +73,8 @@ class UserInDB(UserBase):
 
     id: str = Field(..., description="Unique user identifier")
     hashed_password: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     model_config = {
         "json_schema_extra": {

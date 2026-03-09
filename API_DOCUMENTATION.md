@@ -41,9 +41,26 @@ Include the token in the Authorization header:
 Authorization: Bearer eyJhbGc...
 ```
 
+### Logout (Token Revocation)
+```http
+POST /auth/logout
+Authorization: Bearer eyJhbGc...
+```
+
+**Response:**
+```json
+{
+  "message": "Successfully logged out"
+}
+```
+
+Revokes the JWT so it can no longer be used. Tokens are added to a Redis-backed JTI denylist.
+
 ## A2A Protocol (Agent-to-Agent)
 
 QPrisma implements the [A2A Protocol](https://a2a-protocol.org/) for standardized agent communication. This enables interoperability with other A2A-compliant agents.
+
+> **Rate Limiting**: All A2A endpoints are rate-limited via slowapi. Message endpoints allow 60 requests/minute; task listing allows 120/minute; task cancellation allows 30/minute.
 
 ### Agent Discovery
 
@@ -829,12 +846,18 @@ GET /batch/status/{batch_id}
 
 ## WebSocket Endpoints
 
+### Authentication
+
+All WebSocket endpoints require JWT authentication via either:
+- **Query parameter**: `?token=<JWT>` on the connection URL
+- **First message**: send `{"token": "<JWT>"}` immediately after connecting
+
 ### Real-time Processing Updates
 
 Connect to WebSocket for live updates:
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/processing/{video_id}');
+const ws = new WebSocket('ws://localhost:8000/ws/processing/{video_id}?token=eyJ...');
 
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
@@ -877,9 +900,16 @@ All errors follow this format:
 
 ## Rate Limiting
 
+Rate limits are enforced per-IP via slowapi:
+
+- **Auth endpoints**: 5-10 requests/minute
+- **A2A message endpoints**: 60 requests/minute
+- **A2A task list**: 120 requests/minute
+- **A2A task cancel/subscribe**: 30-60 requests/minute
+- **Upload endpoint**: 20 uploads/minute
 - **Standard endpoints**: 100 requests/minute
-- **Upload endpoint**: 10 uploads/minute
-- **Search endpoint**: 30 requests/minute
+
+> **Cache endpoints**: Cache management endpoints (`/cache/*`) require JWT authentication. Health and config endpoints are open; mutation endpoints (invalidate, reset metrics) require auth.
 
 Rate limit headers:
 ```http

@@ -93,4 +93,5 @@ async def get_video_structure(media_id: str, current_user: User = Depends(get_cu
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        logger.error(f"Failed to get video structure for media_id={media_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="An internal error occurred")

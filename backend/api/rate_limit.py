@@ -1,0 +1,10 @@
+"""
+Rate Limiting Configuration
+
+Shared limiter instance for use across route modules.
+"""
+
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)

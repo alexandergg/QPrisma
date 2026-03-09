@@ -13,7 +13,6 @@ This approach provides:
 - Key topic extraction for categorization
 """
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -21,6 +20,7 @@ from typing import Any
 
 from openai import APIConnectionError, APIError, AzureOpenAI, RateLimitError
 
+from core.concurrency import map_concurrent
 from core.config import create_azure_openai_client, get_settings
 from services.scene_analyzer import Scene, VideoStructure
 
@@ -354,31 +354,39 @@ Respond in JSON format:
         """
         logger.info(f"Starting hierarchical summarization for {len(structure.scenes)} scenes")
 
-        # Step 1: Summarize scenes (can be parallelized)
-        scene_tasks = [self.summarize_scene(scene, config) for scene in structure.scenes]
+        # Step 1: Summarize scenes with bounded concurrency (TaskGroup).
+        # Uses map_concurrent for proper cancellation: if the LLM API is
+        # unreachable, remaining scenes are cancelled immediately instead
+        # of wasting time on doomed requests.
+        async def _summarize_one(scene: Scene) -> dict[str, Any]:
+            return await self.summarize_scene(scene, config)
 
-        # Process in batches to avoid rate limits
-        batch_size = 5
-        for i in range(0, len(scene_tasks), batch_size):
-            batch = scene_tasks[i : i + batch_size]
-            results = await asyncio.gather(*batch, return_exceptions=True)
+        try:
+            scene_results: list[dict[str, Any]] = await map_concurrent(
+                _summarize_one,
+                structure.scenes,
+                max_concurrency=5,
+                task_name_prefix="scene-summarize",
+            )
+        except* (APIError, APIConnectionError, RateLimitError) as eg:
+            logger.error(
+                f"Scene summarization failed (API errors): " f"{[str(e) for e in eg.exceptions]}"
+            )
+            raise
+        except* Exception as eg:
+            logger.error(f"Scene summarization failed: " f"{[str(e) for e in eg.exceptions]}")
+            raise
 
-            for j, result in enumerate(results):
-                scene_idx = i + j
-                if scene_idx < len(structure.scenes):
-                    if isinstance(result, Exception):
-                        logger.error(f"Scene {scene_idx} summarization failed: {result}")
-                        continue
+        for scene_idx, result in enumerate(scene_results):
+            scene = structure.scenes[scene_idx]
+            scene.summary = result.get("summary", "")
+            scene.title = result.get("title", f"Scene {scene_idx + 1}")
 
-                    scene = structure.scenes[scene_idx]
-                    scene.summary = result.get("summary", "")
-                    scene.title = result.get("title", f"Scene {scene_idx + 1}")
-
-                    # Add key elements to detected objects
-                    key_elements = result.get("key_elements", [])
-                    if key_elements:
-                        existing = set(scene.detected_objects or [])
-                        scene.detected_objects = list(existing | set(key_elements))
+            # Add key elements to detected objects
+            key_elements = result.get("key_elements", [])
+            if key_elements:
+                existing = set(scene.detected_objects or [])
+                scene.detected_objects = list(existing | set(key_elements))
 
         logger.info("Completed scene summarization")
 

@@ -109,6 +109,9 @@ function VideoCard({
                 setShowMenu(!showMenu);
               }}
               className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors opacity-0 group-hover:opacity-100"
+              aria-label="Video options"
+              aria-haspopup="true"
+              aria-expanded={showMenu}
             >
               <MoreVertical className="w-4 h-4" />
             </button>
@@ -123,7 +126,7 @@ function VideoCard({
                     setShowMenu(false);
                   }}
                 />
-                <div className="absolute right-0 top-8 z-20 bg-white rounded-xl shadow-xl border border-gray-100 py-1 min-w-[140px]">
+                <div role="menu" className="absolute right-0 top-8 z-20 bg-white rounded-xl shadow-xl border border-gray-100 py-1 min-w-[140px]">
                   {onDelete && (
                     <button
                       onClick={(e) => {
@@ -132,6 +135,7 @@ function VideoCard({
                         onDelete();
                       }}
                       className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                      role="menuitem"
                     >
                       <Trash2 className="w-4 h-4" />
                       Delete

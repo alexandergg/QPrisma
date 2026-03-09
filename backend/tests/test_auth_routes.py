@@ -111,3 +111,15 @@ class TestRefreshToken:
     def test_refresh_unauthenticated(self, client):
         resp = client.post("/auth/refresh")
         assert resp.status_code in (401, 403)
+
+
+@pytest.mark.unit
+class TestLogout:
+    def test_logout_success(self, authenticated_client):
+        resp = authenticated_client.post("/auth/logout")
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "Successfully logged out"
+
+    def test_logout_unauthenticated(self, client):
+        resp = client.post("/auth/logout")
+        assert resp.status_code in (401, 403)

@@ -8,6 +8,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+#### Security
+- **JWT authentication on WebSocket endpoints**: All WebSocket connections require JWT via query parameter (`?token=`) or first-message (`{"token": "..."}`).
+- **Auth on cache endpoints**: Cache mutation endpoints (`/cache/invalidate`, `/cache/metrics/reset`, etc.) now require `Depends(get_current_user)`.
+- **Rate limiting on A2A endpoints**: slowapi-based per-IP rate limiting (60/min messages, 120/min task list, 30/min cancel).
+- **Security headers middleware**: Adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection`, and related headers on all responses.
+- **Error message sanitization**: Internal details (stack traces, service names) are never leaked in API error responses.
+- **Non-root Docker user**: Containers run as `appuser` (UID 1001) via `USER` directive in Dockerfile.
+- **Token revocation**: Redis-backed JTI denylist with `POST /auth/logout` endpoint to invalidate tokens.
+- **Credential cleanup in docker-compose**: All credentials parameterized with `${VAR:-default}` patterns.
+- **CI security scanning**: `pip-audit` (backend) and `npm audit` (frontend) added to CI pipeline.
+- **CI/CD permission scoping**: Workflow permissions follow least-privilege principle.
+
+#### Video Pipeline
+- **PyAV integration**: C-level FFmpeg bindings as primary video decoder — zero subprocess overhead. (`services/pyav_extractor.py`)
+- **Unified VideoDecoder protocol**: Protocol-based abstraction (`services/video_decoder.py`) with `PyAVDecoder` (default) and `FFmpegSubprocessDecoder` (fallback), extensible for GPU backends.
+- **PySceneDetect integration**: Professional scene boundary detection with `AdaptiveDetector` (gradual transitions) and `ContentDetector` (hard cuts). (`services/scene_detect_service.py`)
+- **Parallel audio transcription**: `asyncio.gather` + `Semaphore`-bounded concurrent chunk processing.
+- **faster-whisper backend**: Optional local CTranslate2-based transcription — 4× faster than Azure Whisper, INT8 quantization, Silero VAD. (`services/faster_whisper_service.py`)
+- **Frame deduplication**: Perceptual hashing via `imagehash` to skip visually redundant frames.
+- **WebP frame encoding**: Default frame format changed from JPEG to WebP (25-35% smaller at equivalent quality).
+- **Configurable embedding batch size**: Default 512 (up from 16) with adaptive retry that halves batch size on failure.
+- **Dynamic thread pool sizing**: Container-aware worker count auto-detection for FFmpeg extraction.
+- **Streaming pipeline architecture**: Opt-in async generator pipeline reducing peak memory from O(all_frames) to O(batch_size).
+
+#### Code Quality
+- **`core/errors.py`**: Standardized HTTP error helpers (`not_found`, `bad_request`, `forbidden`, `unauthorized`, `internal_error`, `conflict`, `service_unavailable`).
+- **`core/retry.py`**: Centralized async retry with exponential backoff (`retry_async()` function + `@retry_on()` decorator).
+- **`core/concurrency.py`**: TaskGroup-based structured concurrency (`gather_with_taskgroup()`, `map_concurrent()` with bounded concurrency).
+- **`services/processing_metrics.py`**: Pipeline observability with `PipelineMetrics`, `StageMetrics` dataclasses and `ProcessingTimer` context manager.
+- **Test coverage**: New test files for security headers, token revocation, WebSocket auth, A2A rate limits, error sanitization, PyAV extractor, scene detection, faster-whisper, video decoder protocol, streaming pipeline, parallel transcription, retry, concurrency, processing metrics, and video performance optimizations.
+
+#### Previously Added (this release cycle)
 - **Durable A2A task persistence (PostgreSQL)**:
   - Added `A2ATaskModel` (`a2a_tasks`) to persist A2A lifecycle state (`status`, `artifacts`, `history`, metadata, timestamps).
   - Added database operations in `database_service.py`: `upsert_a2a_task()`, `get_a2a_task()`, `list_a2a_tasks()`.
@@ -18,6 +51,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `docs/MEMORY_ARCHITECTURE.md` documenting layer responsibilities (LocalStorage, LangGraph checkpointer, Mem0, A2A Task Store), source-of-truth policy, ID mapping, and operational guidance.
 
 ### Changed
+
+#### Code Quality
+- **File decomposition**: Split oversized modules — `tools/general.py` (1800→5 modules: `search_tools.py`, `analysis_tools.py`, `context_tools.py`, `highlight_tools.py`, `multi_video_tools.py`), `a2a_routes.py` (→3 sub-routers: `a2a_agent_cards.py`, `a2a_message_routes.py`, `a2a_task_routes.py`), `graph_search_service.py` (→2 mixins: `graph_search_queries.py`, `graph_search_scoring.py`).
+- **Dependency pinning**: All Python and Node.js dependencies pinned with upper bounds.
+- **`os.getenv()` → `settings`**: Replaced raw env var access with typed `core.config.settings` object throughout backend.
+- **`print()` → `logger`**: All runtime `print()` calls converted to structured logging.
+
+#### Frontend
+- Dead code removal and type safety fixes across components.
+- Accessibility improvements (aria-labels, roles on interactive elements).
+- Performance patterns: `React.memo` + `useCallback` on frequently re-rendered components.
+
+#### Previously Changed (this release cycle)
 - **README Branding**: Added QPrisma logo to README header.
 - **A2A checkpointer and execution resilience**:
   - `agent/a2a.py` now resolves a shared production checkpointer (production saver with `MemorySaver` fallback).

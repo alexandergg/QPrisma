@@ -7,6 +7,7 @@ Uses the same approach as run_first_eval.py but with Video-MME benchmark data.
 
 import asyncio
 import json
+import logging
 import os
 import re
 import time
@@ -15,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 API_URL = os.environ.get("QPRISMA_API_URL", "http://localhost:8000")
 EMAIL = os.environ.get("QPRISMA_EVAL_EMAIL", "")
@@ -106,11 +109,11 @@ async def run_evaluation():
     run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     output_dir = OUTPUT_BASE / f"run_{run_id}"
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Output: {output_dir}")
+    logger.info("Output: %s", output_dir)
 
     # Load benchmark
     subset = json.loads(SUBSET_PATH.read_text(encoding="utf-8"))
-    print(f"Loaded {len(subset)} questions from Video-MME subset")
+    logger.info("Loaded %d questions from Video-MME subset", len(subset))
 
     # Login
     if not EMAIL or not PASSWORD:
@@ -119,7 +122,7 @@ async def run_evaluation():
         r = await c.post("/auth/login", json={"email": EMAIL, "password": PASSWORD})
         r.raise_for_status()
         token = r.json()["access_token"]
-    print("Authenticated successfully")
+    logger.info("Authenticated successfully")
 
     results = []
     correct = 0
@@ -203,11 +206,18 @@ async def run_evaluation():
         results.append(result)
 
         status = "✓" if is_correct else "✗"
-        print(
-            f"  [{i+1}/{len(subset)}] {status} {qid:12s} "
-            f"pred={predicted} correct={correct_answer} "
-            f"tools={tool_calls} sources={sources} "
-            f"cat={category} ({latency_ms:.0f}ms)"
+        logger.info(
+            "  [%d/%d] %s %s pred=%s correct=%s tools=%d sources=%d cat=%s (%.0fms)",
+            i + 1,
+            len(subset),
+            status,
+            qid,
+            predicted,
+            correct_answer,
+            tool_calls,
+            sources,
+            category,
+            latency_ms,
         )
 
     # Compute stats
@@ -225,21 +235,29 @@ async def run_evaluation():
         if r["is_correct"]:
             cats[c]["correct"] += 1
 
-    print(f"\n{'='*70}")
-    print("Video-MME Subset Results (v2 - with improvements)")
-    print(f"{'='*70}")
-    print(f"Overall: {correct}/{total} = {accuracy*100:.1f}%")
-    print(f"Avg latency: {sum(r['latency_ms'] for r in results)/total:.0f}ms")
-    print(f"Avg tool calls: {sum(r['tool_calls'] for r in results)/total:.1f}")
-    print(f"Avg sources: {sum(r['sources'] for r in results)/total:.1f}")
+    logger.info("\n%s", "=" * 70)
+    logger.info("Video-MME Subset Results (v2 - with improvements)")
+    logger.info("=" * 70)
+    logger.info("Overall: %d/%d = %.1f%%", correct, total, accuracy * 100)
+    logger.info("Avg latency: %.0fms", sum(r["latency_ms"] for r in results) / total)
+    logger.info("Avg tool calls: %.1f", sum(r["tool_calls"] for r in results) / total)
+    logger.info("Avg sources: %.1f", sum(r["sources"] for r in results) / total)
 
-    print(f"\n{'Category':<30s} {'Accuracy':>10s} {'Avg Tools':>10s} {'Avg Sources':>12s}")
-    print("-" * 65)
+    logger.info("\n%-30s %10s %10s %12s", "Category", "Accuracy", "Avg Tools", "Avg Sources")
+    logger.info("-" * 65)
     for cat, v in sorted(cats.items(), key=lambda x: x[1]["correct"] / x[1]["total"], reverse=True):
         acc = 100 * v["correct"] / v["total"]
         avg_t = v["tools"] / v["total"]
         avg_s = v["sources"] / v["total"]
-        print(f"{cat:<30s} {v['correct']}/{v['total']} = {acc:5.1f}% {avg_t:>8.1f} {avg_s:>10.1f}")
+        logger.info(
+            "%-30s %d/%d = %5.1f%% %8.1f %10.1f",
+            cat,
+            v["correct"],
+            v["total"],
+            acc,
+            avg_t,
+            avg_s,
+        )
 
     # Save report
     report = {
@@ -264,8 +282,13 @@ async def run_evaluation():
 
     report_path = output_dir / "report.json"
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\nReport saved to {report_path}")
+    logger.info("\nReport saved to %s", report_path)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
     asyncio.run(run_evaluation())

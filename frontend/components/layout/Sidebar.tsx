@@ -1,33 +1,22 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   Zap,
   Plus,
   Film,
   Library,
-  MessageSquare,
   Settings,
   LogOut,
   ChevronRight,
-  Trash2,
   Scissors,
   Upload,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { ConversationsList, type Conversation } from './ConversationsList';
 
 export type ChatMode = 'single' | 'library';
-
-interface Conversation {
-  id: string;
-  title: string;
-  videoId?: string;
-  videoName?: string;
-  lastMessage?: string;
-  updatedAt: Date;
-  mode: ChatMode;
-}
 
 interface SidebarProps {
   conversations: Conversation[];
@@ -51,7 +40,6 @@ export default function Sidebar({
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const [hoveredConversation, setHoveredConversation] = useState<string | null>(null);
 
   const handleLogout = () => {
     logout();
@@ -188,79 +176,12 @@ export default function Sidebar({
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-1">
             Recent Conversations
           </p>
-          
-          {conversations.length === 0 ? (
-            <div className="text-center py-8">
-              <MessageSquare className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-              <p className="text-sm text-gray-400">No conversations yet</p>
-              <p className="text-xs text-gray-400 mt-1">Start a new chat to begin</p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {conversations.map((conversation) => {
-                const isActive = activeConversationId === conversation.id;
-                const isHovered = hoveredConversation === conversation.id;
-
-                return (
-                  <div
-                    key={conversation.id}
-                    onMouseEnter={() => setHoveredConversation(conversation.id)}
-                    onMouseLeave={() => setHoveredConversation(null)}
-                    onClick={() => onSelectConversation(conversation.id)}
-                    className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all ${
-                      isActive
-                        ? 'bg-indigo-50 border border-indigo-200'
-                        : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    {/* Icon */}
-                    <div
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        isActive
-                          ? 'bg-indigo-500 text-white'
-                          : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200'
-                      }`}
-                    >
-                      {conversation.mode === 'library' ? (
-                        <Library className="w-4 h-4" />
-                      ) : (
-                        <Film className="w-4 h-4" />
-                      )}
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={`text-sm font-medium truncate ${
-                          isActive ? 'text-indigo-700' : 'text-gray-700'
-                        }`}
-                      >
-                        {conversation.title}
-                      </p>
-                      {conversation.videoName && (
-                        <p className="text-xs text-gray-400 truncate">
-                          {conversation.videoName}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Actions */}
-                    {isHovered && onDeleteConversation && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteConversation(conversation.id);
-                        }}
-                        className="p-1.5 hover:bg-red-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <ConversationsList
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            onSelectConversation={onSelectConversation}
+            onDeleteConversation={onDeleteConversation}
+          />
         </div>
 
         {/* User Section */}
