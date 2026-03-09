@@ -256,7 +256,7 @@ def extract_frames_task(
     self,
     download_result: dict,
     job_id: str,
-    max_frames: int = 20,
+    max_frames: int | None = None,
     preset: str | None = None,
 ) -> dict:
     """
@@ -343,22 +343,22 @@ def extract_frames_task(
             try:
                 preset_enum = ProcessingPreset(preset)
                 config = get_preset_config(preset_enum)
-                # Override max_frames if explicitly provided
-                if max_frames:
+                # Override max_frames only if explicitly provided by the caller
+                if max_frames is not None:
                     config.frame_extraction.max_frames = max_frames
             except ValueError:
                 logger.warning("Unknown preset '%s' — falling back to UNIFORM", preset)
                 config = FFmpegProcessingConfig(
                     frame_extraction=FrameExtractionConfig(
                         method=FrameExtractionMethod.UNIFORM,
-                        max_frames=max_frames,
+                        max_frames=max_frames or settings.app.default_max_frames,
                     )
                 )
         else:
             config = FFmpegProcessingConfig(
                 frame_extraction=FrameExtractionConfig(
                     method=FrameExtractionMethod.UNIFORM,
-                    max_frames=max_frames,
+                    max_frames=max_frames or settings.app.default_max_frames,
                 )
             )
 
@@ -794,7 +794,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
     job_id = self.request.id or f"job_{video_id}"
     config = config or {}
-    max_frames = config.get("max_frames", 20)
+    max_frames = config.get("max_frames")
     custom_prompt = config.get("custom_prompt")
     preset = config.get("preset")
 

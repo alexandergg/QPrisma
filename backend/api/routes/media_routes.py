@@ -211,7 +211,7 @@ async def upload_media(
                 from tasks.video_tasks import process_video_pipeline
 
                 celery_config = {
-                    "max_frames": int(max_frames) if max_frames else 20,
+                    "max_frames": int(max_frames) if max_frames else None,
                     "custom_prompt": None,
                     "index_graph": True,
                     "preset": preset,
