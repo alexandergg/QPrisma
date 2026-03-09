@@ -25,8 +25,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 
-import numpy as np
-
 from models.graph_models import ChapterNode, NodeType, RelationType, SceneNode, VideoNode
 from services.embedding_service import EmbeddingService
 from services.hierarchical_summarizer import HierarchicalSummarizer, SummaryConfig
@@ -140,12 +138,24 @@ class HierarchicalContextService:
 
         self.summarizer = HierarchicalSummarizer()
 
+        # Compose focused helpers (lazy imports avoid circular dependencies)
+        from services.hierarchy_embedding_generator import HierarchyEmbeddingGenerator
+        from services.hierarchy_node_factory import HierarchyNodeFactory
+
+        self._embedding_generator = HierarchyEmbeddingGenerator(
+            embedding_service=self.embedding_service,
+            config=self.config,
+        )
+        self._node_factory = HierarchyNodeFactory(
+            knowledge_graph=self.graph_service,
+        )
+
         # Ensure graph connection
         if not self.graph_service.is_connected:
             self.graph_service.connect()
 
     # =========================================================================
-    # Embedding Generation & Pooling
+    # Embedding Generation & Pooling (delegated to HierarchyEmbeddingGenerator)
     # =========================================================================
 
     def _pool_embeddings(
@@ -154,136 +164,26 @@ class HierarchicalContextService:
         weights: list[float] | None = None,
         strategy: EmbeddingPoolStrategy | None = None,
     ) -> list[float]:
-        """
-        Pool multiple embeddings into a single embedding.
-
-        Args:
-            embeddings: List of embeddings to pool
-            weights: Optional weights for weighted averaging
-            strategy: Pooling strategy to use
-
-        Returns:
-            Single pooled embedding
-        """
-        if not embeddings:
-            return [0.0] * self.config.embedding_dimensions
-
-        if len(embeddings) == 1:
-            return embeddings[0]
-
-        strategy = strategy or self.config.pool_strategy
-        embeddings_array = np.array(embeddings)
-
-        if strategy == EmbeddingPoolStrategy.MEAN:
-            pooled = np.mean(embeddings_array, axis=0)
-
-        elif strategy == EmbeddingPoolStrategy.WEIGHTED_MEAN:
-            if weights is None:
-                weights = [1.0] * len(embeddings)
-            weights = np.array(weights) / sum(weights)
-            pooled = np.average(embeddings_array, axis=0, weights=weights)
-
-        elif strategy == EmbeddingPoolStrategy.MAX_POOL:
-            pooled = np.max(embeddings_array, axis=0)
-
-        else:  # Default to mean
-            pooled = np.mean(embeddings_array, axis=0)
-
-        # Normalize
-        norm = np.linalg.norm(pooled)
-        if norm > 0:
-            pooled = pooled / norm
-
-        return pooled.tolist()
+        """Pool multiple embeddings into a single embedding."""
+        return self._embedding_generator.pool_embeddings(embeddings, weights, strategy)
 
     def _compress_embedding(self, embedding: list[float], target_dims: int) -> list[float]:
-        """
-        Compress embedding to lower dimensionality using PCA-like reduction.
-
-        Simple approach: select evenly spaced dimensions.
-        For production, use proper PCA or learned projection.
-        """
-        if len(embedding) <= target_dims:
-            return embedding
-
-        # Simple dimensionality reduction: select evenly spaced
-        step = len(embedding) / target_dims
-        indices = [int(i * step) for i in range(target_dims)]
-        compressed = [embedding[i] for i in indices]
-
-        # Normalize
-        norm = np.linalg.norm(compressed)
-        if norm > 0:
-            compressed = (np.array(compressed) / norm).tolist()
-
-        return compressed
+        """Compress embedding to lower dimensionality."""
+        return self._embedding_generator.compress_embedding(embedding, target_dims)
 
     async def generate_scene_embedding(
         self, scene: Scene, frame_embeddings: list[list[float]] | None = None
     ) -> list[float]:
-        """
-        Generate embedding for a scene.
-
-        Combines:
-        1. Summary text embedding
-        2. Pooled frame embeddings (if available)
-        """
-        embeddings_to_pool = []
-        weights = []
-
-        # Generate summary embedding (primary)
-        summary_text = self._build_scene_text(scene)
-        if summary_text:
-            summary_embedding = await self.embedding_service.generate_embedding(summary_text)
-            embeddings_to_pool.append(summary_embedding)
-            weights.append(2.0)  # Higher weight for summary
-
-        # Pool frame embeddings (secondary)
-        if frame_embeddings:
-            pooled_frames = self._pool_embeddings(frame_embeddings)
-            embeddings_to_pool.append(pooled_frames)
-            weights.append(1.0)
-
-        if not embeddings_to_pool:
-            return [0.0] * self.config.embedding_dimensions
-
-        return self._pool_embeddings(embeddings_to_pool, weights)
+        """Generate embedding for a scene."""
+        return await self._embedding_generator.generate_scene_embedding(scene, frame_embeddings)
 
     async def generate_chapter_embedding(
         self, chapter: dict, scene_embeddings: list[list[float]], scene_durations: list[float]
     ) -> list[float]:
-        """
-        Generate embedding for a chapter.
-
-        Combines:
-        1. Chapter summary embedding
-        2. Weighted pool of scene embeddings (by duration)
-        """
-        embeddings_to_pool = []
-        weights = []
-
-        # Generate chapter summary embedding
-        chapter_text = self._build_chapter_text(chapter)
-        if chapter_text:
-            chapter_embedding = await self.embedding_service.generate_embedding(chapter_text)
-            embeddings_to_pool.append(chapter_embedding)
-            weights.append(2.0)
-
-        # Pool scene embeddings weighted by duration
-        if scene_embeddings:
-            pooled_scenes = self._pool_embeddings(
-                scene_embeddings, scene_durations, EmbeddingPoolStrategy.WEIGHTED_MEAN
-            )
-            embeddings_to_pool.append(pooled_scenes)
-            weights.append(1.0)
-
-        result = self._pool_embeddings(embeddings_to_pool, weights)
-
-        # Optionally compress
-        if self.config.compress_chapter_embeddings:
-            result = self._compress_embedding(result, self.config.compressed_dimensions)
-
-        return result
+        """Generate embedding for a chapter."""
+        return await self._embedding_generator.generate_chapter_embedding(
+            chapter, scene_embeddings, scene_durations
+        )
 
     async def generate_video_embedding(
         self,
@@ -291,81 +191,22 @@ class HierarchicalContextService:
         chapter_embeddings: list[list[float]],
         chapter_durations: list[float],
     ) -> list[float]:
-        """
-        Generate embedding for entire video.
-
-        Combines:
-        1. Video summary embedding
-        2. Weighted pool of chapter embeddings
-        """
-        embeddings_to_pool = []
-        weights = []
-
-        # Generate video summary embedding
-        video_text = self._build_video_text(structure)
-        if video_text:
-            video_embedding = await self.embedding_service.generate_embedding(video_text)
-            embeddings_to_pool.append(video_embedding)
-            weights.append(2.0)
-
-        # Pool chapter embeddings weighted by duration
-        if chapter_embeddings:
-            pooled_chapters = self._pool_embeddings(
-                chapter_embeddings, chapter_durations, EmbeddingPoolStrategy.WEIGHTED_MEAN
-            )
-            embeddings_to_pool.append(pooled_chapters)
-            weights.append(1.0)
-
-        result = self._pool_embeddings(embeddings_to_pool, weights)
-
-        # Optionally compress
-        if self.config.compress_video_embeddings:
-            result = self._compress_embedding(result, self.config.compressed_dimensions)
-
-        return result
+        """Generate embedding for entire video."""
+        return await self._embedding_generator.generate_video_embedding(
+            structure, chapter_embeddings, chapter_durations
+        )
 
     def _build_scene_text(self, scene: Scene) -> str:
         """Build text representation for scene embedding."""
-        parts = []
-
-        if scene.title:
-            parts.append(scene.title)
-        if scene.summary:
-            parts.append(scene.summary)
-        if scene.visual_description:
-            parts.append(f"Visual: {scene.visual_description}")
-        if scene.transcript_segment:
-            parts.append(f"Speech: {scene.transcript_segment[:500]}")
-        if scene.detected_objects:
-            parts.append(f"Contains: {', '.join(scene.detected_objects[:10])}")
-
-        return " | ".join(parts) if parts else ""
+        return self._embedding_generator.build_scene_text(scene)
 
     def _build_chapter_text(self, chapter: dict) -> str:
         """Build text representation for chapter embedding."""
-        parts = []
-
-        if chapter.get("title"):
-            parts.append(chapter["title"])
-        if chapter.get("summary"):
-            parts.append(chapter["summary"])
-        if chapter.get("themes"):
-            parts.append(f"Themes: {', '.join(chapter['themes'])}")
-
-        return " | ".join(parts) if parts else ""
+        return self._embedding_generator.build_chapter_text(chapter)
 
     def _build_video_text(self, structure: VideoStructure) -> str:
         """Build text representation for video embedding."""
-        parts = []
-
-        if structure.video_title:
-            parts.append(structure.video_title)
-        if structure.video_summary:
-            parts.append(structure.video_summary)
-        if structure.key_topics:
-            parts.append(f"Topics: {', '.join(structure.key_topics)}")
-
-        return " | ".join(parts) if parts else ""
+        return self._embedding_generator.build_video_text(structure)
 
     # =========================================================================
     # Full Pipeline Processing
@@ -687,182 +528,45 @@ class HierarchicalContextService:
                 return chapter_node_ids.get(chapter.get("chapter_id"))
         return None
 
+    # =========================================================================
+    # Neo4j Node Operations (delegated to HierarchyNodeFactory)
+    # =========================================================================
+
     def _create_chapter_node(self, chapter: ChapterNode) -> str:
         """Create a single chapter node in Neo4j."""
-        query = """
-        CREATE (c:Chapter {
-            id: $id,
-            video_id: $video_id,
-            start_time: $start_time,
-            end_time: $end_time,
-            chapter_index: $chapter_index,
-            title: $title,
-            summary: $summary,
-            topics: $topics,
-            created_at: datetime()
-        })
-        RETURN c.id as id
-        """
-
-        with self.graph_service._driver.session() as session:
-            result = session.run(
-                query,
-                id=chapter.id,
-                video_id=chapter.video_id,
-                start_time=chapter.start_time,
-                end_time=chapter.end_time,
-                chapter_index=chapter.chapter_index,
-                title=chapter.title,
-                summary=chapter.summary,
-                topics=chapter.topics,
-            )
-            return result.single()["id"]
+        return self._node_factory.create_chapter_node(chapter)
 
     def _create_chapters_batch(self, chapters: list[dict]) -> None:
         """Create all chapter nodes in a single UNWIND transaction."""
-        query = """
-        UNWIND $batch AS ch
-        CREATE (c:Chapter {
-            id: ch.id,
-            video_id: ch.video_id,
-            start_time: ch.start_time,
-            end_time: ch.end_time,
-            chapter_index: ch.chapter_index,
-            title: ch.title,
-            summary: ch.summary,
-            topics: ch.topics,
-            created_at: datetime()
-        })
-        """
-        with self.graph_service._driver.session() as session:
-            session.run(query, batch=chapters)
+        self._node_factory.create_chapters_batch(chapters)
 
     def _create_scene_node(self, scene: SceneNode) -> str:
         """Create a single scene node in Neo4j."""
-        query = """
-        CREATE (s:Scene {
-            id: $id,
-            video_id: $video_id,
-            chapter_id: $chapter_id,
-            start_time: $start_time,
-            end_time: $end_time,
-            scene_index: $scene_index,
-            description: $description,
-            created_at: datetime()
-        })
-        RETURN s.id as id
-        """
-
-        with self.graph_service._driver.session() as session:
-            result = session.run(
-                query,
-                id=scene.id,
-                video_id=scene.video_id,
-                chapter_id=scene.chapter_id,
-                start_time=scene.start_time,
-                end_time=scene.end_time,
-                scene_index=scene.scene_index,
-                description=scene.description,
-            )
-            return result.single()["id"]
+        return self._node_factory.create_scene_node(scene)
 
     def _create_scenes_batch(self, scenes: list[dict]) -> None:
         """Create all scene nodes in a single UNWIND transaction."""
-        query = """
-        UNWIND $batch AS sc
-        CREATE (s:Scene {
-            id: sc.id,
-            video_id: sc.video_id,
-            chapter_id: sc.chapter_id,
-            start_time: sc.start_time,
-            end_time: sc.end_time,
-            scene_index: sc.scene_index,
-            description: sc.description,
-            created_at: datetime()
-        })
-        """
-        with self.graph_service._driver.session() as session:
-            session.run(query, batch=scenes)
+        self._node_factory.create_scenes_batch(scenes)
 
     def _create_relationship(self, source_id: str, target_id: str, relation_type: RelationType):
         """Create a single relationship between two nodes."""
-        query = f"""
-        MATCH (a), (b)
-        WHERE a.id = $source_id AND b.id = $target_id
-        CREATE (a)-[r:{relation_type.value}]->(b)
-        RETURN type(r) as rel_type
-        """
-
-        with self.graph_service._driver.session() as session:
-            session.run(query, source_id=source_id, target_id=target_id)
+        self._node_factory.create_relationship(source_id, target_id, relation_type)
 
     def _create_relationships_batch(self, rels: list[dict], relation_type: RelationType) -> None:
         """Create multiple relationships of the same type in a single UNWIND transaction."""
-        query = f"""
-        UNWIND $batch AS rel
-        MATCH (a), (b)
-        WHERE a.id = rel.source_id AND b.id = rel.target_id
-        CREATE (a)-[:{relation_type.value}]->(b)
-        """
-        with self.graph_service._driver.session() as session:
-            session.run(query, batch=rels)
+        self._node_factory.create_relationships_batch(rels, relation_type)
 
     def _store_embedding_node(self, node_id: str, embedding: list[float], node_type: NodeType):
         """Store embedding for a single node (for vector index)."""
-        query = """
-        MATCH (n) WHERE n.id = $node_id
-        SET n.embedding = $embedding
-        RETURN n.id
-        """
-
-        with self.graph_service._driver.session() as session:
-            session.run(query, node_id=node_id, embedding=embedding)
+        self._node_factory.store_embedding_node(node_id, embedding, node_type)
 
     def _store_embeddings_batch(self, embeddings: list[dict]) -> None:
-        """Store full and coarse embeddings for multiple nodes in a single UNWIND transaction."""
-        # Add coarse truncations
-        for item in embeddings:
-            emb = item.get("embedding", [])
-            item["embedding_coarse"] = emb[:512] if len(emb) >= 512 else emb
-
-        query = """
-        UNWIND $batch AS item
-        MATCH (n) WHERE n.id = item.node_id
-        SET n.embedding = item.embedding,
-            n.embedding_coarse = item.embedding_coarse
-        """
-        with self.graph_service._driver.session() as session:
-            session.run(query, batch=embeddings)
+        """Store full and coarse embeddings for multiple nodes."""
+        self._node_factory.store_embeddings_batch(embeddings)
 
     async def _ensure_vector_indexes(self):
         """Ensure vector indexes exist for all hierarchy levels (full + coarse)."""
-        index_configs = [
-            ("video_embedding_idx", "Video", "embedding", 3072),
-            ("chapter_embedding_idx", "Chapter", "embedding", 3072),
-            ("scene_embedding_idx", "Scene", "embedding", 3072),
-            # Coarse Matryoshka indexes for fast filtering
-            ("video_embedding_coarse_idx", "Video", "embedding_coarse", 512),
-            ("chapter_embedding_coarse_idx", "Chapter", "embedding_coarse", 512),
-            ("scene_embedding_coarse_idx", "Scene", "embedding_coarse", 512),
-        ]
-
-        for index_name, label, prop, dims in index_configs:
-            try:
-                query = f"""
-                CREATE VECTOR INDEX {index_name} IF NOT EXISTS
-                FOR (n:{label})
-                ON n.{prop}
-                OPTIONS {{
-                    indexConfig: {{
-                        `vector.dimensions`: {dims},
-                        `vector.similarity_function`: 'cosine'
-                    }}
-                }}
-                """
-                with self.graph_service._driver.session() as session:
-                    session.run(query)
-            except Exception as e:
-                logger.debug(f"Index {index_name} may already exist: {e}")
+        await self._node_factory.ensure_vector_indexes()
 
     # =========================================================================
     # Drill-Down Search

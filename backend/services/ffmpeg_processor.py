@@ -32,7 +32,10 @@ from models.ffmpeg_config import (
     ProcessingPipeline,
     ProcessingStatus,
 )
+from services.coverage_analyzer import CoverageAnalyzer
+from services.hwaccel_resolver import HardwareAccelerationResolver
 from services.scene_detect_service import SceneDetectService, map_ffmpeg_threshold
+from services.timestamp_calculator import TimestampCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +59,6 @@ def _get_optimal_workers() -> int:
 class FFmpegVideoProcessor:
     """Video processor with FFmpeg for ultra-fast frame extraction"""
 
-    # Cached result of hardware acceleration detection
-    _hwaccel_available: str | None = None
-    _hwaccel_checked: bool = False
-
     def __init__(self, config: FFmpegProcessingConfig | None = None):
         """
         Initialize processor
@@ -69,7 +68,7 @@ class FFmpegVideoProcessor:
         """
         self.config = config or FFmpegProcessingConfig()
         self.status = ProcessingStatus(status="pending")
-        self._resolved_hwaccel = self._resolve_hwaccel()
+        self._resolved_hwaccel = HardwareAccelerationResolver.resolve(self.config.hardware_accel)
 
         # Determine decoder backend (pyav | ffmpeg_subprocess)
         self._decoder_backend = self._resolve_decoder_backend()
@@ -77,6 +76,10 @@ class FFmpegVideoProcessor:
         # PySceneDetect integration — preferred over FFmpeg scene filter
         self._use_pyscenedetect: bool = True
         self._scene_detect_service = SceneDetectService()
+
+        # Specialist delegates
+        self._timestamp_calculator = TimestampCalculator()
+        self._coverage_analyzer = CoverageAnalyzer()
 
     def _resolve_decoder_backend(self) -> str:
         """Pick the decoder backend from config → settings → fallback chain."""
@@ -112,54 +115,19 @@ class FFmpegVideoProcessor:
 
     @staticmethod
     def _detect_available_hwaccel() -> str | None:
+        """Auto-detect available hardware acceleration using FFmpeg.
+
+        Delegates to :class:`HardwareAccelerationResolver`.
         """
-        Auto-detect available hardware acceleration using FFmpeg.
-
-        Returns the best available hwaccel method, or None if only CPU is available.
-        Priority: cuda > qsv > d3d11va > dxva2 > vaapi > videotoolbox
-        """
-        if FFmpegVideoProcessor._hwaccel_checked:
-            return FFmpegVideoProcessor._hwaccel_available
-
-        # Preferred order by decode performance
-        preferred = ["cuda", "qsv", "d3d11va", "dxva2", "vaapi", "videotoolbox"]
-
-        try:
-            result = subprocess.run(
-                ["ffmpeg", "-hwaccels"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            available = result.stdout.lower().split()
-            for method in preferred:
-                if method in available:
-                    FFmpegVideoProcessor._hwaccel_available = method
-                    FFmpegVideoProcessor._hwaccel_checked = True
-                    logger.info(f"Hardware acceleration detected: {method}")
-                    return method
-        except Exception as e:
-            logger.debug(f"Hardware acceleration detection failed: {e}")
-
-        FFmpegVideoProcessor._hwaccel_available = None
-        FFmpegVideoProcessor._hwaccel_checked = True
-        logger.info("No hardware acceleration available, using CPU decoding")
-        return None
+        return HardwareAccelerationResolver.detect_available()
 
     def _resolve_hwaccel(self) -> str | None:
         """Resolve hardware acceleration: use config value, auto-detect, or None."""
-        configured = self.config.hardware_accel
-        if configured == "auto":
-            return self._detect_available_hwaccel()
-        elif configured:
-            return configured
-        return None
+        return HardwareAccelerationResolver.resolve(self.config.hardware_accel)
 
     def _build_hwaccel_args(self) -> list[str]:
         """Build FFmpeg hardware acceleration arguments (inserted before -i)."""
-        if not self._resolved_hwaccel:
-            return []
-        return ["-hwaccel", self._resolved_hwaccel]
+        return HardwareAccelerationResolver.build_args(self._resolved_hwaccel)
 
     def get_video_info(self, video_path: str) -> dict[str, Any]:
         """
@@ -305,183 +273,15 @@ class FFmpegVideoProcessor:
         return filters
 
     def _calculate_frame_timestamps(self, video_info: dict[str, Any]) -> list[float]:
+        """Calculate timestamps of frames to extract.
+
+        Delegates to :class:`TimestampCalculator`.
         """
-        Calculate timestamps of frames to extract
-
-        Args:
-            video_info: Video information
-
-        Returns:
-            List of timestamps in seconds
-        """
-        extraction = self.config.frame_extraction
-        duration = video_info["duration"]
-
-        # Apply start/end time
-        start = extraction.start_time or 0
-        end = min(extraction.end_time or duration, duration)  # Do not exceed actual duration
-        effective_duration = end - start
-
-        # Validate that there is a valid duration
-        if effective_duration <= 0:
-            return []
-
-        timestamps = []
-
-        if extraction.method == FrameExtractionMethod.FPS:
-            # Extract at specific FPS
-            interval = 1.0 / extraction.fps
-            t = start
-            while t < end and len(timestamps) < extraction.max_frames:
-                timestamps.append(t)
-                t += interval
-
-            # Ensure we do not exceed the duration
-            timestamps = [t for t in timestamps if t < duration]
-
-        elif extraction.method == FrameExtractionMethod.INTERVAL:
-            # Extract every N seconds
-            t = start
-            while t < end and len(timestamps) < extraction.max_frames:
-                timestamps.append(t)
-                t += extraction.interval_seconds
-
-            # Ensure we do not exceed the duration
-            timestamps = [t for t in timestamps if t < duration]
-
-        elif extraction.method == FrameExtractionMethod.UNIFORM:
-            # Distribute uniformly
-            num = min(extraction.num_frames, extraction.max_frames)
-            if num > 1:
-                step = effective_duration / (num - 1)
-                timestamps = [start + i * step for i in range(num)]
-            else:
-                timestamps = [start + effective_duration / 2]
-
-            # Ensure we do not exceed the duration (adjust last frame if necessary)
-            timestamps = [min(t, duration - 0.1) for t in timestamps]
-
-        elif extraction.method == FrameExtractionMethod.KEYFRAMES:
-            # This requires prior analysis - handled differently
-            return []  # Will be processed with select filter
-
-        elif extraction.method == FrameExtractionMethod.SCENE_DETECT:
-            # Also requires prior analysis
-            return []  # Will be processed with scene detection
-
-        elif extraction.method == FrameExtractionMethod.ADAPTIVE:
-            # Calculate optimal configuration based on duration
-            from models.ffmpeg_config import get_adaptive_config
-
-            adaptive_config = get_adaptive_config(duration)
-            # Use the calculated method (can be INTERVAL or HYBRID)
-            if adaptive_config.method == FrameExtractionMethod.HYBRID:
-                # Delegate to HYBRID
-                return self._calculate_hybrid_timestamps(
-                    video_info,
-                    adaptive_config.scene_threshold or 0.3,
-                    adaptive_config.hybrid_scene_ratio or 0.5,
-                    adaptive_config.hybrid_min_gap_seconds or 15.0,
-                    adaptive_config.max_frames or 500,
-                )
-            else:
-                # Use INTERVAL with adaptive parameters
-                t = start
-                interval = adaptive_config.interval_seconds or 5.0
-                max_frames = adaptive_config.max_frames or 500
-                while t < end and len(timestamps) < max_frames:
-                    timestamps.append(t)
-                    t += interval
-
-        elif extraction.method == FrameExtractionMethod.HYBRID:
-            # Hybrid mode: scene detection + uniform fill
-            return self._calculate_hybrid_timestamps(
-                video_info,
-                extraction.scene_threshold or 0.3,
-                extraction.hybrid_scene_ratio or 0.5,
-                extraction.hybrid_min_gap_seconds or 15.0,
-                extraction.max_frames or 500,
-            )
-
-        return timestamps[: extraction.max_frames]
-
-    def _calculate_hybrid_timestamps(
-        self,
-        video_info: dict[str, Any],
-        scene_threshold: float,
-        scene_ratio: float,
-        min_gap_seconds: float,
-        max_frames: int,
-    ) -> list[float]:
-        """
-        Calculate timestamps using the hybrid method: scene detection + uniform fill.
-
-        1. Detects scene changes (captures important transitions)
-        2. Fills long gaps with uniform frames (avoids missing static content)
-
-        Args:
-            video_info: Video information dictionary
-            scene_threshold: Scene detection threshold (0-1)
-            scene_ratio: Ratio of scene frames vs fill frames (0.6 = 60% scenes)
-            min_gap_seconds: Minimum gap before inserting fill frames
-            max_frames: Maximum number of frames to extract
-
-        Returns:
-            Sorted list of timestamps
-        """
-        duration = video_info["duration"]
-        extraction = self.config.frame_extraction
-        start = extraction.start_time or 0
-        end = min(extraction.end_time or duration, duration)
-
-        # Step 1: Detect scenes
-        scene_frames_target = int(max_frames * scene_ratio)
-        scene_timestamps = self._detect_scene_timestamps(
-            video_info.get("path", ""), scene_threshold, scene_frames_target
+        return self._timestamp_calculator.calculate_frame_timestamps(
+            video_info,
+            self.config.frame_extraction,
+            self._detect_scene_timestamps,
         )
-
-        # If scene detection yields nothing, fall back to uniform distribution
-        if not scene_timestamps:
-            # Uniform distribution as fallback
-            num_frames = max_frames
-            step = (end - start) / max(num_frames - 1, 1)
-            return [start + i * step for i in range(num_frames)]
-
-        # Step 2: Identify gaps and fill them
-        fill_frames_target = max_frames - len(scene_timestamps)
-        all_timestamps = sorted(scene_timestamps)
-
-        if fill_frames_target > 0 and len(all_timestamps) > 1:
-            gaps = []
-            for i in range(len(all_timestamps) - 1):
-                gap_start = all_timestamps[i]
-                gap_end = all_timestamps[i + 1]
-                gap_duration = gap_end - gap_start
-                if gap_duration > min_gap_seconds:
-                    gaps.append((gap_start, gap_end, gap_duration))
-
-            # Distribute fill frames proportionally across gaps
-            total_gap_duration = sum(g[2] for g in gaps)
-            if total_gap_duration > 0:
-                for gap_start, _gap_end, gap_duration in gaps:
-                    # Frames to insert in this gap
-                    gap_frames = int((gap_duration / total_gap_duration) * fill_frames_target)
-                    if gap_frames > 0:
-                        step = gap_duration / (gap_frames + 1)
-                        for j in range(1, gap_frames + 1):
-                            fill_ts = gap_start + j * step
-                            if fill_ts not in all_timestamps:
-                                all_timestamps.append(fill_ts)
-
-        # Add start and end if not already present
-        if start not in all_timestamps and start >= 0:
-            all_timestamps.append(start)
-        if end - 0.5 not in all_timestamps and end <= duration:
-            all_timestamps.append(min(end - 0.1, duration - 0.1))
-
-        # Sort and limit
-        all_timestamps = sorted(set(all_timestamps))
-        return all_timestamps[:max_frames]
 
     def _detect_scene_timestamps(
         self, video_path: str, threshold: float, max_scenes: int
@@ -1601,122 +1401,18 @@ class FFmpegVideoProcessor:
     def calculate_coverage_metrics(
         self, timestamps: list[float], video_duration: float
     ) -> dict[str, Any]:
-        """
-        Calculate video coverage metrics.
+        """Calculate video coverage metrics.
+
+        Delegates to :class:`CoverageAnalyzer`.
 
         Args:
             timestamps: List of extracted timestamps
             video_duration: Total video duration in seconds
 
         Returns:
-            Dict with coverage metrics:
-            - coverage_score: 0-100, how well the video is covered
-            - average_gap: Average gap between frames
-            - max_gap: Maximum gap (indicates possible blind spots)
-            - gaps_over_threshold: List of problematic gaps
-            - density_per_minute: Average frames per minute
-            - recommendations: Suggestions to improve coverage
+            Dict with coverage metrics (coverage_score, average_gap, max_gap, etc.)
         """
-        if not timestamps or video_duration <= 0:
-            return {
-                "coverage_score": 0,
-                "average_gap": 0,
-                "max_gap": video_duration,
-                "gaps_over_threshold": [],
-                "density_per_minute": 0,
-                "recommendations": ["No frames extracted"],
-            }
-
-        sorted_ts = sorted(timestamps)
-
-        # Calculate gaps
-        gaps = []
-        for i in range(len(sorted_ts) - 1):
-            gap = sorted_ts[i + 1] - sorted_ts[i]
-            gaps.append(
-                {
-                    "start": sorted_ts[i],
-                    "end": sorted_ts[i + 1],
-                    "duration": gap,
-                }
-            )
-
-        # Add leading and trailing gaps
-        if sorted_ts[0] > 1.0:  # If there is more than 1 second at the start
-            gaps.insert(0, {"start": 0, "end": sorted_ts[0], "duration": sorted_ts[0]})
-        if video_duration - sorted_ts[-1] > 1.0:
-            gaps.append(
-                {
-                    "start": sorted_ts[-1],
-                    "end": video_duration,
-                    "duration": video_duration - sorted_ts[-1],
-                }
-            )
-
-        # Basic metrics
-        gap_durations = [g["duration"] for g in gaps]
-        avg_gap = sum(gap_durations) / len(gap_durations) if gap_durations else 0
-        max_gap = max(gap_durations) if gap_durations else 0
-
-        # Dynamic threshold based on video duration
-        # For short videos, gaps >10s are problematic
-        # For long videos, gaps >30s are problematic
-        if video_duration < 300:  # < 5 min
-            gap_threshold = 10.0
-        elif video_duration < 1800:  # < 30 min
-            gap_threshold = 20.0
-        elif video_duration < 3600:  # < 1 hour
-            gap_threshold = 30.0
-        else:  # > 1 hour
-            gap_threshold = 45.0
-
-        problematic_gaps = [g for g in gaps if g["duration"] > gap_threshold]
-
-        # Coverage score (0-100)
-        # Based on: frame density, maximum gaps, distribution
-        density = len(timestamps) / (video_duration / 60)  # frames per minute
-        ideal_density = 10  # 10 frames/min is ideal for analysis
-        density_score = min(density / ideal_density * 100, 100)
-
-        # Penalty for large gaps
-        gap_penalty = min(len(problematic_gaps) * 10, 50)
-        max_gap_penalty = (
-            min((max_gap / gap_threshold - 1) * 20, 30) if max_gap > gap_threshold else 0
-        )
-
-        coverage_score = max(0, density_score - gap_penalty - max_gap_penalty)
-
-        # Recommendations
-        recommendations = []
-        if coverage_score < 50:
-            recommendations.append(
-                "Consider using DEEP_ANALYSIS or ADAPTIVE preset for better coverage"
-            )
-        if max_gap > gap_threshold * 2:
-            recommendations.append(
-                f"Large gap detected ({max_gap:.1f}s) - use HYBRID extraction to fill gaps"
-            )
-        if density < 5:
-            recommendations.append("Low frame density - increase max_frames or reduce interval")
-        if len(problematic_gaps) > 5:
-            recommendations.append(
-                f"{len(problematic_gaps)} gaps over {gap_threshold}s - content may be missed"
-            )
-        if not recommendations:
-            recommendations.append("Good coverage achieved")
-
-        return {
-            "coverage_score": round(coverage_score, 1),
-            "average_gap": round(avg_gap, 2),
-            "max_gap": round(max_gap, 2),
-            "gap_threshold": gap_threshold,
-            "gaps_over_threshold": problematic_gaps[:10],  # Limit to 10
-            "total_problematic_gaps": len(problematic_gaps),
-            "density_per_minute": round(density, 2),
-            "total_frames": len(timestamps),
-            "video_duration": video_duration,
-            "recommendations": recommendations,
-        }
+        return self._coverage_analyzer.calculate_coverage_metrics(timestamps, video_duration)
 
 
 def get_recommended_preset(video_duration: float, content_type: str = "general") -> str:
