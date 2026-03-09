@@ -3,15 +3,18 @@ Knowledge Graph API Routes for QPrisma
 
 Endpoints for managing the multimodal Knowledge Graph.
 Includes CRUD operations, search, and graph expansion.
+
+Route handlers are intentionally thin: validate input → call service → return
+response.  Business logic lives in :mod:`services.graph_route_service`.
 """
 
 import logging
-import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from api.dependencies import (
     get_current_user,
+    get_graph_route_service,
     get_graph_search_service,
     get_hierarchical_context_service,
     get_knowledge_graph_service,
@@ -21,7 +24,6 @@ from core.exceptions import internal_error, not_found_error
 from models.graph_models import (
     GraphSearchQuery,
     GraphSearchResponse,
-    GraphSearchResult,
     GraphStats,
     NodeType,
     VideoGraphSummary,
@@ -58,6 +60,7 @@ from models.graph_route_schemas import (
 from models.user import User
 from services.embedding_service import get_embedding_service
 from services.entity_extractor import get_entity_extractor
+from services.graph_route_service import GraphRouteService
 
 logger = logging.getLogger(__name__)
 
@@ -76,16 +79,13 @@ async def graph_health_check(current_user: User = Depends(get_current_user)):
     """
     try:
         service = get_knowledge_graph_service()
-        connected = service.is_connected
-
-        if not connected:
-            connected = service.connect()
-
+        svc: GraphRouteService = get_graph_route_service()
+        result = svc.check_graph_health(service)
         return GraphHealthResponse(
-            status="healthy" if connected else "unhealthy",
-            connected=connected,
-            uri=service.uri,
-            message="Neo4j connection is active" if connected else "Failed to connect to Neo4j",
+            status=result.status,
+            connected=result.connected,
+            uri=result.uri,
+            message=result.message,
         )
     except Exception as e:
         logger.error(f"Graph health check failed: {e}", exc_info=True)
@@ -160,10 +160,7 @@ async def search_frames(
     """
     try:
         service = get_knowledge_graph_service()
-
-        time_range = None
-        if request.time_start is not None and request.time_end is not None:
-            time_range = (request.time_start, request.time_end)
+        time_range = GraphRouteService.build_time_range(request.time_start, request.time_end)
 
         results = service.search_frames_by_description(
             query_text=request.query,
@@ -195,94 +192,17 @@ async def advanced_graph_search(
     - Context expansion in the graph
     """
     try:
-        service = get_knowledge_graph_service()
-        start_time = __import__("time").time()
+        svc: GraphRouteService = get_graph_route_service()
+        result = svc.advanced_search(query)
 
-        # 1. Base search (full-text)
-        base_results = []
+        if result.error:
+            logger.error(f"Advanced search error: {result.error}")
+            raise internal_error()
 
-        # Search in entities
-        if not query.node_types or NodeType.ENTITY in query.node_types:
-            entity_results = service.search_entities(
-                query_text=query.query,
-                entity_types=query.entity_types,
-                video_id=query.video_ids[0] if query.video_ids else None,
-                limit=query.limit,
-            )
-            for r in entity_results:
-                base_results.append(
-                    {
-                        "node_id": r["entity"].get("id"),
-                        "node_type": NodeType.ENTITY,
-                        "content": r["entity"],
-                        "vector_score": r["score"],
-                    }
-                )
+        return result.response
 
-        # Search in frames
-        if not query.node_types or NodeType.FRAME in query.node_types:
-            frame_results = service.search_frames_by_description(
-                query_text=query.query,
-                video_id=query.video_ids[0] if query.video_ids else None,
-                time_range=query.time_range,
-                limit=query.limit,
-            )
-            for r in frame_results:
-                base_results.append(
-                    {
-                        "node_id": r["frame"].get("id"),
-                        "node_type": NodeType.FRAME,
-                        "content": r["frame"],
-                        "vector_score": r["score"],
-                    }
-                )
-
-        vector_search_time = (time.time() - start_time) * 1000
-
-        # 2. Graph expansion (if enabled)
-        graph_expansion_time = 0
-        if query.use_graph_expansion and base_results:
-            expansion_start = time.time()
-
-            for result in base_results[:10]:  # Limit expansion to top 10
-                try:
-                    expansion = service.expand_context(
-                        node_id=result["node_id"],
-                        hops=query.expansion_hops,
-                        max_nodes=20,
-                    )
-                    result["related_nodes"] = expansion.get("nodes_by_distance", {})
-                except Exception:
-                    result["related_nodes"] = {}
-
-            graph_expansion_time = (time.time() - expansion_start) * 1000
-
-        # 3. Build response
-        search_results = []
-        for r in base_results[: query.limit]:
-            search_results.append(
-                GraphSearchResult(
-                    node_id=r["node_id"],
-                    node_type=r["node_type"],
-                    vector_score=r.get("vector_score", 0),
-                    graph_score=0,  # TODO: Calculate based on expansion
-                    combined_score=r.get("vector_score", 0),
-                    content=r["content"],
-                    related_nodes=r.get("related_nodes", []),
-                )
-            )
-
-        total_time = (time.time() - start_time) * 1000
-
-        return GraphSearchResponse(
-            query=query.query,
-            total_results=len(search_results),
-            results=search_results,
-            search_time_ms=total_time,
-            vector_search_time_ms=vector_search_time,
-            graph_expansion_time_ms=graph_expansion_time,
-        )
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Advanced search failed: {e}", exc_info=True)
         raise internal_error()
@@ -310,10 +230,7 @@ async def hybrid_search(
     """
     try:
         search_service = get_graph_search_service()
-
-        time_range = None
-        if request.time_start is not None and request.time_end is not None:
-            time_range = (request.time_start, request.time_end)
+        time_range = GraphRouteService.build_time_range(request.time_start, request.time_end)
 
         response = await search_service.hybrid_search(
             query_text=request.query,
@@ -355,16 +272,7 @@ async def cross_video_search(
 
         return CrossVideoSearchResponse(
             reference_node_id=request.reference_node_id,
-            similar_nodes=[
-                {
-                    "node_id": n.node_id,
-                    "node_type": n.node_type.value,
-                    "video_id": n.video_id,
-                    "similarity": n.vector_score,
-                    "content": n.content,
-                }
-                for n in similar_nodes
-            ],
+            similar_nodes=GraphRouteService.build_cross_video_results(similar_nodes),
             total_found=len(similar_nodes),
         )
 
@@ -394,13 +302,7 @@ async def generate_embeddings(
     """
     try:
         search_service = get_graph_search_service()
-
-        # Determine text field based on node type
-        text_field = "description"
-        if request.node_type == NodeType.ENTITY:
-            text_field = "name"
-        elif request.node_type == NodeType.AUDIO_SEGMENT:
-            text_field = "text"
+        text_field = GraphRouteService.determine_text_field(request.node_type)
 
         count = await search_service.bulk_generate_embeddings(
             node_type=request.node_type,
@@ -548,24 +450,17 @@ async def get_video_graph(video_id: str, current_user: User = Depends(get_curren
     Includes scenes, frames, entities, and relationships.
     """
     try:
-        service = get_knowledge_graph_service()
+        svc: GraphRouteService = get_graph_route_service()
+        data = svc.get_video_graph_data(video_id)
 
-        # Get video node
-        video = service.get_video_node(video_id)
-        if not video:
+        if data.error:
             raise not_found_error("Video", video_id)
 
-        # Get scenes
-        scenes = service.get_video_scenes(video_id)
-
-        # Basic statistics
-        stats = service.get_stats()
-
         return {
-            "video": video,
-            "scenes": scenes,
-            "total_scenes": len(scenes),
-            "graph_stats": stats.model_dump(),
+            "video": data.video,
+            "scenes": data.scenes,
+            "total_scenes": data.total_scenes,
+            "graph_stats": data.graph_stats,
         }
     except HTTPException:
         raise
@@ -635,16 +530,7 @@ async def extract_entities_from_frame(
             is_url=True,
         )
 
-        return {
-            "frame_id": result.frame_id,
-            "timestamp": result.timestamp,
-            "description": result.description,
-            "entities": [e.model_dump() for e in result.entities],
-            "relations": result.relations,
-            "topics": result.topics,
-            "actions": result.actions,
-            "analysis_time_ms": result.analysis_time_ms,
-        }
+        return GraphRouteService.format_frame_extraction_result(result)
     except Exception as e:
         logger.error(f"Entity extraction failed: {e}", exc_info=True)
         raise internal_error()
@@ -670,15 +556,7 @@ async def extract_entities_from_description(
             context=context,
         )
 
-        return {
-            "frame_id": result.frame_id,
-            "timestamp": result.timestamp,
-            "entities": [e.model_dump() for e in result.entities],
-            "relations": result.relations,
-            "topics": result.topics,
-            "actions": result.actions,
-            "analysis_time_ms": result.analysis_time_ms,
-        }
+        return GraphRouteService.format_description_extraction_result(result)
     except Exception as e:
         logger.error(f"Entity extraction from description failed: {e}", exc_info=True)
         raise internal_error()
@@ -710,17 +588,15 @@ async def process_video_hierarchy(
     """
     try:
         hierarchy_service = get_hierarchical_context_service()
+        svc: GraphRouteService = get_graph_route_service()
 
-        video_metadata = {
-            "media_id": request.video_id,
-            "video_id": request.video_id,
-            "title": request.title or f"Video {request.video_id}",
-            "fps": request.fps,
-            "duration": request.duration or 0,
-            "resolution": request.resolution,
-            "file_size_bytes": 0,
-            "format": "mp4",
-        }
+        video_metadata = svc.build_hierarchy_metadata(
+            video_id=request.video_id,
+            title=request.title,
+            fps=request.fps,
+            duration=request.duration,
+            resolution=request.resolution,
+        )
 
         result = await hierarchy_service.process_video_hierarchy(
             video_path=request.video_path, video_metadata=video_metadata
@@ -773,40 +649,13 @@ async def drill_down_search(
             include_context=request.include_context,
         )
 
-        # Convert to response format
-        formatted_results = []
-        levels_traversed = set()
-
-        for result in results:
-            levels_traversed.update([level.level for level in result.path_from_root])
-            formatted_results.append(
-                {
-                    "current_level": {
-                        "level": result.current_level.level,
-                        "node_id": result.current_level.node_id,
-                        "node_type": result.current_level.node_type.value,
-                        "summary": result.current_level.summary,
-                        "title": result.current_level.title,
-                        "start_time": result.current_level.start_time,
-                        "end_time": result.current_level.end_time,
-                    },
-                    "path": [
-                        {
-                            "level": level.level,
-                            "node_id": level.node_id,
-                            "title": level.title,
-                        }
-                        for level in result.path_from_root
-                    ],
-                    "has_more_levels": result.has_more_levels,
-                }
-            )
+        formatted = GraphRouteService.format_drill_down_results(results)
 
         return DrillDownSearchResponse(
             query=request.query,
-            results=formatted_results,
-            total_results=len(formatted_results),
-            levels_traversed=list(levels_traversed),
+            results=formatted.results,
+            total_results=formatted.total_results,
+            levels_traversed=formatted.levels_traversed,
         )
 
     except Exception as e:
@@ -836,9 +685,7 @@ async def load_children(
             offset=request.offset,
         )
 
-        has_more = len(children) > request.limit
-        if has_more:
-            children = children[: request.limit]
+        paginated = GraphRouteService.paginate_children(children, request.limit)
 
         return LoadChildrenResponse(
             parent_node_id=request.node_id,
@@ -853,10 +700,10 @@ async def load_children(
                     end_time=child.end_time,
                     children_count=child.children_count,
                 )
-                for child in children
+                for child in paginated.children
             ],
-            total_children=len(children),
-            has_more=has_more,
+            total_children=paginated.total_children,
+            has_more=paginated.has_more,
         )
 
     except Exception as e:

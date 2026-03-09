@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_current_user
+from api.dependencies import get_current_user, get_editor_route_service
 from core.errors import bad_request, forbidden, internal_error, not_found
 from models.editor import (
     ClipCreate,
@@ -31,51 +31,10 @@ from models.editor import (
 )
 from models.user import User
 from services.database_service import get_database_service
+from services.editor_route_service import EditorValidationError
 
 router = APIRouter(prefix="/editor", tags=["Editor"])
 logger = logging.getLogger(__name__)
-
-
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-
-def _get_source_media_info(project) -> dict[str, Any] | None:
-    """
-    Get source media information with a SAS URL for the video.
-
-    Returns a dict with:
-    - id: Media ID
-    - filename: Original filename
-    - duration: Video duration in seconds
-    - blob_url: SAS URL for streaming the video
-    """
-    from api.routes.media_routes import generate_sas_url
-
-    if not project.source_media:
-        return None
-
-    media = project.source_media
-
-    # Extract duration from video_metadata
-    duration = None
-    if media.video_metadata:
-        duration = media.video_metadata.get("duration")
-
-    # Generate SAS URL for the video
-    blob_url = None
-    if media.blob_name:
-        blob_url = generate_sas_url(media.blob_name, expiry_hours=4)
-
-    return {
-        "id": media.id,
-        "filename": media.original_filename or media.blob_name,
-        "duration": duration,
-        "blob_url": blob_url,
-        "media_type": media.media_type,
-        "processed": media.processed,
-    }
 
 
 # =============================================================================
@@ -94,25 +53,15 @@ async def create_project(
     The source video must already be uploaded and processed.
     """
     db = get_database_service()
-
-    # Verify source media exists and belongs to user
     media = db.get_media(project_data.source_media_id)
     if not media:
         raise not_found("Source media")
     if media.user_id != current_user.id:
         raise forbidden("Not authorized to use this media")
 
-    # Create project
-    project = db.create_project(
-        {
-            "user_id": current_user.id,
-            "source_media_id": project_data.source_media_id,
-            "name": project_data.name,
-            "description": project_data.description,
-            "settings": project_data.settings.model_dump() if project_data.settings else {},
-        }
-    )
-
+    service = get_editor_route_service()
+    project_dict = service.build_project_create_dict(current_user.id, project_data)
+    project = db.create_project(project_dict)
     logger.info(f"Created project {project.id} for user {current_user.id}")
     return project.to_dict()
 
@@ -138,22 +87,13 @@ async def get_project(
     try:
         db = get_database_service()
         project = db.get_project_with_clips(project_id)
-
         if not project:
             raise not_found("Project")
         if project.user_id != current_user.id:
             raise forbidden("Not authorized")
 
-        result = project.to_dict()
-        result["clips"] = [clip.to_dict() for clip in project.clips]
-
-        # Include source media info with SAS URL
-        result["source_media"] = _get_source_media_info(project)
-
-        logger.info(
-            f"Returning project {project_id} with source_media: {result.get('source_media')}"
-        )
-        return result
+        service = get_editor_route_service()
+        return service.build_project_with_details(project)
     except HTTPException:
         raise
     except Exception as e:
@@ -170,26 +110,15 @@ async def update_project(
     """Update a project's metadata."""
     db = get_database_service()
     project = db.get_project(project_id)
-
     if not project:
         raise not_found("Project")
     if project.user_id != current_user.id:
         raise forbidden("Not authorized")
 
-    # Build update dict excluding None values
-    update_dict = {}
-    if updates.name is not None:
-        update_dict["name"] = updates.name
-    if updates.description is not None:
-        update_dict["description"] = updates.description
-    if updates.status is not None:
-        update_dict["status"] = updates.status.value
-    if updates.settings is not None:
-        update_dict["settings"] = updates.settings.model_dump()
-
+    service = get_editor_route_service()
+    update_dict = service.build_project_update_dict(updates)
     if update_dict:
         project = db.update_project(project_id, update_dict)
-
     return project.to_dict()
 
 
@@ -229,40 +158,24 @@ async def create_clip(
     """
     db = get_database_service()
     project = db.get_project(project_id)
-
     if not project:
         raise not_found("Project")
     if project.user_id != current_user.id:
         raise forbidden("Not authorized")
 
-    # Validate times
-    if clip_data.end_time <= clip_data.start_time:
-        raise bad_request("end_time must be greater than start_time")
+    service = get_editor_route_service()
+    try:
+        service.validate_clip_times(
+            clip_data.start_time,
+            clip_data.end_time,
+            db=db,
+            source_media_id=project.source_media_id,
+        )
+    except EditorValidationError as e:
+        raise bad_request(str(e))
 
-    # Get source video duration to validate
-    media = db.get_media(project.source_media_id)
-    if media and media.video_metadata:
-        duration = media.video_metadata.get("duration", 0)
-        if duration > 0 and clip_data.end_time > duration:
-            raise bad_request(
-                f"end_time ({clip_data.end_time}s) exceeds video duration ({duration}s)"
-            )
-
-    clip = db.create_clip(
-        {
-            "project_id": project_id,
-            "start_time": clip_data.start_time,
-            "end_time": clip_data.end_time,
-            "title": clip_data.title,
-            "notes": clip_data.notes,
-            "order": clip_data.order,
-            "is_ai_suggested": clip_data.is_ai_suggested,
-            "viral_score": clip_data.viral_score,
-            "viral_reasons": clip_data.viral_reasons,
-            "transcript_snippet": clip_data.transcript_snippet,
-        }
-    )
-
+    clip_dict = service.build_clip_create_dict(project_id, clip_data)
+    clip = db.create_clip(clip_dict)
     logger.info(f"Created clip {clip.id} in project {project_id}")
     return clip.to_dict()
 
@@ -314,37 +227,22 @@ async def update_clip(
     """Update a clip's timing or metadata."""
     db = get_database_service()
     clip = db.get_clip(clip_id)
-
     if not clip:
         raise not_found("Clip")
 
-    # Verify ownership through project
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
         raise forbidden("Not authorized")
 
-    # Build update dict
-    update_dict = {}
-    if updates.start_time is not None:
-        update_dict["start_time"] = updates.start_time
-    if updates.end_time is not None:
-        update_dict["end_time"] = updates.end_time
-    if updates.title is not None:
-        update_dict["title"] = updates.title
-    if updates.notes is not None:
-        update_dict["notes"] = updates.notes
-    if updates.order is not None:
-        update_dict["order"] = updates.order
-
-    # Validate times if both are being updated
-    new_start = update_dict.get("start_time", clip.start_time)
-    new_end = update_dict.get("end_time", clip.end_time)
-    if new_end <= new_start:
-        raise bad_request("end_time must be greater than start_time")
+    service = get_editor_route_service()
+    update_dict = service.build_clip_update_dict(updates)
+    try:
+        service.validate_clip_update_times(update_dict, clip)
+    except EditorValidationError as e:
+        raise bad_request(str(e))
 
     if update_dict:
         clip = db.update_clip(clip_id, update_dict)
-
     return clip.to_dict()
 
 
@@ -357,22 +255,15 @@ async def update_clip_subtitles(
     """Update subtitle configuration for a clip."""
     db = get_database_service()
     clip = db.get_clip(clip_id)
-
     if not clip:
         raise not_found("Clip")
 
-    # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
         raise forbidden("Not authorized")
 
-    update_dict = {
-        "subtitles_enabled": subtitle_config.subtitles_enabled,
-        "subtitle_style": subtitle_config.subtitle_style.value,
-    }
-    if subtitle_config.subtitle_settings:
-        update_dict["subtitle_settings"] = subtitle_config.subtitle_settings.model_dump()
-
+    service = get_editor_route_service()
+    update_dict = service.build_subtitle_update_dict(subtitle_config)
     clip = db.update_clip(clip_id, update_dict)
     return clip.to_dict()
 
@@ -411,19 +302,16 @@ async def reorder_clips(
     """
     db = get_database_service()
     project = db.get_project(project_id)
-
     if not project:
         raise not_found("Project")
     if project.user_id != current_user.id:
         raise forbidden("Not authorized")
 
-    # Verify all clip IDs belong to this project
-    existing_clips = db.get_clips_by_project(project_id)
-    existing_ids = {c.id for c in existing_clips}
-
-    for clip_id in reorder_data.clip_ids:
-        if clip_id not in existing_ids:
-            raise bad_request(f"Clip {clip_id} not found in project")
+    service = get_editor_route_service()
+    try:
+        service.validate_reorder_ids(db, project_id, reorder_data.clip_ids)
+    except EditorValidationError as e:
+        raise bad_request(str(e))
 
     clips = db.reorder_clips(project_id, reorder_data.clip_ids)
     return [clip.to_dict() for clip in clips]
@@ -451,32 +339,16 @@ async def bulk_create_clips(
     """
     db = get_database_service()
     project = db.get_project(project_id)
-
     if not project:
         raise not_found("Project")
     if project.user_id != current_user.id:
         raise forbidden("Not authorized")
 
-    # Validate all clips
-    for clip_data in clips:
-        if clip_data.end_time <= clip_data.start_time:
-            raise bad_request("Invalid clip: end_time must be greater than start_time")
-
-    # Convert to dicts
-    clips_data = [
-        {
-            "start_time": c.start_time,
-            "end_time": c.end_time,
-            "title": c.title,
-            "notes": c.notes,
-            "order": c.order,
-            "is_ai_suggested": c.is_ai_suggested,
-            "viral_score": c.viral_score,
-            "viral_reasons": c.viral_reasons,
-            "transcript_snippet": c.transcript_snippet,
-        }
-        for c in clips
-    ]
+    service = get_editor_route_service()
+    try:
+        clips_data = service.validate_and_prepare_bulk_clips(project_id, clips)
+    except EditorValidationError as e:
+        raise bad_request(str(e))
 
     created_clips = db.bulk_create_clips(project_id, clips_data)
     logger.info(f"Bulk created {len(created_clips)} clips in project {project_id}")
@@ -759,38 +631,25 @@ async def export_clip(
 
     db = get_database_service()
     clip = db.get_clip(clip_id)
-
     if not clip:
         raise not_found("Clip")
 
-    # Verify ownership
     project = db.get_project(clip.project_id)
     if not project or project.user_id != current_user.id:
         raise forbidden("Not authorized")
 
-    # Mark clip as processing
     db.update_clip(clip_id, {"export_status": "processing"})
-
     try:
-        service = get_export_service()
-        result = await service.export_clip(
+        export_service = get_export_service()
+        result = await export_service.export_clip(
             clip_id=clip_id,
             platform=request.platform,
             quality=request.quality,
             crop_mode=request.crop_mode,
             burn_subtitles=request.burn_subtitles,
         )
-
-        return {
-            "success": result.status == "done",
-            "clip_id": result.clip_id,
-            "status": result.status,
-            "output_url": result.output_url,
-            "file_size_bytes": result.file_size_bytes,
-            "duration_seconds": result.duration_seconds,
-            "error": result.error_message,
-        }
-
+        service = get_editor_route_service()
+        return service.format_export_result(result)
     except Exception as e:
         logger.error(f"Export error: {e}", exc_info=True)
         db.update_clip(clip_id, {"export_status": "failed"})
@@ -813,14 +672,13 @@ async def batch_export_clips(
 
     db = get_database_service()
     project = db.get_project(project_id)
-
     if not project:
         raise not_found("Project")
     if project.user_id != current_user.id:
         raise forbidden("Not authorized")
 
-    service = get_export_service()
-    results = await service.export_clips_batch(
+    export_service = get_export_service()
+    results = await export_service.export_clips_batch(
         project_id=project_id,
         clip_ids=request.clip_ids,
         platform=request.platform,
@@ -829,25 +687,8 @@ async def batch_export_clips(
         burn_subtitles=request.burn_subtitles,
     )
 
-    # Summarize results
-    successful = [r for r in results if r.status == "done"]
-    failed = [r for r in results if r.status == "failed"]
-
-    return {
-        "total": len(results),
-        "successful": len(successful),
-        "failed": len(failed),
-        "results": [
-            {
-                "clip_id": r.clip_id,
-                "status": r.status,
-                "output_url": r.output_url,
-                "file_size_bytes": r.file_size_bytes,
-                "error": r.error_message,
-            }
-            for r in results
-        ],
-    }
+    service = get_editor_route_service()
+    return service.summarize_batch_export_results(results)
 
 
 @router.get("/clips/{clip_id}/export/status")
