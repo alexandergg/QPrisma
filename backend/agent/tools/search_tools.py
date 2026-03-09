@@ -51,7 +51,12 @@ async def search_video(
         elif content_type == "audio":
             node_types = [NodeType.AUDIO_SEGMENT]
         else:
-            node_types = [NodeType.FRAME, NodeType.AUDIO_SEGMENT, NodeType.ENTITY]
+            node_types = [
+                NodeType.FRAME,
+                NodeType.AUDIO_SEGMENT,
+                NodeType.ENTITY,
+                NodeType.COMMUNITY,
+            ]
 
         search_response = await search_service.hybrid_search(
             query_text=query,

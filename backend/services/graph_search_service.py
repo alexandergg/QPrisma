@@ -93,6 +93,9 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             ("entity_embedding", "Entity", "embedding", 3072),
             ("scene_embedding", "Scene", "embedding", 3072),
             ("audiosegment_embedding", "AudioSegment", "embedding", 3072),
+            # Community indexes
+            ("community_embedding", "Community", "embedding", 3072),
+            ("community_embedding_coarse", "Community", "embedding_coarse", 512),
             # Coarse Matryoshka indexes (512d) for fast initial filtering
             ("frame_embedding_coarse", "Frame", "embedding_coarse", 512),
             ("entity_embedding_coarse", "Entity", "embedding_coarse", 512),

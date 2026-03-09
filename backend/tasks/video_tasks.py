@@ -1307,16 +1307,35 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         # 9. Clean up temporary files
         cleanup_task(temp_path)
 
-        # 9b. Calculate statistics
-        elapsed_time = time.time() - start_time
-        total_tokens = sum(a.get("tokens_used", 0) for a in frame_analyses)
-
         # Determine if there were warnings during processing
         processing_warnings = []
         if transcript_indexing_error:
             processing_warnings.append(f"Transcript indexing error: {transcript_indexing_error}")
         if not graph_indexed:
             processing_warnings.append("Knowledge graph indexing failed")
+
+        # 9a. Community detection (post-graph-indexing)
+        communities_created = 0
+        if graph_indexed and config.get("detect_communities", True):
+            try:
+                update_job_status(
+                    job_id, "processing", 92, "communities", "Detecting entity communities..."
+                )
+                from services.community_detection_service import (
+                    get_community_detection_service,
+                )
+
+                community_service = get_community_detection_service()
+                community_nodes = community_service.run_pipeline(video_id)
+                communities_created = len(community_nodes)
+                logger.info(f"Created {communities_created} communities for video {video_id}")
+            except Exception as e:
+                logger.warning(f"Community detection skipped: {e}")
+                processing_warnings.append(f"Community detection error: {e}")
+
+        # 9b. Calculate statistics
+        elapsed_time = time.time() - start_time
+        total_tokens = sum(a.get("tokens_used", 0) for a in frame_analyses)
 
         # Determine status: completed_with_warnings if there were partial errors
         final_status = "completed"
@@ -1337,6 +1356,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             "video_summary": video_summary,
             "key_topics": key_topics,
             "graph_indexed": graph_indexed,
+            "communities_created": communities_created,
             "total_tokens": total_tokens,
             "processing_time_seconds": round(elapsed_time, 2),
             "processing_warnings": processing_warnings if processing_warnings else None,

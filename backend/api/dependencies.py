@@ -270,6 +270,7 @@ def get_graph_route_service():
 
 
 _hierarchical_context_service = None
+_community_detection_service = None
 
 
 def get_hierarchical_context_service():
@@ -296,6 +297,18 @@ async def get_tool_artifact_service():
     )
 
     return await _get_tool_artifact_service()
+
+
+def get_community_detection_service():
+    """Get or create Community Detection Service."""
+    global _community_detection_service
+    if _community_detection_service is None:
+        from services.community_detection_service import (
+            get_community_detection_service as _get_cds,
+        )
+
+        _community_detection_service = _get_cds()
+    return _community_detection_service
 
 
 def get_storage_container_name() -> str:

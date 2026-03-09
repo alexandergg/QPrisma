@@ -59,6 +59,11 @@ class RelationType(str, Enum):
     SAME_ENTITY = "SAME_ENTITY"  # Same entity in different videos
     TOPIC_OVERLAP = "TOPIC_OVERLAP"
 
+    # Community / Hierarchical summarization
+    IN_COMMUNITY = "IN_COMMUNITY"  # Entity -> Community membership
+    SUMMARIZES = "SUMMARIZES"  # Community -> Video (summary of)
+    SUPPORTS = "SUPPORTS"  # Frame/AudioSegment -> Community (evidence)
+
 
 class NodeType(str, Enum):
     """Node types in the graph."""
@@ -70,6 +75,7 @@ class NodeType(str, Enum):
     ENTITY = "Entity"
     AUDIO_SEGMENT = "AudioSegment"
     TOPIC = "Topic"
+    COMMUNITY = "Community"
 
 
 # =============================================================================
@@ -280,6 +286,37 @@ class EntityNode(GraphNodeBase):
     occurrence_count: int = 1
     first_seen_time: float | None = None
     last_seen_time: float | None = None
+
+
+class CommunityNode(GraphNodeBase):
+    """Node representing a thematic community detected via graph clustering.
+
+    Communities group related entities and content segments that share a
+    common theme, enabling macro-level reasoning and efficient retrieval
+    for broad or thematic queries.
+    """
+
+    node_type: NodeType = NodeType.COMMUNITY
+
+    # Identification
+    community_id: str  # Unique within video (e.g. "{video_id}_c0")
+    video_id: str
+
+    # Content
+    title: str  # Short label (LLM-generated)
+    summary: str  # LLM-generated thematic summary
+    themes: list[str] = Field(default_factory=list)
+
+    # Membership
+    member_entity_ids: list[str] = Field(default_factory=list)
+    member_count: int = 0
+
+    # Temporal span of member content
+    time_span_start: float | None = None
+    time_span_end: float | None = None
+
+    # Hierarchy level (0 = leaf community, 1+ = aggregated)
+    level: int = 0
 
 
 class TopicNode(GraphNodeBase):

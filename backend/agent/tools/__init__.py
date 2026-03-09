@@ -15,6 +15,7 @@ from .analysis_tools import (
 
 # Context tools (split from general.py)
 from .context_tools import (
+    get_community_overview,
     get_scene_context,
     get_summary,
     get_video_info,
@@ -54,6 +55,7 @@ __all__ = [
     "get_transcript",
     "describe_scene",
     "get_scene_context",
+    "get_community_overview",
     "list_chapters",
     "get_video_info",
     "get_summary",

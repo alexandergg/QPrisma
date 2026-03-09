@@ -256,6 +256,46 @@ class Mem0Settings(BaseSettings):
     top_k: int = Field(default=5)
 
 
+class CommunitySettings(BaseSettings):
+    """Community detection & hierarchical graph summarization configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="COMMUNITY_", extra="ignore")
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable community detection during video processing pipeline.",
+    )
+    algorithm: str = Field(
+        default="louvain",
+        description="Community detection algorithm: 'louvain' or 'connected_components'.",
+    )
+    resolution: float = Field(
+        default=1.0,
+        description="Resolution parameter for Louvain (higher = smaller communities).",
+        gt=0.0,
+    )
+    min_community_size: int = Field(
+        default=3,
+        description="Minimum number of entities required to form a community.",
+        ge=2,
+    )
+    min_entity_occurrences: int = Field(
+        default=2,
+        description="Minimum entity occurrence count to include in community graph.",
+        ge=1,
+    )
+    max_communities_per_video: int = Field(
+        default=20,
+        description="Maximum number of communities to generate per video.",
+        ge=1,
+    )
+    summary_max_tokens: int = Field(
+        default=300,
+        description="Max tokens for each community summary generation.",
+        ge=50,
+    )
+
+
 class AuthSettings(BaseSettings):
     """Authentication configuration."""
 
@@ -374,6 +414,7 @@ class Settings(BaseSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     artifacts: ArtifactSettings = Field(default_factory=ArtifactSettings)
     mem0: Mem0Settings = Field(default_factory=Mem0Settings)
+    community: CommunitySettings = Field(default_factory=CommunitySettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
 
     @model_validator(mode="after")

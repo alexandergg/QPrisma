@@ -20,6 +20,7 @@ from neo4j.exceptions import AuthError, ServiceUnavailable
 from core.config import settings
 from models.graph_models import (
     AudioSegmentNode,
+    CommunityNode,
     EntityNode,
     EntityType,
     FrameNode,
@@ -292,6 +293,7 @@ class KnowledgeGraphService:
                 "CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE",
                 "CREATE CONSTRAINT topic_id IF NOT EXISTS FOR (t:Topic) REQUIRE t.id IS UNIQUE",
                 "CREATE CONSTRAINT audio_id IF NOT EXISTS FOR (a:AudioSegment) REQUIRE a.id IS UNIQUE",
+                "CREATE CONSTRAINT community_id IF NOT EXISTS FOR (c:Community) REQUIRE c.id IS UNIQUE",
             ]
 
             # Indexes for search
@@ -314,6 +316,10 @@ class KnowledgeGraphService:
                 "CREATE FULLTEXT INDEX frame_search IF NOT EXISTS FOR (f:Frame) ON EACH [f.description]",
                 "CREATE FULLTEXT INDEX topic_search IF NOT EXISTS FOR (t:Topic) ON EACH [t.name, t.description]",
                 "CREATE FULLTEXT INDEX audio_search IF NOT EXISTS FOR (a:AudioSegment) ON EACH [a.text]",
+                # Community indexes
+                "CREATE INDEX community_video_id IF NOT EXISTS FOR (c:Community) ON (c.video_id)",
+                "CREATE INDEX community_community_id IF NOT EXISTS FOR (c:Community) ON (c.community_id)",
+                "CREATE FULLTEXT INDEX community_search IF NOT EXISTS FOR (c:Community) ON EACH [c.title, c.summary]",
             ]
 
             for constraint in constraints:
@@ -712,6 +718,38 @@ class KnowledgeGraphService:
     def delete_video_graph(self, video_id: str) -> int:
         """Delete the entire subgraph for a video."""
         return self.expander.delete_video_graph(video_id)
+
+    # =========================================================================
+    # Delegation — Community operations
+    # =========================================================================
+
+    def create_community_node(self, community: CommunityNode) -> str:
+        """Create a Community node and link it to its Video."""
+        return self.nodes.create_community_node(community)
+
+    def create_communities_batch(self, communities: list[CommunityNode]) -> int:
+        """Create multiple Community nodes in a single batch."""
+        return self.nodes.create_communities_batch(communities)
+
+    def link_entities_to_community(self, community_id: str, entity_ids: list[str]) -> int:
+        """Create IN_COMMUNITY relationships from entities to a community."""
+        return self.nodes.link_entities_to_community(community_id, entity_ids)
+
+    def get_video_communities(self, video_id: str) -> list[dict]:
+        """Retrieve all communities for a video."""
+        return self.nodes.get_video_communities(video_id)
+
+    def get_community_members(self, community_id: str) -> list[dict]:
+        """Retrieve all entities belonging to a community."""
+        return self.nodes.get_community_members(community_id)
+
+    def delete_video_communities(self, video_id: str) -> int:
+        """Delete all Community nodes for a video."""
+        return self.nodes.delete_video_communities(video_id)
+
+    def get_community_context(self, video_id: str, topic: str | None = None) -> list[dict]:
+        """Retrieve community summaries for a video, optionally filtered by topic."""
+        return self.expander.get_community_context(video_id, topic)
 
     def clear_all(self) -> None:
         """Delete all data from the graph. USE WITH CAUTION."""

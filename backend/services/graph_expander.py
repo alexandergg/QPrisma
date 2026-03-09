@@ -539,6 +539,46 @@ class GraphExpander:
             return {"nodes": nodes, "relationships": relationships}
 
     # =====================================================================
+    # Community Operations
+    # =====================================================================
+
+    def get_community_context(self, video_id: str, topic: str | None = None) -> list[dict]:
+        """Retrieve community summaries for a video, optionally filtered by topic.
+
+        Returns communities with their summaries, themes, and member counts.
+        Useful for macro-level reasoning and thematic query routing.
+        """
+        if topic:
+            cypher = """
+            CALL db.index.fulltext.queryNodes('community_search', $topic)
+            YIELD node AS c, score
+            WHERE c.video_id = $video_id
+            RETURN c {
+                .id, .community_id, .title, .summary, .themes,
+                .member_count, .time_span_start, .time_span_end, .level
+            } AS community, score
+            ORDER BY score DESC
+            LIMIT 10
+            """
+            params = {"video_id": video_id, "topic": topic}
+        else:
+            cypher = """
+            MATCH (c:Community {video_id: $video_id})
+            RETURN c {
+                .id, .community_id, .title, .summary, .themes,
+                .member_count, .time_span_start, .time_span_end, .level
+            } AS community, 1.0 AS score
+            ORDER BY c.member_count DESC
+            """
+            params = {"video_id": video_id}
+
+        with self._get_session() as session:
+            result = session.run(cypher, **params)
+            return [
+                {**record["community"], "relevance_score": record["score"]} for record in result
+            ]
+
+    # =====================================================================
     # Cleanup Operations
     # =====================================================================
 

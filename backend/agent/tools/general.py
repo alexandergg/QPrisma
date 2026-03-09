@@ -23,6 +23,7 @@ from agent.tools.analysis_tools import (  # noqa: F401
 
 # --- Context tools ---
 from agent.tools.context_tools import (  # noqa: F401
+    get_community_overview,
     get_scene_context,
     get_summary,
     get_video_info,
@@ -57,6 +58,7 @@ SEARCH_TOOLS = [
     get_transcript,
     describe_scene,
     get_scene_context,
+    get_community_overview,
     list_chapters,
     get_video_info,
     get_summary,

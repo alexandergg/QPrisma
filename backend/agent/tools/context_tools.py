@@ -334,3 +334,56 @@ async def get_scene_context(
 
     except Exception as e:
         return {"error": f"Failed to get scene context: {str(e)}", "context": {}}
+
+
+@tool
+async def get_community_overview(
+    topic: Annotated[str | None, "Optional topic to filter communities by"] = None,
+    media_id: Annotated[str | None, InjectedState("media_id")] = None,
+) -> dict[str, Any]:
+    """
+    Get thematic community summaries for a video.
+    Communities are pre-computed clusters of related entities and content that
+    reveal major themes, recurring patterns, and content groupings.
+    Use this for overview questions, thematic analysis, or to understand
+    the main topics covered before drilling into specifics.
+    Optionally filter by topic to find relevant thematic groups.
+    """
+    if not media_id:
+        return {"error": "No video context available.", "communities": []}
+
+    try:
+        from services.knowledge_graph import get_knowledge_graph_service
+
+        kg = get_knowledge_graph_service()
+        if not kg.is_connected:
+            kg.connect()
+
+        if not kg.is_connected:
+            return {"error": "Knowledge graph not available.", "communities": []}
+
+        communities = kg.get_community_context(media_id, topic=topic)
+
+        if not communities:
+            return {
+                "message": "No community summaries available for this video.",
+                "communities": [],
+            }
+
+        return {
+            "total_communities": len(communities),
+            "filter_topic": topic,
+            "communities": [
+                {
+                    "title": c.get("title", "Untitled"),
+                    "summary": c.get("summary", ""),
+                    "themes": c.get("themes", []),
+                    "member_count": c.get("member_count", 0),
+                    "relevance_score": round(c.get("relevance_score", 1.0), 3),
+                }
+                for c in communities
+            ],
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to get communities: {str(e)}", "communities": []}
