@@ -1314,7 +1314,24 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         if not graph_indexed:
             processing_warnings.append("Knowledge graph indexing failed")
 
-        # 9a. Community detection (post-graph-indexing)
+        # 9a. Dense temporal chains (link frames, segments, scenes sequentially)
+        temporal_chains = {}
+        if graph_indexed and config.get("create_temporal_chains", True):
+            try:
+                update_job_status(
+                    job_id, "processing", 91, "temporal_chains", "Creating temporal chains..."
+                )
+                from services.knowledge_graph import get_knowledge_graph_service
+
+                graph = get_knowledge_graph_service()
+                if graph.is_connected:
+                    temporal_chains = graph.create_temporal_chains(video_id)
+                    logger.info(f"Temporal chains for video {video_id}: {temporal_chains}")
+            except Exception as e:
+                logger.warning(f"Temporal chain creation skipped: {e}")
+                processing_warnings.append(f"Temporal chain error: {e}")
+
+        # 9b. Community detection (post-graph-indexing)
         communities_created = 0
         if graph_indexed and config.get("detect_communities", True):
             try:
@@ -1357,6 +1374,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             "key_topics": key_topics,
             "graph_indexed": graph_indexed,
             "communities_created": communities_created,
+            "temporal_chains": temporal_chains or None,
             "total_tokens": total_tokens,
             "processing_time_seconds": round(elapsed_time, 2),
             "processing_warnings": processing_warnings if processing_warnings else None,

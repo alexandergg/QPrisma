@@ -121,6 +121,9 @@ class TestNodeDelegation:
             ("a", "b", "REL", None),
         ),
         ("create_entity_cooccurrence", "create_entity_cooccurrence", ("frame-1",), None),
+        ("create_frame_chain", "create_frame_chain", ("vid-1",), None),
+        ("create_segment_chain", "create_segment_chain", ("vid-1",), None),
+        ("create_scene_chain", "create_scene_chain", ("vid-1",), None),
     ]
 
     @pytest.mark.parametrize(
@@ -164,6 +167,12 @@ class TestExpanderDelegation:
         ("expand_node_subgraph", "expand_node_subgraph", ("node-1",), ("node-1", 1, 50)),
         ("delete_video_graph", "delete_video_graph", ("vid-1",), None),
         ("clear_all", "clear_all", (), None),
+        (
+            "walk_temporal_chain",
+            "walk_temporal_chain",
+            ("node-1", "NEXT_FRAME"),
+            ("node-1", "NEXT_FRAME", "forward", 10),
+        ),
     ]
 
     @pytest.mark.parametrize(
@@ -343,6 +352,11 @@ class TestPublicAPICoverage:
         "create_relations_batch",
         "create_temporal_relation",
         "create_entity_cooccurrence",
+        # Temporal chains (delegated to nodes)
+        "create_frame_chain",
+        "create_segment_chain",
+        "create_scene_chain",
+        "create_temporal_chains",
         # Search (kept in facade)
         "search_entities",
         "search_frames_by_description",
@@ -358,6 +372,8 @@ class TestPublicAPICoverage:
         "expand_node_subgraph",
         "delete_video_graph",
         "clear_all",
+        # Temporal chain traversal (delegated to expander)
+        "walk_temporal_chain",
     ]
 
     def test_all_public_methods_exist(self):

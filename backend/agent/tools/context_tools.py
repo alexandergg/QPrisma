@@ -193,6 +193,7 @@ async def get_scene_context(
     Get comprehensive context around a specific moment in the video.
     Returns frames, audio, and scene information within the time window.
     Use this for understanding what happened before, during, and after a moment.
+    Uses temporal chain traversal when available for seamless cross-scene context.
     """
     if not media_id:
         return {"error": "No video context available.", "context": {}}
@@ -210,39 +211,126 @@ async def get_scene_context(
         start_time = max(0, timestamp - window_seconds)
         end_time = timestamp + window_seconds
 
-        # Get frames in the window
+        # Get frames — try chain walk from nearest frame, fallback to property query
+        frames = []
         with kg.get_session() as session:
-            result = session.run(
+            # Find the anchor frame closest to center timestamp
+            anchor_result = session.run(
                 """
                 MATCH (f:Frame)
                 WHERE f.video_id = $media_id
-                  AND f.timestamp >= $start_time
-                  AND f.timestamp <= $end_time
-                RETURN f.timestamp as timestamp, f.description as description
-                ORDER BY f.timestamp
+                  AND f.timestamp >= $start_time AND f.timestamp <= $end_time
+                RETURN f.id AS id, f.timestamp AS ts
+                ORDER BY abs(f.timestamp - $timestamp)
+                LIMIT 1
                 """,
                 media_id=media_id,
                 start_time=start_time,
                 end_time=end_time,
+                timestamp=timestamp,
             )
-            frames = list(result)
+            anchor = anchor_result.single()
 
-        # Get audio segments in the window
+            if anchor:
+                max_hops = max(int(window_seconds / 2), 10)
+                chain_result = session.run(
+                    """
+                    MATCH (anchor:Frame {id: $anchor_id})
+                    OPTIONAL MATCH bwd = (prev:Frame)-[:NEXT_FRAME*1..{hops}]->(anchor)
+                    WHERE prev.timestamp >= $start_time
+                    WITH anchor, collect(DISTINCT prev) AS before_nodes
+                    OPTIONAL MATCH fwd = (anchor)-[:NEXT_FRAME*1..{hops}]->(nxt:Frame)
+                    WHERE nxt.timestamp <= $end_time
+                    WITH anchor, before_nodes, collect(DISTINCT nxt) AS after_nodes
+                    WITH before_nodes + [anchor] + after_nodes AS all_nodes
+                    UNWIND all_nodes AS f
+                    WITH DISTINCT f
+                    RETURN f.timestamp AS timestamp, f.description AS description
+                    ORDER BY f.timestamp
+                    """.replace("{hops}", str(max_hops)),
+                    anchor_id=anchor["id"],
+                    start_time=start_time,
+                    end_time=end_time,
+                )
+                frames = list(chain_result)
+
+        # Fallback to property-based query
+        if not frames:
+            with kg.get_session() as session:
+                result = session.run(
+                    """
+                    MATCH (f:Frame)
+                    WHERE f.video_id = $media_id
+                      AND f.timestamp >= $start_time
+                      AND f.timestamp <= $end_time
+                    RETURN f.timestamp as timestamp, f.description as description
+                    ORDER BY f.timestamp
+                    """,
+                    media_id=media_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                )
+                frames = list(result)
+
+        # Get audio segments — try chain walk, fallback to property query
+        audio_segments = []
         with kg.get_session() as session:
-            result = session.run(
+            anchor_result = session.run(
                 """
                 MATCH (a:AudioSegment)
                 WHERE a.video_id = $media_id
-                  AND a.start_time >= $start_time
-                  AND a.start_time <= $end_time
-                RETURN a.start_time as timestamp, a.text as text
-                ORDER BY a.start_time
+                  AND a.start_time >= $start_time AND a.start_time <= $end_time
+                RETURN a.id AS id
+                ORDER BY abs(a.start_time - $timestamp)
+                LIMIT 1
                 """,
                 media_id=media_id,
                 start_time=start_time,
                 end_time=end_time,
+                timestamp=timestamp,
             )
-            audio_segments = list(result)
+            anchor = anchor_result.single()
+
+            if anchor:
+                max_hops = max(int(window_seconds), 20)
+                chain_result = session.run(
+                    """
+                    MATCH (anchor:AudioSegment {id: $anchor_id})
+                    OPTIONAL MATCH (prev:AudioSegment)-[:NEXT_SEGMENT*1..{hops}]->(anchor)
+                    WHERE prev.start_time >= $start_time
+                    WITH anchor, collect(DISTINCT prev) AS before_nodes
+                    OPTIONAL MATCH (anchor)-[:NEXT_SEGMENT*1..{hops}]->(nxt:AudioSegment)
+                    WHERE nxt.start_time <= $end_time
+                    WITH anchor, before_nodes, collect(DISTINCT nxt) AS after_nodes
+                    WITH before_nodes + [anchor] + after_nodes AS all_nodes
+                    UNWIND all_nodes AS a
+                    WITH DISTINCT a
+                    RETURN a.start_time AS timestamp, a.text AS text
+                    ORDER BY a.start_time
+                    """.replace("{hops}", str(max_hops)),
+                    anchor_id=anchor["id"],
+                    start_time=start_time,
+                    end_time=end_time,
+                )
+                audio_segments = list(chain_result)
+
+        # Fallback to property-based query
+        if not audio_segments:
+            with kg.get_session() as session:
+                result = session.run(
+                    """
+                    MATCH (a:AudioSegment)
+                    WHERE a.video_id = $media_id
+                      AND a.start_time >= $start_time
+                      AND a.start_time <= $end_time
+                    RETURN a.start_time as timestamp, a.text as text
+                    ORDER BY a.start_time
+                    """,
+                    media_id=media_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                )
+                audio_segments = list(result)
 
         # Get scene that contains this timestamp
         with kg.get_session() as session:

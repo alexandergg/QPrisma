@@ -112,6 +112,46 @@ class GraphSearchScoringMixin:
             for candidate in candidates:
                 candidate.temporal_score = 0.7 if candidate.timestamp is not None else 0.3
 
+        # Boost candidates that are temporally adjacent to other high-scoring candidates
+        self._boost_temporal_adjacency(candidates)
+
+    def _boost_temporal_adjacency(self, candidates: list[ScoredNode]) -> None:
+        """Boost temporal scores for candidates adjacent via NEXT_* chains.
+
+        If two candidates are within a small timestamp gap, apply a mutual boost
+        proportional to the other candidate's vector score.
+        """
+        if len(candidates) < 2:
+            return
+
+        # Build a lookup of timestamped candidates for fast neighbour detection
+        timestamped = [(i, c) for i, c in enumerate(candidates) if c.timestamp is not None]
+
+        if len(timestamped) < 2:
+            return
+
+        # Sort by timestamp
+        timestamped.sort(key=lambda x: x[1].timestamp)
+
+        # Boost adjacent candidates (within 15s gap)
+        adjacency_threshold = 15.0
+        max_boost = 0.15
+
+        for idx in range(len(timestamped) - 1):
+            i, curr = timestamped[idx]
+            j, nxt = timestamped[idx + 1]
+
+            gap = abs(nxt.timestamp - curr.timestamp)
+            if gap <= adjacency_threshold:
+                proximity = 1.0 - (gap / adjacency_threshold)
+                boost = proximity * max_boost
+                candidates[i].temporal_score = min(
+                    1.0, candidates[i].temporal_score + boost * nxt.vector_score
+                )
+                candidates[j].temporal_score = min(
+                    1.0, candidates[j].temporal_score + boost * curr.vector_score
+                )
+
     # --- Context-based re-ranking ---
 
     def _rerank_with_context(

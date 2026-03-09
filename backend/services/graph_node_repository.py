@@ -749,6 +749,98 @@ class GraphNodeRepository:
             return record["relations_created"]
 
     # =====================================================================
+    # Dense Temporal Chain Operations
+    # =====================================================================
+
+    def create_frame_chain(self, video_id: str) -> int:
+        """Create NEXT_FRAME edges between consecutive frames ordered by frame_number.
+
+        Forms a linked list: f1 -[:NEXT_FRAME]-> f2 -[:NEXT_FRAME]-> f3 ...
+        Idempotent — deletes existing chains before recreating.
+        """
+        # Delete existing chain for idempotent re-runs
+        delete_query = """
+        MATCH (:Frame {video_id: $video_id})-[r:NEXT_FRAME]->(:Frame)
+        DELETE r
+        RETURN count(r) AS deleted
+        """
+        create_query = """
+        MATCH (f:Frame {video_id: $video_id})
+        WITH f ORDER BY f.frame_number
+        WITH collect(f) AS frames
+        UNWIND range(0, size(frames) - 2) AS i
+        WITH frames[i] AS current, frames[i + 1] AS next
+        CREATE (current)-[:NEXT_FRAME]->(next)
+        RETURN count(*) AS created
+        """
+
+        with self._get_session() as session:
+            session.run(delete_query, video_id=video_id)
+            result = session.run(create_query, video_id=video_id)
+            record = result.single()
+            count = record["created"] if record else 0
+            logger.info(f"Created {count} NEXT_FRAME edges for video {video_id}")
+            return count
+
+    def create_segment_chain(self, video_id: str) -> int:
+        """Create NEXT_SEGMENT edges between consecutive audio segments ordered by start_time.
+
+        Forms a linked list: s1 -[:NEXT_SEGMENT]-> s2 -[:NEXT_SEGMENT]-> s3 ...
+        Idempotent — deletes existing chains before recreating.
+        """
+        delete_query = """
+        MATCH (:AudioSegment {video_id: $video_id})-[r:NEXT_SEGMENT]->(:AudioSegment)
+        DELETE r
+        RETURN count(r) AS deleted
+        """
+        create_query = """
+        MATCH (a:AudioSegment {video_id: $video_id})
+        WITH a ORDER BY a.start_time
+        WITH collect(a) AS segments
+        UNWIND range(0, size(segments) - 2) AS i
+        WITH segments[i] AS current, segments[i + 1] AS next
+        CREATE (current)-[:NEXT_SEGMENT]->(next)
+        RETURN count(*) AS created
+        """
+
+        with self._get_session() as session:
+            session.run(delete_query, video_id=video_id)
+            result = session.run(create_query, video_id=video_id)
+            record = result.single()
+            count = record["created"] if record else 0
+            logger.info(f"Created {count} NEXT_SEGMENT edges for video {video_id}")
+            return count
+
+    def create_scene_chain(self, video_id: str) -> int:
+        """Create NEXT_SCENE edges between consecutive scenes ordered by scene_index.
+
+        Forms a linked list: sc1 -[:NEXT_SCENE]-> sc2 -[:NEXT_SCENE]-> sc3 ...
+        Idempotent — deletes existing chains before recreating.
+        """
+        delete_query = """
+        MATCH (:Scene {video_id: $video_id})-[r:NEXT_SCENE]->(:Scene)
+        DELETE r
+        RETURN count(r) AS deleted
+        """
+        create_query = """
+        MATCH (s:Scene {video_id: $video_id})
+        WITH s ORDER BY s.scene_index
+        WITH collect(s) AS scenes
+        UNWIND range(0, size(scenes) - 2) AS i
+        WITH scenes[i] AS current, scenes[i + 1] AS next
+        CREATE (current)-[:NEXT_SCENE]->(next)
+        RETURN count(*) AS created
+        """
+
+        with self._get_session() as session:
+            session.run(delete_query, video_id=video_id)
+            result = session.run(create_query, video_id=video_id)
+            record = result.single()
+            count = record["created"] if record else 0
+            logger.info(f"Created {count} NEXT_SCENE edges for video {video_id}")
+            return count
+
+    # =====================================================================
     # Community Node Operations
     # =====================================================================
 

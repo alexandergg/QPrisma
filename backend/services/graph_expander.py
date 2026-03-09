@@ -539,6 +539,59 @@ class GraphExpander:
             return {"nodes": nodes, "relationships": relationships}
 
     # =====================================================================
+    # Dense Temporal Chain Traversal
+    # =====================================================================
+
+    def walk_temporal_chain(
+        self,
+        node_id: str,
+        chain_type: str = "NEXT_FRAME",
+        direction: str = "forward",
+        hops: int = 5,
+    ) -> list[dict]:
+        """Walk a temporal chain from a node, returning ordered neighbours.
+
+        Parameters
+        ----------
+        node_id:
+            Starting node ID.
+        chain_type:
+            Relationship type to traverse (``NEXT_FRAME``, ``NEXT_SEGMENT``,
+            or ``NEXT_SCENE``).
+        direction:
+            ``"forward"`` follows outgoing NEXT_* edges (later in time),
+            ``"backward"`` follows incoming NEXT_* edges (earlier in time).
+        hops:
+            Maximum number of chain links to traverse (1..N).
+
+        Returns
+        -------
+        List of node property dicts in temporal order (nearest first).
+        """
+        allowed_types = {"NEXT_FRAME", "NEXT_SEGMENT", "NEXT_SCENE"}
+        if chain_type not in allowed_types:
+            raise ValueError(f"chain_type must be one of {allowed_types}")
+
+        hops = max(1, min(hops, 50))
+
+        if direction == "backward":
+            cypher = f"""
+            MATCH (start {{id: $node_id}})<-[:{chain_type}*1..{hops}]-(n)
+            RETURN n {{.*}} AS node
+            ORDER BY COALESCE(n.timestamp, n.start_time, n.scene_index) ASC
+            """
+        else:
+            cypher = f"""
+            MATCH (start {{id: $node_id}})-[:{chain_type}*1..{hops}]->(n)
+            RETURN n {{.*}} AS node
+            ORDER BY COALESCE(n.timestamp, n.start_time, n.scene_index) ASC
+            """
+
+        with self._get_session() as session:
+            result = session.run(cypher, node_id=node_id)
+            return [dict(record["node"]) for record in result]
+
+    # =====================================================================
     # Community Operations
     # =====================================================================
 

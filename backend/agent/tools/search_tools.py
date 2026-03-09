@@ -219,6 +219,7 @@ async def get_transcript(
     """
     Get the transcript (spoken words) for a specific time range in the video.
     Includes speaker identification when available.
+    Uses sequential chain traversal when available for seamless cross-boundary retrieval.
     """
     if not media_id:
         return {"error": "No video context available.", "transcript": ""}
@@ -233,22 +234,60 @@ async def get_transcript(
         if not kg.is_connected:
             return {"error": "Knowledge graph not available.", "transcript": ""}
 
+        # Try chain-based retrieval first: find the anchor segment, then walk
+        segments = []
         with kg.get_session() as session:
-            result = session.run(
+            # Find the first segment at or after start_time via NEXT_SEGMENT chain
+            anchor_result = session.run(
                 """
                 MATCH (a:AudioSegment)
                 WHERE a.video_id = $media_id
                   AND a.start_time >= $start_time
                   AND a.start_time <= $end_time
-                RETURN a.start_time as timestamp, a.text as text,
-                       a.speaker as speaker, a.confidence as confidence
+                RETURN a.id AS id
                 ORDER BY a.start_time
+                LIMIT 1
                 """,
                 media_id=media_id,
                 start_time=start_time,
                 end_time=end_time,
             )
-            segments = list(result)
+            anchor = anchor_result.single()
+
+            if anchor:
+                # Walk forward along NEXT_SEGMENT chain from anchor
+                chain_result = session.run(
+                    """
+                    MATCH (start:AudioSegment {id: $anchor_id})
+                    OPTIONAL MATCH path = (start)-[:NEXT_SEGMENT*0..100]->(n:AudioSegment)
+                    WHERE n.start_time <= $end_time
+                    WITH n ORDER BY n.start_time
+                    RETURN n.start_time AS timestamp, n.text AS text,
+                           n.speaker AS speaker, n.confidence AS confidence
+                    """,
+                    anchor_id=anchor["id"],
+                    end_time=end_time,
+                )
+                segments = list(chain_result)
+
+        # Fallback to property-based query if chain walk returned nothing
+        if not segments:
+            with kg.get_session() as session:
+                result = session.run(
+                    """
+                    MATCH (a:AudioSegment)
+                    WHERE a.video_id = $media_id
+                      AND a.start_time >= $start_time
+                      AND a.start_time <= $end_time
+                    RETURN a.start_time as timestamp, a.text as text,
+                           a.speaker as speaker, a.confidence as confidence
+                    ORDER BY a.start_time
+                    """,
+                    media_id=media_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                )
+                segments = list(result)
 
         if not segments:
             return {

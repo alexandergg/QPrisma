@@ -46,6 +46,11 @@ class RelationType(str, Enum):
     ENDS_WITH = "ENDS_WITH"
     SIMULTANEOUS = "SIMULTANEOUS"
 
+    # Sequential chains (dense temporal)
+    NEXT_FRAME = "NEXT_FRAME"
+    NEXT_SEGMENT = "NEXT_SEGMENT"
+    NEXT_SCENE = "NEXT_SCENE"
+
     # Semantic
     RELATES_TO = "RELATES_TO"
     SIMILAR_TO = "SIMILAR_TO"

@@ -751,6 +751,38 @@ class KnowledgeGraphService:
         """Retrieve community summaries for a video, optionally filtered by topic."""
         return self.expander.get_community_context(video_id, topic)
 
+    # ----- Dense Temporal Chain delegation -----
+
+    def create_frame_chain(self, video_id: str) -> int:
+        """Create NEXT_FRAME linked-list edges between consecutive frames."""
+        return self.nodes.create_frame_chain(video_id)
+
+    def create_segment_chain(self, video_id: str) -> int:
+        """Create NEXT_SEGMENT linked-list edges between consecutive audio segments."""
+        return self.nodes.create_segment_chain(video_id)
+
+    def create_scene_chain(self, video_id: str) -> int:
+        """Create NEXT_SCENE linked-list edges between consecutive scenes."""
+        return self.nodes.create_scene_chain(video_id)
+
+    def create_temporal_chains(self, video_id: str) -> dict[str, int]:
+        """Create all dense temporal chains (frames, segments, scenes) for a video."""
+        return {
+            "frame_chains": self.create_frame_chain(video_id),
+            "segment_chains": self.create_segment_chain(video_id),
+            "scene_chains": self.create_scene_chain(video_id),
+        }
+
+    def walk_temporal_chain(
+        self,
+        node_id: str,
+        chain_type: str = "NEXT_FRAME",
+        direction: str = "forward",
+        hops: int = 10,
+    ) -> list[dict]:
+        """Walk a temporal chain from a node. Delegates to GraphExpander."""
+        return self.expander.walk_temporal_chain(node_id, chain_type, direction, hops)
+
     def clear_all(self) -> None:
         """Delete all data from the graph. USE WITH CAUTION."""
         return self.expander.clear_all()
