@@ -9,6 +9,7 @@ from .auth_service import AuthService, get_auth_service
 from .batch_processor import BatchProcessor
 from .cache_service import CacheService, get_cache_service
 from .coverage_analyzer import CoverageAnalyzer
+from .cross_video_search_service import CrossVideoSearchService, get_cross_video_search_service
 from .database_service import DatabaseService, get_database_service
 from .embedding_service import EmbeddingService, get_embedding_service
 from .enhanced_search import EnhancedSearchService
@@ -26,6 +27,7 @@ from .hierarchical_context_service import (
 from .hierarchical_summarizer import HierarchicalSummarizer, SceneEmbeddingGenerator
 from .hierarchy_embedding_generator import HierarchyEmbeddingGenerator
 from .hierarchy_node_factory import HierarchyNodeFactory
+from .highlight_detection_service import HighlightDetectionService, get_highlight_detection_service
 from .hwaccel_resolver import HardwareAccelerationResolver
 from .knowledge_graph import KnowledgeGraphService, get_knowledge_graph_service
 from .mem0_memory_service import Mem0MemoryService, get_mem0_memory_service
@@ -60,6 +62,9 @@ __all__ = [
     "SceneAnalyzer",
     "ViralScoreService",
     "get_viral_score_service",
+    # Cross-Video Search
+    "CrossVideoSearchService",
+    "get_cross_video_search_service",
     # Graph Services
     "KnowledgeGraphService",
     "get_knowledge_graph_service",
@@ -67,6 +72,8 @@ __all__ = [
     "GraphExpander",
     "GraphSearchService",
     "get_graph_search_service",
+    "HighlightDetectionService",
+    "get_highlight_detection_service",
     "RelationBuilder",
     "get_relation_builder",
     "HierarchicalContextService",

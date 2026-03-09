@@ -3,9 +3,12 @@ Multi-Video Tools
 =================
 
 LangGraph tools for cross-video search, comparison, and analysis.
+Tool functions are thin wrappers that delegate to
+:class:`~services.cross_video_search_service.CrossVideoSearchService`.
 """
 
 import logging
+from dataclasses import asdict
 from typing import Annotated, Any
 
 from langchain_core.tools import tool
@@ -34,137 +37,16 @@ async def search_across_videos(
         return {"error": "User context not available.", "results": []}
 
     try:
-        from services.knowledge_graph import get_knowledge_graph_service
+        from services.cross_video_search_service import get_cross_video_search_service
 
-        kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
-
-        # Build query based on whether we have specific media_ids
-        if media_ids:
-            # Scoped search across specific videos
-            with kg.get_session() as session:
-                result = session.run(
-                    """
-                    CALL db.index.fulltext.queryNodes('frame_search', $query) YIELD node, score
-                    WITH node as f, score
-                    WHERE f.video_id IN $media_ids
-                    MATCH (v:Video)-[:HAS_FRAME]->(f)
-                    RETURN v.video_id as video_id, v.title as video_title,
-                           collect({
-                               timestamp: f.timestamp,
-                               description: f.description,
-                               score: score
-                           })[0..$limit] as matches
-                    ORDER BY max(score) DESC
-                    LIMIT $max_videos
-                    """,
-                    query=query,
-                    media_ids=media_ids,
-                    limit=limit_per_video,
-                    max_videos=max_videos,
-                )
-                video_results = list(result)
-
-            if not video_results:
-                # Try audio search as fallback
-                with kg.get_session() as session:
-                    result = session.run(
-                        """
-                        CALL db.index.fulltext.queryNodes('audio_search', $query) YIELD node, score
-                        WITH node as a, score
-                        WHERE a.video_id IN $media_ids
-                        MATCH (v:Video)-[:HAS_AUDIO]->(a)
-                        RETURN v.video_id as video_id, v.title as video_title,
-                               collect({
-                                   timestamp: a.timestamp,
-                                   text: a.text,
-                                   score: score
-                               })[0..$limit] as matches
-                        ORDER BY max(score) DESC
-                        LIMIT $max_videos
-                        """,
-                        query=query,
-                        media_ids=media_ids,
-                        limit=limit_per_video,
-                        max_videos=max_videos,
-                    )
-                    video_results = list(result)
-        else:
-            # Search across all videos (original behavior)
-            with kg.get_session() as session:
-                result = session.run(
-                    """
-                    CALL db.index.fulltext.queryNodes('frame_search', $query) YIELD node, score
-                    WITH node as f, score
-                    MATCH (v:Video)-[:HAS_FRAME]->(f)
-                    RETURN v.video_id as video_id, v.title as video_title,
-                           collect({
-                               timestamp: f.timestamp,
-                               description: f.description,
-                               score: score
-                           })[0..$limit] as matches
-                    ORDER BY max(score) DESC
-                    LIMIT $max_videos
-                    """,
-                    query=query,
-                    limit=limit_per_video,
-                    max_videos=max_videos,
-                )
-                video_results = list(result)
-
-            if not video_results:
-                with kg.get_session() as session:
-                    result = session.run(
-                        """
-                        CALL db.index.fulltext.queryNodes('audio_search', $query) YIELD node, score
-                        WITH node as a, score
-                        MATCH (v:Video)-[:HAS_AUDIO]->(a)
-                        RETURN v.video_id as video_id, v.title as video_title,
-                               collect({
-                                   timestamp: a.timestamp,
-                                   text: a.text,
-                                   score: score
-                               })[0..$limit] as matches
-                        ORDER BY max(score) DESC
-                        LIMIT $max_videos
-                        """,
-                        query=query,
-                        limit=limit_per_video,
-                        max_videos=max_videos,
-                    )
-                    video_results = list(result)
-
-        results_by_video = []
-        for vr in video_results:
-            matches = []
-            for m in vr.get("matches", []):
-                matches.append(
-                    {
-                        "timestamp": m.get("timestamp", 0),
-                        "timestamp_formatted": format_timestamp(m.get("timestamp", 0)),
-                        "content": (m.get("description") or m.get("text", ""))[:200],
-                        "score": round(m.get("score", 0), 3),
-                    }
-                )
-
-            results_by_video.append(
-                {
-                    "video_id": vr.get("video_id"),
-                    "video_title": vr.get("video_title") or "Untitled",
-                    "matches": matches,
-                    "match_count": len(matches),
-                }
-            )
-
-        return {
-            "query": query,
-            "videos_searched": len(results_by_video),
-            "scoped_to_selection": media_ids is not None,
-            "results_by_video": results_by_video,
-            "total_matches": sum(r["match_count"] for r in results_by_video),
-        }
-
+        svc = get_cross_video_search_service()
+        result = svc.search_across_videos(
+            query,
+            limit_per_video=limit_per_video,
+            max_videos=max_videos,
+            media_ids=media_ids,
+        )
+        return asdict(result)
     except Exception as e:
         return {"error": f"Cross-video search failed: {str(e)}", "results": []}
 
@@ -199,108 +81,11 @@ async def compare_videos(
         }
 
     try:
-        from services.knowledge_graph import get_knowledge_graph_service
+        from services.cross_video_search_service import get_cross_video_search_service
 
-        kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
-
-        comparison = []
-        for vid in effective_ids[:10]:
-            # Get video metadata
-            with kg.get_session() as session:
-                result = session.run(
-                    """
-                    MATCH (v:Video)
-                    WHERE v.video_id = $vid OR v.id = $vid
-                    RETURN v.title as title, v.summary as summary, v.topics as topics,
-                           v.duration as duration
-                    LIMIT 1
-                    """,
-                    vid=vid,
-                )
-                video = result.single()
-
-            # Search for the query topic in this video
-            with kg.get_session() as session:
-                result = session.run(
-                    """
-                    CALL db.index.fulltext.queryNodes('frame_search', $query) YIELD node, score
-                    WITH node as f, score
-                    WHERE f.video_id = $vid
-                    RETURN f.timestamp as timestamp, f.description as description, score
-                    ORDER BY score DESC
-                    LIMIT 3
-                    """,
-                    query=query,
-                    vid=vid,
-                )
-                frame_matches = list(result)
-
-            # Also search audio
-            with kg.get_session() as session:
-                result = session.run(
-                    """
-                    CALL db.index.fulltext.queryNodes('audio_search', $query) YIELD node, score
-                    WITH node as a, score
-                    WHERE a.video_id = $vid
-                    RETURN a.timestamp as timestamp, a.text as text, score
-                    ORDER BY score DESC
-                    LIMIT 3
-                    """,
-                    query=query,
-                    vid=vid,
-                )
-                audio_matches = list(result)
-
-            moments = []
-            for m in frame_matches:
-                moments.append(
-                    {
-                        "timestamp": m.get("timestamp", 0),
-                        "timestamp_formatted": format_timestamp(m.get("timestamp", 0)),
-                        "type": "visual",
-                        "content": (m.get("description") or "")[:200],
-                        "score": round(m.get("score", 0), 3),
-                    }
-                )
-            for m in audio_matches:
-                moments.append(
-                    {
-                        "timestamp": m.get("timestamp", 0),
-                        "timestamp_formatted": format_timestamp(m.get("timestamp", 0)),
-                        "type": "audio",
-                        "content": (m.get("text") or "")[:200],
-                        "score": round(m.get("score", 0), 3),
-                    }
-                )
-            moments.sort(key=lambda x: x["score"], reverse=True)
-
-            comparison.append(
-                {
-                    "video_id": vid,
-                    "video_title": (video.get("title") if video else None) or "Untitled",
-                    "summary": (video.get("summary") if video else None) or "",
-                    "topics": (video.get("topics") if video else None) or [],
-                    "duration_formatted": (
-                        format_timestamp(video.get("duration", 0))
-                        if video and video.get("duration")
-                        else None
-                    ),
-                    "relevant_moments": moments[:5],
-                    "relevance_score": round(max((m["score"] for m in moments), default=0), 3),
-                }
-            )
-
-        # Sort by relevance
-        comparison.sort(key=lambda x: x["relevance_score"], reverse=True)
-
-        return {
-            "query": query,
-            "videos_compared": len(comparison),
-            "comparison": comparison,
-        }
-
+        svc = get_cross_video_search_service()
+        result = svc.compare_videos(query, effective_ids)
+        return asdict(result)
     except Exception as e:
         return {"error": f"Video comparison failed: {str(e)}", "comparison": []}
 
