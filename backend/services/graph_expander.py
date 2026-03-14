@@ -636,18 +636,44 @@ class GraphExpander:
     # =====================================================================
 
     def delete_video_graph(self, video_id: str) -> int:
-        """Delete the entire subgraph for a video (scenes, frames, transcripts, entities)."""
+        """Delete the entire subgraph for a video by node type.
+
+        Deletes each label separately to avoid variable-length path
+        traversal (``[*]``) which can exhaust Neo4j transaction memory
+        on large graphs.
+        """
+        total = 0
+        labels = [
+            "Community",
+            "Entity",
+            "AudioSegment",
+            "Frame",
+            "Scene",
+            "Chapter",
+            "Topic",
+        ]
+        for label in labels:
+            cypher = f"""
+            MATCH (n:{label})
+            WHERE n.video_id = $video_id
+            DETACH DELETE n
+            RETURN count(n) AS deleted
+            """
+            result = self._execute_query(cypher, {"video_id": video_id}, single=True)
+            total += result["deleted"] if result else 0
+
+        # Delete the Video node itself
         cypher = """
         MATCH (v:Video)
         WHERE v.video_id = $video_id OR v.id = $video_id
-        OPTIONAL MATCH (v)-[*]->(n)
-        DETACH DELETE v, n
-        RETURN count(n) as deleted
+        DETACH DELETE v
+        RETURN count(v) AS deleted
         """
         result = self._execute_query(cypher, {"video_id": video_id}, single=True)
-        count = result["deleted"] if result else 0
-        logger.info(f"Deleted graph for video {video_id}: {count} nodes")
-        return count
+        total += result["deleted"] if result else 0
+
+        logger.info(f"Deleted graph for video {video_id}: {total} nodes")
+        return total
 
     def clear_all(self) -> None:
         """Delete all data from the graph. USE WITH CAUTION."""

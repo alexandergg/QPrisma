@@ -430,7 +430,7 @@ Only include pairs where has_relation is true."""
                         candidates.append(candidate)
 
             except Exception as e:
-                logger.debug(f"Error searching for {entity_name}: {e}")
+                logger.warning(f"Error searching for {entity_name}: {e}")
 
         logger.info(f"Found {len(candidates)} cross-video entity matches")
         return candidates

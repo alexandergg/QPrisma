@@ -76,7 +76,7 @@ class GraphSearchScoringMixin:
                 candidate.path_to_video = self._get_path_to_video(candidate.node_id)
 
             except Exception as e:
-                logger.debug(f"Graph expansion failed for {candidate.node_id}: {e}")
+                logger.warning(f"Graph expansion failed for {candidate.node_id}: {e}")
                 candidate.graph_score = 0.0
 
     # --- Temporal scoring ---

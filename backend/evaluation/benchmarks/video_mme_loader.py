@@ -63,7 +63,7 @@ def load_from_huggingface(
     try:
         from datasets import load_dataset
     except ImportError:
-        raise ImportError("Install datasets: pip install datasets")
+        raise ImportError("Install datasets: pip install datasets") from None
 
     logger.info("Loading Video-MME from HuggingFace (lmms-lab/Video-MME)...")
     dataset = load_dataset("lmms-lab/Video-MME", "videomme", split="test")

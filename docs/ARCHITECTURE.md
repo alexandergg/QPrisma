@@ -54,8 +54,9 @@ QPrisma employs a sophisticated "Dual-Channel" processing pipeline designed to b
 ### 2.1. Ingestion & Extraction
 *   **High-Performance Upload**: Chunked upload handling for 1GB+ files directly to Azure Blob Storage.
 *   **Adaptive Frame Extraction**:
-    *   **FFmpeg (Primary)**: Uses hardware-accelerated decoding to extract keyframes at configurable intervals (default: 1 FPS).
-    *   **OpenCV (Fallback)**: Python-native fallback for granular frame access.
+    *   **PyAV (Primary)**: In-process FFmpeg bindings (C-level) for zero-serialisation frame access.
+    *   **FFmpeg subprocess (Fallback)**: Pipe-to-memory subprocess extraction when PyAV is unavailable.
+*   **Scene Detection**: PySceneDetect with AdaptiveDetector (gradual transitions) and ContentDetector (hard cuts).
 *   **Audio Separation**: Concurrent audio stream extraction for independent transcription.
 
 ### 2.2. Visual Analysis (Batch API Optimization)
@@ -94,6 +95,12 @@ The graph models the video structure and its semantic contents explicitly:
 (:Frame)-[:CONTAINS_ENTITY]->(:Entity)
 (:Entity)-[:APPEARS_WITH]->(:Entity)
 (:Entity)-[:INTERACTS_WITH]->(:Entity)
+(:Entity)-[:IN_COMMUNITY]->(:Community)
+
+// Dense Temporal Chains
+(:Frame)-[:NEXT_FRAME]->(:Frame)
+(:Segment)-[:NEXT_SEGMENT]->(:Segment)
+(:Scene)-[:NEXT_SCENE]->(:Scene)
 ```
 
 ### 3.2. Relationship Extraction (`RelationBuilder`)
@@ -102,7 +109,24 @@ The `RelationBuilder` service infers edges between nodes using three strategies:
 2.  **Co-occurrence**: `APPEARS_WITH` (entities appearing in the same frames).
 3.  **Semantic**: `INTERACTS_WITH`, `RELATES_TO` (inferred by GPT-4o from context).
 
-### 3.3. Hybrid Indexing
+### 3.3. Dense Temporal Chains
+After graph indexing, deterministic adjacency edges are created for graph-native time walking:
+*   `NEXT_FRAME` — ordered by `frame_number`
+*   `NEXT_SEGMENT` — ordered by `start_time`
+*   `NEXT_SCENE` — ordered by `scene_index`
+
+These chains enable forward/backward traversal without timestamp arithmetic. The search scoring layer applies a **temporal adjacency boost** — results within 15 seconds of other high-scoring results receive an additive score increase.
+
+### 3.4. Community Detection
+After entities and relationships are indexed, Louvain community detection clusters co-occurring entities into thematic groups:
+1.  Entity co-occurrence graph is extracted from Neo4j into NetworkX.
+2.  Louvain algorithm partitions entities into communities (configurable resolution).
+3.  LLM generates a title, summary, and themes for each community.
+4.  `Community` nodes with summary embeddings are stored back into Neo4j.
+
+Community nodes participate in hybrid search alongside Frame, Scene, and Entity nodes.
+
+### 3.5. Hybrid Indexing
 QPrisma uses **Neo4j Vector Index** to store embeddings on `Frame` and `Scene` nodes.
 *   **Vector Search**: Finds conceptually similar moments ("show me someone happy").
 *   **Graph Traversal**: Navigates relationships ("who is the person happy *with*?").
@@ -126,7 +150,6 @@ The "Brain" of QPrisma is a **LangGraph StateGraph** that manages the cognitive 
 *   **Nodes**: `Planner`, `Search`, `Synthesize`, `Critique`.
 *   **Edges**: Conditional logic to loop back if information is missing (ReAct pattern).
 *   **Memory**: Redis-backed `CheckpointSaver` allows pausing/resuming long-running research tasks.
-*   **Human-in-the-loop**: `interrupt_before` capability allows users to guide the agent during complex edits.
 
 ---
 

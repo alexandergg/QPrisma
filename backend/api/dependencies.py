@@ -400,7 +400,7 @@ async def get_current_user(
     except HTTPException:
         raise
     except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise HTTPException(status_code=401, detail="Invalid or expired token") from None
 
 
 async def get_current_user_optional(

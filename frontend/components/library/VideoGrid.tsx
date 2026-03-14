@@ -6,7 +6,6 @@ import VideoCard from './VideoCard';
 import { VideoListItem } from './VideoListItem';
 import type { Video } from './VideoListItem';
 import { apiClient } from '@/lib/api';
-import { formatTime, formatFileSize } from '@/lib/utils';
 import { Spinner, Button } from '@/components/ui';
 
 interface VideoGridProps {
@@ -36,12 +35,7 @@ export default function VideoGrid({
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
 
-  // Load videos
-  useEffect(() => {
-    loadVideos();
-  }, []);
-
-  const loadVideos = async () => {
+  const loadVideos = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -53,7 +47,12 @@ export default function VideoGrid({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Load videos
+  useEffect(() => {
+    loadVideos();
+  }, [loadVideos]);
 
   // Filter and sort videos
   const filteredVideos = videos

@@ -335,16 +335,19 @@ Content-Type: application/json
 }
 ```
 
-**Processing Pipeline (v0.17.0):**
+**Processing Pipeline (v0.17.0+):**
 The pipeline is fully async and processes frames and audio in parallel for maximum throughput:
 
 1. **Download** video from Azure Blob Storage (chunked streaming via `aiofiles` — low memory)
-2. **Extract frames** with FFmpeg (parallel extraction using ThreadPoolExecutor, pipe-to-memory)
-3. **Submit Batch API** job for vision analysis (structured JSON output)
-4. **Process audio** with Whisper during batch wait (overlapping async I/O)
-5. **Wait for batch completion** (exponential backoff: 10s → 120s cap, `asyncio.sleep`)
-6. **Generate embeddings** (text-embedding-3-large, 3072 dimensions, async `AsyncAzureOpenAI`)
-7. **Index** results into Knowledge Graph (Neo4j) and PostgreSQL
+2. **Extract frames** with PyAV (in-process FFmpeg bindings, zero serialisation overhead; subprocess FFmpeg fallback)
+3. **Detect scenes** with PySceneDetect (AdaptiveDetector + ContentDetector)
+4. **Submit Batch API** job for vision analysis (structured JSON output)
+5. **Process audio** with Azure Whisper (default) or faster-whisper (optional INT8/Silero VAD backend) during batch wait (overlapping async I/O)
+6. **Wait for batch completion** (exponential backoff: 10s → 120s cap, `asyncio.sleep`)
+7. **Generate embeddings** (text-embedding-3-large, 3072 dimensions, async `AsyncAzureOpenAI`)
+8. **Index** results into Knowledge Graph (Neo4j) and PostgreSQL
+9. **Build temporal chains** — NEXT_FRAME / NEXT_SEGMENT / NEXT_SCENE relationships for graph-native time walking
+10. **Detect communities** — Louvain clustering on entity co-occurrence graph with LLM-generated thematic summaries
 
 > **v0.17.0 Note:** All pipeline services use `AsyncAzureOpenAI` with native `async/await`. 
 > Celery background tasks bridge to async via `asyncio.run()`. Neo4j supports both sync and 
@@ -629,6 +632,24 @@ GET /graph/{video_id}/hierarchy
   ]
 }
 ```
+
+### Community Detection
+
+Community detection runs automatically as the final stage of video processing. It clusters co-occurring entities via Louvain and generates LLM thematic summaries stored as `Community` nodes in Neo4j.
+
+Community nodes participate in hybrid search — the `COMMUNITY` node type is included in the default search scope. Each community carries an embedding of its summary, enabling semantic matching against user queries.
+
+### Dense Temporal Chains
+
+After graph indexing, the pipeline creates deterministic adjacency edges for graph-native time walking:
+
+| Relationship | Nodes | Ordering |
+|---|---|---|
+| `NEXT_FRAME` | Frame → Frame | `frame_number` |
+| `NEXT_SEGMENT` | Segment → Segment | `start_time` |
+| `NEXT_SCENE` | Scene → Scene | `scene_index` |
+
+These chains enable forward/backward traversal without timestamp arithmetic. The search scoring layer applies a **temporal adjacency boost** — results whose timestamps fall within 15 seconds of other high-scoring results receive an additive score increase.
 
 ### Batch Processing (Azure OpenAI Batch API)
 

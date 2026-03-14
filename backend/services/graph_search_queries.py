@@ -212,7 +212,7 @@ class GraphSearchQueryMixin:
                         )
                     )
         except Exception as e:
-            logger.debug(f"Vector query on {index_name} failed: {e}")
+            logger.warning(f"Vector query on {index_name} failed: {e}")
 
         return results
 
@@ -361,6 +361,8 @@ class GraphSearchQueryMixin:
             index_name = "entity_search"
         elif node_type == NodeType.AUDIO_SEGMENT:
             index_name = "audio_search"
+        elif node_type == NodeType.COMMUNITY:
+            index_name = "community_search"
         else:
             return []
 
@@ -415,7 +417,7 @@ class GraphSearchQueryMixin:
                 return [(r["id"], r["score"]) for r in result]
 
         except Exception as e:
-            logger.debug(f"Full-text search failed: {e}")
+            logger.warning(f"Full-text search failed: {e}")
             return []
 
     # --- Merge full-text scores into candidates ---
@@ -465,7 +467,7 @@ class GraphSearchQueryMixin:
                         )
                         candidates.append(scored)
                 except Exception as e:
-                    logger.debug(f"Failed to fetch node {node_id}: {e}")
+                    logger.warning(f"Failed to fetch node {node_id}: {e}")
 
     # --- Fetch a single node ---
 
@@ -485,5 +487,5 @@ class GraphSearchQueryMixin:
                     node_data.pop("embedding", None)  # Remove large embedding
                     return node_data
         except Exception as e:
-            logger.debug(f"Failed to get node {node_id}: {e}")
+            logger.warning(f"Failed to get node {node_id}: {e}")
         return None

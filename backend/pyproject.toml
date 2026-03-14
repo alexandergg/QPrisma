@@ -26,12 +26,11 @@ dependencies = [
     "networkx>=3.2,<4.0.0",
     "python-louvain>=0.16,<1.0.0",
     # Image/Video Processing
-    "opencv-python-headless>=4.10.0,<5.0.0",
     "pillow>=11.0.0,<12.0.0",
     "ffmpeg-python>=0.2.0,<1.0.0",
     "av>=16.0.0,<17.0.0",
     "imagehash>=4.3.0,<5.0.0",
-    "scenedetect[opencv]>=0.6.7,<1.0.0",
+    "scenedetect>=0.6.7,<1.0.0",
     # LangGraph Agent Framework
     "langgraph>=1.0.7,<2.0.0",
     "langchain-core>=1.2.8,<2.0.0",
@@ -108,9 +107,7 @@ select = [
 ignore = [
     "E501",   # line too long (handled by formatter)
     "E402",   # module-import-not-at-top-of-file (intentional lazy loading)
-    "E722",   # bare-except (cleanup later, low priority)
     "B008",   # do not perform function calls in argument defaults (FastAPI Depends)
-    "B904",   # raise-without-from-inside-except (too noisy, low priority)
     "B905",   # zip without strict= (Python 3.10+)
     "UP042",  # StrEnum migration tracked separately
     "SIM105", # suppressible-exception (contextlib.suppress - stylistic)
@@ -136,6 +133,31 @@ exclude = '''
     | \.git
 )/
 '''
+
+# =============================================================================
+# Mypy Configuration
+# =============================================================================
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+exclude = [
+    "tests/",
+    ".venv/",
+    "__pycache__/",
+]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+check_untyped_defs = false
 
 # =============================================================================
 # Pytest Configuration
@@ -170,8 +192,8 @@ omit = [
 ]
 
 [tool.coverage.report]
-# Target: 70% for services/ and api/, 90%+ for auth_service.py
-fail_under = 50
+# Target: 70% overall, 90%+ for auth_service.py
+fail_under = 70
 show_missing = true
 exclude_lines = [
     "pragma: no cover",

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, Sparkles, Plus, Grid } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 import { API_URL } from '@/lib/config';
@@ -29,12 +29,7 @@ export default function VideoProcessingStudio() {
   const [sceneDetectionEnabled, setSceneDetectionEnabled] = useState(true);
   const [hierarchicalSummaryEnabled, setHierarchicalSummaryEnabled] = useState(true);
 
-  useEffect(() => {
-    loadPresets();
-    loadMediaList();
-  }, []);
-
-  const loadPresets = async () => {
+  const loadPresets = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/presets`);
       const data = await response.json();
@@ -43,9 +38,9 @@ export default function VideoProcessingStudio() {
       console.error('Error loading presets:', error);
       setPresets([]);
     }
-  };
+  }, []);
 
-  const loadMediaList = async () => {
+  const loadMediaList = useCallback(async () => {
     try {
       setLoadingMedia(true);
       const response = await apiClient.getMedia();
@@ -56,7 +51,12 @@ export default function VideoProcessingStudio() {
     } finally {
       setLoadingMedia(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadPresets();
+    loadMediaList();
+  }, [loadPresets, loadMediaList]);
 
   const handleDelete = async (e: React.MouseEvent, mediaId: string) => {
     e.stopPropagation();

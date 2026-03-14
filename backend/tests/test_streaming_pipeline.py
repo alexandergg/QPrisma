@@ -9,7 +9,7 @@ Covers:
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from fractions import Fraction
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -31,7 +31,7 @@ def _fake_av_frame(
 ):
     """Return a mock ``av.VideoFrame``-like object."""
     if time_base is None:
-        time_base = SimpleNamespace(numerator=1, denominator=1000)
+        time_base = Fraction(1, 1000)
     frame = MagicMock()
     frame.pts = pts
     frame.width = width
@@ -47,14 +47,17 @@ def _fake_av_frame(
 def _make_frame_dict(frame_number: int, timestamp: float = 0.0) -> dict:
     """Create a minimal frame dict as yielded by extract_frames_stream."""
     # 2×2 black JPEG is the smallest valid JPEG we can create cheaply
-    import cv2
+    import io
 
-    img = np.zeros((2, 2, 3), dtype=np.uint8)
-    _, buf = cv2.imencode(".jpg", img)
+    from PIL import Image
+
+    img = Image.new("RGB", (2, 2), color=(0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=80)
     return {
         "frame_number": frame_number,
         "timestamp": timestamp,
-        "image_data": buf.tobytes(),
+        "image_data": buf.getvalue(),
         "metadata": {"width": 2, "height": 2, "extraction_mode": "test"},
     }
 
@@ -118,6 +121,7 @@ class TestPyavFrameGenerator:
             FrameExtractionMethod,
         )
         from services.ffmpeg_processor import FFmpegVideoProcessor
+        from services.timestamp_calculator import TimestampCalculator
 
         # Build processor with UNIFORM method, 2 frames over 2s video
         config = FFmpegProcessingConfig(
@@ -131,9 +135,10 @@ class TestPyavFrameGenerator:
         proc.config = config
         proc._decoder_backend = "pyav"
         proc._use_pyscenedetect = False
+        proc._timestamp_calculator = TimestampCalculator()
 
         # Mock container that yields frames at pts 0, 500, 1000, 1500, 2000
-        time_base = SimpleNamespace(numerator=1, denominator=1000)
+        time_base = Fraction(1, 1000)
         av_frames = [_fake_av_frame(pts=i * 500, time_base=time_base) for i in range(5)]
 
         stream = MagicMock()

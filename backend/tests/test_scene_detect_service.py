@@ -1,5 +1,6 @@
 """Tests for services/scene_detect_service.py and FFmpeg integration."""
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -114,15 +115,20 @@ def _make_mock_timecode(seconds: float, frames: int) -> MagicMock:
 class TestSceneDetectServiceWithMocks:
     """Test detection logic with PySceneDetect internals mocked out."""
 
-    def _patch_stack(self):
-        """Return common patches for scenedetect imports."""
-        return patch.dict(
-            "sys.modules",
+    @pytest.fixture(autouse=True)
+    def _mock_scenedetect_modules(self):
+        """Inject mock scenedetect modules so patches resolve without install."""
+        mock_sd = MagicMock()
+        mock_detectors = MagicMock()
+        mock_sd.detectors = mock_detectors
+        with patch.dict(
+            sys.modules,
             {
-                "scenedetect": MagicMock(),
-                "scenedetect.detectors": MagicMock(),
+                "scenedetect": mock_sd,
+                "scenedetect.detectors": mock_detectors,
             },
-        )
+        ):
+            yield
 
     def test_detect_scenes_adaptive(self, tmp_path) -> None:
         video_file = tmp_path / "video.mp4"

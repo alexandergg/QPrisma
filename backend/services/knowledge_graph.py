@@ -319,7 +319,7 @@ class KnowledgeGraphService:
                 # Community indexes
                 "CREATE INDEX community_video_id IF NOT EXISTS FOR (c:Community) ON (c.video_id)",
                 "CREATE INDEX community_community_id IF NOT EXISTS FOR (c:Community) ON (c.community_id)",
-                "CREATE FULLTEXT INDEX community_search IF NOT EXISTS FOR (c:Community) ON EACH [c.title, c.summary]",
+                "CREATE FULLTEXT INDEX community_search IF NOT EXISTS FOR (c:Community) ON EACH [c.title, c.summary, c.themes_text]",
             ]
 
             for constraint in constraints:

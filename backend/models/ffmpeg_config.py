@@ -121,7 +121,7 @@ class FrameExtractionConfig(BaseModel):
         description="Remove near-duplicate frames using perceptual hashing",
     )
     deduplication_threshold: int = Field(
-        default=5,
+        default=12,
         description="Hamming distance threshold for phash dedup (lower = stricter)",
         ge=0,
         le=64,

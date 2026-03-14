@@ -113,7 +113,7 @@ async def get_graph_stats(current_user: User = Depends(get_current_user)):
         return stats
     except Exception as e:
         logger.error(f"Failed to get graph stats: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 # =============================================================================
@@ -146,7 +146,7 @@ async def search_entities(
         }
     except Exception as e:
         logger.error(f"Entity search failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/search/frames")
@@ -176,7 +176,7 @@ async def search_frames(
         }
     except Exception as e:
         logger.error(f"Frame search failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/search/advanced", response_model=GraphSearchResponse)
@@ -205,7 +205,7 @@ async def advanced_graph_search(
         raise
     except Exception as e:
         logger.error(f"Advanced search failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 # =============================================================================
@@ -246,7 +246,7 @@ async def hybrid_search(
 
     except Exception as e:
         logger.error(f"Hybrid search failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/search/cross-video", response_model=CrossVideoSearchResponse)
@@ -278,7 +278,7 @@ async def cross_video_search(
 
     except Exception as e:
         logger.error(f"Cross-video search failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 # =============================================================================
@@ -319,7 +319,7 @@ async def generate_embeddings(
 
     except Exception as e:
         logger.error(f"Failed to generate embeddings: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.get("/embeddings/stats", response_model=EmbeddingStatsResponse)
@@ -345,7 +345,7 @@ async def get_embedding_stats(current_user: User = Depends(get_current_user)):
 
     except Exception as e:
         logger.error(f"Failed to get embedding stats: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 # =============================================================================
@@ -380,7 +380,7 @@ async def expand_context(
         )
     except Exception as e:
         logger.error(f"Context expansion failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/timeline", response_model=EntityTimelineResponse)
@@ -407,7 +407,7 @@ async def get_entity_timeline(
         )
     except Exception as e:
         logger.error(f"Failed to get entity timeline: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/related")
@@ -434,7 +434,7 @@ async def get_related_entities(
         }
     except Exception as e:
         logger.error(f"Failed to get related entities: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 # =============================================================================
@@ -466,7 +466,7 @@ async def get_video_graph(video_id: str, current_user: User = Depends(get_curren
         raise
     except Exception as e:
         logger.error(f"Failed to get video graph: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.delete("/video/{video_id}")
@@ -490,7 +490,7 @@ async def delete_video_graph(video_id: str, current_user: User = Depends(get_cur
         raise
     except Exception as e:
         logger.error(f"Failed to delete video graph: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.get("/video/{video_id}/summary", response_model=VideoGraphSummary)
@@ -533,7 +533,7 @@ async def extract_entities_from_frame(
         return GraphRouteService.format_frame_extraction_result(result)
     except Exception as e:
         logger.error(f"Entity extraction failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/extract/description")
@@ -559,7 +559,7 @@ async def extract_entities_from_description(
         return GraphRouteService.format_description_extraction_result(result)
     except Exception as e:
         logger.error(f"Entity extraction from description failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 # =============================================================================
@@ -614,7 +614,7 @@ async def process_video_hierarchy(
 
     except Exception as e:
         logger.error(f"Hierarchy processing failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/hierarchy/search/drill-down", response_model=DrillDownSearchResponse)
@@ -660,7 +660,7 @@ async def drill_down_search(
 
     except Exception as e:
         logger.error(f"Drill-down search failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/hierarchy/children", response_model=LoadChildrenResponse)
@@ -708,7 +708,7 @@ async def load_children(
 
     except Exception as e:
         logger.error(f"Load children failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.get("/hierarchy/stats/{video_id}", response_model=HierarchyStatsResponse)
@@ -740,7 +740,7 @@ async def get_hierarchy_stats(video_id: str, current_user: User = Depends(get_cu
         raise
     except Exception as e:
         logger.error(f"Get hierarchy stats failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.get("/hierarchy/path/{node_id}", response_model=HierarchyPathResponse)
@@ -780,7 +780,7 @@ async def get_hierarchy_path(
 
     except Exception as e:
         logger.error(f"Get hierarchy path failed: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 # =============================================================================
@@ -810,7 +810,7 @@ async def clear_all_graph_data(
         return {"status": "success", "message": "All graph data has been deleted"}
     except Exception as e:
         logger.error(f"Failed to clear graph: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 # =============================================================================
@@ -948,7 +948,7 @@ async def get_video_visualization(
         raise
     except Exception as e:
         logger.error(f"Failed to get video visualization: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/expand-subgraph")
@@ -984,4 +984,4 @@ async def expand_subgraph(
         }
     except Exception as e:
         logger.error(f"Failed to expand subgraph: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e

@@ -12,6 +12,7 @@ Pipeline Flow:
        ├── transcribe_audio_task
        ├── index_to_neo4j (Knowledge Graph)
        ├── index_transcription_to_graph
+       ├── entity_extraction (from frame descriptions)
        └── cleanup_task
 
 Usage:
@@ -248,7 +249,7 @@ def download_video_task(self, blob_name: str, job_id: str) -> dict:
     except Exception as e:
         logger.error(f"Download failed: {e}")
         update_job_status.delay(job_id, "failed", 0, "download_error", str(e), str(e))
-        raise self.retry(exc=e)
+        raise self.retry(exc=e) from e
 
 
 @celery_app.task(bind=True, name="tasks.video_tasks.extract_frames_task", max_retries=2)
@@ -365,7 +366,7 @@ def extract_frames_task(
         # Ensure decoder backend and deduplication are always applied
         config.frame_extraction.decoder_backend = decoder_backend
         config.frame_extraction.deduplication_enabled = True
-        config.frame_extraction.deduplication_threshold = 5
+        config.frame_extraction.deduplication_threshold = 12
 
         processor = FFmpegVideoProcessor(config=config)
 
@@ -489,7 +490,7 @@ def analyze_frame_task(
     except Exception as e:
         logger.error(f"Frame analysis failed: {e}")
         if self.request.retries < self.max_retries:
-            raise self.retry(exc=e)
+            raise self.retry(exc=e) from e
         return {
             "index": frame_data.get("index", -1),
             "timestamp": frame_data.get("timestamp", 0),
@@ -513,7 +514,7 @@ def generate_embedding_task(self, text: str) -> list[float]:
     except Exception as e:
         logger.error(f"Embedding generation failed: {e}")
         if self.request.retries < self.max_retries:
-            raise self.retry(exc=e)
+            raise self.retry(exc=e) from e
         return []
 
 
@@ -971,8 +972,8 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         if not scene_frames:
                             continue
 
-                        start_time = scene_frames[0].get("timestamp", 0)
-                        end_time = scene_frames[-1].get("timestamp", start_time + 10)
+                        scene_start_time = scene_frames[0].get("timestamp", 0)
+                        scene_end_time = scene_frames[-1].get("timestamp", scene_start_time + 10)
                         start_frame_num = scene_frames[0].get("frame_number", scene_idx)
                         end_frame_num = scene_frames[-1].get(
                             "frame_number", scene_idx + len(scene_frames) - 1
@@ -988,11 +989,11 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
                         scene = Scene(
                             scene_id=scene_idx // frames_per_scene,
-                            start_time=start_time,
-                            end_time=end_time,
+                            start_time=scene_start_time,
+                            end_time=scene_end_time,
                             start_frame=start_frame_num,
                             end_frame=end_frame_num,
-                            duration=end_time - start_time,
+                            duration=scene_end_time - scene_start_time,
                             keyframe_indices=keyframe_indices,
                             visual_description=visual_desc,
                             transcript_segment="",
@@ -1331,12 +1332,69 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 logger.warning(f"Temporal chain creation skipped: {e}")
                 processing_warnings.append(f"Temporal chain error: {e}")
 
-        # 9b. Community detection (post-graph-indexing)
+        # 9b. Entity extraction from frame descriptions
+        entities_created = 0
+        if graph_indexed and config.get("extract_entities", True):
+            try:
+                update_job_status(
+                    job_id,
+                    "processing",
+                    92,
+                    "entity_extraction",
+                    "Extracting entities from frames...",
+                )
+                from services.entity_extractor import get_entity_extractor
+                from services.knowledge_graph import get_knowledge_graph_service
+
+                extractor = get_entity_extractor()
+                graph = get_knowledge_graph_service()
+
+                entity_batch: list[tuple] = []
+                frame_ids_with_entities: list[str] = []
+
+                for frame_node in frames_to_create:
+                    if not frame_node.description:
+                        continue
+                    try:
+                        analysis = extractor.extract_from_description(
+                            description=frame_node.description,
+                            timestamp=frame_node.timestamp,
+                        )
+                        entity_nodes = extractor.convert_to_entity_nodes(analysis, video_id)
+                        for entity_node in entity_nodes:
+                            entity_batch.append((entity_node, frame_node.id))
+                        if entity_nodes:
+                            frame_ids_with_entities.append(frame_node.id)
+                    except Exception as frame_err:
+                        logger.debug(
+                            f"Entity extraction failed for frame {frame_node.id}: {frame_err}"
+                        )
+                        continue
+
+                if entity_batch:
+                    entities_created = graph.create_entities_batch(entity_batch)
+                    logger.info(f"Created {entities_created} entity nodes for video {video_id}")
+
+                    # Build APPEARS_WITH co-occurrence edges
+                    for fid in frame_ids_with_entities:
+                        try:
+                            graph.create_entity_cooccurrence(fid)
+                        except Exception as cooc_err:
+                            logger.debug(
+                                f"Co-occurrence creation failed for frame {fid}: {cooc_err}"
+                            )
+                else:
+                    logger.info(f"No entities extracted for video {video_id}")
+            except Exception as e:
+                logger.warning(f"Entity extraction skipped: {e}")
+                processing_warnings.append(f"Entity extraction error: {e}")
+
+        # 9c. Community detection (post-graph-indexing)
         communities_created = 0
         if graph_indexed and config.get("detect_communities", True):
             try:
                 update_job_status(
-                    job_id, "processing", 92, "communities", "Detecting entity communities..."
+                    job_id, "processing", 94, "communities", "Detecting entity communities..."
                 )
                 from services.community_detection_service import (
                     get_community_detection_service,
@@ -1350,7 +1408,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 logger.warning(f"Community detection skipped: {e}")
                 processing_warnings.append(f"Community detection error: {e}")
 
-        # 9b. Calculate statistics
+        # 9d. Calculate statistics
         elapsed_time = time.time() - start_time
         total_tokens = sum(a.get("tokens_used", 0) for a in frame_analyses)
 

@@ -185,12 +185,40 @@ def _make_frame_bytes(color: tuple[int, int, int], size: tuple[int, int] = (64, 
     return buf.getvalue()
 
 
+def _make_patterned_frame_bytes(pattern: str, size: tuple[int, int] = (64, 64)) -> bytes:
+    """Create a JPEG image with a distinct visual pattern for pHash differentiation.
+
+    Solid-color images produce identical perceptual hashes regardless of color,
+    so this helper creates structurally different images instead.
+    """
+    img = Image.new("RGB", size, (255, 255, 255))
+    from PIL import ImageDraw
+
+    draw = ImageDraw.Draw(img)
+    w, h = size
+    if pattern == "checkerboard":
+        for x in range(0, w, 16):
+            for y in range(0, h, 16):
+                if (x // 16 + y // 16) % 2 == 0:
+                    draw.rectangle([x, y, x + 16, y + 16], fill=(0, 0, 0))
+    elif pattern == "gradient":
+        for x in range(w):
+            gray = int(255 * x / w)
+            draw.line([(x, 0), (x, h)], fill=(gray, gray, gray))
+    elif pattern == "circle":
+        draw.rectangle([0, 0, w, h], fill=(0, 0, 0))
+        draw.ellipse([4, 4, w - 4, h - 4], fill=(255, 255, 255))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=95)
+    return buf.getvalue()
+
+
 @pytest.mark.unit
 class TestFrameDeduplication:
     def test_deduplication_config_defaults(self):
         config = FrameExtractionConfig()
         assert config.deduplication_enabled is True
-        assert config.deduplication_threshold == 5
+        assert config.deduplication_threshold == 12
 
     def test_deduplication_config_custom(self):
         config = FrameExtractionConfig(deduplication_enabled=False, deduplication_threshold=10)
@@ -220,9 +248,21 @@ class TestFrameDeduplication:
         proc = FFmpegVideoProcessor(FFmpegProcessingConfig())
 
         frames = [
-            {"frame_number": 0, "timestamp": 0.0, "image_data": _make_frame_bytes((255, 0, 0))},
-            {"frame_number": 1, "timestamp": 1.0, "image_data": _make_frame_bytes((0, 255, 0))},
-            {"frame_number": 2, "timestamp": 2.0, "image_data": _make_frame_bytes((0, 0, 255))},
+            {
+                "frame_number": 0,
+                "timestamp": 0.0,
+                "image_data": _make_patterned_frame_bytes("checkerboard"),
+            },
+            {
+                "frame_number": 1,
+                "timestamp": 1.0,
+                "image_data": _make_patterned_frame_bytes("gradient"),
+            },
+            {
+                "frame_number": 2,
+                "timestamp": 2.0,
+                "image_data": _make_patterned_frame_bytes("circle"),
+            },
         ]
         result = proc._deduplicate_frames(frames, threshold=5)
         assert len(result) == 3

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import ReactFlow, {
   Node,
   Edge,
@@ -156,7 +156,7 @@ export default function PipelineVisualizer({ data }: PipelineVisualizerProps) {
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
   // Auto-layout nodes
-  useCallback(() => {
+  useEffect(() => {
     const layoutNodes = () => {
       const levels: Record<string, string[]> = {};
       

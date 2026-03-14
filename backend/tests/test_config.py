@@ -327,6 +327,30 @@ class TestSettings:
         assert s.neo4j.password == ""
         assert s.auth.jwt_secret_key == ""
 
+    def test_production_rejects_dev_autologin(self):
+        with pytest.raises(ValueError, match="allow_dev_autologin must be False"):
+            Settings(
+                app=AppSettings(environment="production", allow_dev_autologin=True),
+                postgres=PostgresSettings(database_url="postgresql://prod:secure@host/db"),
+                neo4j=Neo4jSettings(password="secure-neo4j-password"),
+                auth=AuthSettings(jwt_secret_key="a" * 32),
+            )
+
+    def test_staging_rejects_dev_autologin(self):
+        with pytest.raises(ValueError, match="allow_dev_autologin must be False"):
+            Settings(
+                app=AppSettings(environment="staging", allow_dev_autologin=True),
+                postgres=PostgresSettings(database_url="postgresql://prod:secure@host/db"),
+                neo4j=Neo4jSettings(password="secure-neo4j-password"),
+                auth=AuthSettings(jwt_secret_key="a" * 32),
+            )
+
+    def test_dev_allows_dev_autologin(self):
+        s = Settings(
+            app=AppSettings(environment="dev", allow_dev_autologin=True),
+        )
+        assert s.app.allow_dev_autologin is True
+
 
 # =============================================================================
 # Client Factories

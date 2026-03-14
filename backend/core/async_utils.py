@@ -24,7 +24,7 @@ async def run_sync(func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> R
     Run a synchronous function in the thread pool without blocking the event loop.
 
     Use this for:
-    - OpenCV operations (cv2.VideoCapture, etc.)
+    - PIL / FFmpeg image and video operations
     - Synchronous Azure SDK calls
     - CPU-bound processing
     - File I/O

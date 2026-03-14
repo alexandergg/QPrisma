@@ -27,6 +27,7 @@ from fastapi import (
 from api.dependencies import (
     get_blob_service,
     get_current_user,
+    get_knowledge_graph_service,
     get_media_or_404,
     get_storage_account_info,
     get_storage_container_name,
@@ -226,7 +227,7 @@ async def upload_media(
 
             except Exception as e:
                 logger.error(f"Celery dispatch failed for {media_id}: {e}", exc_info=True)
-                raise service_unavailable("Task queue is unavailable")
+                raise service_unavailable("Task queue is unavailable") from e
 
         return {
             "media_id": media_id,
@@ -242,7 +243,7 @@ async def upload_media(
         raise
     except Exception as e:
         logger.error(f"Error uploading file: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/upload/optimized")
@@ -341,7 +342,7 @@ async def upload_media_optimized(
 
         except Exception as e:
             logger.error(f"Celery dispatch failed for {media_id}: {e}", exc_info=True)
-            raise service_unavailable("Task queue is unavailable")
+            raise service_unavailable("Task queue is unavailable") from e
 
         return {
             "media_id": media_id,
@@ -358,7 +359,7 @@ async def upload_media_optimized(
         raise
     except Exception as e:
         logger.error(f"Upload error: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.get("/media")
@@ -389,7 +390,7 @@ async def list_all_media(
 
     except Exception as e:
         logger.error(f"Error listing media: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.delete("/media/{media_id}")
@@ -428,9 +429,9 @@ async def delete_media(media_id: str, current_user: User = Depends(get_current_u
 
         # 2. Delete from Knowledge Graph (Neo4j)
         try:
-            from services.knowledge_graph import KnowledgeGraphService
-
-            KnowledgeGraphService().delete_video_graph(media_id)
+            kg_service = get_knowledge_graph_service()
+            if kg_service:
+                kg_service.delete_video_graph(media_id)
         except Exception as e:
             logger.warning(f"Error deleting from graph: {e}")
 
@@ -443,7 +444,7 @@ async def delete_media(media_id: str, current_user: User = Depends(get_current_u
         raise
     except Exception as e:
         logger.error(f"Error deleting media {media_id}: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.get("/media/{media_id}")
@@ -484,7 +485,7 @@ async def get_media_metadata(media_id: str, current_user: User = Depends(get_cur
         raise
     except Exception as e:
         logger.error(f"Media lookup failed for {media_id}: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.get("/media/{media_id}/status")
@@ -505,7 +506,7 @@ async def get_media_processing_status(
         raise
     except Exception as e:
         logger.error(f"Error fetching processing status for {media_id}: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.get("/media/{media_id}/audio")
@@ -564,7 +565,7 @@ async def get_video_audio_data(media_id: str, current_user: User = Depends(get_c
         raise
     except Exception as e:
         logger.error(f"Error fetching audio data for {media_id}: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.get("/media/{media_id}/search")

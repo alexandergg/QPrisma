@@ -40,7 +40,9 @@ It ingests media, extracts visual/audio context, builds semantic and graph index
 
 - **Video understanding**: Frame-level analysis, scene structure, and multimodal interpretation.
 - **Conversational retrieval (RAG)**: Ask natural language questions across one or many videos.
-- **Knowledge graph enrichment**: Capture entities and relationships for contextual search.
+- **Knowledge graph enrichment**: Capture entities, relationships, and community structure for contextual search.
+- **Community detection**: Louvain-based entity clustering with LLM-generated thematic summaries, integrated into hybrid search.
+- **Dense temporal chains**: Graph-native time walking via NEXT_FRAME / NEXT_SEGMENT / NEXT_SCENE relationships with temporal adjacency scoring.
 - **Multi-video chat**: Compare findings across selected assets in one query flow.
 - **Async processing at scale**: Queue-based background processing with live status updates.
 - **Cost-aware processing**: Batch-friendly architecture for non-urgent workloads.
@@ -73,6 +75,7 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 | Video Decode | PyAV (C-level FFmpeg bindings), FFmpeg subprocess fallback |
 | Scene Detection | PySceneDetect (AdaptiveDetector + ContentDetector) |
 | Transcription | Azure Whisper (default), faster-whisper (optional, 4× faster, INT8/Silero VAD) |
+| Graph Intelligence | Community detection (Louvain / NetworkX), dense temporal chains |
 | Data | PostgreSQL, Neo4j, Redis |
 | Storage | Azure Blob Storage |
 | Infrastructure | Bicep, GitHub Actions, Azure Container Apps |
@@ -85,6 +88,7 @@ QPrisma includes multiple layers of security hardening:
 - **Token revocation** via Redis-backed JTI denylist and `POST /auth/logout`
 - **Rate limiting** (slowapi) on auth, A2A, and media endpoints
 - **Security headers** middleware (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, etc.)
+- **Dev autologin guard** — `allow_dev_autologin` is rejected in production/staging by config validators
 - **Error sanitization** — no internal details leaked in API error responses
 - **Non-root Docker containers** (`appuser`, UID 1001)
 - **Parameterized credentials** in docker-compose (`${VAR:-default}`)

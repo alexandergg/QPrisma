@@ -338,6 +338,7 @@ class GraphNodeRepository:
         ON CREATE SET
             e.id = $id,
             e.name = $name,
+            e.video_id = f.video_id,
             e.description = $description,
             e.attributes = $attributes,
             e.confidence = $confidence,
@@ -384,6 +385,7 @@ class GraphNodeRepository:
         ON CREATE SET
             e.id = entity.id,
             e.name = entity.name,
+            e.video_id = f.video_id,
             e.description = entity.description,
             e.confidence = entity.confidence,
             e.occurrence_count = 1,

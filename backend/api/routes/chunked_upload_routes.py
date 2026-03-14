@@ -232,7 +232,7 @@ async def init_chunked_upload(
         db.create_media(media_data)
     except Exception as e:
         logger.error(f"Failed to create media record: {e}")
-        raise HTTPException(status_code=500, detail="Failed to initialize upload")
+        raise HTTPException(status_code=500, detail="Failed to initialize upload") from e
 
     logger.info(
         f"Initialized chunked upload: {upload_id}, "
@@ -311,7 +311,7 @@ async def commit_chunked_upload(
     except Exception as e:
         logger.error(f"Failed to commit blob: {e}", exc_info=True)
         db.update_media(request.media_id, {"processing_status": "error"})
-        raise HTTPException(status_code=500, detail="Storage operation failed")
+        raise HTTPException(status_code=500, detail="Storage operation failed") from e
 
     # Update media record
     pipeline_config = {

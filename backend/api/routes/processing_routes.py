@@ -279,7 +279,7 @@ async def process_video_with_ffmpeg(
         logger.error(
             f"FFmpeg processing request failed for media_id={media_id}: {e}", exc_info=True
         )
-        raise HTTPException(status_code=500, detail="Processing operation failed")
+        raise HTTPException(status_code=500, detail="Processing operation failed") from e
 
 
 @router.post("/process/video/ffmpeg/batch")
@@ -358,7 +358,7 @@ async def process_video_with_ffmpeg_batch(
         raise
     except Exception as e:
         logger.error(f"FFmpeg batch processing failed for media_id={media_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Processing operation failed")
+        raise HTTPException(status_code=500, detail="Processing operation failed") from e
 
 
 @router.get("/batch/status")
@@ -384,7 +384,7 @@ async def get_batch_status(batch_id: str, current_user: User = Depends(get_curre
 
     except Exception as e:
         logger.error(f"Batch status check failed for batch_id={batch_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Processing operation failed")
+        raise HTTPException(status_code=500, detail="Processing operation failed") from e
 
 
 @router.post("/batch/cancel")
@@ -405,7 +405,7 @@ async def cancel_batch(batch_id: str, current_user: User = Depends(get_current_u
 
     except Exception as e:
         logger.error(f"Batch cancel failed for batch_id={batch_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Processing operation failed")
+        raise HTTPException(status_code=500, detail="Processing operation failed") from e
 
 
 @router.get("/pipeline/preview")
@@ -459,7 +459,7 @@ async def get_pipeline_preview(
 
     except Exception as e:
         logger.error(f"Pipeline preview failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Processing operation failed")
+        raise HTTPException(status_code=500, detail="Processing operation failed") from e
 
 
 @router.get("/presets")
@@ -530,7 +530,7 @@ async def search_media(
         logger.error(
             f"Knowledge graph search failed for query={request.query!r}: {e}", exc_info=True
         )
-        raise HTTPException(status_code=500, detail="Processing operation failed")
+        raise HTTPException(status_code=500, detail="Processing operation failed") from e
 
 
 @router.post("/search/enhanced")
@@ -565,4 +565,4 @@ async def enhanced_search_endpoint(
 
     except Exception as e:
         logger.error(f"Enhanced search failed for query={request.query!r}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Processing operation failed")
+        raise HTTPException(status_code=500, detail="Processing operation failed") from e

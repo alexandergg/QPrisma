@@ -200,7 +200,8 @@ class GraphRouteService:
                     result["related_nodes"] = [
                         node for nodes in nodes_by_distance.values() for node in nodes
                     ]
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"Graph expansion failed for node {result.get('node_id')}: {e}")
                     result["related_nodes"] = []
             graph_expansion_time = (time.time() - expansion_start) * 1000
 

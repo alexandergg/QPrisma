@@ -191,7 +191,7 @@ async def submit_job(request: JobSubmitRequest, current_user: User = Depends(get
 
     except Exception as e:
         logger.error(f"Failed to submit job: {e}", exc_info=True)
-        raise internal_error(detail="Processing operation failed")
+        raise internal_error(detail="Processing operation failed") from e
 
 
 @router.get(
@@ -259,7 +259,7 @@ async def get_job_status(job_id: str, current_user: User = Depends(get_current_u
 
     except Exception as e:
         logger.error(f"Failed to get job status: {e}", exc_info=True)
-        raise internal_error(detail="Processing operation failed")
+        raise internal_error(detail="Processing operation failed") from e
 
 
 @router.post(
@@ -308,7 +308,7 @@ async def cancel_job(job_id: str, current_user: User = Depends(get_current_user)
 
     except Exception as e:
         logger.error(f"Failed to cancel job: {e}", exc_info=True)
-        raise internal_error(detail="Processing operation failed")
+        raise internal_error(detail="Processing operation failed") from e
 
 
 @router.get(
@@ -338,7 +338,7 @@ async def get_job_result(job_id: str, current_user: User = Depends(get_current_u
         raise
     except Exception as e:
         logger.error(f"Failed to get job result: {e}", exc_info=True)
-        raise internal_error(detail="Processing operation failed")
+        raise internal_error(detail="Processing operation failed") from e
 
 
 @router.get(

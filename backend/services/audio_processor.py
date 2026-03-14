@@ -110,7 +110,7 @@ class AudioProcessor:
             logger.info(f"Audio extracted: {output_path}")
             return output_path
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Error extracting audio: {e.stderr}")
+            raise RuntimeError(f"Error extracting audio: {e.stderr}") from e
 
     def get_audio_duration(self, audio_path: str) -> float:
         """

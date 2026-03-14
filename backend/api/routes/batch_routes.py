@@ -69,7 +69,7 @@ async def get_batch_status(
         logger.error(
             f"Batch status check failed for azure_batch_id={azure_batch_id}: {e}", exc_info=True
         )
-        raise HTTPException(status_code=500, detail="Batch operation failed")
+        raise HTTPException(status_code=500, detail="Batch operation failed") from e
 
 
 @router.get("/jobs")
@@ -91,7 +91,7 @@ async def list_batch_jobs(
         }
     except Exception as e:
         logger.error(f"Failed to list batch jobs for user={current_user.id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Batch operation failed")
+        raise HTTPException(status_code=500, detail="Batch operation failed") from e
 
 
 @router.post("/cancel/{azure_batch_id}")
@@ -134,7 +134,7 @@ async def cancel_batch_job(
         raise
     except Exception as e:
         logger.error(f"Batch cancel failed for azure_batch_id={azure_batch_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Batch operation failed")
+        raise HTTPException(status_code=500, detail="Batch operation failed") from e
 
 
 @router.get("/cost-summary")
@@ -150,7 +150,7 @@ async def get_cost_summary(current_user: User = Depends(get_current_user)):
         return summary
     except Exception as e:
         logger.error(f"Batch cost summary failed for user={current_user.id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Batch operation failed")
+        raise HTTPException(status_code=500, detail="Batch operation failed") from e
 
 
 @router.get("/estimate", response_model=CostEstimateResponse)

@@ -51,7 +51,8 @@ def _get_optimal_workers() -> int:
         except AttributeError:
             cpu_count = os.cpu_count() or 4
         return max(2, min(cpu_count - 1, 16))
-    except Exception:
+    except Exception as e:
+        logger.debug(f"CPU detection failed, using safe default: {e}")
         return 4  # Safe default
 
 
@@ -89,7 +90,8 @@ class FFmpegVideoProcessor:
                 from core.config import get_settings
 
                 backend = get_settings().app.video_decoder_backend
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Could not load decoder backend from settings: {e}")
                 backend = None
 
         backend = backend or "pyav"
@@ -172,7 +174,7 @@ class FFmpegVideoProcessor:
             return info
 
         except Exception as e:
-            raise RuntimeError(f"Error getting video information: {str(e)}")
+            raise RuntimeError(f"Error getting video information: {str(e)}") from e
 
     def _build_filter_chain(self, video_info: dict[str, Any]) -> list[str]:
         """
@@ -573,7 +575,7 @@ class FFmpegVideoProcessor:
         except Exception as e:
             self.status.status = "failed"
             self.status.error = str(e)
-            raise RuntimeError(f"Error extracting frames: {str(e)}")
+            raise RuntimeError(f"Error extracting frames: {str(e)}") from e
 
     # ------------------------------------------------------------------
     # Streaming frame extraction
@@ -713,8 +715,6 @@ class FFmpegVideoProcessor:
         if not _AV_AVAILABLE:
             return
 
-        import cv2
-
         extraction = self.config.frame_extraction
         max_frames = extraction.max_frames or 500
 
@@ -752,24 +752,21 @@ class FFmpegVideoProcessor:
 
                     if current_ts >= target_ts - tolerance:
                         rgb = _frame_to_rgb_ndarray(av_frame)
-                        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-                        ok, buf = cv2.imencode(
-                            ".jpg",
-                            bgr,
-                            [cv2.IMWRITE_JPEG_QUALITY, 95],
-                        )
-                        if ok:
-                            yield {
-                                "frame_number": frame_count,
-                                "timestamp": current_ts,
-                                "image_data": buf.tobytes(),
-                                "metadata": {
-                                    "width": av_frame.width,
-                                    "height": av_frame.height,
-                                    "extraction_mode": "streaming_pyav",
-                                },
-                            }
-                            frame_count += 1
+                        img = Image.fromarray(rgb)
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG", quality=95)
+                        frame_bytes = buf.getvalue()
+                        yield {
+                            "frame_number": frame_count,
+                            "timestamp": current_ts,
+                            "image_data": frame_bytes,
+                            "metadata": {
+                                "width": av_frame.width,
+                                "height": av_frame.height,
+                                "extraction_mode": "streaming_pyav",
+                            },
+                        }
+                        frame_count += 1
                         ts_idx += 1
         except Exception:
             logger.exception(
@@ -779,8 +776,6 @@ class FFmpegVideoProcessor:
 
     def _pyav_keyframe_generator(self, video_path: str, max_frames: int):
         """Yield only I-frames (keyframes) via PyAV demux."""
-        import cv2
-
         from services.pyav_extractor import (
             _frame_to_rgb_ndarray,
             _open_container,
@@ -799,26 +794,23 @@ class FFmpegVideoProcessor:
                     for frame in packet.decode():
                         ts = float(frame.pts * time_base) if frame.pts is not None else 0.0
                         rgb = _frame_to_rgb_ndarray(frame)
-                        bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-                        ok, buf = cv2.imencode(
-                            ".jpg",
-                            bgr,
-                            [cv2.IMWRITE_JPEG_QUALITY, 95],
-                        )
-                        if ok:
-                            yield {
-                                "frame_number": frame_count,
-                                "timestamp": ts,
-                                "image_data": buf.tobytes(),
-                                "metadata": {
-                                    "width": frame.width,
-                                    "height": frame.height,
-                                    "extraction_mode": ("streaming_pyav_keyframes"),
-                                },
-                            }
-                            frame_count += 1
-                            if frame_count >= max_frames:
-                                return
+                        img = Image.fromarray(rgb)
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG", quality=95)
+                        frame_bytes = buf.getvalue()
+                        yield {
+                            "frame_number": frame_count,
+                            "timestamp": ts,
+                            "image_data": frame_bytes,
+                            "metadata": {
+                                "width": frame.width,
+                                "height": frame.height,
+                                "extraction_mode": "streaming_pyav_keyframes",
+                            },
+                        }
+                        frame_count += 1
+                        if frame_count >= max_frames:
+                            return
         except Exception:
             logger.exception("Error in PyAV keyframe generator for %s", video_path)
 
@@ -882,20 +874,17 @@ class FFmpegVideoProcessor:
             return []
 
         # Convert (ts, ndarray) tuples → frame dicts expected downstream
-        import cv2
-
         results: list[dict[str, Any]] = []
         for idx, (ts, rgb_array) in enumerate(raw_frames):
             # Encode ndarray → JPEG bytes
-            bgr = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
-            ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            if not ok:
-                continue
+            img = Image.fromarray(rgb_array)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=95)
             results.append(
                 {
                     "frame_number": idx,
                     "timestamp": ts,
-                    "image_data": buf.tobytes(),
+                    "image_data": buf.getvalue(),
                 }
             )
 
@@ -970,8 +959,8 @@ class FFmpegVideoProcessor:
             configured = get_settings().processing.max_extraction_workers
             if configured is not None:
                 return configured
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not read max_extraction_workers from settings: {e}")
         return _get_optimal_workers()
 
     def _extract_single_frame(
@@ -1119,16 +1108,18 @@ class FFmpegVideoProcessor:
     def _deduplicate_frames(
         self,
         frames: list[dict[str, Any]],
-        threshold: int = 5,
+        threshold: int = 12,
     ) -> list[dict[str, Any]]:
         """Remove near-duplicate frames using perceptual hashing.
 
-        Compares each frame's phash against previously accepted frames.
-        A Hamming distance below ``threshold`` is considered a duplicate.
+        Compares each frame against the previously accepted frame only
+        (consecutive comparison) to preserve temporal progression while
+        removing truly redundant adjacent frames.
 
         Args:
             frames: List of frame dicts containing ``image_data`` bytes.
             threshold: Hamming distance threshold (lower = stricter).
+                Default 12 allows ~18.75% bit difference on a 64-bit hash.
 
         Returns:
             Filtered list with duplicates removed.
@@ -1136,18 +1127,18 @@ class FFmpegVideoProcessor:
         if not frames:
             return frames
 
-        seen_hashes: list[imagehash.ImageHash] = []
         unique_frames: list[dict[str, Any]] = []
+        last_hash: imagehash.ImageHash | None = None
 
         for frame in frames:
             img = Image.open(io.BytesIO(frame["image_data"]))
             frame_hash = imagehash.phash(img)
 
-            is_duplicate = any((frame_hash - seen) < threshold for seen in seen_hashes)
+            if last_hash is not None and (frame_hash - last_hash) < threshold:
+                continue
 
-            if not is_duplicate:
-                seen_hashes.append(frame_hash)
-                unique_frames.append(frame)
+            last_hash = frame_hash
+            unique_frames.append(frame)
 
         if len(frames) != len(unique_frames):
             removed = len(frames) - len(unique_frames)

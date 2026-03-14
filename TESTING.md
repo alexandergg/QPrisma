@@ -11,8 +11,10 @@ backend/
 └── tests/
     ├── conftest.py          # Pytest fixtures and configuration
     ├── test_api.py          # API endpoint tests
-    ├── test_services/       # Service layer tests
-    ├── test_integration/    # Integration tests
+    ├── test_config.py       # Settings, validators, production guards
+    ├── test_community_detection.py          # Community detection pipeline
+    ├── test_community_search_integration.py # Community search integration
+    ├── test_temporal_chains.py              # Dense temporal chains
     └── test_data/           # Test fixtures and sample data
 
 frontend/
@@ -39,6 +41,10 @@ frontend/
 | `test_streaming_pipeline.py` | Streaming pipeline architecture |
 | `test_audio_parallel_transcription.py` | Parallel audio transcription |
 | `test_video_perf_optimizations.py` | Frame dedup, WebP encoding, batch sizing |
+| `test_community_detection.py` | Louvain community detection pipeline |
+| `test_community_search_integration.py` | Community nodes in hybrid search |
+| `test_temporal_chains.py` | NEXT_FRAME / NEXT_SEGMENT / NEXT_SCENE chains and adjacency scoring |
+| `test_config.py` | Settings classes, production validators, dev autologin guard, client factories |
 | `test_errors.py` | Standardized HTTP error helpers |
 | `test_retry.py` | Centralized retry with exponential backoff |
 | `test_concurrency.py` | TaskGroup-based structured concurrency |
@@ -167,6 +173,9 @@ def test_vision_analysis_with_mock(mock_azure):
 ```
 
 ### Test Coverage Goals
+
+The CI enforces a **70% minimum overall coverage** (`fail_under = 70` in `pyproject.toml`).
+Per-area targets:
 
 - **Services**: 80%+ coverage
 - **API Routes**: 90%+ coverage
@@ -511,31 +520,23 @@ describe('VideoUpload', () => {
 ### Creating Test Videos
 
 ```python
-# tests/create_test_video.py
-import cv2
-import numpy as np
+# tests/create_test_video.py — uses FFmpeg (no OpenCV dependency)
+import os
+import subprocess
 
-def create_test_video(output_path: str, duration_seconds: int = 5):
-    """Create a simple test video for testing"""
-    fps = 30
-    frame_count = fps * duration_seconds
-    width, height = 640, 480
-    
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
-    for i in range(frame_count):
-        # Create frame with changing color
-        frame = np.zeros((height, width, 3), dtype=np.uint8)
-        frame[:, :] = (i % 255, (i * 2) % 255, (i * 3) % 255)
-        
-        # Add text
-        cv2.putText(frame, f'Frame {i}', (50, 50),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        
-        out.write(frame)
-    
-    out.release()
+def create_test_video(output_path: str = "test_video.mp4", duration: int = 5, fps: int = 30):
+    """Create a test video with colour patterns and text overlay via FFmpeg."""
+    width, height = 1280, 720
+    ffmpeg_cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", f"testsrc2=size={width}x{height}:rate={fps}:duration={duration}",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        output_path,
+    ]
+    subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=True)
+    return output_path
 ```
 
 ## Continuous Integration
@@ -601,7 +602,7 @@ jobs:
 ✅ Use descriptive test names  
 ✅ Mock external dependencies  
 ✅ Keep tests fast and isolated  
-✅ Aim for 80%+ code coverage  
+✅ Aim for 70%+ code coverage (CI threshold)  
 ✅ Test edge cases and error handling  
 ✅ Use fixtures for reusable test data  
 

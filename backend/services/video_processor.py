@@ -15,7 +15,6 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-import cv2
 import numpy as np
 from azure.storage.blob import BlobServiceClient
 from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
@@ -97,8 +96,10 @@ class VideoProcessor:
 
     def frame_to_base64(self, frame: np.ndarray, quality: int = 85) -> str:
         """Convert a numpy frame to base64 JPEG."""
-        _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
-        return base64.b64encode(buffer).decode("utf-8")
+        img = Image.fromarray(frame)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality)
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
 
     def _encode_frame_optimized(
         self,
@@ -670,12 +671,14 @@ Be thorough but factual. Prioritize information that would help users find this 
     def _estimate_token_budget(self, image_bytes: bytes) -> int:
         """Estimate token budget based on image entropy (visual complexity)."""
         try:
-            img_array = np.frombuffer(image_bytes, dtype=np.uint8)
-            img = cv2.imdecode(img_array, cv2.IMREAD_GRAYSCALE)
-            if img is None:
+            try:
+                img = Image.open(io.BytesIO(image_bytes)).convert("L")
+            except Exception:
                 return self.TOKEN_BUDGET["high"]
 
-            histogram = cv2.calcHist([img], [0], None, [256], [0, 256]).flatten()
+            gray = np.asarray(img, dtype=np.float32).flatten()
+            histogram, _ = np.histogram(gray, bins=256, range=(0, 256))
+            histogram = histogram.astype(np.float32)
             histogram = histogram[histogram > 0] / histogram.sum()
             entropy = -np.sum(histogram * np.log2(histogram))
 
@@ -685,7 +688,8 @@ Be thorough but factual. Prioritize information that would help users find this 
                 return self.TOKEN_BUDGET["medium"]
             else:
                 return self.TOKEN_BUDGET["high"]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Image complexity estimation failed, using high budget: {e}")
             return self.TOKEN_BUDGET["high"]
 
     async def _wait_and_finalize_batch(

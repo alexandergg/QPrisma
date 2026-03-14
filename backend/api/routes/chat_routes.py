@@ -59,7 +59,7 @@ async def chat(request: ChatRequest, current_user: User = Depends(get_current_us
         raise
     except Exception as e:
         logger.error(f"Chat request failed for media_id={request.media_id}: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -125,7 +125,7 @@ async def search(request: SearchRequest, current_user: User = Depends(get_curren
 
     except Exception as e:
         logger.error(f"Hybrid search failed for query={request.query!r}: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e
 
 
 # =============================================================================
@@ -246,4 +246,4 @@ async def agent_chat(
 
     except Exception as e:
         logger.error(f"Agent chat failed for media_id={request.media_id}: {e}", exc_info=True)
-        raise internal_error()
+        raise internal_error() from e

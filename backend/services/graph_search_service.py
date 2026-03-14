@@ -284,7 +284,12 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             effective_video_ids = None
 
         if node_types is None:
-            node_types = [NodeType.FRAME, NodeType.ENTITY, NodeType.AUDIO_SEGMENT]
+            node_types = [
+                NodeType.FRAME,
+                NodeType.ENTITY,
+                NodeType.AUDIO_SEGMENT,
+                NodeType.COMMUNITY,
+            ]
 
         # 1. Generate query embedding
         query_embedding = await self.embedding_service.generate_embedding(query_text)

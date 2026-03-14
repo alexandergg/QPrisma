@@ -257,7 +257,7 @@ class AuthService:
         except HTTPException:
             raise
         except JWTError:
-            raise credentials_exception
+            raise credentials_exception from None
 
     def create_user(self, user_data: UserCreate) -> UserInDB:
         """

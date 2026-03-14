@@ -432,6 +432,10 @@ class Settings(BaseSettings):
         if not self.auth.jwt_secret_key:
             errors.append("JWT_SECRET_KEY must be set")
 
+        # Reject dev-only features in production
+        if self.app.allow_dev_autologin:
+            errors.append("allow_dev_autologin must be False in production/staging environments")
+
         if errors:
             raise ValueError(
                 f"Missing required secrets for '{env}' environment: " + "; ".join(errors)

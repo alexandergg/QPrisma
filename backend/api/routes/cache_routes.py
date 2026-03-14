@@ -174,7 +174,7 @@ async def invalidate_cache(
 
     except Exception as e:
         logger.error(f"Cache invalidation error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Cache operation failed")
+        raise HTTPException(status_code=500, detail="Cache operation failed") from e
 
 
 @router.delete(

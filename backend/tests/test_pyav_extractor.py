@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from fractions import Fraction
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -19,7 +19,7 @@ pytestmark = pytest.mark.unit
 def _fake_frame(width: int = 64, height: int = 48, pts: int = 0, time_base=None):
     """Return a mock av.VideoFrame-like object."""
     if time_base is None:
-        time_base = SimpleNamespace(numerator=1, denominator=1000)
+        time_base = Fraction(1, 1000)
     frame = MagicMock()
     frame.pts = pts
     frame.width = width
@@ -124,7 +124,7 @@ class TestExtractFrames:
         frame2 = _fake_frame(pts=2000)
 
         stream = MagicMock()
-        stream.time_base = SimpleNamespace(numerator=1, denominator=1000)
+        stream.time_base = Fraction(1, 1000)
         stream.thread_type = None
 
         # decode yields one frame per call
@@ -153,7 +153,7 @@ class TestExtractFrames:
         frame = _fake_frame(pts=500)
 
         stream = MagicMock()
-        stream.time_base = SimpleNamespace(numerator=1, denominator=1000)
+        stream.time_base = Fraction(1, 1000)
         stream.thread_type = None
 
         container = MagicMock()
@@ -195,7 +195,7 @@ class TestExtractKeyframes:
         pkt_normal = _fake_packet(is_keyframe=False, dts=500, frames=[non_kf_frame])
 
         stream = MagicMock()
-        stream.time_base = SimpleNamespace(numerator=1, denominator=1000)
+        stream.time_base = Fraction(1, 1000)
         stream.thread_type = None
 
         container = MagicMock()
@@ -222,7 +222,7 @@ class TestExtractKeyframes:
         pkt2 = _fake_packet(is_keyframe=True, dts=1000, frames=[kf2])
 
         stream = MagicMock()
-        stream.time_base = SimpleNamespace(numerator=1, denominator=1000)
+        stream.time_base = Fraction(1, 1000)
         stream.thread_type = None
 
         container = MagicMock()
