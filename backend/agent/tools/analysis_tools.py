@@ -134,7 +134,7 @@ async def get_entity_timeline(
                 OPTIONAL MATCH (e)<-[:CONTAINS]-(f:Frame)
                 OPTIONAL MATCH (e)<-[:MENTIONS]-(a:AudioSegment)
                 WITH e, collect(DISTINCT {type: 'visual', timestamp: f.timestamp, description: f.description}) as frames,
-                     collect(DISTINCT {type: 'audio', timestamp: a.timestamp, text: a.text}) as audios
+                     collect(DISTINCT {type: 'audio', timestamp: a.start_time, text: a.text}) as audios
                 RETURN e.name as name, e.type as entity_type, frames, audios
                 """,
                 media_id=media_id,
@@ -281,9 +281,9 @@ async def compare_moments(
                         """
                         MATCH (a:AudioSegment)
                         WHERE a.video_id = $media_id
-                          AND a.timestamp >= $start AND a.timestamp <= $end
-                        RETURN a.text as text, a.speaker as speaker
-                        ORDER BY a.timestamp
+                          AND a.start_time >= $start AND a.start_time <= $end
+                        RETURN a.text as text, a.speaker_label as speaker
+                        ORDER BY a.start_time
                         """,
                         media_id=media_id,
                         start=ts - 5,

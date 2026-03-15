@@ -309,6 +309,25 @@ class KnowledgeGraphService:
                 )
                 session.run(f"DROP INDEX {idx_name}")
 
+    @staticmethod
+    def _migrate_property_renames(session: Session) -> None:
+        """Rename legacy properties on existing nodes for schema consistency."""
+        migrations = [
+            # VideoNode: ai_summary → summary
+            (
+                "MATCH (v:Video) WHERE v.ai_summary IS NOT NULL AND v.summary IS NULL "
+                "SET v.summary = v.ai_summary REMOVE v.ai_summary "
+                "RETURN count(v) AS migrated",
+                "Video.ai_summary → summary",
+            ),
+        ]
+        for query, label in migrations:
+            result = session.run(query)
+            record = result.single()
+            count = record["migrated"] if record else 0
+            if count:
+                logger.info("Property migration '%s': %d node(s) updated", label, count)
+
     def initialize_schema(self) -> None:
         """Create required indexes and constraints in Neo4j."""
         with self.get_session() as session:
@@ -317,6 +336,12 @@ class KnowledgeGraphService:
                 self._migrate_fulltext_indexes(session)
             except Exception as e:
                 logger.warning(f"Fulltext index migration check failed: {e}")
+
+            # Migrate renamed properties on existing nodes
+            try:
+                self._migrate_property_renames(session)
+            except Exception as e:
+                logger.warning(f"Property rename migration failed: {e}")
 
             # Uniqueness constraints
             constraints = [

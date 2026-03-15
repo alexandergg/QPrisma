@@ -57,7 +57,8 @@ async def list_chapters(
                     """
                     MATCH (v:Video)
                     WHERE v.video_id = $media_id OR v.id = $media_id
-                    RETURN v.topics as topics, v.summary as summary
+                    RETURN v.topics as topics,
+                           COALESCE(v.summary, v.ai_summary) as summary
                     """,
                     media_id=media_id,
                 )
@@ -152,7 +153,8 @@ async def get_summary(
                 """
                 MATCH (v:Video)
                 WHERE v.video_id = $media_id OR v.id = $media_id
-                RETURN v.summary as summary, v.title as title, v.topics as topics,
+                RETURN COALESCE(v.summary, v.ai_summary) as summary,
+                       v.title as title, v.topics as topics,
                        v.duration_seconds as duration
                 """,
                 media_id=media_id,
@@ -233,8 +235,7 @@ async def get_scene_context(
 
             if anchor:
                 max_hops = max(int(window_seconds / 2), 10)
-                chain_result = session.run(
-                    """
+                frame_chain_query = """
                     MATCH (anchor:Frame {id: $anchor_id})
                     OPTIONAL MATCH bwd = (prev:Frame)-[:NEXT_FRAME*1..{hops}]->(anchor)
                     WHERE prev.timestamp >= $start_time
@@ -247,7 +248,10 @@ async def get_scene_context(
                     WITH DISTINCT f
                     RETURN f.timestamp AS timestamp, f.description AS description
                     ORDER BY f.timestamp
-                    """.replace("{hops}", str(max_hops)),
+                    """
+                frame_chain_query = frame_chain_query.replace("{hops}", str(max_hops))
+                chain_result = session.run(
+                    frame_chain_query,
                     anchor_id=anchor["id"],
                     start_time=start_time,
                     end_time=end_time,
@@ -293,8 +297,7 @@ async def get_scene_context(
 
             if anchor:
                 max_hops = max(int(window_seconds), 20)
-                chain_result = session.run(
-                    """
+                audio_chain_query = """
                     MATCH (anchor:AudioSegment {id: $anchor_id})
                     OPTIONAL MATCH (prev:AudioSegment)-[:NEXT_SEGMENT*1..{hops}]->(anchor)
                     WHERE prev.start_time >= $start_time
@@ -307,7 +310,10 @@ async def get_scene_context(
                     WITH DISTINCT a
                     RETURN a.start_time AS timestamp, a.text AS text
                     ORDER BY a.start_time
-                    """.replace("{hops}", str(max_hops)),
+                    """
+                audio_chain_query = audio_chain_query.replace("{hops}", str(max_hops))
+                chain_result = session.run(
+                    audio_chain_query,
                     anchor_id=anchor["id"],
                     start_time=start_time,
                     end_time=end_time,

@@ -1239,7 +1239,20 @@ def select_tools_for_query(
     # Tool categories with keywords
     search_keywords = ["find", "search", "where", "when", "what", "show", "locate"]
     entity_keywords = ["who", "person", "people", "name", "character"]
-    structure_keywords = ["chapter", "section", "part", "outline", "summary"]
+    structure_keywords = [
+        "chapter",
+        "section",
+        "part",
+        "outline",
+        "summary",
+        "summarize",
+        "summarise",
+        "overview",
+        "about",
+        "theme",
+        "topic",
+        "info",
+    ]
     compare_keywords = ["compare", "difference", "similar", "versus", "vs"]
     edit_keywords = ["clip", "cut", "trim", "create", "add", "remove", "delete", "export"]
     subtitle_keywords = ["subtitle", "caption", "text", "transcri"]
@@ -1295,10 +1308,10 @@ def select_tools_for_query(
         selected.extend(search_tools[:4])
         selected.extend(entity_tools[:2])
 
-    # Fill remaining slots
+    # Fill remaining slots (include all categories as fallback)
     remaining = max_tools - len(selected)
     if remaining > 0:
-        for tool in other_tools + search_tools + entity_tools:
+        for tool in structure_tools + other_tools + search_tools + entity_tools + compare_tools:
             if tool not in selected:
                 selected.append(tool)
                 if len(selected) >= max_tools:
