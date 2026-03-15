@@ -58,7 +58,7 @@ async def list_chapters(
                     MATCH (v:Video)
                     WHERE v.video_id = $media_id OR v.id = $media_id
                     RETURN v.topics as topics,
-                           COALESCE(v.summary, v.ai_summary) as summary
+                           v.summary as summary
                     """,
                     media_id=media_id,
                 )
@@ -153,7 +153,7 @@ async def get_summary(
                 """
                 MATCH (v:Video)
                 WHERE v.video_id = $media_id OR v.id = $media_id
-                RETURN COALESCE(v.summary, v.ai_summary) as summary,
+                RETURN v.summary as summary,
                        v.title as title, v.topics as topics,
                        v.duration_seconds as duration
                 """,

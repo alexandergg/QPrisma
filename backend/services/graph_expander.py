@@ -202,7 +202,7 @@ class GraphExpander:
                v.title AS title,
                v.summary AS summary,
                v.topics AS topics,
-               v.duration AS duration
+               v.duration_seconds AS duration
         """
 
         with self._get_session() as session:

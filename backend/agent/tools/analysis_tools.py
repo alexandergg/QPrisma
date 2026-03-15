@@ -124,73 +124,83 @@ async def get_entity_timeline(
         if not kg.is_connected:
             kg.connect()
 
-        # Find all frames and audio mentioning this entity
+        # Find visual appearances via entity-frame links
         with kg.get_session() as session:
             result = session.run(
                 """
-                MATCH (e:Entity)
+                MATCH (e:Entity)<-[:CONTAINS]-(f:Frame)
                 WHERE e.video_id = $media_id
                   AND toLower(e.name) CONTAINS toLower($entity_name)
-                OPTIONAL MATCH (e)<-[:CONTAINS]-(f:Frame)
-                OPTIONAL MATCH (e)<-[:MENTIONS]-(a:AudioSegment)
-                WITH e, collect(DISTINCT {type: 'visual', timestamp: f.timestamp, description: f.description}) as frames,
-                     collect(DISTINCT {type: 'audio', timestamp: a.start_time, text: a.text}) as audios
-                RETURN e.name as name, e.type as entity_type, frames, audios
+                RETURN e.name as name, e.entity_type as entity_type,
+                       f.timestamp as timestamp, f.description as description
+                ORDER BY f.timestamp
                 """,
                 media_id=media_id,
                 entity_name=entity_name,
             )
-            entities = list(result)
+            visual_records = list(result)
+
+        # Find audio mentions via text search
+        with kg.get_session() as session:
+            result = session.run(
+                """
+                MATCH (a:AudioSegment)
+                WHERE a.video_id = $media_id
+                  AND toLower(a.text) CONTAINS toLower($entity_name)
+                RETURN a.start_time as timestamp, a.text as text
+                ORDER BY a.start_time
+                """,
+                media_id=media_id,
+                entity_name=entity_name,
+            )
+            audio_records = list(result)
 
         timeline = []
         seen_timestamps = set()
 
-        for entity in entities:
+        for record in visual_records:
             if (
                 entity_type != "any"
-                and entity.get("entity_type", "").lower() != entity_type.lower()
+                and (record.get("entity_type") or "").lower() != entity_type.lower()
             ):
                 continue
 
-            # Add frame appearances
-            for frame in entity.get("frames", []):
-                if frame.get("timestamp") is None:
-                    continue
-                ts = frame["timestamp"]
-                ts_key = round(ts, 1)
-                if ts_key in seen_timestamps:
-                    continue
-                seen_timestamps.add(ts_key)
+            ts = record.get("timestamp")
+            if ts is None:
+                continue
+            ts_key = round(ts, 1)
+            if ts_key in seen_timestamps:
+                continue
+            seen_timestamps.add(ts_key)
 
-                timeline.append(
-                    {
-                        "timestamp": ts,
-                        "timestamp_formatted": format_timestamp(ts),
-                        "appearance_type": "visual",
-                        "entity_name": entity.get("name"),
-                        "context": frame.get("description", "")[:400] if include_context else None,
-                    }
-                )
+            timeline.append(
+                {
+                    "timestamp": ts,
+                    "timestamp_formatted": format_timestamp(ts),
+                    "appearance_type": "visual",
+                    "entity_name": record.get("name"),
+                    "context": record.get("description", "")[:400] if include_context else None,
+                }
+            )
 
-            # Add audio mentions
-            for audio in entity.get("audios", []):
-                if audio.get("timestamp") is None:
-                    continue
-                ts = audio["timestamp"]
-                ts_key = round(ts, 1)
-                if ts_key in seen_timestamps:
-                    continue
-                seen_timestamps.add(ts_key)
+        for record in audio_records:
+            ts = record.get("timestamp")
+            if ts is None:
+                continue
+            ts_key = round(ts, 1)
+            if ts_key in seen_timestamps:
+                continue
+            seen_timestamps.add(ts_key)
 
-                timeline.append(
-                    {
-                        "timestamp": ts,
-                        "timestamp_formatted": format_timestamp(ts),
-                        "appearance_type": "spoken",
-                        "entity_name": entity.get("name"),
-                        "context": audio.get("text", "")[:400] if include_context else None,
-                    }
-                )
+            timeline.append(
+                {
+                    "timestamp": ts,
+                    "timestamp_formatted": format_timestamp(ts),
+                    "appearance_type": "spoken",
+                    "entity_name": entity_name,
+                    "context": record.get("text", "")[:400] if include_context else None,
+                }
+            )
 
         # Sort by timestamp
         timeline.sort(key=lambda x: x["timestamp"])
@@ -257,7 +267,7 @@ async def compare_moments(
                         MATCH (f:Frame)
                         WHERE f.video_id = $media_id
                         RETURN f.timestamp as timestamp, f.description as description,
-                               f.detected_objects as objects, f.frame_url as thumbnail
+                               f.image_url as thumbnail
                         ORDER BY abs(f.timestamp - $timestamp)
                         LIMIT 1
                         """,
@@ -270,7 +280,6 @@ async def compare_moments(
                     moment_data["visual"] = {
                         "actual_timestamp": frame.get("timestamp"),
                         "description": frame.get("description", "")[:500],
-                        "objects_detected": frame.get("objects") or [],
                         "thumbnail_url": frame.get("thumbnail"),
                     }
 

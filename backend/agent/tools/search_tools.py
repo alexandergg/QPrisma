@@ -374,7 +374,7 @@ async def describe_scene(
                 MATCH (f:Frame)
                 WHERE f.video_id = $media_id
                 RETURN f.timestamp as timestamp, f.description as description,
-                       f.detected_objects as detected_objects, f.detected_text as detected_text
+                       f.image_url as image_url
                 ORDER BY abs(f.timestamp - $timestamp)
                 LIMIT 1
                 """,
@@ -393,8 +393,7 @@ async def describe_scene(
             "timestamp": frame.get("timestamp", timestamp),
             "timestamp_formatted": format_timestamp(frame.get("timestamp", timestamp)),
             "description": frame.get("description") or "No description available.",
-            "detected_objects": frame.get("detected_objects") or [],
-            "detected_text": frame.get("detected_text"),
+            "image_url": frame.get("image_url"),
         }
 
     except Exception as e:
