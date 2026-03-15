@@ -146,7 +146,7 @@ class VideoNode(GraphNodeBase):
     processing_config: dict = Field(default_factory=dict)
 
     # AI-generated summary
-    ai_summary: str | None = None
+    summary: str | None = None
     topics: list[str] = Field(default_factory=list)
 
     # URLs

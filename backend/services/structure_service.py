@@ -129,7 +129,7 @@ class StructureService:
 
     def _generate_video_summary(self, video_node: dict, all_frames: list[dict]) -> str | None:
         """Generate a video summary from frame descriptions."""
-        video_summary = video_node.get("ai_summary")
+        video_summary = video_node.get("summary")
         if video_summary:
             return video_summary
 

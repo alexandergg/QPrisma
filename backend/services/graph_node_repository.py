@@ -68,7 +68,7 @@ class GraphNodeRepository:
             format: $format,
             total_frames: $total_frames,
             extracted_frames: $extracted_frames,
-            ai_summary: $ai_summary,
+            summary: $summary,
             topics: $topics,
             blob_url: $blob_url,
             thumbnail_url: $thumbnail_url,
@@ -92,7 +92,7 @@ class GraphNodeRepository:
                 format=video.format,
                 total_frames=video.total_frames,
                 extracted_frames=video.extracted_frames,
-                ai_summary=video.ai_summary,
+                summary=video.summary,
                 topics=video.topics,
                 blob_url=video.blob_url,
                 thumbnail_url=video.thumbnail_url,
@@ -136,7 +136,7 @@ class GraphNodeRepository:
         """Update the AI summary and topics for a video."""
         query = """
         MATCH (v:Video {video_id: $video_id})
-        SET v.ai_summary = $summary,
+        SET v.summary = $summary,
             v.topics = $topics,
             v.updated_at = datetime()
         RETURN v.id
@@ -857,6 +857,7 @@ class GraphNodeRepository:
             title: $title,
             summary: $summary,
             themes: $themes,
+            themes_text: $themes_text,
             member_entity_ids: $member_entity_ids,
             member_count: $member_count,
             time_span_start: $time_span_start,
@@ -877,6 +878,7 @@ class GraphNodeRepository:
                 title=community.title,
                 summary=community.summary,
                 themes=community.themes,
+                themes_text=", ".join(community.themes) if community.themes else "",
                 member_entity_ids=community.member_entity_ids,
                 member_count=community.member_count,
                 time_span_start=community.time_span_start,
@@ -899,6 +901,7 @@ class GraphNodeRepository:
                 "title": c.title,
                 "summary": c.summary,
                 "themes": c.themes,
+                "themes_text": ", ".join(c.themes) if c.themes else "",
                 "member_entity_ids": c.member_entity_ids,
                 "member_count": c.member_count,
                 "time_span_start": c.time_span_start,
@@ -918,6 +921,7 @@ class GraphNodeRepository:
             title: comm.title,
             summary: comm.summary,
             themes: comm.themes,
+            themes_text: comm.themes_text,
             member_entity_ids: comm.member_entity_ids,
             member_count: comm.member_count,
             time_span_start: comm.time_span_start,

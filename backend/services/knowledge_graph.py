@@ -281,9 +281,43 @@ class KnowledgeGraphService:
     # Schema & Indexes
     # =========================================================================
 
+    # Expected fulltext index definitions.  When the field list changes the
+    # stale index is dropped so ``IF NOT EXISTS`` will re-create it with the
+    # correct columns on the next run.
+    _FULLTEXT_INDEX_DEFS: dict[str, list[str]] = {
+        "entity_search": ["name", "description"],
+        "frame_search": ["description"],
+        "topic_search": ["name", "description"],
+        "audio_search": ["text"],
+        "community_search": ["title", "summary", "themes_text"],
+    }
+
+    def _migrate_fulltext_indexes(self, session: Session) -> None:
+        """Drop fulltext indexes whose property list no longer matches."""
+        result = session.run(
+            "SHOW FULLTEXT INDEXES YIELD name, properties " "RETURN name, properties"
+        )
+        existing: dict[str, set[str]] = {rec["name"]: set(rec["properties"]) for rec in result}
+
+        for idx_name, expected_props in self._FULLTEXT_INDEX_DEFS.items():
+            if idx_name in existing and existing[idx_name] != set(expected_props):
+                logger.info(
+                    "Fulltext index %s has stale properties %s (expected %s) — dropping",
+                    idx_name,
+                    sorted(existing[idx_name]),
+                    expected_props,
+                )
+                session.run(f"DROP INDEX {idx_name}")
+
     def initialize_schema(self) -> None:
         """Create required indexes and constraints in Neo4j."""
         with self.get_session() as session:
+            # Migrate stale fulltext indexes before creating new ones
+            try:
+                self._migrate_fulltext_indexes(session)
+            except Exception as e:
+                logger.warning(f"Fulltext index migration check failed: {e}")
+
             # Uniqueness constraints
             constraints = [
                 "CREATE CONSTRAINT video_id IF NOT EXISTS FOR (v:Video) REQUIRE v.id IS UNIQUE",

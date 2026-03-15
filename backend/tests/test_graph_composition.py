@@ -394,3 +394,203 @@ class TestPublicAPICoverage:
             ):
                 non_callable.append(m)
         assert non_callable == [], f"Non-callable public attributes: {non_callable}"
+
+
+# ===========================================================================
+# Fulltext index migration
+# ===========================================================================
+
+
+@pytest.mark.unit
+class TestFulltextIndexDefs:
+    """Validate the _FULLTEXT_INDEX_DEFS class attribute."""
+
+    def test_contains_expected_indexes(self):
+        svc = _make_service()
+        expected_names = {
+            "entity_search",
+            "frame_search",
+            "topic_search",
+            "audio_search",
+            "community_search",
+        }
+        assert set(svc._FULLTEXT_INDEX_DEFS.keys()) == expected_names
+
+    def test_entity_search_properties(self):
+        svc = _make_service()
+        assert svc._FULLTEXT_INDEX_DEFS["entity_search"] == ["name", "description"]
+
+    def test_frame_search_properties(self):
+        svc = _make_service()
+        assert svc._FULLTEXT_INDEX_DEFS["frame_search"] == ["description"]
+
+    def test_community_search_properties(self):
+        svc = _make_service()
+        assert svc._FULLTEXT_INDEX_DEFS["community_search"] == ["title", "summary", "themes_text"]
+
+
+@pytest.mark.unit
+class TestMigrateFulltextIndexes:
+    """Unit tests for _migrate_fulltext_indexes()."""
+
+    def _make_mock_session(self, existing_indexes: dict[str, list[str]]):
+        """Create a mock Neo4j session that returns the given fulltext indexes.
+
+        ``existing_indexes`` maps index name → list of property names.
+        """
+        records = [{"name": name, "properties": props} for name, props in existing_indexes.items()]
+        session = MagicMock()
+        session.run.return_value = records
+        return session
+
+    # -- nothing to drop --------------------------------------------------
+
+    def test_no_existing_indexes_does_nothing(self):
+        svc = _make_service()
+        session = self._make_mock_session({})
+
+        svc._migrate_fulltext_indexes(session)
+
+        # Only the SHOW query should have been issued
+        session.run.assert_called_once()
+
+    def test_matching_indexes_are_not_dropped(self):
+        svc = _make_service()
+        session = self._make_mock_session(
+            {
+                "entity_search": ["name", "description"],
+                "frame_search": ["description"],
+            }
+        )
+
+        svc._migrate_fulltext_indexes(session)
+
+        # Only the SHOW query; no DROP
+        session.run.assert_called_once()
+
+    def test_unknown_indexes_are_ignored(self):
+        """Indexes not in _FULLTEXT_INDEX_DEFS should never be dropped."""
+        svc = _make_service()
+        session = self._make_mock_session(
+            {
+                "some_other_index": ["foo", "bar"],
+            }
+        )
+
+        svc._migrate_fulltext_indexes(session)
+
+        session.run.assert_called_once()
+
+    # -- stale indexes dropped --------------------------------------------
+
+    def test_stale_index_is_dropped(self):
+        svc = _make_service()
+        # entity_search has ["name", "description"] expected but we report only ["name"]
+        session = self._make_mock_session(
+            {
+                "entity_search": ["name"],
+            }
+        )
+
+        svc._migrate_fulltext_indexes(session)
+
+        # SHOW + DROP
+        assert session.run.call_count == 2
+        drop_call = session.run.call_args_list[1]
+        assert "DROP INDEX entity_search" in drop_call.args[0]
+
+    def test_multiple_stale_indexes_dropped(self):
+        svc = _make_service()
+        session = self._make_mock_session(
+            {
+                "entity_search": ["name"],  # stale
+                "frame_search": ["description"],  # OK
+                "community_search": ["title", "summary"],  # stale (missing themes_text)
+            }
+        )
+
+        svc._migrate_fulltext_indexes(session)
+
+        # SHOW + 2 × DROP
+        assert session.run.call_count == 3
+        drop_args = [c.args[0] for c in session.run.call_args_list[1:]]
+        assert any("entity_search" in a for a in drop_args)
+        assert any("community_search" in a for a in drop_args)
+
+    def test_superset_properties_are_stale(self):
+        """An index with *extra* properties should also be dropped."""
+        svc = _make_service()
+        session = self._make_mock_session(
+            {
+                "frame_search": ["description", "extra_col"],
+            }
+        )
+
+        svc._migrate_fulltext_indexes(session)
+
+        assert session.run.call_count == 2
+        assert "DROP INDEX frame_search" in session.run.call_args_list[1].args[0]
+
+    def test_property_order_does_not_matter(self):
+        """Properties in different order but same set should NOT be dropped."""
+        svc = _make_service()
+        session = self._make_mock_session(
+            {
+                "entity_search": ["description", "name"],  # reversed order
+            }
+        )
+
+        svc._migrate_fulltext_indexes(session)
+
+        # Only the SHOW query – no DROP
+        session.run.assert_called_once()
+
+
+@pytest.mark.unit
+class TestInitializeSchemaCallsMigration:
+    """Verify that initialize_schema invokes _migrate_fulltext_indexes."""
+
+    def test_migrate_called_before_index_creation(self):
+        svc = _make_service()
+        mock_session = MagicMock()
+        # Make the session context-manager work
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch.object(svc, "get_session", return_value=mock_session),
+            patch.object(svc, "_migrate_fulltext_indexes") as mock_migrate,
+        ):
+            svc.initialize_schema()
+
+        mock_migrate.assert_called_once_with(mock_session)
+
+    def test_migrate_exception_is_caught(self):
+        """initialize_schema should not raise even if migration fails."""
+        svc = _make_service()
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch.object(svc, "get_session", return_value=mock_session),
+            patch.object(svc, "_migrate_fulltext_indexes", side_effect=RuntimeError("boom")),
+        ):
+            # Should NOT raise
+            svc.initialize_schema()
+
+    def test_indexes_still_created_after_migration_failure(self):
+        """Even if migration raises, the rest of initialize_schema should proceed."""
+        svc = _make_service()
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch.object(svc, "get_session", return_value=mock_session),
+            patch.object(svc, "_migrate_fulltext_indexes", side_effect=RuntimeError("boom")),
+        ):
+            svc.initialize_schema()
+
+        # session.run should still have been called for constraints & indexes
+        assert mock_session.run.call_count > 0

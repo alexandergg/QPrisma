@@ -103,7 +103,7 @@ class KnowledgeGraphTester:
             format="mp4",
             total_frames=3600,
             extracted_frames=10,
-            ai_summary="Video de demostración con escenas de oficina y personas interactuando.",
+            summary="Video de demostración con escenas de oficina y personas interactuando.",
             topics=["oficina", "reunión", "trabajo", "tecnología"],
         )
 

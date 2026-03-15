@@ -6,9 +6,9 @@ Video agent implemented using LangGraph StateGraph pattern.
 Provides a declarative, composable agent with built-in streaming and checkpointing.
 
 Architecture:
-    START → call_model → tools_condition? → tools → update_context → call_model → ... → END
-                              ↓ no                          ↑ error_handler (graceful degradation)
-                             END
+    START → restore_media_context → call_model → tools_condition? → tools → update_context → call_model → ... → END
+                                                    ↓ no                          ↑ error_handler
+                                                   END
 
 Features:
 - Input/Output schema separation (hides internal state from API)
@@ -44,7 +44,12 @@ from langgraph.prebuilt import ToolNode
 from langgraph.types import RetryPolicy
 
 from agent.nodes.base import error_handler_node
-from agent.nodes.video_nodes import call_model, should_continue, update_context
+from agent.nodes.video_nodes import (
+    call_model,
+    restore_media_context,
+    should_continue,
+    update_context,
+)
 from agent.state.agent_state import (
     AgentInputState,
     AgentOutputState,
@@ -353,7 +358,7 @@ def create_video_agent_graph(checkpointer=None):
     - Conditional routing with iteration limits
 
     Flow:
-        START → call_model → should_continue?
+        START → restore_media_context → call_model → should_continue?
                     ↓ tools          ↓ end
                   tools → update_context → call_model
                     ↓ error_handler
@@ -372,6 +377,7 @@ def create_video_agent_graph(checkpointer=None):
     )
 
     # Add nodes with smart retry policies (only retry transient errors)
+    workflow.add_node("restore_media_context", restore_media_context)
     workflow.add_node(
         "call_model",
         call_model,
@@ -385,8 +391,9 @@ def create_video_agent_graph(checkpointer=None):
     workflow.add_node("update_context", update_context)
     workflow.add_node("error_handler", error_handler_node)
 
-    # Entry point
-    workflow.add_edge(START, "call_model")
+    # Entry point: always restore media context before calling model
+    workflow.add_edge(START, "restore_media_context")
+    workflow.add_edge("restore_media_context", "call_model")
 
     # Conditional routing with iteration limits and error handling
     workflow.add_conditional_edges(

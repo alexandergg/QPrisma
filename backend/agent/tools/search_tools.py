@@ -211,13 +211,15 @@ async def find_entity(
 
 @tool
 async def get_transcript(
-    start_time: Annotated[float, "Start time in seconds"],
-    end_time: Annotated[float, "End time in seconds"],
+    start_time: Annotated[float | None, "Start time in seconds (omit for full transcript)"] = None,
+    end_time: Annotated[float | None, "End time in seconds (omit for full transcript)"] = None,
     include_speakers: Annotated[bool, "Include speaker identification if available"] = True,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get the transcript (spoken words) for a specific time range in the video.
+    Get the transcript (spoken words) for a video.
+    Omit start_time and end_time to retrieve the full transcript.
+    Provide both to retrieve a specific time range.
     Includes speaker identification when available.
     Uses sequential chain traversal when available for seamless cross-boundary retrieval.
     """
@@ -234,67 +236,85 @@ async def get_transcript(
         if not kg.is_connected:
             return {"error": "Knowledge graph not available.", "transcript": ""}
 
-        # Try chain-based retrieval first: find the anchor segment, then walk
+        full_transcript = start_time is None and end_time is None
+        effective_start = start_time if start_time is not None else 0.0
+        effective_end = end_time if end_time is not None else 999999.0
+
         segments = []
-        with kg.get_session() as session:
-            # Find the first segment at or after start_time via NEXT_SEGMENT chain
-            anchor_result = session.run(
-                """
-                MATCH (a:AudioSegment)
-                WHERE a.video_id = $media_id
-                  AND a.start_time >= $start_time
-                  AND a.start_time <= $end_time
-                RETURN a.id AS id
-                ORDER BY a.start_time
-                LIMIT 1
-                """,
-                media_id=media_id,
-                start_time=start_time,
-                end_time=end_time,
-            )
-            anchor = anchor_result.single()
 
-            if anchor:
-                # Walk forward along NEXT_SEGMENT chain from anchor
-                chain_result = session.run(
-                    """
-                    MATCH (start:AudioSegment {id: $anchor_id})
-                    OPTIONAL MATCH path = (start)-[:NEXT_SEGMENT*0..100]->(n:AudioSegment)
-                    WHERE n.start_time <= $end_time
-                    WITH n ORDER BY n.start_time
-                    RETURN n.start_time AS timestamp, n.text AS text,
-                           n.speaker AS speaker, n.confidence AS confidence
-                    """,
-                    anchor_id=anchor["id"],
-                    end_time=end_time,
-                )
-                segments = list(chain_result)
-
-        # Fallback to property-based query if chain walk returned nothing
-        if not segments:
+        if full_transcript:
+            # Retrieve all segments for the video ordered by time
             with kg.get_session() as session:
                 result = session.run(
                     """
                     MATCH (a:AudioSegment)
                     WHERE a.video_id = $media_id
-                      AND a.start_time >= $start_time
-                      AND a.start_time <= $end_time
                     RETURN a.start_time as timestamp, a.text as text,
-                           a.speaker as speaker, a.confidence as confidence
+                           a.speaker_label as speaker, a.confidence as confidence
                     ORDER BY a.start_time
                     """,
                     media_id=media_id,
-                    start_time=start_time,
-                    end_time=end_time,
                 )
                 segments = list(result)
+        else:
+            # Try chain-based retrieval first: find the anchor segment, then walk
+            with kg.get_session() as session:
+                anchor_result = session.run(
+                    """
+                    MATCH (a:AudioSegment)
+                    WHERE a.video_id = $media_id
+                      AND a.start_time >= $start_time
+                      AND a.start_time <= $end_time
+                    RETURN a.id AS id
+                    ORDER BY a.start_time
+                    LIMIT 1
+                    """,
+                    media_id=media_id,
+                    start_time=effective_start,
+                    end_time=effective_end,
+                )
+                anchor = anchor_result.single()
+
+                if anchor:
+                    chain_result = session.run(
+                        """
+                        MATCH (start:AudioSegment {id: $anchor_id})
+                        OPTIONAL MATCH path = (start)-[:NEXT_SEGMENT*0..100]->(n:AudioSegment)
+                        WHERE n.start_time <= $end_time
+                        WITH n ORDER BY n.start_time
+                        RETURN n.start_time AS timestamp, n.text AS text,
+                               n.speaker_label AS speaker, n.confidence AS confidence
+                        """,
+                        anchor_id=anchor["id"],
+                        end_time=effective_end,
+                    )
+                    segments = list(chain_result)
+
+            # Fallback to property-based query if chain walk returned nothing
+            if not segments:
+                with kg.get_session() as session:
+                    result = session.run(
+                        """
+                        MATCH (a:AudioSegment)
+                        WHERE a.video_id = $media_id
+                          AND a.start_time >= $start_time
+                          AND a.start_time <= $end_time
+                        RETURN a.start_time as timestamp, a.text as text,
+                               a.speaker_label as speaker, a.confidence as confidence
+                        ORDER BY a.start_time
+                        """,
+                        media_id=media_id,
+                        start_time=effective_start,
+                        end_time=effective_end,
+                    )
+                    segments = list(result)
 
         if not segments:
             return {
-                "start_time": start_time,
-                "end_time": end_time,
+                "start_time": effective_start,
+                "end_time": effective_end if not full_transcript else None,
                 "transcript": "",
-                "message": "No transcript found for this time range. This video may not have audio transcription.",
+                "message": "No transcript found for this video. It may not have audio transcription.",
             }
 
         transcript_parts = []
@@ -312,10 +332,10 @@ async def get_transcript(
                 transcript_parts.append(f"[{ts}] {text}")
 
         return {
-            "start_time": start_time,
-            "end_time": end_time,
-            "start_formatted": format_timestamp(start_time),
-            "end_formatted": format_timestamp(end_time),
+            "start_time": effective_start,
+            "end_time": effective_end if not full_transcript else None,
+            "start_formatted": format_timestamp(effective_start),
+            "end_formatted": format_timestamp(effective_end) if not full_transcript else None,
             "transcript": "\n".join(transcript_parts),
             "segments_count": len(segments),
             "speakers": list(speakers_found) if include_speakers else [],
