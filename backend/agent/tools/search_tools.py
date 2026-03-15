@@ -217,7 +217,8 @@ async def get_transcript(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get the transcript (spoken words) for a video.
+    Get the exact transcript (spoken words/narration) for a video.
+    Use this tool to quote verbatim dialogue, narration, or any exact words spoken in the video.
     Omit start_time and end_time to retrieve the full transcript.
     Provide both to retrieve a specific time range.
     Includes speaker identification when available.

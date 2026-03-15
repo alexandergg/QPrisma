@@ -1255,7 +1255,19 @@ def select_tools_for_query(
     ]
     compare_keywords = ["compare", "difference", "similar", "versus", "vs"]
     edit_keywords = ["clip", "cut", "trim", "create", "add", "remove", "delete", "export"]
-    subtitle_keywords = ["subtitle", "caption", "text", "transcri"]
+    subtitle_keywords = [
+        "subtitle",
+        "caption",
+        "text",
+        "transcri",
+        "transcript",
+        "quote",
+        "narration",
+        "exact",
+        "verbatim",
+        "dialogue",
+        "said",
+    ]
 
     # Categorize tools
     search_tools = []
