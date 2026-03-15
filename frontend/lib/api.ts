@@ -449,6 +449,16 @@ export const apiClient = {
       }
     }
 
+    // Diagnostic: log what we're sending to help debug video selection issues
+    if (typeof window !== 'undefined') {
+      console.log('[chatWithAgentStream] Sending request', {
+        videoId,
+        messageMetadata,
+        sessionId,
+        hasVideoIds: !!videoIds?.length,
+      });
+    }
+
     const a2aMessage: A2AMessage = {
       contextId: sessionId,
       role: 'ROLE_USER',

@@ -79,10 +79,28 @@ async def send_streaming_message(
     """
     executor = get_executor("video")
 
+    # Add user context to metadata
     if current_user and body.message.metadata:
         body.message.metadata["user_id"] = current_user.id
     elif current_user:
         body.message.metadata = {"user_id": current_user.id}
+
+    # Diagnostic: log media_id presence for debugging video selection issues
+    msg_meta = body.message.metadata or {}
+    if "media_id" not in msg_meta:
+        logger.warning(
+            "Streaming request has no media_id in message.metadata. "
+            "Agent will fall back to checkpoint or NO_VIDEO_CONTEXT_PROMPT. "
+            "metadata_keys=%s, contextId=%s",
+            list(msg_meta.keys()),
+            body.message.contextId,
+        )
+    else:
+        logger.info(
+            "Streaming request media_id=%s contextId=%s",
+            msg_meta.get("media_id"),
+            body.message.contextId,
+        )
 
     async def generate_sse():
         """Generate SSE events from streaming response."""

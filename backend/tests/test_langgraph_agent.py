@@ -34,13 +34,14 @@ class TestGraphState:
         assert state["session_id"] == "session-789"
 
     def test_create_agent_state_without_video(self):
-        """Test state creation without video context."""
+        """Test state creation without video context — media keys are omitted."""
         from agent.state.agent_state import create_agent_state
 
         messages = [HumanMessage(content="Hello")]
         state = create_agent_state(messages=messages)
 
-        assert state["video_context"] is None
+        assert "video_context" not in state
+        assert "media_id" not in state
         assert state["sources"] == []
 
     def test_truncate_tool_message_content(self):
@@ -65,7 +66,175 @@ class TestGraphState:
         assert result.content == "hello"
 
 
-class TestMetadataExtraction:
+class TestRestoreMediaContext:
+    """Test restore_media_context node for reliable media_id injection."""
+
+    def test_overrides_none_state_with_config_media_id(self):
+        """When state has no media_id but config does, state is updated."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {"media_id": None, "media_ids": None, "video_context": None}
+        config = RunnableConfig(configurable={"media_id": "vid-123"})
+
+        result = restore_media_context(state, config)
+
+        assert result["media_id"] == "vid-123"
+        assert result["video_context"]["media_id"] == "vid-123"
+
+    def test_overrides_stale_media_id(self):
+        """When state has a different media_id, config wins."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {
+            "media_id": "old-vid",
+            "media_ids": None,
+            "video_context": {"media_id": "old-vid"},
+        }
+        config = RunnableConfig(configurable={"media_id": "new-vid"})
+
+        result = restore_media_context(state, config)
+
+        assert result["media_id"] == "new-vid"
+        assert result["video_context"]["media_id"] == "new-vid"
+
+    def test_no_op_when_ids_match(self):
+        """When state and config agree, no video_context update is needed if present."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {
+            "media_id": "vid-123",
+            "media_ids": None,
+            "video_context": {"media_id": "vid-123"},
+        }
+        config = RunnableConfig(configurable={"media_id": "vid-123"})
+
+        result = restore_media_context(state, config)
+
+        # No updates needed — state is already correct
+        assert result == {}
+
+    def test_creates_video_context_when_missing(self):
+        """When state has correct media_id but no video_context, one is created."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {"media_id": "vid-123", "media_ids": None, "video_context": None}
+        config = RunnableConfig(configurable={"media_id": "vid-123"})
+
+        result = restore_media_context(state, config)
+
+        assert "video_context" in result
+        assert result["video_context"]["media_id"] == "vid-123"
+
+    def test_no_config_no_state_media_id_returns_empty(self):
+        """When neither config nor state has media_id, no updates are made."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {"media_id": None, "media_ids": None, "video_context": None}
+        config = RunnableConfig(configurable={})
+
+        result = restore_media_context(state, config)
+
+        assert result == {}
+
+    def test_falls_back_to_state_media_id_when_config_missing(self):
+        """When config has no media_id but state has one (from checkpoint), preserve it."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        # State has media_id from checkpoint, config doesn't (frontend didn't send it)
+        state = {
+            "media_id": "checkpointed-vid",
+            "media_ids": None,
+            "video_context": {"media_id": "checkpointed-vid"},
+        }
+        config = RunnableConfig(configurable={})
+
+        result = restore_media_context(state, config)
+
+        # State already has the right value — no updates needed
+        assert result == {}
+
+    def test_falls_back_to_state_and_creates_video_context(self):
+        """When config has no media_id but state has one, create video_context if missing."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {
+            "media_id": "checkpointed-vid",
+            "media_ids": None,
+            "video_context": None,  # Missing despite media_id being set
+        }
+        config = RunnableConfig(configurable={})
+
+        result = restore_media_context(state, config)
+
+        assert result["video_context"]["media_id"] == "checkpointed-vid"
+
+    def test_restores_media_ids_from_config(self):
+        """Config media_ids overrides stale state media_ids."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {
+            "media_id": "vid-1",
+            "media_ids": ["vid-1"],
+            "video_context": {"media_id": "vid-1"},
+        }
+        config = RunnableConfig(configurable={"media_id": "vid-1", "media_ids": ["vid-1", "vid-2"]})
+
+        result = restore_media_context(state, config)
+
+        assert result["media_ids"] == ["vid-1", "vid-2"]
+
+    def test_graph_has_restore_media_context_node(self):
+        """The compiled graph includes restore_media_context before call_model."""
+        from agent.graphs.video import create_video_agent_graph
+        from langgraph.checkpoint.memory import MemorySaver
+
+        graph = create_video_agent_graph(MemorySaver())
+        node_names = list(graph.get_graph().nodes.keys())
+
+        assert "restore_media_context" in node_names
+        assert "call_model" in node_names
+
+        # Verify restore_media_context is an entry point (reachable from __start__)
+        mermaid = graph.get_graph().draw_mermaid()
+        assert "restore_media_context" in mermaid
+
+
+class TestCallModelConfigFallback:
+    """Test that call_model recovers media_id from config when state has None."""
+
+    @pytest.mark.asyncio
+    async def test_call_model_recovers_media_id_from_config(self):
+        """call_model should read media_id from config.configurable as fallback."""
+
+        from agent.nodes.video_nodes import get_system_message
+
+        # Simulate state where media_id was lost (e.g., checkpointer bug)
+        state = {
+            "messages": [HumanMessage(content="Tell me about this video")],
+            "media_id": None,
+            "media_ids": None,
+            "video_context": None,
+            "conversation_context": [],
+        }
+
+        # The NO_VIDEO_CONTEXT_PROMPT should be used
+        system_msg = get_system_message(state)
+        assert "no video loaded" in system_msg.content.lower()
+
+        # Now with media_id in state, the SYSTEM_PROMPT should be used
+        state["media_id"] = "vid-123"
+        state["video_context"] = {"media_id": "vid-123"}
+        system_msg = get_system_message(state)
+        assert "no video loaded" not in system_msg.content.lower()
+
     """Test metadata extraction helpers."""
 
     def test_extract_metadata_from_tool_result_search(self):
@@ -434,6 +603,7 @@ class TestGraphExecutionPaths:
         node_names = list(graph_nodes.keys())
 
         # Should have all expected nodes
+        assert "restore_media_context" in node_names
         assert "call_model" in node_names
         assert "tools" in node_names
         assert "update_context" in node_names
@@ -946,8 +1116,8 @@ class TestMultiVideoState:
 
         assert state["media_ids"] == ["vid-1", "vid-2"]
 
-    def test_create_agent_state_single_media_ids_is_none(self):
-        """Test that media_ids is None when only one video."""
+    def test_create_agent_state_single_media_ids_is_omitted(self):
+        """Test that media_ids is omitted when only one video."""
         from agent.state.agent_state import create_agent_state
 
         messages = [HumanMessage(content="test")]
@@ -958,7 +1128,7 @@ class TestMultiVideoState:
         )
 
         assert state["media_id"] == "vid-1"
-        assert state["media_ids"] is None
+        assert "media_ids" not in state
 
     def test_create_agent_state_max_10_videos(self):
         """Test that media_ids is capped at 10."""

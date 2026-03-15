@@ -262,26 +262,33 @@ def create_agent_state(
         f"media_ids={effective_ids}, session_id='{session_id}'"
     )
 
-    video_context: VideoContext | None = None
-    if primary_media_id:
-        video_context = VideoContext(media_id=primary_media_id)
+    # Build the state dict, omitting None media keys so that LangGraph's
+    # checkpointer preserves previously-stored values when the current
+    # request doesn't include a media_id (total=False on AgentInputState
+    # means absent keys keep their checkpointed values).
+    state: dict = {
+        "messages": messages,
+        "sources": [],
+        "tool_calls_count": 0,
+        "conversation_context": [],
+        "consecutive_errors": 0,
+        "last_error": None,
+        "partial_results": [],
+        "memory_context": [],
+        "artifact_refs": [],
+    }
 
-    return AgentState(
-        messages=messages,
-        media_id=primary_media_id,
-        media_ids=effective_ids if len(effective_ids) > 1 else None,
-        video_context=video_context,
-        sources=[],
-        tool_calls_count=0,
-        conversation_context=[],
-        consecutive_errors=0,
-        last_error=None,
-        partial_results=[],
-        memory_context=[],
-        artifact_refs=[],
-        user_id=user_id,
-        session_id=session_id,
-    )
+    if primary_media_id:
+        state["media_id"] = primary_media_id
+        state["video_context"] = VideoContext(media_id=primary_media_id)
+    if effective_ids and len(effective_ids) > 1:
+        state["media_ids"] = effective_ids
+    if user_id:
+        state["user_id"] = user_id
+    if session_id:
+        state["session_id"] = session_id
+
+    return state  # type: ignore[return-value]
 
 
 # =============================================================================

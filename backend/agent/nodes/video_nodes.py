@@ -21,13 +21,65 @@ from agent.nodes.base import (
     update_context_node,
 )
 from agent.prompts import MULTI_VIDEO_SYSTEM_PROMPT, NO_VIDEO_CONTEXT_PROMPT, SYSTEM_PROMPT
-from agent.state.agent_state import AgentState
+from agent.state.agent_state import AgentState, VideoContext
 from agent.tools import SEARCH_TOOLS
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = DEFAULT_MAX_TOOL_ITERATIONS
 WARN_TOOL_ITERATIONS = DEFAULT_WARN_TOOL_ITERATIONS
+
+
+def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
+    """
+    Restore media_id from RunnableConfig on every graph invocation,
+    falling back to the checkpointed state value.
+
+    Priority order for resolving media_id:
+    1. ``config.configurable["media_id"]`` — fresh value from the current request
+    2. ``state["media_id"]`` — preserved from a previous invocation via checkpoint
+
+    When ``create_agent_state()`` omits the ``media_id`` key (because the
+    frontend didn't send one), LangGraph preserves the checkpointed value
+    in ``state``.  This node ensures ``video_context`` stays in sync.
+    """
+    configurable = config.get("configurable", {})
+    config_media_id = configurable.get("media_id")
+    config_media_ids = configurable.get("media_ids")
+
+    state_media_id = state.get("media_id")
+    state_media_ids = state.get("media_ids")
+
+    # Resolve effective media_id: config wins, then checkpoint state
+    effective_media_id = config_media_id or state_media_id
+    effective_media_ids = config_media_ids or state_media_ids
+
+    updates: dict = {}
+
+    if effective_media_id and effective_media_id != state_media_id:
+        logger.info(
+            f"restore_media_context: overriding state media_id "
+            f"'{state_media_id}' → '{effective_media_id}' "
+            f"(source={'config' if config_media_id else 'checkpoint'})"
+        )
+        updates["media_id"] = effective_media_id
+        updates["video_context"] = VideoContext(media_id=effective_media_id)
+
+    elif effective_media_id and not state.get("video_context"):
+        # media_id is consistent but video_context is missing
+        updates["video_context"] = VideoContext(media_id=effective_media_id)
+
+    if effective_media_ids and effective_media_ids != state_media_ids:
+        updates["media_ids"] = effective_media_ids
+
+    if updates:
+        logger.info(f"restore_media_context: applying updates {list(updates.keys())}")
+    else:
+        logger.debug(
+            f"restore_media_context: no updates needed " f"(media_id={effective_media_id!r})"
+        )
+
+    return updates
 
 
 def get_system_message(state: AgentState) -> SystemMessage:
@@ -74,6 +126,17 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
     video_context = state.get("video_context")
     media_id = state.get("media_id")
     media_ids = state.get("media_ids")
+
+    # Defense-in-depth: fall back to config if state lost media_id
+    if not media_id:
+        configurable = config.get("configurable", {})
+        media_id = configurable.get("media_id") or media_id
+        if media_id:
+            logger.info(f"call_model: recovered media_id from config: {media_id}")
+    if not media_ids:
+        configurable = config.get("configurable", {})
+        media_ids = configurable.get("media_ids") or media_ids
+
     is_multi_video = media_ids and len(media_ids) > 1
     has_video = is_multi_video or (video_context and video_context.get("media_id")) or media_id
 

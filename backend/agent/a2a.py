@@ -604,32 +604,39 @@ class A2AAgentExecutor:
         # Extract metadata from message
         media_id = None
         media_ids = None
+        user_id = None
         if message.metadata:
             media_id = message.metadata.get("media_id")
             media_ids = message.metadata.get("media_ids")
+            user_id = message.metadata.get("user_id")
 
         # Convert message to LangChain format
         lc_message = self._a2a_message_to_langchain(message)
 
-        # Build agent state
+        # Build agent state — omit None media keys to preserve checkpoint values
         state = create_agent_state(
             messages=[lc_message],
             media_id=media_id,
             media_ids=media_ids,
+            user_id=user_id,
             session_id=task.contextId,
         )
 
         # Run the agent
         from langchain_core.runnables import RunnableConfig
 
-        run_config = RunnableConfig(
-            configurable={
-                "thread_id": task.contextId,
-                "media_id": media_id,
-                "media_ids": media_ids,
-                "model_deployment": self.model_deployment,
-            }
-        )
+        configurable: dict = {
+            "thread_id": task.contextId,
+            "model_deployment": self.model_deployment,
+        }
+        if media_id:
+            configurable["media_id"] = media_id
+        if media_ids:
+            configurable["media_ids"] = media_ids
+        if user_id:
+            configurable["user_id"] = user_id
+
+        run_config = RunnableConfig(configurable=configurable)
 
         try:
             logger.info(
@@ -780,6 +787,15 @@ class A2AAgentExecutor:
         # Extract metadata
         media_id = message.metadata.get("media_id") if message.metadata else None
         media_ids = message.metadata.get("media_ids") if message.metadata else None
+        user_id = message.metadata.get("user_id") if message.metadata else None
+
+        if not media_id:
+            logger.warning(
+                "A2A streaming: no media_id in message metadata — agent "
+                "will use NO_VIDEO_CONTEXT_PROMPT unless a checkpoint "
+                "has a stored media_id",
+                metadata_keys=list(message.metadata.keys()) if message.metadata else [],
+            )
 
         logger.info(
             "A2A streaming started",
@@ -792,24 +808,30 @@ class A2AAgentExecutor:
         # Convert message
         lc_message = self._a2a_message_to_langchain(message)
 
-        # Build state
+        # Build state — omit None media keys to preserve checkpoint values
         state = create_agent_state(
             messages=[lc_message],
             media_id=media_id,
             media_ids=media_ids,
+            user_id=user_id,
             session_id=task.contextId,
         )
 
         from langchain_core.runnables import RunnableConfig
 
-        run_config = RunnableConfig(
-            configurable={
-                "thread_id": task.contextId,
-                "media_id": media_id,
-                "media_ids": media_ids,
-                "model_deployment": self.model_deployment,
-            }
-        )
+        # Only include media keys in config when they have values
+        configurable: dict = {
+            "thread_id": task.contextId,
+            "model_deployment": self.model_deployment,
+        }
+        if media_id:
+            configurable["media_id"] = media_id
+        if media_ids:
+            configurable["media_ids"] = media_ids
+        if user_id:
+            configurable["user_id"] = user_id
+
+        run_config = RunnableConfig(configurable=configurable)
 
         try:
             # Stream events from the graph
