@@ -1,5 +1,7 @@
 name: Build and Push Images
 
+run-name: Build images for ${{ github.ref_name }} @ ${{ github.sha }}
+
 on:
   push:
     branches: [main]
@@ -13,9 +15,14 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       backend_changed: ${{ steps.filter.outputs.backend }}
       frontend_changed: ${{ steps.filter.outputs.frontend }}
@@ -36,6 +43,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -68,6 +76,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -100,6 +109,7 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.frontend_changed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: dev
     steps:
       - uses: actions/checkout@v4
@@ -144,11 +154,12 @@ jobs:
           cache-to: type=gha,mode=max
 
   trigger-deploy:
-    needs: [build-api, build-worker, build-frontend]
+    needs: [detect-changes, build-api, build-worker, build-frontend]
     permissions:
       actions: write
     if: always() && !failure() && !cancelled()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     env:
       DEPLOY_API: ${{ needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch' }}
       DEPLOY_WORKER: ${{ needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch' }}

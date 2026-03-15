@@ -29,12 +29,26 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-main
+  cancel-in-progress: false
+
 jobs:
   bump:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
+      - name: Verify release PAT is configured
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          if [ -z "$PAT_TOKEN" ]; then
+            echo "::error::PAT_TOKEN is required for version bump pushes so the downstream release workflow is triggered."
+            exit 1
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:

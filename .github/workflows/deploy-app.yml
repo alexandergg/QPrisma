@@ -1,5 +1,7 @@
 name: Deploy Application
 
+run-name: Deploy ${{ inputs.image_tag || 'latest' }} to dev
+
 on:
   workflow_dispatch:
     inputs:
@@ -28,10 +30,15 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-dev
+  cancel-in-progress: false
+
 jobs:
   deploy-api:
-    if: ${{ github.event.inputs.deploy_api == 'true' }}
+    if: ${{ inputs.deploy_api }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: dev
     outputs:
       previous_revision: ${{ steps.get-revision.outputs.revision }}
@@ -46,8 +53,7 @@ jobs:
       - name: Set image tag
         id: set-tag
         run: |
-          echo "IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_ENV
-          echo "Deploying image tag: ${{ github.event.inputs.image_tag }}"
+          echo "Deploying image tag: ${{ inputs.image_tag }}"
 
       - name: Get current revision for rollback
         id: get-revision
@@ -65,7 +71,7 @@ jobs:
           az containerapp update \
             --name ca-qprisma-api-dev \
             --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-api:${{ env.IMAGE_TAG }}
+            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-api:${{ inputs.image_tag }}
 
       - name: Wait for revision to be ready
         run: |
@@ -116,8 +122,9 @@ jobs:
             --revision ${{ steps.get-revision.outputs.revision }}
 
   deploy-worker:
-    if: ${{ github.event.inputs.deploy_worker == 'true' }}
+    if: ${{ inputs.deploy_worker }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: dev
     steps:
       - name: Azure Login (OIDC)
@@ -128,14 +135,15 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set image tag
-        run: echo "IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_ENV
+        run: |
+          echo "Deploying image tag: ${{ inputs.image_tag }}"
 
       - name: Update Worker container
         run: |
           az containerapp update \
             --name ca-qprisma-worker-dev \
             --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-worker:${{ env.IMAGE_TAG }}
+            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-worker:${{ inputs.image_tag }}
 
       - name: Wait for revision to be ready
         run: |
@@ -157,8 +165,9 @@ jobs:
           done
 
   deploy-frontend:
-    if: ${{ github.event.inputs.deploy_frontend == 'true' }}
+    if: ${{ inputs.deploy_frontend }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: dev
     outputs:
       previous_revision: ${{ steps.get-revision.outputs.revision }}
@@ -171,7 +180,8 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set image tag
-        run: echo "IMAGE_TAG=${{ github.event.inputs.image_tag }}" >> $GITHUB_ENV
+        run: |
+          echo "Deploying image tag: ${{ inputs.image_tag }}"
 
       - name: Get current revision for rollback
         id: get-revision
@@ -189,7 +199,7 @@ jobs:
           az containerapp update \
             --name ca-qprisma-web-dev \
             --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-frontend:${{ env.IMAGE_TAG }}
+            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-frontend:${{ inputs.image_tag }}
 
       - name: Wait for revision to be ready
         run: |
@@ -241,8 +251,9 @@ jobs:
 
   smoke-test:
     needs: [deploy-api, deploy-worker, deploy-frontend]
-    if: ${{ always() && (github.event.inputs.deploy_api == 'true' || github.event.inputs.deploy_worker == 'true' || github.event.inputs.deploy_frontend == 'true') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: ${{ always() && (inputs.deploy_api || inputs.deploy_worker || inputs.deploy_frontend) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: dev
     steps:
       - name: Azure Login (OIDC)

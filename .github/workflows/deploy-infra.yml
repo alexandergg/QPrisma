@@ -18,6 +18,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: dev
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +34,7 @@ jobs:
         run: |
           az group create \
             --name ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --location ${{ vars.AZURE_LOCATION || 'westeurope' }} \
+            --location "westeurope" \
             --output none
 
       - name: Validate Bicep template
@@ -61,6 +62,7 @@ jobs:
   deploy:
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     environment: dev
     steps:
       - uses: actions/checkout@v4
@@ -76,7 +78,7 @@ jobs:
         run: |
           az group create \
             --name ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --location ${{ vars.AZURE_LOCATION || 'westeurope' }} \
+            --location "westeurope" \
             --output none
 
       - name: Cancel stale ARM deployments
@@ -103,7 +105,7 @@ jobs:
       - name: Wait for AI Foundry provisioning to settle
         run: |
           RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-          AI_NAME="aif-qprisma-${{ vars.ENVIRONMENT || 'dev' }}"
+          AI_NAME="aif-qprisma-dev"
 
           # Skip if the resource doesn't exist yet (first-ever deploy)
           if ! az cognitiveservices account show \
@@ -156,13 +158,6 @@ jobs:
                 dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
                 neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
                 jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
-
-      - name: Sync additional secrets to Key Vault
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Set Key Vault secrets
         run: |
