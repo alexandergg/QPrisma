@@ -82,6 +82,47 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
   const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  const commitAssistantMessage = useCallback(
+    (
+      response: string,
+      sources: ChatSource[],
+      toolCallsMade: number,
+    ) => {
+      if (!response) {
+        return;
+      }
+
+      const mappedSources: ChatMessageSource[] | undefined =
+        sources.length > 0
+          ? sources.map((s) => ({
+              timestamp: s.timestamp,
+              type:
+                s.type === 'visual' || s.type === 'audio' || s.type === 'entity'
+                  ? s.type
+                  : ('visual' as const),
+              description: s.description,
+              score: s.score,
+              videoId: s.video_id,
+              videoTitle: s.video_title,
+            }))
+          : undefined;
+
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
+        role: 'assistant',
+        content: response,
+        timestamp: new Date(),
+        sources: mappedSources,
+        toolCalls: toolCallsMade > 0 ? toolCallsMade : undefined,
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+      setStreamingContent('');
+      setActiveTools([]);
+    },
+    [setActiveTools, setMessages, setStreamingContent],
+  );
+
   const handleSend = useCallback(
     async (content: string) => {
       const messageText = content.trim();
@@ -127,6 +168,7 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         let streamedResponse = '';
         let sources: ChatSource[] = [];
         let toolCallsMade = 0;
+        let responseCommitted = false;
 
         const stream = apiClient.chatWithAgentStream(
           messageText,
@@ -136,7 +178,6 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
           videoIds,
           controller.signal,
         );
-
         for await (const event of stream) {
           switch (event.event) {
             case 'session':
@@ -177,46 +218,28 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
             case 'done':
               finalResponse = event.data.response || '';
               toolCallsMade = event.data.tool_calls_made || 0;
+              commitAssistantMessage(
+                finalResponse || streamedResponse,
+                sources,
+                toolCallsMade,
+              );
+              responseCommitted = true;
               break;
 
             case 'error':
               throw new Error(event.data.error || 'Unknown error');
           }
+
+          if (responseCommitted) {
+            break;
+          }
         }
 
-        // Build final assistant message
-        const resolvedResponse = finalResponse || streamedResponse;
-
-        if (resolvedResponse) {
-          const mappedSources: ChatMessageSource[] | undefined =
-            sources.length > 0
-              ? sources.map((s) => ({
-                  timestamp: s.timestamp,
-                  type:
-                    s.type === 'visual' || s.type === 'audio' || s.type === 'entity'
-                      ? s.type
-                      : ('visual' as const),
-                  description: s.description,
-                  score: s.score,
-                  videoId: s.video_id,
-                  videoTitle: s.video_title,
-                }))
-              : undefined;
-
-          const assistantMessage: ChatMessage = {
-            id: generateId(),
-            role: 'assistant',
-            content: resolvedResponse,
-            timestamp: new Date(),
-            sources: mappedSources,
-            toolCalls: toolCallsMade > 0 ? toolCallsMade : undefined,
-          };
-
-          setMessages((prev) => [...prev, assistantMessage]);
+        if (!responseCommitted) {
+          commitAssistantMessage(finalResponse || streamedResponse, sources, toolCallsMade);
+          setStreamingContent('');
+          setActiveTools([]);
         }
-
-        setStreamingContent('');
-        setActiveTools([]);
       } catch (error) {
         const wasCancelled =
           error instanceof DOMException && error.name === 'AbortError';
@@ -253,6 +276,7 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
       videoIds,
       videoName,
       mode,
+      commitAssistantMessage,
     ],
   );
 
