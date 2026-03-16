@@ -92,7 +92,7 @@ _FRAME_SEARCH_SCOPED = """
 CALL db.index.fulltext.queryNodes('frame_search', $query) YIELD node, score
 WITH node as f, score
 WHERE f.video_id IN $media_ids
-MATCH (v:Video)-[:HAS_FRAME]->(f)
+MATCH (v:Video {video_id: f.video_id})
 RETURN v.video_id as video_id, v.title as video_title,
        collect({
            timestamp: f.timestamp,
@@ -107,10 +107,10 @@ _AUDIO_SEARCH_SCOPED = """
 CALL db.index.fulltext.queryNodes('audio_search', $query) YIELD node, score
 WITH node as a, score
 WHERE a.video_id IN $media_ids
-MATCH (v:Video)-[:HAS_AUDIO]->(a)
+MATCH (v:Video {video_id: a.video_id})
 RETURN v.video_id as video_id, v.title as video_title,
        collect({
-           timestamp: a.timestamp,
+           timestamp: a.start_time,
            text: a.text,
            score: score
        })[0..$limit] as matches
@@ -121,7 +121,7 @@ LIMIT $max_videos
 _FRAME_SEARCH_ALL = """
 CALL db.index.fulltext.queryNodes('frame_search', $query) YIELD node, score
 WITH node as f, score
-MATCH (v:Video)-[:HAS_FRAME]->(f)
+MATCH (v:Video {video_id: f.video_id})
 RETURN v.video_id as video_id, v.title as video_title,
        collect({
            timestamp: f.timestamp,
@@ -135,10 +135,10 @@ LIMIT $max_videos
 _AUDIO_SEARCH_ALL = """
 CALL db.index.fulltext.queryNodes('audio_search', $query) YIELD node, score
 WITH node as a, score
-MATCH (v:Video)-[:HAS_AUDIO]->(a)
+MATCH (v:Video {video_id: a.video_id})
 RETURN v.video_id as video_id, v.title as video_title,
        collect({
-           timestamp: a.timestamp,
+           timestamp: a.start_time,
            text: a.text,
            score: score
        })[0..$limit] as matches
@@ -150,7 +150,7 @@ _VIDEO_METADATA = """
 MATCH (v:Video)
 WHERE v.video_id = $vid OR v.id = $vid
 RETURN v.title as title, v.summary as summary, v.topics as topics,
-       v.duration as duration
+       v.duration_seconds as duration
 LIMIT 1
 """
 
@@ -167,7 +167,7 @@ _AUDIO_SEARCH_SINGLE = """
 CALL db.index.fulltext.queryNodes('audio_search', $query) YIELD node, score
 WITH node as a, score
 WHERE a.video_id = $vid
-RETURN a.timestamp as timestamp, a.text as text, score
+RETURN a.start_time as timestamp, a.text as text, score
 ORDER BY score DESC
 LIMIT 3
 """

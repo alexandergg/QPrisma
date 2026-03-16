@@ -539,6 +539,72 @@ class A2AAgentExecutor:
                                         "description": occ.get("context", "")[:200],
                                     }
                                 )
+
+                        # Extract from chapters (list_chapters)
+                        for ch in tool_result.get("chapters", []):
+                            if isinstance(ch, dict) and "start_time" in ch:
+                                sources.append(
+                                    {
+                                        "timestamp": ch.get("start_time", 0),
+                                        "timestamp_formatted": ch.get(
+                                            "start_formatted",
+                                            format_timestamp(ch.get("start_time", 0)),
+                                        ),
+                                        "type": "structure",
+                                        "description": ch.get("summary", ch.get("title", ""))[:200],
+                                    }
+                                )
+
+                        # Extract from transcript range (get_transcript)
+                        if "transcript" in tool_result and "segments_count" in tool_result:
+                            start = tool_result.get("start_time", 0)
+                            if start is not None and tool_result.get("segments_count", 0) > 0:
+                                sources.append(
+                                    {
+                                        "timestamp": start,
+                                        "timestamp_formatted": tool_result.get(
+                                            "start_formatted", format_timestamp(start)
+                                        ),
+                                        "type": "audio",
+                                        "description": (
+                                            f"Transcript ({tool_result['segments_count']} segments)"
+                                        ),
+                                    }
+                                )
+
+                        # Extract from single describe_scene result (not in results list)
+                        if (
+                            "description" in tool_result
+                            and "timestamp" in tool_result
+                            and "results" not in tool_result
+                        ):
+                            ts = tool_result.get("timestamp", 0)
+                            if isinstance(ts, int | float):
+                                sources.append(
+                                    {
+                                        "timestamp": ts,
+                                        "timestamp_formatted": tool_result.get(
+                                            "timestamp_formatted", format_timestamp(ts)
+                                        ),
+                                        "type": "visual",
+                                        "description": tool_result.get("description", "")[:200],
+                                    }
+                                )
+
+                        # Extract from scene context (get_scene_context)
+                        if "context" in tool_result and isinstance(
+                            tool_result.get("context"), dict
+                        ):
+                            ctx_ts = tool_result.get("timestamp")
+                            if isinstance(ctx_ts, int | float):
+                                sources.append(
+                                    {
+                                        "timestamp": ctx_ts,
+                                        "timestamp_formatted": format_timestamp(ctx_ts),
+                                        "type": "visual",
+                                        "description": "Scene context window",
+                                    }
+                                )
                 except Exception:
                     pass
 

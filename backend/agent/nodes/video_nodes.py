@@ -72,6 +72,13 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     if effective_media_ids and effective_media_ids != state_media_ids:
         updates["media_ids"] = effective_media_ids
 
+    if effective_media_ids and len(effective_media_ids) > 1:
+        logger.info(
+            "restore_media_context: multi-video mode with %d videos: %s",
+            len(effective_media_ids),
+            effective_media_ids,
+        )
+
     if updates:
         logger.info(f"restore_media_context: applying updates {list(updates.keys())}")
     else:
@@ -95,7 +102,11 @@ def get_system_message(state: AgentState) -> SystemMessage:
 
     if is_multi_video:
         content = MULTI_VIDEO_SYSTEM_PROMPT
-        content += f"\n\n**Selected Videos:** {len(media_ids)} videos in context"
+        video_list = "\n".join(f"  - Video {i+1}: {mid}" for i, mid in enumerate(media_ids))
+        content += f"\n\n**Selected Videos ({len(media_ids)}):**\n{video_list}"
+        content += "\n\nUse `search_across_videos` to search all videos at once."
+        content += "\nUse `compare_videos` to compare content between videos."
+        content += "\nFor single-video queries, the primary video (first selected) is used."
     elif has_video:
         content = SYSTEM_PROMPT
         if video_context and video_context.get("title"):
@@ -157,7 +168,9 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
 
         # Dynamic tool binding - select focused subset
         if user_query:
-            tools = select_tools_for_query(user_query, SEARCH_TOOLS, max_tools=8)
+            tools = select_tools_for_query(
+                user_query, SEARCH_TOOLS, max_tools=8, is_multi_video=bool(is_multi_video)
+            )
         else:
             tools = SEARCH_TOOLS
 

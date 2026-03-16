@@ -332,7 +332,7 @@ class GraphExpander:
         # We use a depth-aware pattern: the relationship path differs per type.
         _label_cypher: dict[str, str] = {
             "Chapter": f"""
-                MATCH (v:Video)-[:HAS_CHAPTER|CONTAINS*1..{depth}]->(n:Chapter)
+                MATCH (v:Video)-[:CONTAINS*1..{depth}]->(n:Chapter)
                 WHERE v.video_id = $video_id OR v.id = $video_id
                 RETURN DISTINCT {{
                     id: coalesce(n.id, elementId(n)),
@@ -342,7 +342,7 @@ class GraphExpander:
                 LIMIT $limit
             """,
             "Scene": f"""
-                MATCH (v:Video)-[:HAS_SCENE|CONTAINS*1..{depth}]->(n:Scene)
+                MATCH (v:Video)-[:CONTAINS*1..{depth}]->(n:Scene)
                 WHERE v.video_id = $video_id OR v.id = $video_id
                 RETURN DISTINCT {{
                     id: coalesce(n.id, elementId(n)),
@@ -352,7 +352,7 @@ class GraphExpander:
                 LIMIT $limit
             """,
             "Frame": f"""
-                MATCH (v:Video)-[:HAS_FRAME|CONTAINS*1..{depth}]->(n:Frame)
+                MATCH (v:Video)-[:CONTAINS*1..{depth}]->(n:Frame)
                 WHERE v.video_id = $video_id OR v.id = $video_id
                 WITH n ORDER BY n.timestamp
                 WITH collect(n) AS frames
@@ -371,7 +371,7 @@ class GraphExpander:
                 LIMIT $limit
             """,
             "AudioSegment": f"""
-                MATCH (v:Video)-[:HAS_TRANSCRIPT|HAS_AUDIO|CONTAINS*1..{depth}]->(n:AudioSegment)
+                MATCH (v:Video)-[:HAS_TRANSCRIPT|CONTAINS*1..{depth}]->(n:AudioSegment)
                 WHERE v.video_id = $video_id OR v.id = $video_id
                 WITH n ORDER BY n.start_time
                 With collect(n) AS segs

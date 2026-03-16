@@ -71,10 +71,17 @@ logger = logging.getLogger(__name__)
 
 def extract_metadata_from_tool_result(
     tool_result: dict,
+    video_id: str | None = None,
+    video_title: str | None = None,
 ) -> dict[str, list]:
     """
     Extract structured metadata (sources, navigation, clips, entities)
     from a single tool result dict.
+
+    Args:
+        tool_result: The raw tool output dict.
+        video_id: Optional video ID to attach to single-video source entries.
+        video_title: Optional video title to attach alongside video_id.
 
     Returns dict with keys: sources, navigation_actions, clip_suggestions, entities.
     """
@@ -215,6 +222,90 @@ def extract_metadata_from_tool_result(
                     }
                 )
 
+    # Extract from chapters (list_chapters)
+    for ch in tool_result.get("chapters", []):
+        if isinstance(ch, dict) and "start_time" in ch:
+            sources.append(
+                {
+                    "timestamp": ch.get("start_time", 0),
+                    "timestamp_formatted": ch.get(
+                        "start_formatted", format_timestamp(ch.get("start_time", 0))
+                    ),
+                    "type": "structure",
+                    "description": ch.get("summary", ch.get("title", ""))[:150],
+                    "score": 0,
+                }
+            )
+            navigation_actions.append(
+                {
+                    "action": "jump_to",
+                    "label": f"Chapter: {ch.get('title', ch.get('start_formatted', ''))}",
+                    "timestamp": ch.get("start_time", 0),
+                }
+            )
+
+    # Extract from transcript range (get_transcript)
+    if "transcript" in tool_result and "segments_count" in tool_result:
+        start = tool_result.get("start_time", 0)
+        if start is not None and tool_result.get("segments_count", 0) > 0:
+            sources.append(
+                {
+                    "timestamp": start,
+                    "timestamp_formatted": tool_result.get(
+                        "start_formatted", format_timestamp(start)
+                    ),
+                    "type": "audio",
+                    "description": f"Transcript ({tool_result['segments_count']} segments)",
+                    "score": 0,
+                }
+            )
+
+    # Extract from single describe_scene result (not in results list)
+    if "description" in tool_result and "timestamp" in tool_result and "results" not in tool_result:
+        ts = tool_result.get("timestamp", 0)
+        if isinstance(ts, int | float):
+            sources.append(
+                {
+                    "timestamp": ts,
+                    "timestamp_formatted": tool_result.get(
+                        "timestamp_formatted", format_timestamp(ts)
+                    ),
+                    "type": "visual",
+                    "description": tool_result.get("description", "")[:150],
+                    "score": 0,
+                }
+            )
+
+    # Extract from scene context (get_scene_context)
+    if "context" in tool_result and isinstance(tool_result.get("context"), dict):
+        ctx_ts = tool_result.get("timestamp")
+        if isinstance(ctx_ts, int | float):
+            sources.append(
+                {
+                    "timestamp": ctx_ts,
+                    "timestamp_formatted": format_timestamp(ctx_ts),
+                    "type": "visual",
+                    "description": "Scene context window",
+                    "score": 0,
+                }
+            )
+            navigation_actions.append(
+                {
+                    "action": "jump_to",
+                    "label": f"Scene at {format_timestamp(ctx_ts)}",
+                    "timestamp": ctx_ts,
+                }
+            )
+
+    # Attach video_id / video_title to sources that don't already have them
+    # (cross-video extractions from results_by_video / comparison set their own).
+    if video_id is not None:
+        for src in sources:
+            if "video_id" not in src:
+                src["video_id"] = video_id
+                if video_title is not None:
+                    src["video_title"] = video_title
+
     return {
         "sources": sources,
         "navigation_actions": navigation_actions,
@@ -225,9 +316,16 @@ def extract_metadata_from_tool_result(
 
 def extract_metadata_from_messages(
     messages: list,
+    video_id: str | None = None,
+    video_title: str | None = None,
 ) -> dict[str, Any]:
     """
     Extract all metadata from a list of messages (typically from graph result).
+
+    Args:
+        messages: List of LangChain messages from graph result.
+        video_id: Optional video ID to attach to single-video source entries.
+        video_title: Optional video title to attach alongside video_id.
 
     Returns dict with: tool_calls, sources, navigation_actions, clip_suggestions, entities.
     """
@@ -247,7 +345,11 @@ def extract_metadata_from_messages(
                     json.loads(msg.content) if isinstance(msg.content, str) else msg.content
                 )
                 if isinstance(tool_result, dict):
-                    meta = extract_metadata_from_tool_result(tool_result)
+                    meta = extract_metadata_from_tool_result(
+                        tool_result,
+                        video_id=video_id,
+                        video_title=video_title,
+                    )
                     sources.extend(meta["sources"])
                     navigation_actions.extend(meta["navigation_actions"])
                     clip_suggestions.extend(meta["clip_suggestions"])
@@ -534,7 +636,10 @@ class VideoAgentGraph:
             )
 
             # Extract rich metadata using shared helper
-            metadata = extract_metadata_from_messages(result["messages"])
+            metadata = extract_metadata_from_messages(
+                result["messages"],
+                video_id=media_id,
+            )
             suggested_questions = _generate_suggestions(
                 message, metadata["sources"], metadata["entities_mentioned"]
             )
@@ -646,7 +751,10 @@ class VideoAgentGraph:
                             pass
 
                     if isinstance(output, dict):
-                        meta = extract_metadata_from_tool_result(output)
+                        meta = extract_metadata_from_tool_result(
+                            output,
+                            video_id=media_id,
+                        )
                         result_count = (
                             len(meta["sources"])
                             + len(meta["clip_suggestions"])

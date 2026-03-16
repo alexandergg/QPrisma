@@ -1219,6 +1219,7 @@ def select_tools_for_query(
     query: str,
     all_tools: list,
     max_tools: int = 8,
+    is_multi_video: bool = False,
 ) -> list:
     """
     Dynamically select a focused subset of tools based on the query.
@@ -1230,6 +1231,9 @@ def select_tools_for_query(
         query: User's query
         all_tools: All available tools
         max_tools: Maximum tools to bind
+        is_multi_video: Whether the session has 2+ videos selected
+            (library mode).  When True, multi-video / library tools
+            are prioritised and at least one is always included.
 
     Returns:
         Focused subset of tools
@@ -1237,8 +1241,34 @@ def select_tools_for_query(
     query_lower = query.lower()
 
     # Tool categories with keywords
-    search_keywords = ["find", "search", "where", "when", "what", "show", "locate"]
-    entity_keywords = ["who", "person", "people", "name", "character"]
+    search_keywords = [
+        "find",
+        "search",
+        "where",
+        "when",
+        "what",
+        "show",
+        "locate",
+        "best",
+        "highlight",
+        "important",
+        "interesting",
+        "key",
+        "moment",
+    ]
+    entity_keywords = [
+        "who",
+        "person",
+        "people",
+        "name",
+        "character",
+        "actor",
+        "guest",
+        "host",
+        "interviewer",
+        "presenter",
+        "speaker",
+    ]
     structure_keywords = [
         "chapter",
         "section",
@@ -1252,6 +1282,16 @@ def select_tools_for_query(
         "theme",
         "topic",
         "info",
+        "begin",
+        "breakdown",
+        "conclusion",
+        "end",
+        "finish",
+        "introduction",
+        "recap",
+        "segment",
+        "start",
+        "structure",
     ]
     compare_keywords = ["compare", "difference", "similar", "versus", "vs"]
     edit_keywords = ["clip", "cut", "trim", "create", "add", "remove", "delete", "export"]
@@ -1267,6 +1307,53 @@ def select_tools_for_query(
         "verbatim",
         "dialogue",
         "said",
+        "audio",
+        "conversation",
+        "hear",
+        "listen",
+        "say",
+        "speech",
+        "spoken",
+        "talking",
+        "tell",
+        "told",
+        "voice",
+        "words",
+    ]
+    analysis_keywords = [
+        "change",
+        "connection",
+        "develop",
+        "evolution",
+        "pattern",
+        "progress",
+        "related",
+        "timeline",
+        "track",
+        "trend",
+    ]
+    library_keywords = [
+        "across",
+        "all videos",
+        "compare",
+        "both",
+        "between",
+        "every video",
+        "each video",
+        "all of them",
+        "library",
+        "multiple",
+        "videos",
+    ]
+
+    # Keywords to identify library / multi-video tools by name or description
+    library_tool_keywords = [
+        "across",
+        "compare_videos",
+        "multi",
+        "cross-video",
+        "multiple videos",
+        "library",
     ]
 
     # Categorize tools
@@ -1276,11 +1363,18 @@ def select_tools_for_query(
     compare_tools = []
     edit_tools = []
     subtitle_tools = []
+    analysis_tools = []
+    library_tools = []
     other_tools = []
 
     for tool in all_tools:
         tool_name = tool.name.lower()
         tool_desc = (tool.description or "").lower()
+
+        # Library tool detection is independent — a tool can appear in
+        # both library_tools and another category without conflict.
+        if any(kw in tool_name or kw in tool_desc for kw in library_tool_keywords):
+            library_tools.append(tool)
 
         if any(kw in tool_name or kw in tool_desc for kw in edit_keywords):
             edit_tools.append(tool)
@@ -1292,15 +1386,28 @@ def select_tools_for_query(
             entity_tools.append(tool)
         elif any(kw in tool_name or kw in tool_desc for kw in structure_keywords):
             structure_tools.append(tool)
+        elif any(kw in tool_name or kw in tool_desc for kw in analysis_keywords):
+            analysis_tools.append(tool)
         elif any(kw in tool_name or kw in tool_desc for kw in search_keywords):
             search_tools.append(tool)
         else:
             other_tools.append(tool)
 
+    # Check for multi-video / library intent in the query
+    has_library_intent = is_multi_video and any(kw in query_lower for kw in library_keywords)
+
     # Select based on query intent
     selected = []
 
-    if any(kw in query_lower for kw in edit_keywords):
+    if has_library_intent:
+        # Multi-video mode with cross-video query: prioritise library tools
+        selected.extend(library_tools[:3])
+        for tool in search_tools + structure_tools:
+            if tool not in selected:
+                selected.append(tool)
+                if len(selected) >= max_tools:
+                    break
+    elif any(kw in query_lower for kw in edit_keywords):
         selected.extend(edit_tools[:4])
         selected.extend(search_tools[:2])  # Often need to search first
     elif any(kw in query_lower for kw in subtitle_keywords):
@@ -1315,15 +1422,36 @@ def select_tools_for_query(
     elif any(kw in query_lower for kw in structure_keywords):
         selected.extend(structure_tools[:3])
         selected.extend(search_tools[:2])
+    elif any(kw in query_lower for kw in analysis_keywords):
+        selected.extend(analysis_tools[:3])
+        selected.extend(search_tools[:2])
     else:
         # Default: prioritize search
         selected.extend(search_tools[:4])
         selected.extend(entity_tools[:2])
 
+    # In multi-video mode, guarantee at least 1 library tool is present
+    if is_multi_video and library_tools and not any(t in library_tools for t in selected):
+        if len(selected) >= max_tools:
+            selected[-1] = library_tools[0]
+        else:
+            selected.append(library_tools[0])
+
     # Fill remaining slots (include all categories as fallback)
     remaining = max_tools - len(selected)
     if remaining > 0:
-        for tool in structure_tools + other_tools + search_tools + entity_tools + compare_tools:
+        fallback = (
+            structure_tools
+            + analysis_tools
+            + other_tools
+            + search_tools
+            + entity_tools
+            + compare_tools
+        )
+        if is_multi_video:
+            # In multi-video mode, include library tools in the fallback pool
+            fallback = library_tools + fallback
+        for tool in fallback:
             if tool not in selected:
                 selected.append(tool)
                 if len(selected) >= max_tools:

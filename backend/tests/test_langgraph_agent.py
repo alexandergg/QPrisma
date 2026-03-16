@@ -828,6 +828,85 @@ class TestDynamicToolBinding:
             selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=max_tools)
             assert len(selected) <= max_tools
 
+    def test_multi_video_library_query_prioritises_library_tools(self):
+        """Library tools are prioritised when is_multi_video and query has library keywords."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Search across all videos for mentions of AI"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8, is_multi_video=True)
+
+        tool_names = [t.name for t in selected]
+        # At least one multi-video tool should be in the first 3 positions
+        first_three = tool_names[:3]
+        assert any(
+            name
+            in (
+                "search_across_videos",
+                "compare_videos",
+                "find_common_entities",
+                "get_library_overview",
+            )
+            for name in first_three
+        ), f"Expected library tool in first 3, got {first_three}"
+
+    def test_multi_video_guarantees_at_least_one_library_tool(self):
+        """Even without library keywords, is_multi_video ensures >=1 library tool."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        # Query has no library keywords at all
+        query = "Find the speaker mentioning revenue"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8, is_multi_video=True)
+
+        tool_names = {t.name for t in selected}
+        library_names = {
+            "search_across_videos",
+            "compare_videos",
+            "find_common_entities",
+            "get_library_overview",
+        }
+        assert (
+            tool_names & library_names
+        ), f"Expected at least 1 library tool when is_multi_video=True, got {tool_names}"
+
+    def test_single_video_unchanged_behavior(self):
+        """When is_multi_video=False, results must be identical to default call."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Find the speaker mentioning revenue"
+        default = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        explicit_false = select_tools_for_query(
+            query, SEARCH_TOOLS, max_tools=8, is_multi_video=False
+        )
+        assert [t.name for t in default] == [t.name for t in explicit_false]
+
+    def test_multi_video_respects_max_tools(self):
+        """Library-mode selection still respects the max_tools cap."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Compare all videos and find every topic across the library"
+        for max_tools in [3, 5, 8]:
+            selected = select_tools_for_query(
+                query, SEARCH_TOOLS, max_tools=max_tools, is_multi_video=True
+            )
+            assert len(selected) <= max_tools
+
+    def test_multi_video_compare_query_includes_compare_videos(self):
+        """A 'compare' query in multi-video mode should include compare_videos."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Compare the main topics between both videos"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8, is_multi_video=True)
+
+        tool_names = {t.name for t in selected}
+        assert (
+            "compare_videos" in tool_names or "search_across_videos" in tool_names
+        ), f"Expected cross-video tool for compare query, got {tool_names}"
+
 
 class TestProductionCheckpointerFactory:
     """Test production checkpointer factory (P1 Item #9)."""
@@ -1223,6 +1302,311 @@ class TestMultiVideoState:
         assert meta["sources"][0]["video_title"] == "Video A"
         assert meta["sources"][0]["timestamp"] == 45.0
 
+    def test_extract_metadata_from_chapters(self):
+        """Test extracting sources from list_chapters output."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "total_chapters": 2,
+            "chapters": [
+                {
+                    "number": 1,
+                    "title": "Introduction",
+                    "start_time": 0,
+                    "start_formatted": "0:00",
+                    "end_time": 30,
+                    "end_formatted": "0:30",
+                    "summary": "Opening remarks",
+                },
+                {
+                    "number": 2,
+                    "title": "Main Content",
+                    "start_time": 30,
+                    "start_formatted": "0:30",
+                    "end_time": 120,
+                    "end_formatted": "2:00",
+                    "summary": "Core discussion",
+                },
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 2
+        assert meta["sources"][0]["timestamp"] == 0
+        assert meta["sources"][0]["type"] == "structure"
+        assert meta["sources"][0]["description"] == "Opening remarks"
+        assert meta["sources"][1]["timestamp"] == 30
+        assert len(meta["navigation_actions"]) == 2
+        assert meta["navigation_actions"][0]["label"] == "Chapter: Introduction"
+
+    def test_extract_metadata_from_transcript(self):
+        """Test extracting source from get_transcript output."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "start_time": 10,
+            "end_time": 60,
+            "start_formatted": "0:10",
+            "end_formatted": "1:00",
+            "transcript": "Hello world...",
+            "segments_count": 15,
+            "speakers": ["Speaker A"],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["timestamp"] == 10
+        assert meta["sources"][0]["type"] == "audio"
+        assert meta["sources"][0]["timestamp_formatted"] == "0:10"
+        assert "15 segments" in meta["sources"][0]["description"]
+
+    def test_extract_metadata_from_transcript_zero_segments(self):
+        """Test that transcript with zero segments produces no source."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "start_time": 0,
+            "end_time": 30,
+            "start_formatted": "0:00",
+            "end_formatted": "0:30",
+            "transcript": "",
+            "segments_count": 0,
+            "speakers": [],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 0
+
+    def test_extract_metadata_from_describe_scene(self):
+        """Test extracting source from describe_scene output."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "timestamp": 15.5,
+            "timestamp_formatted": "0:15",
+            "description": "A presenter stands at a podium addressing the audience.",
+            "scene_type": "presentation",
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["timestamp"] == 15.5
+        assert meta["sources"][0]["type"] == "visual"
+        assert "presenter" in meta["sources"][0]["description"]
+
+    def test_extract_metadata_from_describe_scene_not_in_results(self):
+        """Test that describe_scene extraction does not trigger when results key present."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "timestamp": 10,
+            "description": "Should not be extracted as standalone",
+            "results": [
+                {
+                    "timestamp": 10,
+                    "timestamp_formatted": "0:10",
+                    "type": "visual",
+                    "content": "From results list",
+                    "score": 0.9,
+                }
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        # Should only get the source from results list, not from top-level describe_scene
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["description"] == "From results list"
+
+    def test_extract_metadata_from_scene_context(self):
+        """Test extracting source from get_scene_context output."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "timestamp": 30,
+            "context": {
+                "before": {"frames": [{"timestamp": "0:25"}]},
+                "during": {"frames": [], "audio": []},
+                "after": {"frames": [{"timestamp": "0:35"}]},
+            },
+            "total_frames_in_window": 5,
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["timestamp"] == 30
+        assert meta["sources"][0]["type"] == "visual"
+        assert meta["sources"][0]["description"] == "Scene context window"
+        assert len(meta["navigation_actions"]) == 1
+        assert meta["navigation_actions"][0]["action"] == "jump_to"
+        assert "30" in meta["navigation_actions"][0]["label"]
+
+    def test_extract_metadata_from_community_overview(self):
+        """Test that community overview (no timestamps) produces no sources."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "total_communities": 3,
+            "communities": [
+                {"title": "Tech Discussion", "summary": "About AI", "themes": ["AI"]},
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 0
+
+    def test_extract_metadata_video_id_injected_into_search_results(self):
+        """Test that video_id is injected into single-video search sources."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "results": [
+                {
+                    "timestamp": 10.0,
+                    "timestamp_formatted": "0:10",
+                    "type": "visual",
+                    "content": "A dog running",
+                    "score": 0.9,
+                }
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(
+            tool_result, video_id="vid-abc", video_title="My Video"
+        )
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["video_id"] == "vid-abc"
+        assert meta["sources"][0]["video_title"] == "My Video"
+
+    def test_extract_metadata_video_id_injected_without_title(self):
+        """Test that video_id alone is injected when video_title is None."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "results": [
+                {
+                    "timestamp": 5.0,
+                    "timestamp_formatted": "0:05",
+                    "type": "audio",
+                    "content": "Hello world",
+                    "score": 0.8,
+                }
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result, video_id="vid-xyz")
+        assert meta["sources"][0]["video_id"] == "vid-xyz"
+        assert "video_title" not in meta["sources"][0]
+
+    def test_extract_metadata_video_id_not_overwritten_for_cross_video(self):
+        """Test that cross-video sources keep their own video_id."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "results_by_video": [
+                {
+                    "video_id": "vid-1",
+                    "video_title": "Video One",
+                    "matches": [
+                        {
+                            "timestamp": 30.0,
+                            "timestamp_formatted": "0:30",
+                            "content": "Topic A",
+                            "score": 0.9,
+                        }
+                    ],
+                },
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(
+            tool_result, video_id="vid-primary", video_title="Primary Video"
+        )
+        assert len(meta["sources"]) == 1
+        # Cross-video source must keep its own video_id, not the passed one
+        assert meta["sources"][0]["video_id"] == "vid-1"
+        assert meta["sources"][0]["video_title"] == "Video One"
+
+    def test_extract_metadata_video_id_mixed_single_and_cross(self):
+        """Test mixed results: single-video gets injected, cross-video keeps own."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "results": [
+                {
+                    "timestamp": 10.0,
+                    "timestamp_formatted": "0:10",
+                    "type": "visual",
+                    "content": "Scene description",
+                    "score": 0.85,
+                }
+            ],
+            "results_by_video": [
+                {
+                    "video_id": "vid-other",
+                    "video_title": "Other Video",
+                    "matches": [
+                        {
+                            "timestamp": 20.0,
+                            "timestamp_formatted": "0:20",
+                            "content": "Cross video result",
+                            "score": 0.75,
+                        }
+                    ],
+                },
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(
+            tool_result, video_id="vid-main", video_title="Main Video"
+        )
+        assert len(meta["sources"]) == 2
+        # Single-video source gets injected video_id
+        single_src = [s for s in meta["sources"] if s["video_id"] == "vid-main"]
+        assert len(single_src) == 1
+        assert single_src[0]["video_title"] == "Main Video"
+        # Cross-video source keeps its own
+        cross_src = [s for s in meta["sources"] if s["video_id"] == "vid-other"]
+        assert len(cross_src) == 1
+        assert cross_src[0]["video_title"] == "Other Video"
+
+    def test_extract_metadata_no_video_id_backward_compatible(self):
+        """Test backward compatibility: no video_id param means no video_id in sources."""
+        from agent.graphs.video import extract_metadata_from_tool_result
+
+        tool_result = {
+            "results": [
+                {
+                    "timestamp": 10.0,
+                    "timestamp_formatted": "0:10",
+                    "type": "visual",
+                    "content": "A scene",
+                    "score": 0.9,
+                }
+            ],
+        }
+
+        meta = extract_metadata_from_tool_result(tool_result)
+        assert len(meta["sources"]) == 1
+        assert "video_id" not in meta["sources"][0]
+        assert "video_title" not in meta["sources"][0]
+
+    def test_extract_metadata_from_messages_passes_video_id(self):
+        """Test that extract_metadata_from_messages forwards video_id."""
+        from agent.graphs.video import extract_metadata_from_messages
+        from langchain_core.messages import ToolMessage
+
+        messages = [
+            ToolMessage(
+                content='{"results": [{"timestamp": 5.0, "timestamp_formatted": "0:05", "type": "visual", "content": "Hello", "score": 0.8}]}',
+                tool_call_id="tc1",
+            ),
+        ]
+
+        meta = extract_metadata_from_messages(messages, video_id="vid-msg", video_title="Msg Video")
+        assert len(meta["sources"]) == 1
+        assert meta["sources"][0]["video_id"] == "vid-msg"
+        assert meta["sources"][0]["video_title"] == "Msg Video"
+
     def test_multi_video_prompt_selection(self):
         """Test that multi-video prompt is selected."""
         from agent.nodes.video_nodes import get_system_message
@@ -1248,6 +1632,81 @@ class TestMultiVideoState:
 
         msg = get_system_message(state)
         assert "cross-video" not in msg.content.lower()
+
+    def test_multi_video_prompt_lists_all_media_ids(self):
+        """Test that multi-video prompt lists each media_id individually."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": {"media_id": "vid-1"},
+            "media_id": "vid-1",
+            "media_ids": ["vid-1", "vid-2", "vid-3"],
+        }
+
+        msg = get_system_message(state)
+        assert "vid-1" in msg.content
+        assert "vid-2" in msg.content
+        assert "vid-3" in msg.content
+        assert "Selected Videos (3):" in msg.content
+
+    def test_multi_video_prompt_includes_tool_guidance(self):
+        """Test that multi-video prompt includes guidance about cross-video tools."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": {"media_id": "vid-1"},
+            "media_id": "vid-1",
+            "media_ids": ["vid-1", "vid-2"],
+        }
+
+        msg = get_system_message(state)
+        assert "search_across_videos" in msg.content
+        assert "compare_videos" in msg.content
+        assert "primary video" in msg.content.lower()
+
+    def test_multi_video_prompt_enumerates_videos(self):
+        """Test that multi-video prompt numbers each video."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": {"media_id": "vid-a"},
+            "media_id": "vid-a",
+            "media_ids": ["vid-a", "vid-b"],
+        }
+
+        msg = get_system_message(state)
+        assert "Video 1: vid-a" in msg.content
+        assert "Video 2: vid-b" in msg.content
+
+    def test_restore_media_context_logs_all_multi_video_ids(self):
+        """Test that restore_media_context logs all media_ids in multi-video mode."""
+        import logging
+
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {
+            "media_id": None,
+            "media_ids": None,
+            "video_context": None,
+        }
+        config = RunnableConfig(
+            configurable={
+                "media_id": "vid-1",
+                "media_ids": ["vid-1", "vid-2", "vid-3"],
+            }
+        )
+
+        logger = logging.getLogger("agent.nodes.video_nodes")
+        with patch.object(logger, "info") as mock_info:
+            restore_media_context(state, config)
+            log_messages = [str(call) for call in mock_info.call_args_list]
+            multi_video_log = [m for m in log_messages if "multi-video mode" in m]
+            assert len(multi_video_log) == 1
+            assert "vid-1" in multi_video_log[0]
+            assert "vid-2" in multi_video_log[0]
+            assert "vid-3" in multi_video_log[0]
+            assert "3" in multi_video_log[0]
 
 
 class TestMultiVideoApiSchemas:

@@ -279,7 +279,7 @@ class HighlightDetectionService:
         with self._kg.get_session() as session:
             result = session.run(
                 """
-                MATCH (e:Entity)-[:APPEARS_IN]->(f:Frame)
+                MATCH (f:Frame)-[:CONTAINS]->(e:Entity)
                 WHERE f.video_id = $media_id
                 WITH f, count(e) as entity_count
                 WHERE entity_count > 2
@@ -404,13 +404,23 @@ class HighlightDetectionService:
     # ------------------------------------------------------------------ #
 
     def _get_video_duration(self, media_id: str) -> float:
-        """Resolve the video duration from the Video node or Scene nodes."""
+        """Resolve the video duration from the Video node or Scene nodes.
+
+        .. note::
+
+            The graph model stores this as ``duration_seconds`` on the
+            ``Video`` node.  Test fixtures in
+            ``test_highlight_detection_service.py`` that use fragment-based
+            query matching must be updated to use the key
+            ``"v.duration_seconds as duration"`` instead of the legacy
+            ``"v.duration as duration"`` fragment.
+        """
         with self._kg.get_session() as session:
             result = session.run(
                 """
                 MATCH (v:Video)
                 WHERE v.id = $media_id OR v.video_id = $media_id
-                RETURN v.duration as duration
+                RETURN v.duration_seconds as duration
                 LIMIT 1
                 """,
                 media_id=media_id,
