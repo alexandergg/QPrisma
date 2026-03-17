@@ -24,15 +24,22 @@ async def search_video(
     time_range_start: Annotated[float | None, "Start of time range in seconds"] = None,
     time_range_end: Annotated[float | None, "End of time range in seconds"] = None,
     limit: Annotated[int, "Maximum results to return"] = 5,
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video to search. "
+        "If omitted, searches the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
     Search for specific moments, topics, objects, or spoken words in the video.
     Returns timestamped results with descriptions.
+    When several videos are selected, use target_video_id to search a specific video.
     """
-    logger.info(f"search_video called with query='{query}', media_id='{media_id}'")
+    effective_id = target_video_id or media_id
+    logger.info(f"search_video called with query='{query}', media_id='{effective_id}'")
 
-    if not media_id:
+    if not effective_id:
         logger.warning("search_video: No media_id provided via InjectedState")
         return {"error": "No video context available. Please select a video first.", "results": []}
 
@@ -61,7 +68,7 @@ async def search_video(
         search_response = await search_service.hybrid_search(
             query_text=query,
             node_types=node_types,
-            video_id=media_id,
+            video_id=effective_id,
             limit=limit * 3,
             expansion_hops=2,
             use_reranking=True,
@@ -214,6 +221,11 @@ async def get_transcript(
     start_time: Annotated[float | None, "Start time in seconds (omit for full transcript)"] = None,
     end_time: Annotated[float | None, "End time in seconds (omit for full transcript)"] = None,
     include_speakers: Annotated[bool, "Include speaker identification if available"] = True,
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video's transcript to retrieve. "
+        "If omitted, uses the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
@@ -223,8 +235,10 @@ async def get_transcript(
     Provide both to retrieve a specific time range.
     Includes speaker identification when available.
     Uses sequential chain traversal when available for seamless cross-boundary retrieval.
+    When several videos are selected, use target_video_id to get a specific video's transcript.
     """
-    if not media_id:
+    effective_id = target_video_id or media_id
+    if not effective_id:
         return {"error": "No video context available.", "transcript": ""}
 
     try:
@@ -254,7 +268,7 @@ async def get_transcript(
                            a.speaker_label as speaker, a.confidence as confidence
                     ORDER BY a.start_time
                     """,
-                    media_id=media_id,
+                    media_id=effective_id,
                 )
                 segments = list(result)
         else:
@@ -270,7 +284,7 @@ async def get_transcript(
                     ORDER BY a.start_time
                     LIMIT 1
                     """,
-                    media_id=media_id,
+                    media_id=effective_id,
                     start_time=effective_start,
                     end_time=effective_end,
                 )
@@ -304,7 +318,7 @@ async def get_transcript(
                                a.speaker_label as speaker, a.confidence as confidence
                         ORDER BY a.start_time
                         """,
-                        media_id=media_id,
+                        media_id=effective_id,
                         start_time=effective_start,
                         end_time=effective_end,
                     )
@@ -350,12 +364,19 @@ async def get_transcript(
 @tool
 async def describe_scene(
     timestamp: Annotated[float, "Timestamp in seconds to describe"],
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video to describe. "
+        "If omitted, uses the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
     Get a detailed visual description of what's happening at a specific timestamp.
+    When several videos are selected, use target_video_id to describe a scene from a specific video.
     """
-    if not media_id:
+    effective_id = target_video_id or media_id
+    if not effective_id:
         return {"error": "No video context available.", "description": ""}
 
     try:
@@ -379,7 +400,7 @@ async def describe_scene(
                 ORDER BY abs(f.timestamp - $timestamp)
                 LIMIT 1
                 """,
-                media_id=media_id,
+                media_id=effective_id,
                 timestamp=timestamp,
             )
             frame = result.single()

@@ -48,7 +48,13 @@ async def search_across_videos(
         )
         return asdict(result)
     except Exception as e:
-        return {"error": f"Cross-video search failed: {str(e)}", "results": []}
+        return {
+            "error": f"Cross-video search failed: {str(e)}",
+            "results": [],
+            "fallback_suggestion": (
+                "Use search_video with target_video_id on each video individually."
+            ),
+        }
 
 
 @tool
@@ -78,6 +84,9 @@ async def compare_videos(
             "error": "Compare requires at least 2 videos selected. Currently only "
             f"{len(effective_ids)} video(s) in context.",
             "comparison": [],
+            "fallback_suggestion": (
+                "Ensure multiple videos are selected in library mode before comparing."
+            ),
         }
 
     try:
@@ -87,7 +96,15 @@ async def compare_videos(
         result = svc.compare_videos(query, effective_ids)
         return asdict(result)
     except Exception as e:
-        return {"error": f"Video comparison failed: {str(e)}", "comparison": []}
+        return {
+            "error": f"Video comparison failed: {str(e)}",
+            "comparison": [],
+            "videos_attempted": len(effective_ids),
+            "fallback_suggestion": (
+                "Use get_summary with target_video_id for each video individually, "
+                "then synthesize the comparison from the individual summaries."
+            ),
+        }
 
 
 @tool
@@ -134,7 +151,14 @@ async def find_common_entities(
             "entity_type_filter": entity_type,
         }
     except Exception as e:
-        return {"error": str(e), "entities": []}
+        return {
+            "error": f"Finding common entities failed: {str(e)}",
+            "entities": [],
+            "videos_attempted": len(effective_ids),
+            "fallback_suggestion": (
+                "Use search_across_videos with entity names to find shared content."
+            ),
+        }
 
 
 @tool

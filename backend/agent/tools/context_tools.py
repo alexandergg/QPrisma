@@ -18,12 +18,19 @@ logger = logging.getLogger(__name__)
 
 @tool
 async def list_chapters(
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video's chapters to retrieve. "
+        "If omitted, uses the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
     Get the chapter structure and overview of the video.
+    When several videos are selected, use target_video_id to get chapters for a specific video.
     """
-    if not media_id:
+    effective_id = target_video_id or media_id
+    if not effective_id:
         return {"error": "No video context available.", "chapters": []}
 
     try:
@@ -46,7 +53,7 @@ async def list_chapters(
                        s.description as description, s.scene_type as scene_type
                 ORDER BY s.start_time
                 """,
-                media_id=media_id,
+                media_id=effective_id,
             )
             scenes = list(result)
 
@@ -60,7 +67,7 @@ async def list_chapters(
                     RETURN v.topics as topics,
                            v.summary as summary
                     """,
-                    media_id=media_id,
+                    media_id=effective_id,
                 )
                 record = result.single()
                 if record and record.get("topics"):
@@ -94,19 +101,26 @@ async def list_chapters(
 
 @tool
 async def get_video_info(
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video's info to retrieve. "
+        "If omitted, uses the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get basic information about the current video (title, duration, etc.).
+    Get basic information about a video (title, duration, etc.).
+    When several videos are selected, use target_video_id to get info for a specific video.
     """
-    if not media_id:
+    effective_id = target_video_id or media_id
+    if not effective_id:
         return {"error": "No video context available."}
 
     try:
         from services.database_service import get_database_service
 
         db = get_database_service()
-        media = db.get_media(media_id)
+        media = db.get_media(effective_id)
 
         if not media:
             return {"error": "Video not found."}
@@ -114,7 +128,7 @@ async def get_video_info(
         metadata = media.video_metadata or {}
 
         return {
-            "media_id": media_id,
+            "media_id": effective_id,
             "title": media.original_filename or media.blob_name,
             "duration": metadata.get("duration", 0),
             "duration_formatted": format_timestamp(metadata.get("duration", 0)),
@@ -130,12 +144,19 @@ async def get_video_info(
 @tool
 async def get_summary(
     level: Annotated[str, "Summary level: 'brief', 'detailed', or 'comprehensive'"] = "brief",
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video to summarize. "
+        "If omitted, uses the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
     Get a summary of the video content at different levels of detail.
+    When several videos are selected, use target_video_id to summarize a specific video.
     """
-    if not media_id:
+    effective_id = target_video_id or media_id
+    if not effective_id:
         return {"error": "No video context available.", "summary": ""}
 
     try:
@@ -157,7 +178,7 @@ async def get_summary(
                        v.title as title, v.topics as topics,
                        v.duration_seconds as duration
                 """,
-                media_id=media_id,
+                media_id=effective_id,
             )
             record = result.single()
 
@@ -189,6 +210,11 @@ async def get_summary(
 async def get_scene_context(
     timestamp: Annotated[float, "Center timestamp in seconds"],
     window_seconds: Annotated[float, "Context window size (seconds before and after)"] = 30.0,
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video's scene to examine. "
+        "If omitted, uses the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
@@ -196,8 +222,10 @@ async def get_scene_context(
     Returns frames, audio, and scene information within the time window.
     Use this for understanding what happened before, during, and after a moment.
     Uses temporal chain traversal when available for seamless cross-scene context.
+    When several videos are selected, use target_video_id to examine a specific video.
     """
-    if not media_id:
+    effective_id = target_video_id or media_id
+    if not effective_id:
         return {"error": "No video context available.", "context": {}}
 
     try:
@@ -226,7 +254,7 @@ async def get_scene_context(
                 ORDER BY abs(f.timestamp - $timestamp)
                 LIMIT 1
                 """,
-                media_id=media_id,
+                media_id=effective_id,
                 start_time=start_time,
                 end_time=end_time,
                 timestamp=timestamp,
@@ -270,7 +298,7 @@ async def get_scene_context(
                     RETURN f.timestamp as timestamp, f.description as description
                     ORDER BY f.timestamp
                     """,
-                    media_id=media_id,
+                    media_id=effective_id,
                     start_time=start_time,
                     end_time=end_time,
                 )
@@ -288,7 +316,7 @@ async def get_scene_context(
                 ORDER BY abs(a.start_time - $timestamp)
                 LIMIT 1
                 """,
-                media_id=media_id,
+                media_id=effective_id,
                 start_time=start_time,
                 end_time=end_time,
                 timestamp=timestamp,
@@ -332,7 +360,7 @@ async def get_scene_context(
                     RETURN a.start_time as timestamp, a.text as text
                     ORDER BY a.start_time
                     """,
-                    media_id=media_id,
+                    media_id=effective_id,
                     start_time=start_time,
                     end_time=end_time,
                 )
@@ -350,7 +378,7 @@ async def get_scene_context(
                        s.description as description, s.scene_type as scene_type
                 LIMIT 1
                 """,
-                media_id=media_id,
+                media_id=effective_id,
                 timestamp=timestamp,
             )
             scene = result.single()

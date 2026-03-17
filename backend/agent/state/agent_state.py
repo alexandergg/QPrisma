@@ -125,6 +125,9 @@ class AgentState(TypedDict, total=False):
     # Multiple media IDs for cross-video analysis
     media_ids: list[str] | None
 
+    # Mapping of media_id → human-readable title (populated in multi-video mode)
+    video_titles: dict[str, str] | None
+
     # Video context (for VideoAgent)
     video_context: VideoContext | None
 
@@ -163,6 +166,7 @@ class AgentInputState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
     media_id: str | None
     media_ids: list[str] | None
+    video_titles: dict[str, str] | None
     video_context: VideoContext | None
     user_id: str | None
     session_id: str | None
@@ -223,6 +227,7 @@ def create_agent_state(
     messages: list[AnyMessage],
     media_id: str | None = None,
     media_ids: list[str] | None = None,
+    video_titles: dict[str, str] | None = None,
     user_id: str | None = None,
     session_id: str | None = None,
 ) -> AgentState:
@@ -233,6 +238,7 @@ def create_agent_state(
         messages: Initial messages (including user message)
         media_id: Optional video ID for context (single-video mode)
         media_ids: Optional list of video IDs for cross-video analysis
+        video_titles: Optional mapping of media_id → title for display
         user_id: User identifier
         session_id: Session identifier for memory
 
@@ -283,6 +289,8 @@ def create_agent_state(
         state["video_context"] = VideoContext(media_id=primary_media_id)
     if effective_ids and len(effective_ids) > 1:
         state["media_ids"] = effective_ids
+    if video_titles:
+        state["video_titles"] = video_titles
     if user_id:
         state["user_id"] = user_id
     if session_id:

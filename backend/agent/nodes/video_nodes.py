@@ -30,6 +30,34 @@ MAX_TOOL_ITERATIONS = DEFAULT_MAX_TOOL_ITERATIONS
 WARN_TOOL_ITERATIONS = DEFAULT_WARN_TOOL_ITERATIONS
 
 
+def _resolve_video_titles(media_ids: list[str]) -> dict[str, str]:
+    """
+    Look up human-readable titles for a list of media IDs.
+
+    Uses DatabaseService (PostgreSQL) which stores the original filename.
+    Falls back gracefully — unknown IDs get "Untitled".
+    """
+    titles: dict[str, str] = {}
+    try:
+        from services.database_service import get_database_service
+
+        db = get_database_service()
+        for mid in media_ids:
+            try:
+                media = db.get_media(mid)
+                if media:
+                    titles[mid] = media.original_filename or media.blob_name or "Untitled"
+                else:
+                    titles[mid] = "Untitled"
+            except Exception:
+                titles[mid] = "Untitled"
+    except Exception as e:
+        logger.warning(f"_resolve_video_titles: failed to resolve titles: {e}")
+        for mid in media_ids:
+            titles[mid] = "Untitled"
+    return titles
+
+
 def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     """
     Restore media_id from RunnableConfig on every graph invocation,
@@ -42,6 +70,9 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     When ``create_agent_state()`` omits the ``media_id`` key (because the
     frontend didn't send one), LangGraph preserves the checkpointed value
     in ``state``.  This node ensures ``video_context`` stays in sync.
+
+    In multi-video mode, also resolves human-readable video titles from the
+    database so the system prompt can display them.
     """
     configurable = config.get("configurable", {})
     config_media_id = configurable.get("media_id")
@@ -79,6 +110,18 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
             effective_media_ids,
         )
 
+    # Resolve video titles for multi-video mode
+    if effective_media_ids and len(effective_media_ids) > 1:
+        existing_titles = state.get("video_titles") or {}
+        needs_resolution = any(mid not in existing_titles for mid in effective_media_ids)
+        if needs_resolution:
+            titles = _resolve_video_titles(effective_media_ids)
+            updates["video_titles"] = titles
+            logger.info(
+                "restore_media_context: resolved video titles: %s",
+                {mid: titles.get(mid, "?") for mid in effective_media_ids},
+            )
+
     if updates:
         logger.info(f"restore_media_context: applying updates {list(updates.keys())}")
     else:
@@ -102,11 +145,23 @@ def get_system_message(state: AgentState) -> SystemMessage:
 
     if is_multi_video:
         content = MULTI_VIDEO_SYSTEM_PROMPT
-        video_list = "\n".join(f"  - Video {i+1}: {mid}" for i, mid in enumerate(media_ids))
+        video_titles = state.get("video_titles") or {}
+        video_lines = []
+        for i, mid in enumerate(media_ids):
+            title = video_titles.get(mid)
+            if title:
+                video_lines.append(f'  - Video {i+1}: "{title}" (id: {mid})')
+            else:
+                video_lines.append(f"  - Video {i+1}: {mid}")
+        video_list = "\n".join(video_lines)
         content += f"\n\n**Selected Videos ({len(media_ids)}):**\n{video_list}"
-        content += "\n\nUse `search_across_videos` to search all videos at once."
+        content += "\n\nUse `get_library_overview` first to understand what each video covers."
+        content += "\nUse `search_across_videos` to search all videos at once."
         content += "\nUse `compare_videos` to compare content between videos."
-        content += "\nFor single-video queries, the primary video (first selected) is used."
+        content += (
+            "\nFor single-video queries, use `target_video_id` parameter "
+            "to specify which video to analyze."
+        )
     elif has_video:
         content = SYSTEM_PROMPT
         if video_context and video_context.get("title"):

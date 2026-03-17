@@ -1662,7 +1662,7 @@ class TestMultiVideoState:
         msg = get_system_message(state)
         assert "search_across_videos" in msg.content
         assert "compare_videos" in msg.content
-        assert "primary video" in msg.content.lower()
+        assert "target_video_id" in msg.content
 
     def test_multi_video_prompt_enumerates_videos(self):
         """Test that multi-video prompt numbers each video."""
@@ -1707,6 +1707,57 @@ class TestMultiVideoState:
             assert "vid-2" in multi_video_log[0]
             assert "vid-3" in multi_video_log[0]
             assert "3" in multi_video_log[0]
+
+    def test_system_message_includes_video_titles(self):
+        """Test that system message shows titles when video_titles is populated."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": {"media_id": "vid-1"},
+            "media_id": "vid-1",
+            "media_ids": ["vid-1", "vid-2"],
+            "video_titles": {
+                "vid-1": "Introduction to Python",
+                "vid-2": "Advanced Machine Learning",
+            },
+        }
+
+        msg = get_system_message(state)
+        assert '"Introduction to Python"' in msg.content
+        assert '"Advanced Machine Learning"' in msg.content
+        assert "(id: vid-1)" in msg.content
+        assert "(id: vid-2)" in msg.content
+        assert "Video 1:" in msg.content
+        assert "Video 2:" in msg.content
+
+    def test_system_message_fallback_without_titles(self):
+        """Test that system message falls back to raw IDs when no titles."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": {"media_id": "vid-1"},
+            "media_id": "vid-1",
+            "media_ids": ["vid-1", "vid-2"],
+        }
+
+        msg = get_system_message(state)
+        # Without video_titles, should show raw IDs
+        assert "Video 1: vid-1" in msg.content
+        assert "Video 2: vid-2" in msg.content
+
+    def test_system_message_multi_video_strategy_guidance(self):
+        """Test that the multi-video prompt includes fallback strategy guidance."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": {"media_id": "vid-1"},
+            "media_id": "vid-1",
+            "media_ids": ["vid-1", "vid-2"],
+        }
+
+        msg = get_system_message(state)
+        assert "get_library_overview" in msg.content
+        assert "Fallback" in msg.content
 
 
 class TestMultiVideoApiSchemas:
