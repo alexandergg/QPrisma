@@ -163,7 +163,7 @@ backend/
   services/      # Business logic services
   models/        # Pydantic/DB models
   tasks/         # Celery workers
-  evaluation/    # Benchmarks and evaluation framework
+  evaluation/    # Video-MME benchmark evaluation pipeline
 frontend/
   app/           # Next.js App Router
   components/    # React components
@@ -213,14 +213,22 @@ For full details, see [docs/INFRASTRUCTURE.md](./docs/INFRASTRUCTURE.md).
 
 ## Evaluation
 
-Run benchmark and ablation workflows from `backend/evaluation/` to measure retrieval and answer quality.
-
-Start with:
+QPrisma uses the [Video-MME](https://video-mme.github.io/) benchmark (CVPR 2025) for automated evaluation against a remote API deployment.
 
 ```bash
 cd backend
-python -m evaluation.run_evaluation --config evaluation/configs/default.yaml
+export QPRISMA_API_URL=https://your-api.azurecontainerapps.io
+export QPRISMA_EVAL_EMAIL=your_email
+export QPRISMA_EVAL_PASSWORD=your_password
+
+# Quick test (12 short videos)
+python -m evaluation.run_video_mme_eval --subset short --max-videos 12
+
+# Re-run with already indexed videos
+python -m evaluation.run_video_mme_eval --skip-upload --subset short
 ```
+
+The pipeline automatically discovers indexed videos, downloads missing ones via yt-dlp, uploads them, waits for processing, and runs the full evaluation with accuracy and efficiency metrics.
 
 ## Documentation
 

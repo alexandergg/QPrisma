@@ -1,0 +1,40 @@
+{
+  "benchmarks": [
+    {
+      "name": "video-mme",
+      "data_path": "data/benchmarks/video_mme/video_mme.json",
+      "video_dir": "evaluation/data/videos",
+      "task_type": "multiple_choice",
+      "has_temporal_annotations": false,
+      "domains": [
+        "Knowledge",
+        "Film & Television",
+        "Sports Competition",
+        "Artistic Performance",
+        "Life Record",
+        "Multilingual"
+      ]
+    }
+  ],
+  "methods": [
+    {
+      "name": "qprisma-remote",
+      "display_name": "QPrisma Agent (Remote)",
+      "description": "Full LangGraph agent pipeline via POST /chat/agent",
+      "is_baseline": false
+    },
+    {
+      "name": "direct-search-remote",
+      "display_name": "Direct Search (Remote)",
+      "description": "Naive RAG baseline via POST /search",
+      "is_baseline": true
+    }
+  ],
+  "baseline_method": "direct-search-remote",
+  "judge_model": "gpt-4o",
+  "num_runs": 1,
+  "use_position_debiasing": false,
+  "use_batch_api": false,
+  "output_dir": "evaluation/results/video_mme",
+  "max_concurrent_judges": 5
+}

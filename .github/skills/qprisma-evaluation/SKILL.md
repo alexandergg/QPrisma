@@ -1,41 +1,62 @@
 ---
 name: qprisma-evaluation
-description: Run QPrisma benchmark and evaluation workflows for agent quality measurement, including custom benchmark and ablation runs.
+description: Run QPrisma Video-MME benchmark evaluation against a remote API deployment.
 ---
 
 # QPrisma Evaluation Skill
 
-Use this skill for benchmark execution and evaluation reporting.
+Use this skill to run Video-MME (CVPR 2025) evaluation against a QPrisma API deployment.
 
-## Prerequisite check
+## Prerequisites
 
-Verify local dependencies and services before evaluation:
-
-```bash
-cd backend && .venv/Scripts/python.exe .claude/skills/run-eval/scripts/check_infra.py
-```
+- `yt-dlp` installed (`pip install yt-dlp`) for video downloading
+- `httpx` installed (included in backend dependencies)
+- QPrisma API credentials (email/password)
+- Environment variables or CLI flags for API URL and credentials
 
 ## Common runs
 
-### Quick custom benchmark
+### Quick test (12 short videos)
 
 ```bash
-cd backend && .venv/Scripts/python.exe -m evaluation.scripts.run_first_eval
+cd backend
+python -m evaluation.run_video_mme_eval \
+  --api-url $QPRISMA_API_URL \
+  --subset short --max-videos 12
 ```
 
-### Expanded benchmark
+### Re-run with indexed videos (skip upload)
 
 ```bash
-cd backend && .venv/Scripts/python.exe -m evaluation.scripts.run_first_eval --expanded
+cd backend
+python -m evaluation.run_video_mme_eval --skip-upload --subset short
 ```
 
-### Ablation study
+### Full Video-MME benchmark
 
 ```bash
-cd backend && .venv/Scripts/python.exe -m evaluation.run_evaluation --config evaluation/configs/ablation_study.json
+cd backend
+python -m evaluation.run_video_mme_eval --subset all --max-videos 900
 ```
+
+## Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `QPRISMA_API_URL` | QPrisma API base URL |
+| `QPRISMA_EVAL_EMAIL` | Auth email |
+| `QPRISMA_EVAL_PASSWORD` | Auth password |
+
+## Pipeline phases
+
+1. **Setup** — authenticate, health check, load benchmark data
+2. **Video Preparation** — discover indexed videos, download missing via yt-dlp, upload, wait for processing
+3. **Evaluation** — run QPrisma agent + direct-search baseline on each question
+4. **Reporting** — compute accuracy (by category/tier/domain), efficiency metrics, generate markdown report
 
 ## Reporting
 
-- Summarize accuracy, latency, and comparative outcomes by method.
-- Highlight failure patterns and recommended follow-up experiments.
+- Results saved to `evaluation/results/video_mme/`
+- `EVALUATION_REPORT.md` — human-readable report with accuracy tables
+- `metrics.json` — machine-readable metrics
+- Per-question JSON results with resume support

@@ -1,6 +1,0 @@
-{
-  "benchmark": "Video-MME",
-  "source": "lmms-lab/Video-MME",
-  "total_entries": 2700,
-  "subset": "test"
-}

@@ -219,7 +219,7 @@ backend/
 ├── core/                    # config.py, logging_config.py, exceptions.py, async_utils.py
 ├── services/                # 24 business logic services
 ├── models/                  # Pydantic models and schemas
-├── evaluation/              # Benchmark framework (Video-MME, MLVU, ablation)
+├── evaluation/              # Video-MME benchmark evaluation pipeline
 ├── tasks/                   # Celery workers (celery_app.py, video_tasks.py)
 └── tests/                   # pytest tests
 
