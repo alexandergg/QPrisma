@@ -81,10 +81,13 @@ def load_from_json(
     json_path: str | Path,
     video_dir: str | None = None,
 ) -> list[BenchmarkEntry]:
-    """Load Video-MME from the official output_test_template.json format.
+    """Load Video-MME from JSON (auto-detects grouped or flat format).
 
-    The official format groups questions under videos:
-    [{"video_id": "001", "questions": [{"question_id": "001-1", ...}]}]
+    Grouped format (official output_test_template.json):
+      [{"video_id": "001", "questions": [{"question_id": "001-1", ...}]}]
+
+    Flat format (pre-processed, one entry per question):
+      [{"question_id": "001-1", "video_id": "001", "question": "...", ...}]
 
     Args:
         json_path: Path to the JSON annotation file.
@@ -97,6 +100,46 @@ def load_from_json(
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
+    if not data:
+        return []
+
+    # Auto-detect format: flat entries have "question" key at top level
+    first = data[0]
+    if "question" in first and "questions" not in first:
+        return _load_flat_format(data, path)
+    return _load_grouped_format(data, path)
+
+
+def _load_flat_format(data: list[dict], path: Path) -> list[BenchmarkEntry]:
+    """Load pre-processed flat format (one dict per question)."""
+    entries = []
+    for item in data:
+        duration_str = item.get("duration_tier", item.get("duration", ""))
+        entry = BenchmarkEntry(
+            question_id=item["question_id"],
+            video_id=item["video_id"],
+            question=item["question"],
+            choices=item.get("choices", item.get("options", [])),
+            correct_answer=item.get("correct_answer", item.get("answer")),
+            category=item.get("category", item.get("task_type")),
+            domain=item.get("domain"),
+            duration_tier=_DURATION_MAP.get(str(duration_str).lower()),
+            video_duration_seconds=item.get("video_duration_seconds"),
+            benchmark=item.get("benchmark", "video-mme"),
+            metadata={
+                "sub_category": item.get("sub_category"),
+                "url": item.get("url"),
+                "youtube_id": item.get("videoID"),
+            },
+        )
+        entries.append(entry)
+
+    logger.info("Loaded %d Video-MME entries (flat format) from %s", len(entries), path)
+    return entries
+
+
+def _load_grouped_format(data: list[dict], path: Path) -> list[BenchmarkEntry]:
+    """Load official grouped format (questions nested under video objects)."""
     entries = []
     for video_obj in data:
         video_id = video_obj["video_id"]
@@ -123,7 +166,7 @@ def load_from_json(
             )
             entries.append(entry)
 
-    logger.info("Loaded %d Video-MME entries from %s", len(entries), path)
+    logger.info("Loaded %d Video-MME entries (grouped format) from %s", len(entries), path)
     return entries
 
 

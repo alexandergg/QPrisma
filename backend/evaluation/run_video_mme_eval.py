@@ -98,11 +98,30 @@ async def phase_setup(args: argparse.Namespace) -> tuple[str, list[BenchmarkEntr
 
 
 def _load_benchmark(args: argparse.Namespace) -> list[BenchmarkEntry]:
-    """Load and filter Video-MME benchmark entries."""
+    """Load and filter Video-MME benchmark entries.
+
+    Always ensures YouTube IDs are present (needed for video discovery
+    and ID mapping, not just downloading).
+    """
+    entries: list[BenchmarkEntry] = []
+
+    # Try local JSON first
     if BENCHMARK_JSON_PATH.exists():
         entries = load_from_json(BENCHMARK_JSON_PATH)
-    else:
-        logger.info("Local benchmark not found, loading from HuggingFace...")
+
+    # Check if local data has YouTube IDs (needed for mapping)
+    has_youtube_ids = any((e.metadata or {}).get("youtube_id") for e in entries)
+
+    # Load from HuggingFace when YouTube IDs are missing
+    if not has_youtube_ids:
+        logger.info(
+            "Local benchmark lacks YouTube IDs — loading from HuggingFace "
+            "(required for video discovery and mapping)..."
+        )
+        entries = load_from_huggingface()
+
+    if not entries:
+        logger.info("No local data, loading from HuggingFace...")
         entries = load_from_huggingface()
 
     # Filter by duration tier

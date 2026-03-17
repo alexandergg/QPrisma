@@ -10,7 +10,9 @@ import asyncio
 import json
 import logging
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import httpx
@@ -23,6 +25,21 @@ POLL_INTERVAL_INITIAL = 10.0  # seconds
 POLL_INTERVAL_MAX = 60.0
 POLL_BACKOFF_FACTOR = 1.5
 DEFAULT_PROCESSING_TIMEOUT = 900  # 15 minutes per video
+
+
+def _find_yt_dlp() -> str:
+    """Find yt-dlp executable, checking venv Scripts dir and PATH."""
+    # Check alongside the running Python interpreter first (venv Scripts/)
+    python_dir = Path(sys.executable).parent
+    for name in ("yt-dlp", "yt-dlp.exe"):
+        candidate = python_dir / name
+        if candidate.exists():
+            return str(candidate)
+    # Fall back to PATH
+    found = shutil.which("yt-dlp")
+    if found:
+        return found
+    raise FileNotFoundError("yt-dlp not found. Install it: pip install yt-dlp")
 
 
 class VideoPreparationService:
@@ -129,6 +146,12 @@ class VideoPreparationService:
         self.video_dir.mkdir(parents=True, exist_ok=True)
         downloaded: dict[str, Path] = {}
 
+        try:
+            yt_dlp_bin = _find_yt_dlp()
+        except FileNotFoundError:
+            logger.error("yt-dlp not found. Install it: pip install yt-dlp")
+            return downloaded
+
         for yt_id in youtube_ids:
             safe_id = _sanitize_filename(yt_id)
             output_path = self.video_dir / f"{VMME_FILENAME_PREFIX}{safe_id}.mp4"
@@ -142,7 +165,7 @@ class VideoPreparationService:
             output_template = str(self.video_dir / f"{VMME_FILENAME_PREFIX}{safe_id}.%(ext)s")
 
             cmd = [
-                "yt-dlp",
+                yt_dlp_bin,
                 "--no-playlist",
                 "-f",
                 f"best[height<={max_resolution}][ext=mp4]/best[height<={max_resolution}]/best",
@@ -186,9 +209,6 @@ class VideoPreparationService:
                     logger.warning("Download completed but file not found for %s", yt_id)
             except subprocess.TimeoutExpired:
                 logger.warning("Download timed out for %s", yt_id)
-            except FileNotFoundError:
-                logger.error("yt-dlp not found. Install it: pip install yt-dlp")
-                break
 
         logger.info("Downloaded %d/%d videos", len(downloaded), len(youtube_ids))
         return downloaded
