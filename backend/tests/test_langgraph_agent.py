@@ -1195,8 +1195,8 @@ class TestMultiVideoState:
 
         assert state["media_ids"] == ["vid-1", "vid-2"]
 
-    def test_create_agent_state_single_media_ids_is_omitted(self):
-        """Test that media_ids is omitted when only one video."""
+    def test_create_agent_state_single_media_ids_is_included(self):
+        """Test that media_ids is set even with a single video (prevents KeyError on resume)."""
         from agent.state.agent_state import create_agent_state
 
         messages = [HumanMessage(content="test")]
@@ -1207,7 +1207,7 @@ class TestMultiVideoState:
         )
 
         assert state["media_id"] == "vid-1"
-        assert "media_ids" not in state
+        assert state["media_ids"] == ["vid-1"]
 
     def test_create_agent_state_max_10_videos(self):
         """Test that media_ids is capped at 10."""

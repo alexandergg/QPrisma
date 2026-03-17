@@ -287,7 +287,7 @@ def create_agent_state(
     if primary_media_id:
         state["media_id"] = primary_media_id
         state["video_context"] = VideoContext(media_id=primary_media_id)
-    if effective_ids and len(effective_ids) > 1:
+    if effective_ids:
         state["media_ids"] = effective_ids
     if video_titles:
         state["video_titles"] = video_titles
