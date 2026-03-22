@@ -439,8 +439,12 @@ class GraphSearchResponse(BaseModel):
 
     # Metrics
     search_time_ms: float
+    embedding_time_ms: float = 0.0
     vector_search_time_ms: float
+    fulltext_search_time_ms: float = 0.0
     graph_expansion_time_ms: float
+    temporal_scoring_time_ms: float = 0.0
+    reranking_time_ms: float = 0.0
 
     # Facets for filtering
     facets: dict = Field(default_factory=dict)

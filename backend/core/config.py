@@ -296,6 +296,25 @@ class CommunitySettings(BaseSettings):
     )
 
 
+class SearchSettings(BaseSettings):
+    """Hybrid search and HNSW vector index configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="SEARCH_", extra="ignore")
+
+    hnsw_m: int = Field(
+        default=16,
+        description="HNSW M parameter (max connections per node). Higher = better recall, more memory.",
+        ge=4,
+        le=64,
+    )
+    hnsw_ef_construction: int = Field(
+        default=256,
+        description="HNSW ef_construction (build-time search width). Higher = better recall, slower build.",
+        ge=64,
+        le=1024,
+    )
+
+
 class AuthSettings(BaseSettings):
     """Authentication configuration."""
 
@@ -415,6 +434,7 @@ class Settings(BaseSettings):
     artifacts: ArtifactSettings = Field(default_factory=ArtifactSettings)
     mem0: Mem0Settings = Field(default_factory=Mem0Settings)
     community: CommunitySettings = Field(default_factory=CommunitySettings)
+    search: SearchSettings = Field(default_factory=SearchSettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
 
     @model_validator(mode="after")

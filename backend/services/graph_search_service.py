@@ -49,6 +49,17 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         "temporal": 0.15,
     }
 
+    # Intent-adaptive weight profiles (override defaults per query intent)
+    INTENT_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
+        "time-based": {"vector": 0.25, "fulltext": 0.15, "graph": 0.20, "temporal": 0.40},
+        "object": {"vector": 0.30, "fulltext": 0.20, "graph": 0.35, "temporal": 0.15},
+        "person": {"vector": 0.30, "fulltext": 0.20, "graph": 0.35, "temporal": 0.15},
+        "text": {"vector": 0.25, "fulltext": 0.40, "graph": 0.20, "temporal": 0.15},
+        "action": {"vector": 0.40, "fulltext": 0.20, "graph": 0.20, "temporal": 0.20},
+        "scene": {"vector": 0.40, "fulltext": 0.20, "graph": 0.20, "temporal": 0.20},
+        "event": {"vector": 0.35, "fulltext": 0.20, "graph": 0.20, "temporal": 0.25},
+    }
+
     # Embedding dimensions (text-embedding-3-large)
     EMBEDDING_DIM = 3072
 
@@ -75,6 +86,19 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         if total != 1.0:
             self.weights = {k: v / total for k, v in self.weights.items()}
 
+    def get_weights_for_intent(self, intent: str | None) -> dict[str, float]:
+        """Return fusion weights adapted to the query intent.
+
+        Falls back to the instance default weights for unknown or None intents.
+        """
+        if intent and intent in self.INTENT_WEIGHT_PROFILES:
+            weights = self.INTENT_WEIGHT_PROFILES[intent].copy()
+            total = sum(weights.values())
+            if total != 1.0:
+                weights = {k: v / total for k, v in weights.items()}
+            return weights
+        return self.weights
+
     # =========================================================================
     # Vector Index Management
     # =========================================================================
@@ -87,6 +111,10 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         for two-pass search: fast filtering then precise ranking.
         Requires Neo4j 5.11+ with vector index support.
         """
+        from core.config import get_settings
+
+        search_cfg = get_settings().search
+
         index_configs = [
             # Full precision indexes (3072d)
             ("frame_embedding", "Frame", "embedding", 3072),
@@ -114,12 +142,14 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                         OPTIONS {{
                             indexConfig: {{
                                 `vector.dimensions`: {dims},
-                                `vector.similarity_function`: 'cosine'
+                                `vector.similarity_function`: 'cosine',
+                                `vector.hnsw.m`: {search_cfg.hnsw_m},
+                                `vector.hnsw.ef_construction`: {search_cfg.hnsw_ef_construction}
                             }}
                         }}
                         """
                     )
-                    logger.info(f"Created vector index {index_name} ({dims}d)")
+                    logger.info(f"Created vector index {index_name} ({dims}d, M={search_cfg.hnsw_m}, ef={search_cfg.hnsw_ef_construction})")
                 except Exception as e:
                     logger.debug(f"Vector index {index_name} may already exist: {e}")
 
@@ -257,6 +287,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         limit: int = 20,
         expansion_hops: int = 2,
         use_reranking: bool = True,
+        query_intent: str | None = None,
     ) -> GraphSearchResponse:
         """
         Hybrid search combining vector, full-text, and graph signals.
@@ -270,6 +301,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             limit: Maximum number of results
             expansion_hops: Hops for context expansion
             use_reranking: Whether to apply context-based re-ranking
+            query_intent: Query intent from query understanding (e.g. 'time-based', 'object')
+                          used to adapt fusion weights
 
         Returns:
             GraphSearchResponse with sorted results
@@ -292,13 +325,15 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             ]
 
         # 1. Generate query embedding
+        embedding_start = datetime.now(UTC)
         query_embedding = await self.embedding_service.generate_embedding(query_text)
-        (datetime.now(UTC) - start_time).total_seconds() * 1000
+        embedding_time = (datetime.now(UTC) - embedding_start).total_seconds() * 1000
 
         # 2. Search each node type
         all_candidates: list[ScoredNode] = []
 
         vector_start = datetime.now(UTC)
+        fulltext_time_acc = 0.0
         for node_type in node_types:
             # Vector search
             vector_results = self.vector_search(
@@ -312,6 +347,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             all_candidates.extend(vector_results)
 
             # Full-text search
+            ft_start = datetime.now(UTC)
             fulltext_results = self._fulltext_search(
                 query_text=query_text,
                 node_type=node_type,
@@ -319,12 +355,13 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 video_id=effective_video_id,
                 video_ids=effective_video_ids,
             )
+            fulltext_time_acc += (datetime.now(UTC) - ft_start).total_seconds() * 1000
 
             # Merge full-text scores
             vid = effective_video_id or (effective_video_ids[0] if effective_video_ids else None)
             self._merge_fulltext_scores(all_candidates, fulltext_results, node_type, vid)
 
-        vector_search_time = (datetime.now(UTC) - vector_start).total_seconds() * 1000
+        vector_search_time = (datetime.now(UTC) - vector_start).total_seconds() * 1000 - fulltext_time_acc
 
         # 3. Apply temporal filter if specified
         if time_range:
@@ -336,20 +373,25 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         graph_time = (datetime.now(UTC) - graph_start).total_seconds() * 1000
 
         # 5. Calculate temporal scores
+        temporal_start = datetime.now(UTC)
         self._calculate_temporal_scores(all_candidates, time_range)
+        temporal_time = (datetime.now(UTC) - temporal_start).total_seconds() * 1000
 
-        # 6. Calculate combined score
+        # 6. Calculate combined score (intent-adaptive weights)
+        active_weights = self.get_weights_for_intent(query_intent)
         for candidate in all_candidates:
             candidate.combined_score = (
-                self.weights["vector"] * candidate.vector_score
-                + self.weights["fulltext"] * candidate.fulltext_score
-                + self.weights["graph"] * candidate.graph_score
-                + self.weights["temporal"] * candidate.temporal_score
+                active_weights["vector"] * candidate.vector_score
+                + active_weights["fulltext"] * candidate.fulltext_score
+                + active_weights["graph"] * candidate.graph_score
+                + active_weights["temporal"] * candidate.temporal_score
             )
 
         # 7. Re-ranking with expanded context
+        rerank_start = datetime.now(UTC)
         if use_reranking and all_candidates:
             all_candidates = self._rerank_with_context(all_candidates, query_text, query_embedding)
+        reranking_time = (datetime.now(UTC) - rerank_start).total_seconds() * 1000
 
         # 8. Ordenar y limitar
         all_candidates.sort(key=lambda x: x.combined_score, reverse=True)
@@ -377,8 +419,12 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             total_results=len(search_results),
             results=search_results,
             search_time_ms=total_time,
+            embedding_time_ms=embedding_time,
             vector_search_time_ms=vector_search_time,
+            fulltext_search_time_ms=fulltext_time_acc,
             graph_expansion_time_ms=graph_time,
+            temporal_scoring_time_ms=temporal_time,
+            reranking_time_ms=reranking_time,
             facets={
                 "node_types": self._count_by_type(final_results),
                 "videos": self._count_by_video(final_results),

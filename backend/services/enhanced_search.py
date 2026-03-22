@@ -92,6 +92,7 @@ class SearchResponse:
     search_time_ms: float
     used_reranking: bool
     search_type: str  # 'hybrid', 'vector', 'text'
+    llm_rerank_time_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -102,6 +103,7 @@ class SearchResponse:
             "temporal_clusters": self.temporal_clusters,
             "scene_groups": self.scene_groups,
             "search_time_ms": self.search_time_ms,
+            "llm_rerank_time_ms": self.llm_rerank_time_ms,
             "used_reranking": self.used_reranking,
             "search_type": self.search_type,
         }
@@ -313,15 +315,20 @@ class EnhancedSearchService:
             search_query = self.query_understanding.expand_query(query, query_analysis)
 
         # Step 3: Graph hybrid search (Neo4j)
+        query_intent = query_analysis.get("intent")
         raw_results = await self._hybrid_search(
             query=search_query,
             media_id=media_id,
             top_k=top_k * 2 if use_reranking else top_k,  # Get more for reranking
+            query_intent=query_intent,
         )
 
         # Step 5: Re-rank if enabled
+        rerank_time = 0.0
         if use_reranking and raw_results:
+            rerank_start = time.time()
             raw_results = await self.reranker.rerank(query, raw_results, top_k)
+            rerank_time = (time.time() - rerank_start) * 1000
 
         # Step 6: Add context if enabled
         if include_context:
@@ -338,18 +345,19 @@ class EnhancedSearchService:
 
         return SearchResponse(
             query=query,
-            query_intent=query_analysis.get("intent"),
+            query_intent=query_intent,
             total_results=len(results),
             results=results,
             temporal_clusters=temporal_clusters,
             scene_groups=scene_groups,
             search_time_ms=search_time,
+            llm_rerank_time_ms=rerank_time,
             used_reranking=use_reranking,
             search_type="hybrid",
         )
 
     async def _hybrid_search(
-        self, query: str, media_id: str | None, top_k: int
+        self, query: str, media_id: str | None, top_k: int, query_intent: str | None = None
     ) -> list[dict[str, Any]]:
         """Hybrid search using Neo4j Knowledge Graph (vector + fulltext + graph)."""
         try:
@@ -359,6 +367,7 @@ class EnhancedSearchService:
                 video_id=media_id,
                 limit=top_k,
                 use_reranking=False,
+                query_intent=query_intent,
             )
 
             raw = []
