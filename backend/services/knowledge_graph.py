@@ -31,6 +31,7 @@ from models.graph_models import (
 )
 from services.graph_expander import GraphExpander
 from services.graph_node_repository import GraphNodeRepository
+from services.graph_search_queries import sanitize_fulltext_query
 
 logger = logging.getLogger(__name__)
 
@@ -515,6 +516,10 @@ class KnowledgeGraphService:
         limit: int = 20,
     ) -> list[dict]:
         """Full-text search for entities."""
+        safe_text = sanitize_fulltext_query(query_text)
+        if safe_text is None:
+            return []
+
         type_filter = ""
         video_filter = ""
 
@@ -530,7 +535,7 @@ class KnowledgeGraphService:
             {video_filter}
             WHERE e:Entity
             {type_filter}
-            CALL db.index.fulltext.queryNodes('entity_search', $query) YIELD node, score
+            CALL db.index.fulltext.queryNodes('entity_search', $search_text) YIELD node, score
             WHERE node = e
             RETURN e, score
             ORDER BY score DESC
@@ -538,7 +543,7 @@ class KnowledgeGraphService:
             """
         else:
             cypher = f"""
-            CALL db.index.fulltext.queryNodes('entity_search', $query) YIELD node, score
+            CALL db.index.fulltext.queryNodes('entity_search', $search_text) YIELD node, score
             WHERE node:Entity {type_filter.replace('e.', 'node.')}
             RETURN node as e, score
             ORDER BY score DESC
@@ -546,7 +551,10 @@ class KnowledgeGraphService:
             """
 
         with self.get_session() as session:
-            result = session.run(cypher, query=query_text, video_id=video_id, limit=limit)
+            result = session.run(
+                cypher,
+                parameters={"search_text": safe_text, "video_id": video_id, "limit": limit},
+            )
             return [{"entity": dict(r["e"]), "score": r["score"]} for r in result]
 
     def search_frames_by_description(
@@ -557,15 +565,18 @@ class KnowledgeGraphService:
         limit: int = 20,
     ) -> list[dict]:
         """Full-text search across frame descriptions."""
+        safe_text = sanitize_fulltext_query(query_text)
+        if safe_text is None:
+            return []
+
         filters = []
-        params = {"query": query_text, "limit": limit}
+        params: dict = {"search_text": safe_text, "limit": limit}
 
         if video_id:
             filters.append("node.video_id = $video_id")
             params["video_id"] = video_id
 
         if time_range:
-            # Use parameterized queries for time range to prevent injection
             filters.append("node.timestamp >= $time_start AND node.timestamp <= $time_end")
             params["time_start"] = time_range[0]
             params["time_end"] = time_range[1]
@@ -573,7 +584,7 @@ class KnowledgeGraphService:
         where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
 
         cypher = f"""
-        CALL db.index.fulltext.queryNodes('frame_search', $query) YIELD node, score
+        CALL db.index.fulltext.queryNodes('frame_search', $search_text) YIELD node, score
         {where_clause}
         RETURN node as f, score
         ORDER BY score DESC
@@ -581,7 +592,7 @@ class KnowledgeGraphService:
         """
 
         with self.get_session() as session:
-            result = session.run(cypher, **params)
+            result = session.run(cypher, parameters=params)
             return [{"frame": dict(r["f"]), "score": r["score"]} for r in result]
 
     # =========================================================================

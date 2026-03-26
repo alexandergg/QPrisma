@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent.utils.formatting import format_timestamp
+from services.graph_search_queries import sanitize_fulltext_query
 
 if TYPE_CHECKING:
     from services.knowledge_graph import KnowledgeGraphService
@@ -89,7 +90,7 @@ class CompareVideosResult:
 # =============================================================================
 
 _FRAME_SEARCH_SCOPED = """
-CALL db.index.fulltext.queryNodes('frame_search', $query) YIELD node, score
+CALL db.index.fulltext.queryNodes('frame_search', $search_text) YIELD node, score
 WITH node as f, score
 WHERE f.video_id IN $media_ids
 MATCH (v:Video {video_id: f.video_id})
@@ -104,7 +105,7 @@ LIMIT $max_videos
 """
 
 _AUDIO_SEARCH_SCOPED = """
-CALL db.index.fulltext.queryNodes('audio_search', $query) YIELD node, score
+CALL db.index.fulltext.queryNodes('audio_search', $search_text) YIELD node, score
 WITH node as a, score
 WHERE a.video_id IN $media_ids
 MATCH (v:Video {video_id: a.video_id})
@@ -119,7 +120,7 @@ LIMIT $max_videos
 """
 
 _FRAME_SEARCH_ALL = """
-CALL db.index.fulltext.queryNodes('frame_search', $query) YIELD node, score
+CALL db.index.fulltext.queryNodes('frame_search', $search_text) YIELD node, score
 WITH node as f, score
 MATCH (v:Video {video_id: f.video_id})
 RETURN v.video_id as video_id, v.title as video_title,
@@ -133,7 +134,7 @@ LIMIT $max_videos
 """
 
 _AUDIO_SEARCH_ALL = """
-CALL db.index.fulltext.queryNodes('audio_search', $query) YIELD node, score
+CALL db.index.fulltext.queryNodes('audio_search', $search_text) YIELD node, score
 WITH node as a, score
 MATCH (v:Video {video_id: a.video_id})
 RETURN v.video_id as video_id, v.title as video_title,
@@ -155,7 +156,7 @@ LIMIT 1
 """
 
 _FRAME_SEARCH_SINGLE = """
-CALL db.index.fulltext.queryNodes('frame_search', $query) YIELD node, score
+CALL db.index.fulltext.queryNodes('frame_search', $search_text) YIELD node, score
 WITH node as f, score
 WHERE f.video_id = $vid
 RETURN f.timestamp as timestamp, f.description as description, score
@@ -164,7 +165,7 @@ LIMIT 3
 """
 
 _AUDIO_SEARCH_SINGLE = """
-CALL db.index.fulltext.queryNodes('audio_search', $query) YIELD node, score
+CALL db.index.fulltext.queryNodes('audio_search', $search_text) YIELD node, score
 WITH node as a, score
 WHERE a.video_id = $vid
 RETURN a.start_time as timestamp, a.text as text, score
@@ -232,8 +233,19 @@ class CrossVideoSearchService:
         frame search to audio search when no frame hits are found.
         """
         kg = self._ensure_kg()
+
+        safe_text = sanitize_fulltext_query(query)
+        if safe_text is None:
+            return CrossVideoSearchResult(
+                query=query,
+                videos_searched=0,
+                scoped_to_selection=media_ids is not None,
+                results_by_video=[],
+                total_matches=0,
+            )
+
         params: dict[str, Any] = {
-            "query": query,
+            "search_text": safe_text,
             "limit": limit_per_video,
             "max_videos": max_videos,
         }
@@ -302,7 +314,7 @@ class CrossVideoSearchService:
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query and return the result records as dicts."""
         with kg.get_session() as session:
-            result = session.run(cypher, **params)
+            result = session.run(cypher, parameters=params)
             return list(result)
 
     # ------------------------------------------------------------------
@@ -351,19 +363,27 @@ class CrossVideoSearchService:
         vid: str,
     ) -> dict[str, Any]:
         """Assemble comparison data for a single video."""
+        safe_text = sanitize_fulltext_query(query) or ""
+
         # Video metadata
         with kg.get_session() as session:
-            result = session.run(_VIDEO_METADATA, vid=vid)
+            result = session.run(_VIDEO_METADATA, parameters={"vid": vid})
             video = result.single()
 
         # Frame matches
         with kg.get_session() as session:
-            result = session.run(_FRAME_SEARCH_SINGLE, query=query, vid=vid)
+            result = session.run(
+                _FRAME_SEARCH_SINGLE,
+                parameters={"search_text": safe_text, "vid": vid},
+            )
             frame_matches = list(result)
 
         # Audio matches
         with kg.get_session() as session:
-            result = session.run(_AUDIO_SEARCH_SINGLE, query=query, vid=vid)
+            result = session.run(
+                _AUDIO_SEARCH_SINGLE,
+                parameters={"search_text": safe_text, "vid": vid},
+            )
             audio_matches = list(result)
 
         moments = self._build_moments(frame_matches, audio_matches)
