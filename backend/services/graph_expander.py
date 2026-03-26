@@ -51,34 +51,38 @@ class GraphExpander:
         relation_types: list[RelationType] | None = None,
         max_nodes: int = 50,
     ) -> dict:
-        """
-        Expand the context of a node for RAG.
+        """Expand the context of a node for RAG.
 
-        Returns related nodes up to N hops away.
+        Uses ``apoc.path.expandConfig`` with ``YIELD path`` so that hop
+        distance is derived directly from the expansion — no separate
+        ``shortestPath`` traversal needed.
+
+        Returns related nodes up to *hops* away, grouped by distance.
         """
         if relation_types:
-            rel_types = "|".join([r.value for r in relation_types])
-            rel_filter = f"[:{rel_types}]"
+            rel_types = "|".join(r.value for r in relation_types)
+            rel_filter = rel_types
         else:
             rel_filter = ""
 
         cypher = f"""
         MATCH (start {{id: $node_id}})
-        CALL apoc.path.subgraphNodes(start, {{
+        CALL apoc.path.expandConfig(start, {{
             maxLevel: $hops,
             relationshipFilter: '{rel_filter}',
+            uniqueness: 'NODE_GLOBAL',
             limit: $max_nodes
-        }}) YIELD node
-        WHERE node <> start
-        RETURN node,
-               length(shortestPath((start)-[*]-(node))) as distance
+        }}) YIELD path
+        WITH last(nodes(path)) AS node, length(path) AS distance
+        WHERE distance > 0
+        RETURN node, distance
         ORDER BY distance
         """
 
         with self._get_session() as session:
             result = session.run(cypher, node_id=node_id, hops=hops, max_nodes=max_nodes)
 
-            nodes_by_distance = {0: []}  # Include start node at distance 0
+            nodes_by_distance: dict[int, list[dict]] = {0: []}
 
             # Get start node data
             start_result = session.run("MATCH (n {id: $node_id}) RETURN n", node_id=node_id)

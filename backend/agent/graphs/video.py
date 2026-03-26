@@ -655,12 +655,15 @@ class VideoAgentGraph:
             }
 
         except Exception as e:
-            logger.error(f"Agent error: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error("Agent error: %s", e, exc_info=True)
             return {
-                "response": "I'm sorry, I encountered an unexpected error processing your request. Please try again.",
+                "response": (
+                    "I'm sorry, I encountered an unexpected error processing "
+                    "your request. Please try again."
+                ),
                 "sources": [],
                 "tool_calls_made": 0,
+                "error": f"{type(e).__name__}: {e}",
             }
 
     async def run_stream(

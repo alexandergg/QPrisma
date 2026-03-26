@@ -10,6 +10,7 @@ Extracted as a mixin to keep the main service file focused.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,23 @@ if TYPE_CHECKING:
     pass  # GraphSearchService types resolved at runtime
 
 logger = logging.getLogger(__name__)
+
+# Compiled regex for Lucene special character escaping (Neo4j fulltext uses Lucene 9.x).
+# Characters: + - && || ! ( ) { } [ ] ^ " ~ * ? : \ /
+_LUCENE_SPECIAL_RE = re.compile(r'([+\-&|!(){}\[\]^"~*?:\\/])')
+_WHITESPACE_ONLY_RE = re.compile(r"^\s*$")
+
+
+def sanitize_fulltext_query(query: str, *, max_length: int = 1000) -> str | None:
+    """Escape Lucene special characters and validate the query.
+
+    Returns the sanitised query string, or ``None`` when the input is
+    empty, whitespace-only, or exceeds *max_length* (after stripping).
+    """
+    if not query or _WHITESPACE_ONLY_RE.match(query):
+        return None
+    text = query.strip()[:max_length]
+    return _LUCENE_SPECIAL_RE.sub(r"\\\1", text) or None
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +362,13 @@ class GraphSearchQueryMixin:
 
     # --- Full-text search ---
 
+    _INDEX_BY_TYPE: dict[NodeType, str] = {
+        NodeType.FRAME: "frame_search",
+        NodeType.ENTITY: "entity_search",
+        NodeType.AUDIO_SEGMENT: "audio_search",
+        NodeType.COMMUNITY: "community_search",
+    }
+
     def _fulltext_search(
         self,
         query_text: str,
@@ -352,72 +377,46 @@ class GraphSearchQueryMixin:
         video_id: str | None,
         video_ids: list[str] | None = None,
     ) -> list[tuple[str, float]]:
-        """Full-text search; returns [(node_id, score)]."""
-        label = node_type.value
-
-        if node_type == NodeType.FRAME:
-            index_name = "frame_search"
-        elif node_type == NodeType.ENTITY:
-            index_name = "entity_search"
-        elif node_type == NodeType.AUDIO_SEGMENT:
-            index_name = "audio_search"
-        elif node_type == NodeType.COMMUNITY:
-            index_name = "community_search"
-        else:
+        """Full-text search with Lucene escaping; returns [(node_id, score)]."""
+        index_name = self._INDEX_BY_TYPE.get(node_type)
+        if index_name is None:
             return []
 
-        try:
-            if video_ids:
-                query = f"""
-                    CALL db.index.fulltext.queryNodes(
-                        $index_name, $query_text
-                    )
-                    YIELD node, score
-                    WHERE node:{label}
-                        AND node.video_id IN $video_ids
-                    RETURN node.id as id, score
-                    LIMIT $limit
-                """
-                params: dict = {
-                    "index_name": index_name,
-                    "query_text": query_text,
-                    "video_ids": video_ids,
-                    "limit": limit,
-                }
-            elif video_id:
-                query = f"""
-                    CALL db.index.fulltext.queryNodes($index_name, $query_text)
-                    YIELD node, score
-                    WHERE node:{label} AND node.video_id = $video_id
-                    RETURN node.id as id, score
-                    LIMIT $limit
-                """
-                params = {
-                    "index_name": index_name,
-                    "query_text": query_text,
-                    "video_id": video_id,
-                    "limit": limit,
-                }
-            else:
-                query = f"""
-                    CALL db.index.fulltext.queryNodes($index_name, $query_text)
-                    YIELD node, score
-                    WHERE node:{label}
-                    RETURN node.id as id, score
-                    LIMIT $limit
-                """
-                params = {
-                    "index_name": index_name,
-                    "query_text": query_text,
-                    "limit": limit,
-                }
+        safe_query = sanitize_fulltext_query(query_text)
+        if safe_query is None:
+            logger.debug("Fulltext query empty after sanitisation — skipping")
+            return []
 
+        label = node_type.value
+
+        # Build optional video filter
+        video_filter = ""
+        params: dict = {
+            "index_name": index_name,
+            "query_text": safe_query,
+            "limit": limit,
+        }
+        if video_ids:
+            video_filter = "AND node.video_id IN $video_ids"
+            params["video_ids"] = video_ids
+        elif video_id:
+            video_filter = "AND node.video_id = $video_id"
+            params["video_id"] = video_id
+
+        query = f"""
+            CALL db.index.fulltext.queryNodes($index_name, $query_text)
+            YIELD node, score
+            WHERE node:{label} {video_filter}
+            RETURN node.id AS id, score
+            LIMIT $limit
+        """
+
+        try:
             with self.graph_service.get_session() as session:
                 result = session.run(query, **params)
                 return [(r["id"], r["score"]) for r in result]
-
         except Exception as e:
-            logger.warning(f"Full-text search failed: {e}")
+            logger.warning("Full-text search failed for %s: %s", index_name, e)
             return []
 
     # --- Merge full-text scores into candidates ---
