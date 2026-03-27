@@ -126,6 +126,7 @@ module aiFoundry 'modules/ai-foundry.bicep' = {
     name: aiFoundryName
     location: aiLocation
     deployBatchModel: deployBatchModel
+    storageAccountId: storage.outputs.id
     tags: tags
   }
 }

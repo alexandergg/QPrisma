@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.39.26.7824",
-      "templateHash": "16707360378091994205"
+      "version": "0.41.2.15936",
+      "templateHash": "17997263389131574173"
     }
   },
   "parameters": {
@@ -90,6 +90,48 @@
       "metadata": {
         "description": "Worker container image"
       }
+    },
+    "mem0Enabled": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Enable Mem0 semantic memory integration"
+      }
+    },
+    "mem0TopK": {
+      "type": "int",
+      "defaultValue": 5,
+      "metadata": {
+        "description": "Mem0 retrieval top-k"
+      }
+    },
+    "mem0ApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Mem0 API key (required for Mem0 cloud mode)"
+      }
+    },
+    "artifactCacheTtlSeconds": {
+      "type": "int",
+      "defaultValue": 21600,
+      "metadata": {
+        "description": "Artifact cache TTL in seconds"
+      }
+    },
+    "artifactCacheKeyPrefix": {
+      "type": "string",
+      "defaultValue": "tool_artifact",
+      "metadata": {
+        "description": "Artifact cache key prefix"
+      }
+    },
+    "artifactBlobPrefix": {
+      "type": "string",
+      "defaultValue": "tool-artifacts",
+      "metadata": {
+        "description": "Artifact blob prefix"
+      }
     }
   },
   "variables": {
@@ -133,6 +175,10 @@
       {
         "name": "JWT_SECRET_KEY",
         "secretRef": "jwt-secret-key"
+      },
+      {
+        "name": "MEM0_API_KEY",
+        "secretRef": "mem0-api-key"
       }
     ]
   },
@@ -163,8 +209,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "3393004663507682221"
+              "version": "0.41.2.15936",
+              "templateHash": "9557940167413164145"
             }
           },
           "parameters": {
@@ -241,14 +287,6 @@
               "type": "string",
               "value": "[parameters('name')]"
             },
-            "storageKey": {
-              "type": "string",
-              "value": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('name')), '2023-05-01').keys[0].value]"
-            },
-            "connectionString": {
-              "type": "string",
-              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', parameters('name'), listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('name')), '2023-05-01').keys[0].value, environment().suffixes.storage)]"
-            },
             "blobEndpoint": {
               "type": "string",
               "value": "[reference(resourceId('Microsoft.Storage/storageAccounts', parameters('name')), '2023-05-01').primaryEndpoints.blob]"
@@ -289,8 +327,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "3595955033827158829"
+              "version": "0.41.2.15936",
+              "templateHash": "1191963118903469605"
             }
           },
           "parameters": {
@@ -396,10 +434,6 @@
             "name": {
               "type": "string",
               "value": "[parameters('name')]"
-            },
-            "connectionString": {
-              "type": "string",
-              "value": "[format('postgresql://{0}:{1}@{2}:5432/qprisma?sslmode=require', parameters('adminLogin'), parameters('adminPassword'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', parameters('name')), '2023-12-01-preview').fullyQualifiedDomainName)]"
             }
           }
         }
@@ -431,8 +465,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "12976649845025108296"
+              "version": "0.41.2.15936",
+              "templateHash": "3046832475242026334"
             }
           },
           "parameters": {
@@ -499,10 +533,6 @@
             "name": {
               "type": "string",
               "value": "[parameters('name')]"
-            },
-            "connectionString": {
-              "type": "string",
-              "value": "[format('rediss://:{0}@{1}:{2}', listKeys(resourceId('Microsoft.Cache/redisEnterprise/databases', parameters('name'), 'default'), '2025-04-01').primaryKey, reference(resourceId('Microsoft.Cache/redisEnterprise', parameters('name')), '2025-04-01').hostName, reference(resourceId('Microsoft.Cache/redisEnterprise/databases', parameters('name'), 'default'), '2025-04-01').port)]"
             }
           }
         }
@@ -534,8 +564,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "3290497114485074438"
+              "version": "0.41.2.15936",
+              "templateHash": "9872267872876529292"
             }
           },
           "parameters": {
@@ -588,10 +618,6 @@
             "id": {
               "type": "string",
               "value": "[resourceId('Microsoft.ContainerRegistry/registries', parameters('name'))]"
-            },
-            "adminPassword": {
-              "type": "string",
-              "value": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', parameters('name')), '2023-11-01-preview').passwords[0].value]"
             }
           }
         }
@@ -616,6 +642,9 @@
           "deployBatchModel": {
             "value": "[parameters('deployBatchModel')]"
           },
+          "storageAccountId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.id.value]"
+          },
           "tags": {
             "value": "[variables('tags')]"
           }
@@ -626,8 +655,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "7617277750883829126"
+              "version": "0.41.2.15936",
+              "templateHash": "7091430873483690895"
             }
           },
           "parameters": {
@@ -649,6 +678,13 @@
               "defaultValue": true,
               "metadata": {
                 "description": "Deploy batch model (gpt-4o-batch)"
+              }
+            },
+            "storageAccountId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Storage account resource ID for agents capability host"
               }
             },
             "tags": {
@@ -800,6 +836,38 @@
                 "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]",
                 "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('name'), 'whisper')]"
               ]
+            },
+            {
+              "condition": "[not(empty(parameters('storageAccountId')))]",
+              "type": "Microsoft.CognitiveServices/accounts/connections",
+              "apiVersion": "2025-06-01",
+              "name": "[format('{0}/{1}', parameters('name'), 'agents-storage')]",
+              "properties": {
+                "category": "AzureBlob",
+                "target": "[format('https://{0}.blob.{1}', last(split(parameters('storageAccountId'), '/')), environment().suffixes.storage)]",
+                "authType": "ManagedIdentity",
+                "isSharedToAll": true,
+                "metadata": {
+                  "ResourceId": "[parameters('storageAccountId')]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
+              ]
+            },
+            {
+              "condition": "[not(empty(parameters('storageAccountId')))]",
+              "type": "Microsoft.CognitiveServices/accounts/capabilityHosts",
+              "apiVersion": "2025-06-01",
+              "name": "[format('{0}/{1}', parameters('name'), 'agents-host')]",
+              "properties": {
+                "feature": "agents",
+                "connectionId": "[resourceId('Microsoft.CognitiveServices/accounts/connections', parameters('name'), 'agents-storage')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.CognitiveServices/accounts/connections', parameters('name'), 'agents-storage')]",
+                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
+              ]
             }
           ],
           "outputs": {
@@ -815,13 +883,24 @@
               "type": "string",
               "value": "[parameters('name')]"
             },
-            "apiKey": {
+            "projectName": {
               "type": "string",
-              "value": "[listKeys(resourceId('Microsoft.CognitiveServices/accounts', parameters('name')), '2025-06-01').key1]"
+              "value": "[format('{0}-project', parameters('name'))]"
+            },
+            "projectEndpoint": {
+              "type": "string",
+              "value": "[format('https://{0}.services.ai.azure.com/api/projects/{1}', parameters('name'), format('{0}-project', parameters('name')))]"
+            },
+            "projectPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('name'), format('{0}-project', parameters('name'))), '2025-06-01', 'full').identity.principalId]"
             }
           }
         }
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
+      ]
     },
     {
       "type": "Microsoft.Resources/deployments",
@@ -852,8 +931,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "9519297559329958479"
+              "version": "0.41.2.15936",
+              "templateHash": "9539245866692871661"
             }
           },
           "parameters": {
@@ -1009,7 +1088,7 @@
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.name.value]"
           },
           "storageAccountKey": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.storageKey.value]"
+            "value": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value]"
           },
           "tags": {
             "value": "[variables('tags')]"
@@ -1021,8 +1100,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "2500608536283194369"
+              "version": "0.41.2.15936",
+              "templateHash": "3019932713368257090"
             }
           },
           "parameters": {
@@ -1267,7 +1346,7 @@
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.name.value]"
           },
           "registryPassword": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.adminPassword.value]"
+            "value": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', variables('containerRegistryName')), '2023-11-01-preview').passwords[0].value]"
           },
           "envVars": {
             "value": [
@@ -1310,6 +1389,34 @@
               {
                 "name": "ALLOWED_ORIGINS",
                 "value": "[format('https://{0}', format('{0}.{1}', variables('frontendContainerAppName'), reference(resourceId('Microsoft.Resources/deployments', 'cae-deployment'), '2025-04-01').outputs.defaultDomain.value))]"
+              },
+              {
+                "name": "MEM0_ENABLED",
+                "value": "[string(parameters('mem0Enabled'))]"
+              },
+              {
+                "name": "MEM0_TOP_K",
+                "value": "[string(parameters('mem0TopK'))]"
+              },
+              {
+                "name": "ARTIFACT_CACHE_TTL_SECONDS",
+                "value": "[string(parameters('artifactCacheTtlSeconds'))]"
+              },
+              {
+                "name": "ARTIFACT_CACHE_KEY_PREFIX",
+                "value": "[parameters('artifactCacheKeyPrefix')]"
+              },
+              {
+                "name": "ARTIFACT_BLOB_PREFIX",
+                "value": "[parameters('artifactBlobPrefix')]"
+              },
+              {
+                "name": "FOUNDRY_PROJECT_ENDPOINT",
+                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectEndpoint.value]"
+              },
+              {
+                "name": "FOUNDRY_AGENT_NAME",
+                "value": "qprisma-video-agent"
               }
             ]
           },
@@ -1321,11 +1428,11 @@
               },
               {
                 "name": "openai-api-key",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.apiKey.value]"
+                "value": "[listKeys(resourceId('Microsoft.CognitiveServices/accounts', variables('aiFoundryName')), '2025-06-01').key1]"
               },
               {
                 "name": "storage-connection-string",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.connectionString.value]"
+                "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value, environment().suffixes.storage)]"
               },
               {
                 "name": "jwt-secret-key",
@@ -1333,11 +1440,15 @@
               },
               {
                 "name": "database-url",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'postgres-deployment'), '2025-04-01').outputs.connectionString.value]"
+                "value": "[format('postgresql://{0}:{1}@{2}:5432/qprisma?sslmode=require', parameters('dbAdminLogin'), parameters('dbAdminPassword'), reference(resourceId('Microsoft.Resources/deployments', 'postgres-deployment'), '2025-04-01').outputs.fqdn.value)]"
               },
               {
                 "name": "redis-url",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'redis-deployment'), '2025-04-01').outputs.connectionString.value]"
+                "value": "[format('rediss://:{0}@{1}', listKeys(resourceId('Microsoft.Cache/redisEnterprise/databases', variables('redisName'), 'default'), '2025-04-01').primaryKey, reference(resourceId('Microsoft.Resources/deployments', 'redis-deployment'), '2025-04-01').outputs.hostName.value)]"
+              },
+              {
+                "name": "mem0-api-key",
+                "value": "[parameters('mem0ApiKey')]"
               }
             ]
           },
@@ -1354,8 +1465,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "3125458942805314174"
+              "version": "0.41.2.15936",
+              "templateHash": "18092361694133987677"
             }
           },
           "parameters": {
@@ -1580,7 +1691,7 @@
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.name.value]"
           },
           "registryPassword": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.adminPassword.value]"
+            "value": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', variables('containerRegistryName')), '2023-11-01-preview').passwords[0].value]"
           },
           "envVars": {
             "value": [
@@ -1600,8 +1711,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "12767416818659488205"
+              "version": "0.41.2.15936",
+              "templateHash": "10860639034110381003"
             }
           },
           "parameters": {
@@ -1781,7 +1892,7 @@
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.name.value]"
           },
           "registryPassword": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'acr-deployment'), '2025-04-01').outputs.adminPassword.value]"
+            "value": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', variables('containerRegistryName')), '2023-11-01-preview').passwords[0].value]"
           },
           "redisHost": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'redis-deployment'), '2025-04-01').outputs.hostName.value]"
@@ -1827,6 +1938,34 @@
               {
                 "name": "ALLOWED_ORIGINS",
                 "value": "[format('https://{0}', format('{0}.{1}', variables('frontendContainerAppName'), reference(resourceId('Microsoft.Resources/deployments', 'cae-deployment'), '2025-04-01').outputs.defaultDomain.value))]"
+              },
+              {
+                "name": "MEM0_ENABLED",
+                "value": "[string(parameters('mem0Enabled'))]"
+              },
+              {
+                "name": "MEM0_TOP_K",
+                "value": "[string(parameters('mem0TopK'))]"
+              },
+              {
+                "name": "ARTIFACT_CACHE_TTL_SECONDS",
+                "value": "[string(parameters('artifactCacheTtlSeconds'))]"
+              },
+              {
+                "name": "ARTIFACT_CACHE_KEY_PREFIX",
+                "value": "[parameters('artifactCacheKeyPrefix')]"
+              },
+              {
+                "name": "ARTIFACT_BLOB_PREFIX",
+                "value": "[parameters('artifactBlobPrefix')]"
+              },
+              {
+                "name": "FOUNDRY_PROJECT_ENDPOINT",
+                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectEndpoint.value]"
+              },
+              {
+                "name": "FOUNDRY_AGENT_NAME",
+                "value": "qprisma-video-agent"
               }
             ]
           },
@@ -1838,11 +1977,11 @@
               },
               {
                 "name": "openai-api-key",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.apiKey.value]"
+                "value": "[listKeys(resourceId('Microsoft.CognitiveServices/accounts', variables('aiFoundryName')), '2025-06-01').key1]"
               },
               {
                 "name": "storage-connection-string",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.connectionString.value]"
+                "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageAccountName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountName')), '2023-05-01').keys[0].value, environment().suffixes.storage)]"
               },
               {
                 "name": "jwt-secret-key",
@@ -1850,11 +1989,15 @@
               },
               {
                 "name": "database-url",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'postgres-deployment'), '2025-04-01').outputs.connectionString.value]"
+                "value": "[format('postgresql://{0}:{1}@{2}:5432/qprisma?sslmode=require', parameters('dbAdminLogin'), parameters('dbAdminPassword'), reference(resourceId('Microsoft.Resources/deployments', 'postgres-deployment'), '2025-04-01').outputs.fqdn.value)]"
               },
               {
                 "name": "redis-url",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'redis-deployment'), '2025-04-01').outputs.connectionString.value]"
+                "value": "[format('rediss://:{0}@{1}', listKeys(resourceId('Microsoft.Cache/redisEnterprise/databases', variables('redisName'), 'default'), '2025-04-01').primaryKey, reference(resourceId('Microsoft.Resources/deployments', 'redis-deployment'), '2025-04-01').outputs.hostName.value)]"
+              },
+              {
+                "name": "mem0-api-key",
+                "value": "[parameters('mem0ApiKey')]"
               }
             ]
           },
@@ -1871,8 +2014,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "14470068158801609361"
+              "version": "0.41.2.15936",
+              "templateHash": "12146259194069364982"
             }
           },
           "parameters": {
@@ -2068,8 +2211,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "7126742933021458948"
+              "version": "0.41.2.15936",
+              "templateHash": "9278190125288422322"
             }
           },
           "parameters": {
@@ -2127,7 +2270,7 @@
               },
               "type": "Microsoft.Authorization/roleAssignments",
               "apiVersion": "2022-04-01",
-              "scope": "[format('Microsoft.KeyVault/vaults/{0}', parameters('name'))]",
+              "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('name'))]",
               "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('name')), parameters('principalIds')[copyIndex()], 'Key Vault Secrets User')]",
               "properties": {
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]",
@@ -2177,6 +2320,18 @@
     "openAiEndpoint": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.endpoint.value]"
+    },
+    "foundryProjectEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectEndpoint.value]"
+    },
+    "foundryProjectName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectName.value]"
+    },
+    "foundryProjectPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectPrincipalId.value]"
     },
     "keyVaultUri": {
       "type": "string",
