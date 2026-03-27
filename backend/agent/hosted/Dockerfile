@@ -22,10 +22,12 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Install Python dependencies
+# Install Python dependencies (deps only — PYTHONPATH handles imports)
 COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir uv && \
-    uv pip install --system --no-cache --prerelease=allow -e ".[hosted]"
+    uv export --no-dev --extra hosted --no-emit-project --no-hashes -o /tmp/requirements.txt && \
+    uv pip install --system --no-cache --prerelease=allow -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
 
 # Copy application code
 # Only copy modules needed by the hosted agent (not api/, tasks/)
