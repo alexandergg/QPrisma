@@ -30,6 +30,8 @@ Best Practices Applied (LangGraph v1.0+):
 - Supports graph visualization with get_graph()
 """
 
+import asyncio
+import inspect
 import json
 import logging
 import traceback
@@ -877,103 +879,176 @@ class VideoAgentGraph:
 
 
 # =============================================================================
-# Factory Functions
+# Checkpointer Factory (async, singleton)
 # =============================================================================
 
-_graph_instance: VideoAgentGraph | None = None
+_shared_checkpointer: Any | None = None
+_shared_checkpointer_cm: Any | None = None
+_checkpointer_lock: asyncio.Lock | None = None
 
 
-def get_video_agent_graph() -> VideoAgentGraph:
-    """Get or create the video agent graph singleton."""
-    global _graph_instance
-    if _graph_instance is None:
-        checkpointer = create_production_checkpointer()
-        _graph_instance = VideoAgentGraph(checkpointer=checkpointer)
-    return _graph_instance
+def _get_checkpointer_lock() -> asyncio.Lock:
+    """Lazy-init the lock on the running event loop (avoids stale-loop errors)."""
+    global _checkpointer_lock
+    if _checkpointer_lock is None:
+        _checkpointer_lock = asyncio.Lock()
+    return _checkpointer_lock
 
 
-def create_postgres_checkpointer():
+async def _call_setup_if_available(saver: Any) -> None:
+    """Call saver.setup() if the method exists (sync or async)."""
+    setup_fn = getattr(saver, "setup", None)
+    if setup_fn is None:
+        return
+    try:
+        result = setup_fn()
+        if inspect.isawaitable(result):
+            await result
+    except Exception as exc:
+        logger.warning("Checkpointer setup() failed, continuing: %s", exc)
+
+
+async def _materialize_checkpointer(candidate: Any) -> Any:
     """
-    Create PostgreSQL checkpointer from environment.
+    Materialize a checkpointer that may be a context-manager or plain object.
 
-    Uses langgraph-checkpoint-postgres package for production persistence.
+    Handles:
+    - async context managers (AsyncPostgresSaver.from_conn_string)
+    - sync context managers
+    - plain saver instances
+    Then calls setup() to initialize connection pools / indices.
     """
+    global _shared_checkpointer_cm
+
+    if candidate is None:
+        return None
+
+    if hasattr(candidate, "__aenter__") and hasattr(candidate, "__aexit__"):
+        _shared_checkpointer_cm = candidate
+        saver = await candidate.__aenter__()
+        await _call_setup_if_available(saver)
+        return saver
+
+    if hasattr(candidate, "__enter__") and hasattr(candidate, "__exit__"):
+        _shared_checkpointer_cm = candidate
+        saver = candidate.__enter__()
+        await _call_setup_if_available(saver)
+        return saver
+
+    await _call_setup_if_available(candidate)
+    return candidate
+
+
+def _create_checkpointer_candidate() -> Any:
+    """
+    Build the best available checkpointer (not yet initialized).
+
+    Cascade: PostgreSQL → Redis → MemorySaver.
+    The returned object may need async materialization + setup().
+    """
+    # 1. PostgreSQL (preferred — durable, ACID, already in the stack)
     try:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
         database_url = settings.postgres.database_url
-        if not database_url:
-            logger.warning("DATABASE_URL not set, cannot create PostgreSQL checkpointer")
-            return None
+        if database_url:
+            saver = AsyncPostgresSaver.from_conn_string(database_url)
+            logger.info("PostgreSQL checkpointer candidate created")
+            return saver
+        logger.info("DATABASE_URL not set, skipping PostgreSQL checkpointer")
+    except ImportError:
+        logger.info("langgraph-checkpoint-postgres not installed, skipping")
+    except Exception as exc:
+        logger.warning("PostgreSQL checkpointer creation failed: %s", exc)
 
-        saver = AsyncPostgresSaver.from_conn_string(database_url)
-        logger.info("PostgreSQL checkpointer created successfully")
-        return saver
-    except ImportError as e:
-        logger.warning(f"PostgreSQL checkpoint package not installed: {e}")
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to create PostgreSQL checkpointer: {e}")
-        return None
-
-
-def create_redis_checkpointer():
-    """Create Redis checkpointer from environment.
-
-    Uses langgraph-checkpoint-redis package which requires Redis Stack (with RediSearch).
-    Falls back to None if Redis Stack is not available.
-    See: https://github.com/redis-developer/langgraph-redis
-    """
+    # 2. Redis (fast, requires Redis Stack with RediSearch + RedisJSON)
     try:
         from langgraph.checkpoint.redis.aio import AsyncRedisSaver
 
         redis_url = settings.redis.url
-        saver = AsyncRedisSaver(redis_url=redis_url)
-        logger.info("Async Redis checkpointer created successfully")
-        return saver
-    except ImportError as e:
-        logger.warning(f"Redis checkpoint packages not installed: {e}")
-        return None
-    except Exception as e:
-        logger.warning(
-            f"Failed to create Redis checkpointer (Redis Stack may not be available): {e}"
-        )
-        return None
+        if redis_url:
+            saver = AsyncRedisSaver(redis_url=redis_url)
+            logger.info("Redis checkpointer candidate created")
+            return saver
+        logger.info("REDIS_URL not set, skipping Redis checkpointer")
+    except ImportError:
+        logger.info("langgraph-checkpoint-redis not installed, skipping")
+    except Exception as exc:
+        logger.warning("Redis checkpointer creation failed: %s", exc)
 
-
-def create_production_checkpointer():
-    """
-    Create the best available checkpointer for production.
-
-    Cascade order: PostgreSQL > Redis > MemorySaver
-
-    PostgreSQL is preferred for:
-    - Durability and ACID compliance
-    - Existing infrastructure (already used for app data)
-    - Better querying capabilities
-
-    Redis is used when:
-    - PostgreSQL is not available
-    - Low-latency requirements
-
-    MemorySaver is a last resort (not production-ready).
-    """
-    # Try PostgreSQL first (most durable)
-    checkpointer = create_postgres_checkpointer()
-    if checkpointer is not None:
-        logger.info("Using PostgreSQL checkpointer for production")
-        return checkpointer
-
-    # Fall back to Redis (fast, but less durable)
-    checkpointer = create_redis_checkpointer()
-    if checkpointer is not None:
-        logger.info("Using Redis checkpointer (PostgreSQL unavailable)")
-        return checkpointer
-
-    # Last resort: MemorySaver (NOT production-ready)
+    # 3. MemorySaver (last resort — non-persistent, NOT for production)
     logger.warning(
-        "No persistent checkpointer available! Using in-memory MemorySaver. "
-        "This is NOT suitable for production - install langgraph-checkpoint-postgres "
-        "or langgraph-checkpoint-redis and configure DATABASE_URL or REDIS_URL."
+        "No persistent checkpointer available — using in-memory MemorySaver. "
+        "Set DATABASE_URL or REDIS_URL for production persistence."
     )
     return MemorySaver()
+
+
+async def get_shared_checkpointer() -> Any:
+    """
+    Get or create the singleton async checkpointer.
+
+    Thread-safe via asyncio.Lock; handles context-manager materialization
+    and setup() for connection-pool initialization.
+    """
+    global _shared_checkpointer
+
+    if _shared_checkpointer is not None:
+        return _shared_checkpointer
+
+    lock = _get_checkpointer_lock()
+    async with lock:
+        # Double-checked locking
+        if _shared_checkpointer is not None:
+            return _shared_checkpointer
+
+        try:
+            candidate = _create_checkpointer_candidate()
+            materialized = await _materialize_checkpointer(candidate)
+            if materialized is None:
+                raise RuntimeError("Checkpointer factory returned None after materialization")
+            _shared_checkpointer = materialized
+            logger.info(
+                "Production checkpointer ready: %s", type(_shared_checkpointer).__name__
+            )
+        except Exception as exc:
+            logger.warning("Checkpointer init failed, falling back to MemorySaver: %s", exc)
+            _shared_checkpointer = MemorySaver()
+
+        return _shared_checkpointer
+
+
+# =============================================================================
+# Factory Functions
+# =============================================================================
+
+_graph_instance: VideoAgentGraph | None = None
+_graph_lock: asyncio.Lock | None = None
+
+
+def _get_graph_lock() -> asyncio.Lock:
+    global _graph_lock
+    if _graph_lock is None:
+        _graph_lock = asyncio.Lock()
+    return _graph_lock
+
+
+async def get_video_agent_graph() -> VideoAgentGraph:
+    """Get or create the video agent graph singleton (async).
+
+    Initializes the checkpointer with proper async setup() so that
+    PostgreSQL/Redis connection pools are established before first use.
+    """
+    global _graph_instance
+
+    if _graph_instance is not None:
+        return _graph_instance
+
+    lock = _get_graph_lock()
+    async with lock:
+        if _graph_instance is not None:
+            return _graph_instance
+
+        checkpointer = await get_shared_checkpointer()
+        _graph_instance = VideoAgentGraph(checkpointer=checkpointer)
+        return _graph_instance

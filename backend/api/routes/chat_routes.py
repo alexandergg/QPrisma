@@ -173,8 +173,8 @@ async def agent_chat(
     from agent import get_video_agent_graph
 
     try:
-        # Get singleton agent (uses production checkpointer internally)
-        agent = get_video_agent_graph()
+        # Get singleton agent (async — initializes checkpointer on first call)
+        agent = await get_video_agent_graph()
 
         # Generate session ID if not provided
         session_id = request.session_id or str(uuid.uuid4())

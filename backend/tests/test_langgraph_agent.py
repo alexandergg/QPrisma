@@ -6,7 +6,7 @@ Tests for the LangGraph-based video agent.
 """
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -386,14 +386,13 @@ class TestVideoAgentGraph:
     @pytest.mark.asyncio
     async def test_video_agent_graph_singleton(self):
         """Test that get_video_agent_graph returns singleton."""
-        # Reset singleton
         import agent.graphs.video as module
         from agent.graphs.video import get_video_agent_graph
 
         module._graph_instance = None
 
-        agent1 = get_video_agent_graph()
-        agent2 = get_video_agent_graph()
+        agent1 = await get_video_agent_graph()
+        agent2 = await get_video_agent_graph()
 
         assert agent1 is agent2
 
@@ -484,28 +483,28 @@ class TestLangGraphTools:
 
 
 class TestRedisCheckpointer:
-    """Test Redis checkpointer creation."""
+    """Test Redis checkpointer creation via unified factory."""
 
-    def test_create_redis_checkpointer_fallback(self):
-        """Test fallback to MemorySaver when Redis unavailable."""
+    @pytest.mark.asyncio
+    async def test_checkpointer_fallback_to_memory(self):
+        """Test fallback to MemorySaver when no persistent stores available."""
         from langgraph.checkpoint.memory import MemorySaver
 
-        with patch.dict("os.environ", {"REDIS_URL": "redis://invalid:6379"}):
-            import importlib
+        import agent.graphs.video as module
 
-            import agent.graphs.video as module
+        # Reset singleton state
+        module._shared_checkpointer = None
+        module._checkpointer_lock = None
 
-            importlib.reload(module)
+        with (
+            patch.dict("os.environ", {"REDIS_URL": "", "DATABASE_URL": ""}, clear=False),
+            patch.object(module, "_create_checkpointer_candidate", return_value=None),
+        ):
+            checkpointer = await module.get_shared_checkpointer()
+            assert isinstance(checkpointer, MemorySaver)
 
-            def mock_create():
-                try:
-                    raise Exception("Connection failed")
-                except Exception:
-                    return MemorySaver()
-
-            with patch.object(module, "create_redis_checkpointer", mock_create):
-                checkpointer = mock_create()
-                assert isinstance(checkpointer, MemorySaver)
+        # Reset for other tests
+        module._shared_checkpointer = None
 
 
 class TestAgentImports:
@@ -517,7 +516,7 @@ class TestAgentImports:
             AgentState,
             VideoAgentGraph,
             create_agent_state,
-            create_redis_checkpointer,
+            get_shared_checkpointer,
             get_video_agent_graph,
         )
 
@@ -525,7 +524,7 @@ class TestAgentImports:
         assert AgentState is not None
         assert create_agent_state is not None
         assert get_video_agent_graph is not None
-        assert create_redis_checkpointer is not None
+        assert get_shared_checkpointer is not None
 
     def test_metadata_extraction_exports(self):
         """Test metadata extraction helpers are importable."""
@@ -909,48 +908,62 @@ class TestDynamicToolBinding:
 
 
 class TestProductionCheckpointerFactory:
-    """Test production checkpointer factory (P1 Item #9)."""
+    """Test unified async checkpointer factory."""
 
-    def test_checkpointer_cascade_fallback(self):
-        """Test that checkpointer factory falls back correctly."""
-        from agent.graphs.video import create_production_checkpointer
+    @pytest.mark.asyncio
+    async def test_checkpointer_cascade_fallback(self):
+        """Test that factory falls back to MemorySaver when no stores available."""
+        import agent.graphs.video as module
         from langgraph.checkpoint.memory import MemorySaver
 
-        # When no persistent stores are available, should fall back to MemorySaver
-        with (
-            patch("agent.graphs.video.create_postgres_checkpointer", return_value=None),
-            patch("agent.graphs.video.create_redis_checkpointer", return_value=None),
-        ):
-            checkpointer = create_production_checkpointer()
+        module._shared_checkpointer = None
+        module._checkpointer_lock = None
+
+        with patch.object(module, "_create_checkpointer_candidate", return_value=None):
+            checkpointer = await module.get_shared_checkpointer()
             assert isinstance(checkpointer, MemorySaver)
 
-    def test_checkpointer_prefers_postgres(self):
-        """Test that PostgreSQL is preferred when available."""
-        from agent.graphs.video import create_production_checkpointer
+        module._shared_checkpointer = None
 
-        mock_postgres = MagicMock()
-        mock_redis = MagicMock()
+    @pytest.mark.asyncio
+    async def test_checkpointer_materializes_candidate(self):
+        """Test that a valid candidate is materialized and returned."""
+        import agent.graphs.video as module
 
-        with (
-            patch("agent.graphs.video.create_postgres_checkpointer", return_value=mock_postgres),
-            patch("agent.graphs.video.create_redis_checkpointer", return_value=mock_redis),
-        ):
-            checkpointer = create_production_checkpointer()
-            # Should use PostgreSQL, not Redis
-            assert checkpointer is mock_postgres
+        mock_saver = MagicMock()
+        mock_saver.setup = AsyncMock()
 
-    def test_checkpointer_uses_redis_when_no_postgres(self):
-        """Test that Redis is used when PostgreSQL unavailable."""
-        from agent.graphs.video import create_production_checkpointer
-
-        mock_redis = MagicMock()
+        module._shared_checkpointer = None
+        module._checkpointer_lock = None
 
         with (
-            patch("agent.graphs.video.create_postgres_checkpointer", return_value=None),
-            patch("agent.graphs.video.create_redis_checkpointer", return_value=mock_redis),
+            patch.object(module, "_create_checkpointer_candidate", return_value=mock_saver),
+            patch.object(module, "_materialize_checkpointer", new_callable=AsyncMock, return_value=mock_saver),
         ):
-            checkpointer = create_production_checkpointer()
-            assert checkpointer is mock_redis
+            checkpointer = await module.get_shared_checkpointer()
+            assert checkpointer is mock_saver
+
+        module._shared_checkpointer = None
+
+    @pytest.mark.asyncio
+    async def test_checkpointer_singleton_behavior(self):
+        """Test that get_shared_checkpointer returns the same instance."""
+        import agent.graphs.video as module
+
+        mock_saver = MagicMock()
+
+        module._shared_checkpointer = None
+        module._checkpointer_lock = None
+
+        with (
+            patch.object(module, "_create_checkpointer_candidate", return_value=mock_saver),
+            patch.object(module, "_materialize_checkpointer", new_callable=AsyncMock, return_value=mock_saver),
+        ):
+            cp1 = await module.get_shared_checkpointer()
+            cp2 = await module.get_shared_checkpointer()
+            assert cp1 is cp2
+
+        module._shared_checkpointer = None
 
 
 class TestMultiTenantSecurity:

@@ -41,11 +41,11 @@ python -m evaluation.run_video_mme_eval --subset all --max-videos 900
 
 ## Environment variables
 
-| Variable | Description |
-|----------|-------------|
-| `QPRISMA_API_URL` | QPrisma API base URL |
-| `QPRISMA_EVAL_EMAIL` | Auth email |
-| `QPRISMA_EVAL_PASSWORD` | Auth password |
+| Variable | Description | Default/Example |
+|----------|-------------|-----------------|
+| `QPRISMA_API_URL` | QPrisma API base URL | https://ca-qprisma-api-dev.lemoncoast-87c1f692.westeurope.azurecontainerapps.io |
+| `QPRISMA_EVAL_EMAIL` | Auth email | user@example.com |
+| `QPRISMA_EVAL_PASSWORD` | Auth password | stringst |
 
 ## Pipeline phases
 

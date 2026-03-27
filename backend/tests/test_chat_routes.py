@@ -111,10 +111,7 @@ class TestAgentChat:
             }
         )
 
-        with (
-            patch("agent.create_redis_checkpointer", return_value=None),
-            patch("agent.get_video_agent_graph", return_value=mock_agent),
-        ):
+        with patch("agent.get_video_agent_graph", new_callable=AsyncMock, return_value=mock_agent):
             resp = authenticated_client.post(
                 "/chat/agent",
                 json={"message": "find highlights"},
@@ -140,10 +137,7 @@ class TestAgentChat:
             }
         )
 
-        with (
-            patch("agent.create_redis_checkpointer", return_value=None),
-            patch("agent.get_video_agent_graph", return_value=mock_agent),
-        ):
+        with patch("agent.get_video_agent_graph", new_callable=AsyncMock, return_value=mock_agent):
             resp = authenticated_client.post(
                 "/chat/agent",
                 json={"message": "more details", "session_id": "sess_abc"},

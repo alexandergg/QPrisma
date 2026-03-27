@@ -36,6 +36,7 @@ dependencies = [
     "langchain-core>=1.2.8,<2.0.0",
     "langchain-openai>=1.1.7,<2.0.0",
     "langgraph-checkpoint-redis>=0.3.3,<1.0.0",
+    "langgraph-checkpoint-postgres>=3.0.0",
     "mem0ai>=1.0.3,<2.0.0",
     # A2A (Agent-to-Agent) Protocol
     "a2a-sdk[http-server]>=0.3.22,<1.0.0",
@@ -50,6 +51,8 @@ dependencies = [
     "bcrypt~=4.2",
     # Rate Limiting
     "slowapi>=0.1.9,<1.0.0",
+    "yt-dlp>=2026.3.17",
+    "datasets>=4.8.4",
 ]
 
 [project.optional-dependencies]

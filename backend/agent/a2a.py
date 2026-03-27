@@ -12,7 +12,6 @@ Reference: https://a2a-protocol.org/latest/specification/
 """
 
 import asyncio
-import inspect
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -20,9 +19,8 @@ from time import perf_counter
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
-from langgraph.checkpoint.memory import MemorySaver
 
-from agent.graphs.video import create_production_checkpointer, create_video_agent_graph
+from agent.graphs.video import create_video_agent_graph, get_shared_checkpointer
 from agent.state.agent_state import create_agent_state
 from agent.utils.observability import Metrics, get_logger
 from models.a2a_models import (
@@ -51,99 +49,6 @@ def _record_phase_latency(phase: str, duration_seconds: float, agent_type: str) 
         labels={"phase": phase, "agent": agent_type},
     )
 
-
-_shared_checkpointer: Any | None = None
-_shared_checkpointer_cm: Any | None = None
-_checkpointer_lock = asyncio.Lock()
-
-
-async def _maybe_call_setup(checkpointer: Any) -> None:
-    """Call saver setup() if available (sync or async)."""
-    setup_fn = getattr(checkpointer, "setup", None)
-    if setup_fn is None:
-        return
-
-    try:
-        result = setup_fn()
-        if inspect.isawaitable(result):
-            await result
-    except Exception as exc:
-        logger.warning(f"Checkpointer setup failed, continuing without setup: {exc}")
-
-
-async def _materialize_checkpointer(candidate: Any) -> Any:
-    """
-    Materialize checkpointer instances that may be returned as context managers.
-
-    Supports:
-    - direct saver instances
-    - sync context managers via __enter__
-    - async context managers via __aenter__
-    """
-    global _shared_checkpointer_cm
-
-    if candidate is None:
-        return None
-
-    if hasattr(candidate, "__aenter__") and hasattr(candidate, "__aexit__"):
-        _shared_checkpointer_cm = candidate
-        saver = await candidate.__aenter__()
-        await _maybe_call_setup(saver)
-        return saver
-
-    if hasattr(candidate, "__enter__") and hasattr(candidate, "__exit__"):
-        _shared_checkpointer_cm = candidate
-        saver = candidate.__enter__()
-        await _maybe_call_setup(saver)
-        return saver
-
-    await _maybe_call_setup(candidate)
-    return candidate
-
-
-async def get_shared_checkpointer() -> Any:
-    """
-    Get a singleton shared checkpointer for all A2A executors.
-
-    Preference order follows production factory:
-    PostgreSQL > Redis > MemorySaver fallback.
-    """
-    global _shared_checkpointer
-    start = perf_counter()
-
-    if _shared_checkpointer is not None:
-        return _shared_checkpointer
-
-    async with _checkpointer_lock:
-        if _shared_checkpointer is not None:
-            return _shared_checkpointer
-
-        try:
-            candidate = create_production_checkpointer()
-            materialized = await _materialize_checkpointer(candidate)
-            if materialized is None:
-                raise RuntimeError("Production checkpointer factory returned None")
-
-            _shared_checkpointer = materialized
-            logger.info(
-                "A2A shared checkpointer initialized",
-                checkpointer_type=type(_shared_checkpointer).__name__,
-            )
-            _record_phase_latency(
-                "checkpointer_init",
-                perf_counter() - start,
-                "shared",
-            )
-            return _shared_checkpointer
-        except Exception as exc:
-            logger.warning(f"Falling back to MemorySaver for A2A checkpointer: {exc}")
-            _shared_checkpointer = MemorySaver()
-            _record_phase_latency(
-                "checkpointer_init",
-                perf_counter() - start,
-                "shared",
-            )
-            return _shared_checkpointer
 
 
 class TaskStore:

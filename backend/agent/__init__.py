@@ -32,10 +32,8 @@ Best Practices Applied (LangGraph v1.0+):
 # LangGraph implementations (recommended)
 from agent.graphs.video import (
     VideoAgentGraph,
-    create_postgres_checkpointer,
-    create_production_checkpointer,
-    create_redis_checkpointer,
     create_smart_retry_policy,
+    get_shared_checkpointer,
     get_video_agent_graph,
 )
 from agent.nodes.base import (
@@ -63,10 +61,8 @@ __all__ = [
     # Factory functions
     "create_agent_state",
     "get_video_agent_graph",
-    # Checkpointer factories
-    "create_redis_checkpointer",
-    "create_postgres_checkpointer",
-    "create_production_checkpointer",
+    # Checkpointer
+    "get_shared_checkpointer",
     # Retry policies
     "create_smart_retry_policy",
     "should_retry_exception",

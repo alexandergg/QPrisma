@@ -13,11 +13,9 @@ Features (LangGraph v1.0+ Best Practices):
 
 from agent.graphs.video import (
     VideoAgentGraph,
-    create_postgres_checkpointer,
-    create_production_checkpointer,
-    create_redis_checkpointer,
     create_smart_retry_policy,
     create_video_agent_graph,
+    get_shared_checkpointer,
     get_video_agent_graph,
 )
 
@@ -26,10 +24,8 @@ __all__ = [
     "VideoAgentGraph",
     "create_video_agent_graph",
     "get_video_agent_graph",
-    # Checkpointer factories
-    "create_redis_checkpointer",
-    "create_postgres_checkpointer",
-    "create_production_checkpointer",
+    # Checkpointer
+    "get_shared_checkpointer",
     # Retry policies
     "create_smart_retry_policy",
 ]
