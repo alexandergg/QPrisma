@@ -169,8 +169,10 @@ resource capabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@20
   parent: aiFoundry
   name: 'agents-host'
   properties: {
-    feature: 'agents'
-    connectionId: agentStorageConnection.id
+    capabilityHostKind: 'Agents'
+    storageConnections: [
+      agentStorageConnection.name
+    ]
   }
 }
 
