@@ -10,6 +10,9 @@ param deployBatchModel bool = true
 @description('Storage account resource ID for agents capability host')
 param storageAccountId string = ''
 
+@description('Storage account name for agents connection')
+param storageAccountName string = ''
+
 @description('Resource tags')
 param tags object = {}
 
@@ -154,12 +157,14 @@ resource agentStorageConnection 'Microsoft.CognitiveServices/accounts/connection
   parent: aiFoundry
   name: 'agents-storage'
   properties: {
+    authType: 'AAD'
     category: 'AzureBlob'
-    target: 'https://${last(split(storageAccountId, '/'))}.blob.${az.environment().suffixes.storage}'
-    authType: 'ManagedIdentity'
+    target: 'https://${storageAccountName}.blob.${az.environment().suffixes.storage}'
     isSharedToAll: true
     metadata: {
       ResourceId: storageAccountId
+      AccountName: storageAccountName
+      ContainerName: 'agents'
     }
   }
 }

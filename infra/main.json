@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "17997263389131574173"
+      "templateHash": "6130247727460105903"
     }
   },
   "parameters": {
@@ -210,7 +210,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "9557940167413164145"
+              "templateHash": "17474145409828769244"
             }
           },
           "parameters": {
@@ -270,6 +270,17 @@
               "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
               "apiVersion": "2023-05-01",
               "name": "[format('{0}/{1}/{2}', parameters('name'), 'default', 'media')]",
+              "properties": {
+                "publicAccess": "None"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('name'), 'default')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', parameters('name'), 'default', 'agents')]",
               "properties": {
                 "publicAccess": "None"
               },
@@ -645,6 +656,9 @@
           "storageAccountId": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.id.value]"
           },
+          "storageAccountName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.name.value]"
+          },
           "tags": {
             "value": "[variables('tags')]"
           }
@@ -656,7 +670,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.41.2.15936",
-              "templateHash": "7091430873483690895"
+              "templateHash": "13679415845906544207"
             }
           },
           "parameters": {
@@ -685,6 +699,13 @@
               "defaultValue": "",
               "metadata": {
                 "description": "Storage account resource ID for agents capability host"
+              }
+            },
+            "storageAccountName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Storage account name for agents connection"
               }
             },
             "tags": {
@@ -843,12 +864,14 @@
               "apiVersion": "2025-06-01",
               "name": "[format('{0}/{1}', parameters('name'), 'agents-storage')]",
               "properties": {
+                "authType": "AAD",
                 "category": "AzureBlob",
-                "target": "[format('https://{0}.blob.{1}', last(split(parameters('storageAccountId'), '/')), environment().suffixes.storage)]",
-                "authType": "ManagedIdentity",
+                "target": "[format('https://{0}.blob.{1}', parameters('storageAccountName'), environment().suffixes.storage)]",
                 "isSharedToAll": true,
                 "metadata": {
-                  "ResourceId": "[parameters('storageAccountId')]"
+                  "ResourceId": "[parameters('storageAccountId')]",
+                  "AccountName": "[parameters('storageAccountName')]",
+                  "ContainerName": "agents"
                 }
               },
               "dependsOn": [
@@ -861,8 +884,10 @@
               "apiVersion": "2025-06-01",
               "name": "[format('{0}/{1}', parameters('name'), 'agents-host')]",
               "properties": {
-                "feature": "agents",
-                "connectionId": "[resourceId('Microsoft.CognitiveServices/accounts/connections', parameters('name'), 'agents-storage')]"
+                "capabilityHostKind": "Agents",
+                "storageConnections": [
+                  "agents-storage"
+                ]
               },
               "dependsOn": [
                 "[resourceId('Microsoft.CognitiveServices/accounts/connections', parameters('name'), 'agents-storage')]",

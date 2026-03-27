@@ -41,6 +41,14 @@ resource mediaContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
   }
 }
 
+resource agentsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'agents'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
 output id string = storageAccount.id
 output name string = storageAccount.name
 output blobEndpoint string = storageAccount.properties.primaryEndpoints.blob
