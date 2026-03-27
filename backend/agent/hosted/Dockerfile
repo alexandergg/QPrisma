@@ -12,6 +12,9 @@
 
 FROM python:3.11-slim AS base
 
+# uv — pinned binary from official distroless image
+COPY --from=ghcr.io/astral-sh/uv:0.11.2 /uv /uvx /bin/
+
 # System dependencies for Neo4j driver, Redis, PostgreSQL
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -22,24 +25,20 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Install Python dependencies (deps only — PYTHONPATH handles imports)
+# Resolve and install deps only — no project build (PYTHONPATH handles imports)
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir uv && \
-    python3 -c "import tomllib, pathlib; \
-d = tomllib.loads(pathlib.Path('pyproject.toml').read_text()); \
-deps = d['project']['dependencies'] + d['project']['optional-dependencies']['hosted']; \
-pathlib.Path('/tmp/requirements.txt').write_text('\n'.join(deps))" && \
-    uv pip install --system --no-cache --prerelease=allow -r /tmp/requirements.txt && \
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip compile pyproject.toml --extra hosted --prerelease=allow \
+        --python-version 3.11 --no-header -o /tmp/requirements.txt && \
+    uv pip install --system -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
 
-# Copy application code
-# Only copy modules needed by the hosted agent (not api/, tasks/)
+# Copy application code (only modules needed by the hosted agent)
 COPY core/ core/
 COPY models/ models/
 COPY agent/ agent/
 COPY services/ services/
 
-# Hosted agent entry point
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
