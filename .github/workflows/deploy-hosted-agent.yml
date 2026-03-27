@@ -129,9 +129,14 @@ jobs:
       - name: Register agent version in Foundry
         id: register
         run: |
+          # Sanitize image tag (strip BOM, whitespace, non-printable chars)
+          IMAGE_TAG=$(echo -n "${{ inputs.image_tag }}" | sed 's/[^a-zA-Z0-9._-]//g')
+          IMAGE="${{ vars.ACR_LOGIN_SERVER }}/qprisma-video-agent:${IMAGE_TAG}"
+          echo "Using image: $IMAGE"
+
           python scripts/register_hosted_agent.py \
             --project-endpoint "${{ steps.resolve-foundry.outputs.project_endpoint }}" \
-            --image "${{ vars.ACR_LOGIN_SERVER }}/qprisma-video-agent:${{ inputs.image_tag }}" \
+            --image "$IMAGE" \
             --agent-name "qprisma-video-agent" \
             --cpu 2 \
             --memory 4Gi
