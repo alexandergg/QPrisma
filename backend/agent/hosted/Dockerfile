@@ -23,9 +23,12 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Install Python dependencies (deps only — PYTHONPATH handles imports)
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml ./
 RUN pip install --no-cache-dir uv && \
-    uv export --no-dev --extra hosted --no-emit-project --no-hashes -o /tmp/requirements.txt && \
+    python3 -c "import tomllib, pathlib; \
+d = tomllib.loads(pathlib.Path('pyproject.toml').read_text()); \
+deps = d['project']['dependencies'] + d['project']['optional-dependencies']['hosted']; \
+pathlib.Path('/tmp/requirements.txt').write_text('\n'.join(deps))" && \
     uv pip install --system --no-cache --prerelease=allow -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
 
