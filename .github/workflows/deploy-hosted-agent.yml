@@ -86,7 +86,7 @@ jobs:
 
           echo "ACR pull role assigned to Foundry project identity"
 
-      - name: Grant Azure AI Developer to CI principal
+      - name: Grant Azure AI User to CI principal
         run: |
           RG="${{ vars.AZURE_RESOURCE_GROUP }}"
           ACCOUNT_NAME="${{ steps.resolve-foundry.outputs.account_name }}"
@@ -104,15 +104,19 @@ jobs:
             --query "id" \
             -o tsv)
 
-          # Azure AI Developer role includes agents/write data action
+          # "Azure AI User" is the Foundry role with agents data actions
           az role assignment create \
-            --role "Azure AI Developer" \
+            --role "Azure AI User" \
             --assignee-object-id "$CI_PRINCIPAL_OID" \
             --assignee-principal-type ServicePrincipal \
             --scope "$ACCOUNT_ID" \
             2>/dev/null || echo "Role assignment already exists"
 
-          echo "Azure AI Developer role assigned to CI principal on $ACCOUNT_NAME"
+          echo "Azure AI User role assigned to CI principal on $ACCOUNT_NAME"
+
+          # Wait for RBAC propagation (new assignments can take up to 5 min)
+          echo "Waiting 60s for RBAC propagation..."
+          sleep 60
 
       - name: Set up Python
         uses: actions/setup-python@v5
