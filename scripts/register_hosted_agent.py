@@ -111,6 +111,63 @@ def main() -> int:
         agent.version,
     )
 
+    # Start the agent container (lifecycle: Create → Start)
+    logger.info("Starting agent container for %s version %s ...", agent.name, agent.version)
+    try:
+        import time
+
+        from azure.core.rest import HttpRequest
+
+        # Use the REST API to start the container
+        # POST /agents/{name}/versions/{version}/containers/default:start
+        start_url = (
+            f"{args.project_endpoint}/agents/{agent.name}"
+            f"/versions/{agent.version}/containers/default:start"
+        )
+
+        start_request = HttpRequest(
+            method="POST",
+            url=start_url,
+            params={"api-version": "2025-05-15-preview"},
+            json={"min_replicas": 1, "max_replicas": 1},
+        )
+        start_response = client._client.send_request(start_request)
+
+        if start_response.status_code in (200, 202):
+            logger.info("Agent container start initiated (status=%d)", start_response.status_code)
+            # Poll for running state (up to 5 minutes)
+            for attempt in range(30):
+                time.sleep(10)
+                status_url = (
+                    f"{args.project_endpoint}/agents/{agent.name}"
+                    f"/versions/{agent.version}/containers/default"
+                )
+                status_request = HttpRequest(
+                    method="GET",
+                    url=status_url,
+                    params={"api-version": "2025-05-15-preview"},
+                )
+                status_response = client._client.send_request(status_request)
+                if status_response.status_code == 200:
+                    body = status_response.json()
+                    state = body.get("status", body.get("provisioningState", "unknown"))
+                    logger.info("Container state: %s (attempt %d/30)", state, attempt + 1)
+                    if state.lower() in ("running", "started", "succeeded"):
+                        logger.info("Agent container is running!")
+                        break
+                else:
+                    logger.warning("Status check returned %d", status_response.status_code)
+            else:
+                logger.warning("Agent did not reach running state within 5 minutes — check portal")
+        else:
+            logger.warning(
+                "Start request returned %d: %s",
+                start_response.status_code,
+                start_response.text(),
+            )
+    except Exception as e:
+        logger.warning("Could not start agent container: %s (start manually from portal)", e)
+
     # Output for GitHub Actions (modern $GITHUB_OUTPUT format)
     github_output = os.environ.get("GITHUB_OUTPUT", "")
     if github_output:
