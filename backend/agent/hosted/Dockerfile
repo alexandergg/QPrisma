@@ -25,7 +25,7 @@ WORKDIR /app
 # Install Python dependencies
 COPY pyproject.toml uv.lock ./
 RUN pip install --no-cache-dir uv && \
-    uv pip install --system --no-cache -e ".[hosted]"
+    uv pip install --system --no-cache --prerelease=allow -e ".[hosted]"
 
 # Copy application code
 # Only copy modules needed by the hosted agent (not api/, tasks/)
