@@ -86,6 +86,34 @@ jobs:
 
           echo "ACR pull role assigned to Foundry project identity"
 
+      - name: Grant Azure AI Developer to CI principal
+        run: |
+          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+          ACCOUNT_NAME="${{ steps.resolve-foundry.outputs.account_name }}"
+
+          # Get the AI Foundry account resource ID
+          ACCOUNT_ID=$(az cognitiveservices account show \
+            --name "$ACCOUNT_NAME" \
+            --resource-group "$RG" \
+            --query "id" \
+            -o tsv)
+
+          # Get the current OIDC principal object ID
+          CI_PRINCIPAL_OID=$(az ad sp show \
+            --id "${{ secrets.AZURE_CLIENT_ID }}" \
+            --query "id" \
+            -o tsv)
+
+          # Azure AI Developer role includes agents/write data action
+          az role assignment create \
+            --role "Azure AI Developer" \
+            --assignee-object-id "$CI_PRINCIPAL_OID" \
+            --assignee-principal-type ServicePrincipal \
+            --scope "$ACCOUNT_ID" \
+            2>/dev/null || echo "Role assignment already exists"
+
+          echo "Azure AI Developer role assigned to CI principal on $ACCOUNT_NAME"
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
