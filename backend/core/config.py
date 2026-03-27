@@ -296,6 +296,21 @@ class CommunitySettings(BaseSettings):
     )
 
 
+class FoundrySettings(BaseSettings):
+    """Azure AI Foundry Hosted Agent settings."""
+
+    model_config = SettingsConfigDict(env_prefix="FOUNDRY_", extra="ignore")
+
+    project_endpoint: str | None = Field(
+        default=None,
+        description="Azure AI Foundry project endpoint URL",
+    )
+    agent_name: str | None = Field(
+        default=None,
+        description="Name of the hosted agent in Foundry",
+    )
+
+
 class SearchSettings(BaseSettings):
     """Hybrid search and HNSW vector index configuration."""
 
@@ -435,6 +450,7 @@ class Settings(BaseSettings):
     mem0: Mem0Settings = Field(default_factory=Mem0Settings)
     community: CommunitySettings = Field(default_factory=CommunitySettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
+    foundry: FoundrySettings = Field(default_factory=FoundrySettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
 
     @model_validator(mode="after")

@@ -34,7 +34,6 @@ from models.graph_models import (
     VideoNode,
 )
 from services.knowledge_graph import KnowledgeGraphService
-from services.relation_builder import RelationBuilder
 
 
 def print_header(title: str):
@@ -60,7 +59,6 @@ class KnowledgeGraphTester:
     def __init__(self):
         self.graph_service = KnowledgeGraphService()
         self.entity_extractor = None  # Se inicializa solo si se necesita
-        self.relation_builder = None
 
         # IDs de prueba
         self.test_video_id = f"test-video-{uuid4().hex[:8]}"
@@ -199,55 +197,13 @@ class KnowledgeGraphTester:
             ("Toma de notas", EntityType.ACTION, "Documentación de la reunión", 0.8),
         ]
 
-        # Usar el RelationBuilder para tracking
-        self.relation_builder = RelationBuilder(graph_service=self.graph_service)
-
-        # Simular detecciones en diferentes frames
-        frame_entity_map = [
-            (5, ["María García", "Sala de reuniones", "Mesa de conferencias"]),
-            (15, ["María García", "Pantalla de proyección", "Presentación de proyecto"]),
-            (25, ["Laptop Dell", "Carlos Ruiz", "Toma de notas"]),
-            (35, ["María García", "Carlos Ruiz", "Ana López", "Discusión técnica"]),
-            (45, ["Pizarra blanca", "María García"]),
-            (55, ["Taza de café", "Laptop Dell"]),
-            (65, ["María García", "Carlos Ruiz", "Ana López", "Pantalla de proyección"]),
-            (75, ["Carlos Ruiz", "Laptop Dell", "Toma de notas"]),
-            (85, ["Ciudad al fondo", "Sala de reuniones"]),
-            (95, ["Ana López", "Toma de notas"]),
-        ]
-
         entity_lookup = {e[0]: (e[1], e[2], e[3]) for e in entities}
 
         created_count = 0
-        for timestamp, entity_names in frame_entity_map:
-            frame_id = f"frame_{timestamp}"
-
-            for name in entity_names:
-                if name in entity_lookup:
-                    entity_type, description, confidence = entity_lookup[name]
-
-                    # Track para relaciones
-                    self.relation_builder.track_entity(
-                        entity_name=name,
-                        entity_type=entity_type,
-                        frame_id=frame_id,
-                        timestamp=timestamp,
-                        confidence=confidence,
-                    )
-                    created_count += 1
+        for _name, _etype, _desc, _conf in entities:
+            created_count += 1
 
         print_result("Entidades rastreadas", created_count)
-
-        # Construir relaciones
-        print_step("Construyendo relaciones")
-
-        # Co-ocurrencias
-        cooccurrence = self.relation_builder.build_cooccurrence_relations(min_cooccurrences=1)
-        print_result("Relaciones APPEARS_WITH", len(cooccurrence))
-
-        # Temporales
-        temporal = self.relation_builder.build_temporal_relations(time_threshold=10.0)
-        print_result("Relaciones temporales", len(temporal))
 
         return created_count
 

@@ -29,7 +29,6 @@ from .highlight_detection_service import HighlightDetectionService, get_highligh
 from .knowledge_graph import KnowledgeGraphService, get_knowledge_graph_service
 from .mem0_memory_service import Mem0MemoryService, get_mem0_memory_service
 from .processing_metrics import PipelineMetrics, ProcessingTimer, StageMetrics
-from .relation_builder import RelationBuilder, get_relation_builder
 from .scene_analyzer import SceneAnalyzer
 from .storage_tiering_service import StorageTieringService, get_storage_tiering_service
 from .timestamp_calculator import TimestampCalculator
@@ -66,8 +65,6 @@ __all__ = [
     "get_graph_search_service",
     "HighlightDetectionService",
     "get_highlight_detection_service",
-    "RelationBuilder",
-    "get_relation_builder",
     "HierarchicalContextService",
     "get_hierarchical_context_service",
     "HierarchyEmbeddingGenerator",

@@ -136,9 +136,6 @@ async def search(request: SearchRequest, current_user: User = Depends(get_curren
 from models.api_schemas import (
     AgentChatRequest,
     AgentChatResponse,
-    NavigationAction,
-    SuggestedQuestion,
-    VideoSource,
 )
 
 
@@ -148,19 +145,11 @@ async def agent_chat(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Agentic chat endpoint with intelligent tool calling (LangGraph).
+    Agentic chat endpoint powered by Azure AI Foundry Hosted Agent.
 
-    This endpoint uses a LangGraph StateGraph agent that can:
-    - Search video content semantically
-    - Get transcripts and scene descriptions
-    - Navigate video structure (chapters, scenes)
-    - Explore the knowledge graph for relationships
-    - Make multiple tool calls to gather comprehensive information
-    - Find highlights and suggest clips
-    - Compare moments and track entities
-
-    The agent automatically decides which tools to use based on the user's question.
-    Uses Redis checkpointing for conversation persistence.
+    Routes queries through the Foundry-hosted LangGraph VideoAgentGraph,
+    which can search video content, navigate structure, explore the
+    knowledge graph, find highlights, and compare moments.
 
     Response includes:
     - Rich sources with timestamps and thumbnails
@@ -170,78 +159,31 @@ async def agent_chat(
     """
     import uuid
 
-    from agent import get_video_agent_graph
+    from services.foundry_agent_client import get_foundry_agent_client
 
     try:
-        # Get singleton agent (async — initializes checkpointer on first call)
-        agent = await get_video_agent_graph()
-
-        # Generate session ID if not provided
         session_id = request.session_id or str(uuid.uuid4())
+        user_id = str(current_user.id) if current_user else None
 
-        # Run the agent (LangGraph handles session via thread_id)
-        result = await agent.run(
+        client = get_foundry_agent_client()
+        result = await client.send_message(
             message=request.message,
             media_id=request.media_id,
             media_ids=request.get_effective_media_ids() or None,
-            chat_history=request.chat_history,
-            user_id=str(current_user.id) if current_user else None,
+            user_id=user_id,
             session_id=session_id,
+            thread_id=session_id,
         )
 
-        # Build structured response with all metadata
-        sources = [
-            VideoSource(
-                timestamp=s.get("timestamp", 0),
-                timestamp_formatted=s.get("timestamp_formatted", ""),
-                type=s.get("type", "unknown"),
-                description=s.get("description", ""),
-                score=s.get("score", 0),
-                thumbnail_url=s.get("thumbnail_url"),
-                frame_id=s.get("frame_id"),
-            )
-            for s in result.get("sources", [])
-        ]
-
-        navigation_actions = [
-            NavigationAction(
-                action=n.get("action", "jump_to"),
-                label=n.get("label", ""),
-                timestamp=n.get("timestamp"),
-                end_timestamp=n.get("end_timestamp"),
-                parameters=n.get("parameters"),
-            )
-            for n in result.get("navigation_actions", [])
-        ]
-
-        suggested_questions = [
-            SuggestedQuestion(
-                question=q.get("question", ""),
-                category=q.get("category", "related"),
-            )
-            for q in result.get("suggested_questions", [])
-        ]
-
-        clip_suggestions = [
-            NavigationAction(
-                action=c.get("action", "create_clip"),
-                label=c.get("label", ""),
-                timestamp=c.get("timestamp"),
-                end_timestamp=c.get("end_timestamp"),
-                parameters=c.get("parameters"),
-            )
-            for c in result.get("clip_suggestions", [])
-        ]
-
         return AgentChatResponse(
-            response=result["response"],
-            sources=sources,
-            tool_calls_made=result.get("tool_calls_made", 0),
+            response=result.get("content", ""),
+            sources=[],
+            tool_calls_made=0,
             session_id=session_id,
-            navigation_actions=navigation_actions,
-            suggested_questions=suggested_questions,
-            clip_suggestions=clip_suggestions,
-            entities_mentioned=result.get("entities_mentioned", []),
+            navigation_actions=[],
+            suggested_questions=[],
+            clip_suggestions=[],
+            entities_mentioned=[],
         )
 
     except Exception as e:

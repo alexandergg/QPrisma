@@ -6,27 +6,27 @@ from models.a2a_models import TaskState
 
 
 def test_get_task_store_prefers_persistent_when_db_healthy():
-    import agent.a2a as a2a_module
+    import agent.a2a.task_store as a2a_task_store
 
-    a2a_module._task_store = None
+    a2a_task_store._task_store = None
     mock_db = MagicMock()
     mock_db.health_check.return_value = {"status": "healthy"}
 
-    with patch("agent.a2a.get_database_service", return_value=mock_db):
-        store = a2a_module.get_task_store()
+    with patch("agent.a2a.task_store.get_database_service", return_value=mock_db):
+        store = a2a_task_store.get_task_store()
 
     assert isinstance(store, PersistentTaskStore)
 
 
 def test_get_task_store_falls_back_when_db_unhealthy():
-    import agent.a2a as a2a_module
+    import agent.a2a.task_store as a2a_task_store
 
-    a2a_module._task_store = None
+    a2a_task_store._task_store = None
     mock_db = MagicMock()
     mock_db.health_check.return_value = {"status": "unhealthy"}
 
-    with patch("agent.a2a.get_database_service", return_value=mock_db):
-        store = a2a_module.get_task_store()
+    with patch("agent.a2a.task_store.get_database_service", return_value=mock_db):
+        store = a2a_task_store.get_task_store()
 
     assert isinstance(store, TaskStore)
 

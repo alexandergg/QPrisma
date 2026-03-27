@@ -13,6 +13,7 @@ dependencies = [
     # Azure SDKs
     "azure-storage-blob>=12.24.0,<13.0.0",
     "azure-identity>=1.19.0,<2.0.0",
+    "azure-ai-projects>=1.0.0b7",
     "openai>=1.55.0,<2.0.0",
     # Database (PostgreSQL)
     "sqlalchemy>=2.0.0,<3.0.0",
@@ -58,6 +59,9 @@ dependencies = [
 [project.optional-dependencies]
 gpu = [
     "faster-whisper>=1.1.0,<2.0.0",
+]
+hosted = [
+    "azure-ai-agentserver-langgraph>=1.0.0b12",
 ]
 
 [build-system]

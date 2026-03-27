@@ -181,41 +181,4 @@ class TestGraphRouteServiceExpansionLogging:
         ), "Expected a WARNING log for graph expansion failure in route service"
 
 
-# =============================================================================
-# Relation Builder – logging level
-# =============================================================================
 
-
-@pytest.mark.unit
-class TestRelationBuilderLogging:
-    """Verify relation_builder logs at WARNING for cross-video search failures."""
-
-    def test_cross_video_search_failure_logs_warning(self, caplog):
-        from models.graph_models import EntityType
-        from services.relation_builder import EntityOccurrence, RelationBuilder
-
-        mock_kg = MagicMock()
-        builder = RelationBuilder(graph_service=mock_kg)
-
-        # Add an entity occurrence so the loop iterates
-        builder._entity_occurrences = [
-            EntityOccurrence(
-                entity_name="TestEntity",
-                normalized_name="testentity",
-                entity_type=EntityType.PERSON,
-                timestamp=1.0,
-                frame_id="f1",
-                confidence=0.9,
-            ),
-        ]
-
-        # Make search_entities raise to trigger the except block
-        mock_kg.search_entities.side_effect = RuntimeError("search failed")
-
-        with caplog.at_level(logging.DEBUG, logger="services.relation_builder"):
-            builder.find_cross_video_entities(video_id="vid-1")
-
-        warning_msgs = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert any(
-            "Error searching for" in m.message for m in warning_msgs
-        ), "Expected a WARNING log for cross-video search failure"

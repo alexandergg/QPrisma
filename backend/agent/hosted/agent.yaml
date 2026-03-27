@@ -1,0 +1,79 @@
+# QPrisma Video Agent — Azure AI Foundry Deployment Manifest
+# ===========================================================
+# Declares the hosted agent container, protocols, and environment.
+#
+# Deploy with:
+#   azd env set AZURE_AI_FOUNDRY_PROJECT_ENDPOINT <endpoint>
+#   azd up
+#
+# Or via Python SDK:
+#   from azure.ai.projects import AIProjectClient
+#   client.agents.create_hosted_agent(agent_yaml="agent/hosted/agent.yaml")
+
+$schema: https://azuremlschemas.azureedge.net/latest/agentHostedDefinition.schema.json
+
+name: qprisma-video-agent
+description: >
+  QPrisma Video Agent — intelligent video analysis powered by LangGraph.
+  Searches visual content, audio transcriptions, and knowledge graphs
+  to answer questions with timestamped citations.
+version: "1.0.0"
+
+container:
+  image: ${ACR_LOGIN_SERVER}/qprisma-video-agent:${IMAGE_TAG}
+  port: 8088
+  protocols:
+    - protocol: responses
+      version: "2025-03-26"
+    - protocol: a2a
+      version: "0.2.1"
+
+  # Environment variables injected at runtime.
+  # Secrets should reference Key Vault URIs.
+  environment:
+    # --- Azure OpenAI ---
+    - name: AZURE_OPENAI_ENDPOINT
+      value: ${AZURE_OPENAI_ENDPOINT}
+    - name: AZURE_OPENAI_API_VERSION
+      value: "2025-04-01-preview"
+    - name: AZURE_OPENAI_DEPLOYMENT
+      value: ${AZURE_OPENAI_DEPLOYMENT}
+    - name: AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+      value: ${AZURE_OPENAI_EMBEDDING_DEPLOYMENT}
+
+    # --- Neo4j Knowledge Graph ---
+    - name: NEO4J_URI
+      value: ${NEO4J_URI}
+    - name: NEO4J_USERNAME
+      value: ${NEO4J_USERNAME}
+    - name: NEO4J_PASSWORD
+      secretKeyVaultUri: ${NEO4J_PASSWORD_KV_URI}
+
+    # --- Redis ---
+    - name: REDIS_URL
+      secretKeyVaultUri: ${REDIS_URL_KV_URI}
+
+    # --- PostgreSQL ---
+    - name: DATABASE_URL
+      secretKeyVaultUri: ${DATABASE_URL_KV_URI}
+
+    # --- Azure Blob Storage ---
+    - name: AZURE_STORAGE_CONNECTION_STRING
+      secretKeyVaultUri: ${STORAGE_CONNECTION_KV_URI}
+
+    # --- Mem0 (optional) ---
+    - name: MEM0_ENABLED
+      value: "${MEM0_ENABLED}"
+    - name: MEM0_API_KEY
+      secretKeyVaultUri: ${MEM0_API_KEY_KV_URI}
+
+    # --- Application ---
+    - name: ENVIRONMENT
+      value: ${ENVIRONMENT}
+    - name: LOG_LEVEL
+      value: "INFO"
+
+# Resource limits for the hosted container
+resources:
+  cpu: "2"
+  memory: "4Gi"
