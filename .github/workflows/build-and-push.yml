@@ -105,6 +105,39 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  build-hosted-agent:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to Azure Container Registry
+        run: az acr login --name ${{ vars.ACR_NAME }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Hosted Agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/agent/hosted/Dockerfile
+          push: true
+          tags: |
+            ${{ vars.ACR_LOGIN_SERVER }}/qprisma-video-agent:${{ github.sha }}
+            ${{ vars.ACR_LOGIN_SERVER }}/qprisma-video-agent:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   build-frontend:
     needs: detect-changes
     if: needs.detect-changes.outputs.frontend_changed == 'true' || github.event_name == 'workflow_dispatch'
@@ -154,7 +187,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   trigger-deploy:
-    needs: [detect-changes, build-api, build-worker, build-frontend]
+    needs: [detect-changes, build-api, build-worker, build-hosted-agent, build-frontend]
     permissions:
       actions: write
     if: always() && !failure() && !cancelled()
@@ -164,6 +197,7 @@ jobs:
       DEPLOY_API: ${{ needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch' }}
       DEPLOY_WORKER: ${{ needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch' }}
       DEPLOY_FRONTEND: ${{ needs.detect-changes.outputs.frontend_changed == 'true' || github.event_name == 'workflow_dispatch' }}
+      DEPLOY_HOSTED_AGENT: ${{ needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch' }}
     steps:
       - name: Trigger deployment workflow
         uses: actions/github-script@v7
@@ -182,3 +216,19 @@ jobs:
               }
             });
             console.log(`Triggered deploy-app.yml with image_tag: ${{ github.sha }} (api=${process.env.DEPLOY_API}, worker=${process.env.DEPLOY_WORKER}, frontend=${process.env.DEPLOY_FRONTEND})`);
+
+      - name: Trigger hosted agent deployment
+        if: env.DEPLOY_HOSTED_AGENT == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-hosted-agent.yml',
+              ref: 'main',
+              inputs: {
+                image_tag: '${{ github.sha }}'
+              }
+            });
+            console.log(`Triggered deploy-hosted-agent.yml with image_tag: ${{ github.sha }}`);

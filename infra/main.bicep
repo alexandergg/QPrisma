@@ -227,6 +227,8 @@ var appEnvVars = [
   { name: 'ARTIFACT_CACHE_TTL_SECONDS', value: string(artifactCacheTtlSeconds) }
   { name: 'ARTIFACT_CACHE_KEY_PREFIX', value: artifactCacheKeyPrefix }
   { name: 'ARTIFACT_BLOB_PREFIX', value: artifactBlobPrefix }
+  { name: 'FOUNDRY_PROJECT_ENDPOINT', value: aiFoundry.outputs.projectEndpoint }
+  { name: 'FOUNDRY_AGENT_NAME', value: 'qprisma-video-agent' }
 ]
 
 // Env vars that reference secrets by name
@@ -324,6 +326,9 @@ output apiFqdn string = apiContainerApp.outputs.fqdn
 output frontendFqdn string = frontendContainerApp.outputs.fqdn
 output acrLoginServer string = containerRegistry.outputs.loginServer
 output openAiEndpoint string = aiFoundry.outputs.endpoint
+output foundryProjectEndpoint string = aiFoundry.outputs.projectEndpoint
+output foundryProjectName string = aiFoundry.outputs.projectName
+output foundryProjectPrincipalId string = aiFoundry.outputs.projectPrincipalId
 output keyVaultUri string = keyVault.outputs.uri
 output storageAccountName string = storage.outputs.name
 output postgresServerName string = postgres.outputs.name

@@ -1,0 +1,125 @@
+name: Deploy Hosted Agent
+
+run-name: Deploy hosted agent ${{ inputs.image_tag || 'latest' }} to Foundry
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (git SHA)'
+        required: false
+        default: 'latest'
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy-hosted-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve Foundry project endpoint
+        id: resolve-foundry
+        run: |
+          # Get the AI Foundry account endpoint
+          ACCOUNT_NAME="aif-qprisma-dev"
+          PROJECT_NAME="${ACCOUNT_NAME}-project"
+          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+
+          ENDPOINT=$(az cognitiveservices account show \
+            --name "$ACCOUNT_NAME" \
+            --resource-group "$RG" \
+            --query "properties.endpoint" \
+            -o tsv)
+
+          # Construct project endpoint for the SDK
+          PROJECT_ENDPOINT="${ENDPOINT}openai/projects/${PROJECT_NAME}"
+          echo "project_endpoint=$PROJECT_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "account_name=$ACCOUNT_NAME" >> $GITHUB_OUTPUT
+          echo "project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+          echo "Resolved Foundry endpoint: $PROJECT_ENDPOINT"
+
+      - name: Grant ACR pull to Foundry project identity
+        run: |
+          # Get the project managed identity principal ID from infra deployment outputs
+          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+
+          # Query the AI Foundry project resource directly
+          ACCOUNT_NAME="${{ steps.resolve-foundry.outputs.account_name }}"
+          PROJECT_NAME="${{ steps.resolve-foundry.outputs.project_name }}"
+
+          PROJECT_PRINCIPAL_ID=$(az resource show \
+            --ids "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$RG/providers/Microsoft.CognitiveServices/accounts/$ACCOUNT_NAME/projects/$PROJECT_NAME" \
+            --query "identity.principalId" \
+            -o tsv)
+
+          if [ -z "$PROJECT_PRINCIPAL_ID" ]; then
+            echo "Warning: Could not resolve project identity, falling back to account identity"
+            PROJECT_PRINCIPAL_ID=$(az cognitiveservices account show \
+              --name "$ACCOUNT_NAME" \
+              --resource-group "$RG" \
+              --query "identity.principalId" \
+              -o tsv)
+          fi
+
+          ACR_ID=$(az acr show \
+            --name ${{ vars.ACR_NAME }} \
+            --query "id" \
+            -o tsv)
+
+          # Assign Container Registry Repository Reader (idempotent)
+          az role assignment create \
+            --role "AcrPull" \
+            --assignee-object-id "$PROJECT_PRINCIPAL_ID" \
+            --assignee-principal-type ServicePrincipal \
+            --scope "$ACR_ID" \
+            2>/dev/null || echo "Role assignment already exists"
+
+          echo "ACR pull role assigned to Foundry project identity"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install SDK dependencies
+        run: pip install 'azure-ai-projects>=1.0.0b7' azure-identity
+
+      - name: Register agent version in Foundry
+        id: register
+        run: |
+          python scripts/register_hosted_agent.py \
+            --project-endpoint "${{ steps.resolve-foundry.outputs.project_endpoint }}" \
+            --image "${{ vars.ACR_LOGIN_SERVER }}/qprisma-video-agent:${{ inputs.image_tag }}" \
+            --agent-name "qprisma-video-agent" \
+            --cpu 2 \
+            --memory 4Gi
+
+      - name: Verify agent registration
+        run: |
+          echo "## Hosted Agent Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Agent Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Name**: qprisma-video-agent" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: \`${{ vars.ACR_LOGIN_SERVER }}/qprisma-video-agent:${{ inputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Foundry Project**: ${{ steps.resolve-foundry.outputs.project_endpoint }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resources**: 2 CPU, 4Gi RAM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Protocols" >> $GITHUB_STEP_SUMMARY
+          echo "- Responses API (v1)" >> $GITHUB_STEP_SUMMARY

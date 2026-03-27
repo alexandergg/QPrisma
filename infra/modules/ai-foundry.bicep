@@ -149,3 +149,6 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
 output endpoint string = aiFoundry.properties.endpoint
 output id string = aiFoundry.id
 output name string = aiFoundry.name
+output projectName string = aiProject.name
+output projectEndpoint string = '${aiFoundry.properties.endpoint}openai/projects/${aiProject.name}'
+output projectPrincipalId string = aiProject.identity.principalId
