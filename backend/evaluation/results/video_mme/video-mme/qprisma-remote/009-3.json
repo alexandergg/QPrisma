@@ -1,0 +1,20 @@
+{
+  "question_id": "009-3",
+  "method": "qprisma-remote",
+  "answer": "I'm sorry, I encountered an unexpected error processing your request. Please try again.",
+  "predicted_choice": null,
+  "predicted_timestamps": null,
+  "predicted_segments": null,
+  "retrieved_nodes": null,
+  "retrieved_context": null,
+  "latency_ms": 3985.405899991747,
+  "retrieval_latency_ms": null,
+  "tokens_used": null,
+  "cost_usd": null,
+  "tool_calls": 0,
+  "error": null,
+  "metadata": {
+    "sources_count": 0,
+    "session_id": "05816c6f-5a77-4c93-b0c0-0237ea5f9ebc"
+  }
+}

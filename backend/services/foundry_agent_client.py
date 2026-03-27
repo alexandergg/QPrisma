@@ -57,6 +57,7 @@ class FoundryAgentClient:
             self._client = AIProjectClient(
                 endpoint=self._project_endpoint,
                 credential=DefaultAzureCredential(),
+                allow_preview=True,
             )
             return self._client
         except ImportError:

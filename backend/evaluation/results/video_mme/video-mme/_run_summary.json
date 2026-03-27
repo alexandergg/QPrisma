@@ -1,0 +1,36 @@
+{
+  "qprisma-remote": {
+    "total": 33,
+    "errors": 0,
+    "successful": 33,
+    "efficiency": {
+      "n_queries": 33,
+      "latency_mean_ms": 5743.731306063251,
+      "latency_p50_ms": 4781.665800022893,
+      "latency_p95_ms": 10613.531779998446,
+      "latency_p99_ms": 11219.831263970118,
+      "cost_mean_usd": 0.0,
+      "cost_total_usd": 0.0,
+      "tokens_mean": 0,
+      "tokens_total": 0,
+      "tool_calls_mean": 0
+    }
+  },
+  "direct-search-remote": {
+    "total": 33,
+    "errors": 15,
+    "successful": 18,
+    "efficiency": {
+      "n_queries": 33,
+      "latency_mean_ms": 6526.5319363750295,
+      "latency_p50_ms": 3497.7625000174157,
+      "latency_p95_ms": 44212.16780001996,
+      "latency_p99_ms": 44346.02060002508,
+      "cost_mean_usd": 0.0,
+      "cost_total_usd": 0.0,
+      "tokens_mean": 0,
+      "tokens_total": 0,
+      "tool_calls_mean": 0
+    }
+  }
+}

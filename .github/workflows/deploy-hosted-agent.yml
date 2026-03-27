@@ -37,19 +37,12 @@ jobs:
       - name: Resolve Foundry project endpoint
         id: resolve-foundry
         run: |
-          # Get the AI Foundry account endpoint
+          # Get the AI Foundry account name and project name
           ACCOUNT_NAME="aif-qprisma-dev"
           PROJECT_NAME="${ACCOUNT_NAME}-project"
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
 
-          ENDPOINT=$(az cognitiveservices account show \
-            --name "$ACCOUNT_NAME" \
-            --resource-group "$RG" \
-            --query "properties.endpoint" \
-            -o tsv)
-
-          # Construct project endpoint for the SDK
-          PROJECT_ENDPOINT="${ENDPOINT}openai/projects/${PROJECT_NAME}"
+          # Foundry SDK requires services.ai.azure.com/api/projects/ format
+          PROJECT_ENDPOINT="https://${ACCOUNT_NAME}.services.ai.azure.com/api/projects/${PROJECT_NAME}"
           echo "project_endpoint=$PROJECT_ENDPOINT" >> $GITHUB_OUTPUT
           echo "account_name=$ACCOUNT_NAME" >> $GITHUB_OUTPUT
           echo "project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT

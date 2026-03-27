@@ -1,0 +1,19 @@
+{
+  "question_id": "001-3",
+  "method": "direct-search-remote",
+  "answer": "A",
+  "predicted_choice": "A",
+  "predicted_timestamps": null,
+  "predicted_segments": null,
+  "retrieved_nodes": null,
+  "retrieved_context": "Scene: Indoor, living room or similar festive environment.. Lighting: Warm, well-lit primarily by the fireplace and ambient indoor lighting.. Atmosphere: Cheerful, cozy, festive.. Style: Decorative, holiday-themed, warm and inviting.. On-screen text: 13newsnow.com Visual elements: Christmas tree with golden ornaments, fireplace with burning fire, mantle with stockings and decorations, wrapped presents Actions: Shown is a festive scene presumably meant for visual enjoyment and to convey the holid\nScene: Indoor studio with a city view against glass windows. Lighting: Bright studio lighting; dusky outdoor light visible. Atmosphere: Professional and formal. Style: Broadcast studio setup. Person: Unknown — Adult wearing a blue suit with red tie, short hair. Role: Presenter. Emotion: Neutral, professional demeanor. Person: Unknown — Adult wearing a red top, necklace, medium-length hair. Role: Presenter. Emotion: Neutral, professional demeanor. On-screen text: 13newsnow.com Visual elements: Br\nIn New at 6, we're looking at the seasonal displays that are popping up everywhere these\nScene: indoor. Lighting: bright, natural. Atmosphere: festive, cheerful. Style: artistic, historical illustration. Person: Unknown — A child in a beige outfit standing on a platform, holding an item in their hands.. Role: character in illustration. Emotion: neutral. Person: Unknown — A group of children at the bottom of the image, wearing festive clothing.. Role: audience in artwork. Emotion: cheerful. On-screen text: 13newsnow.com Visual elements: Christmas tree, decorative platform, musical sh\nScene: indoor environment with a display area of festive decorations. Lighting: bright even lighting enhancing visual clarity. Atmosphere: lively and festive atmosphere with a focus on celebratory elements. Style: artistic and decorative representation aimed at aesthetic appeal. Visual elements: Christmas tree, candles, branches, decorative elements Actions: Representation of Christmas decor with a tree and suspended striped candles Topics: Holiday decorations, Christmas traditions, Festive aest",
+  "latency_ms": 6058.156799990684,
+  "retrieval_latency_ms": null,
+  "tokens_used": null,
+  "cost_usd": null,
+  "tool_calls": null,
+  "error": null,
+  "metadata": {
+    "search_results_count": 20
+  }
+}

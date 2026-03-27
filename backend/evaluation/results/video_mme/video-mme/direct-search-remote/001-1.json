@@ -1,0 +1,19 @@
+{
+  "question_id": "001-1",
+  "method": "direct-search-remote",
+  "answer": "C",
+  "predicted_choice": "C",
+  "predicted_timestamps": null,
+  "predicted_segments": null,
+  "retrieved_nodes": null,
+  "retrieved_context": "Scene: indoor environment with a display area of festive decorations. Lighting: bright even lighting enhancing visual clarity. Atmosphere: lively and festive atmosphere with a focus on celebratory elements. Style: artistic and decorative representation aimed at aesthetic appeal. Visual elements: Christmas tree, candles, branches, decorative elements Actions: Representation of Christmas decor with a tree and suspended striped candles Topics: Holiday decorations, Christmas traditions, Festive aest\nScene: Indoor, a decorated environment for the Christmas season. Lighting: Moderate lighting, warm and festive atmosphere. Atmosphere: Joyous and celebrative. Style: Festive and decorative. On-screen text: 13newsnow.com Visual elements: Christmas tree, Glass panel door, Decorations, Ribbons, Holiday ornaments Actions: The frame shows a decorated Christmas tree, appearing as the main visual focus, set in a festive indoor location. Topics: Christmas decorations, Holiday celebrations, Interior deco\nSmall, evergreen trees were decorated with things like candles, apples, and berries.\nScene: Indoor, living room or similar festive environment.. Lighting: Warm, well-lit primarily by the fireplace and ambient indoor lighting.. Atmosphere: Cheerful, cozy, festive.. Style: Decorative, holiday-themed, warm and inviting.. On-screen text: 13newsnow.com Visual elements: Christmas tree with golden ornaments, fireplace with burning fire, mantle with stockings and decorations, wrapped presents Actions: Shown is a festive scene presumably meant for visual enjoyment and to convey the holid\nScene: indoor/studio. Lighting: bright and evenly distributed. Atmosphere: neutral and professional. Style: simple and minimalistic. Visual elements: realistic green fir tree Actions: Still image, no specific action occurring Topics: Christmas trees, forest products, holiday decorations Keywords: Christmas tree, green fir tree, holiday decoration, Christmas, evergreen, festive, tree species, nature element, minimalist design, holiday season Questions answered: What does a Christmas tree look lik",
+  "latency_ms": 6050.287399964873,
+  "retrieval_latency_ms": null,
+  "tokens_used": null,
+  "cost_usd": null,
+  "tool_calls": null,
+  "error": null,
+  "metadata": {
+    "search_results_count": 20
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "question_id": "008-1",
+  "method": "direct-search-remote",
+  "answer": "A",
+  "predicted_choice": "A",
+  "predicted_timestamps": null,
+  "predicted_segments": null,
+  "retrieved_nodes": null,
+  "retrieved_context": "Scene: indoor, possibly a creative workspace or classroom focused on teaching or presenting. Lighting: bright, evenly lit, with no shadows, suggesting overhead artificial daylight lighting. Atmosphere: creative, engaging, and educational. Style: casual, hand-drawn visuals with a focus on clarity and simplicity. Person: Unknown — visible hand holding a whiteboard marker, adult, likely male or female, wearing neutral-toned clothing. Role: presenter or instructor, involved in creating or explaining\nScene: Indoor, studio environment. Lighting: Bright, evenly distributed artificial lighting. Atmosphere: Focused and instructional. Style: Professional and educational. Person: Unknown — Hand holding a whiteboard marker. Role: Presenter. Emotion: Focused. On-screen text: smule; Guitar! Visual elements: Whiteboard, Hand with a marker, Drawing of a guitar-related icon, Brand logo Actions: Drawing or annotating a diagram on a whiteboard Topics: Music applications, Graphic demonstration, Brand icono\nScene: Indoor, classroom or office environment. Lighting: Bright, neutral lighting. Atmosphere: Focused, instructional. Style: Casual, educational. Person: Unknown — An adult person, writing on a whiteboard. Only their forearm and hand are visible, holding a marker.. Role: Presenter. Emotion: Neutral. On-screen text: smu Visual elements: Whiteboard, Marker pen of a specific color (green and white), Handwriting Actions: A person is writing on a whiteboard using a marker. Topics: Whiteboard usage,\nScene: indoor, classroom or studio with a whiteboard. Lighting: evenly lit, indoor lighting. Atmosphere: lighthearted, creative energy. Style: casual, illustrative. Person: Unknown — An individual, hand visible, holding a marker, likely creating or pointing to illustrations on a whiteboard.. Role: presenter or demonstrator. Emotion: neutral to slightly focused. Visual elements: whiteboard, marker, drawings of musicians, drum set illustration, guitar illustration, cartoon characters on whiteboard\nThe guitar isn't just the staple of a good rock group.",
+  "latency_ms": 44374.063200026285,
+  "retrieval_latency_ms": null,
+  "tokens_used": null,
+  "cost_usd": null,
+  "tool_calls": null,
+  "error": null,
+  "metadata": {
+    "search_results_count": 20
+  }
+}

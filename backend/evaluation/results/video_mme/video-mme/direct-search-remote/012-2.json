@@ -1,0 +1,19 @@
+{
+  "question_id": "012-2",
+  "method": "direct-search-remote",
+  "answer": "A",
+  "predicted_choice": "A",
+  "predicted_timestamps": null,
+  "predicted_segments": null,
+  "retrieved_nodes": null,
+  "retrieved_context": "Scene: Indoor, an art museum space with an exhibition wall. Lighting: Bright and even, typical of a gallery. Atmosphere: Minimalistic and contemplative, with a focus on the exhibit. Style: Documentary, observational. Person: Unknown — A middle-aged individual, dressed in a formal attire, holding a banana peel. Role: Viewer or participant interacting with the art installation. Emotion: Neutral, possibly thoughtful or intrigued. On-screen text: KBS News; Leeum Museum of Art Seoul; A student ate a \nScene: indoor, gallery or exhibition space. Lighting: bright, uniform. Atmosphere: thought-provoking, minimalist. Style: modern, artistic. On-screen text: but he later added: 'damaging a work of modern art could also be art' Visual elements: banana, gray duct tape, white wall, modern art installation Actions: depicting a controversial art installation involving a banana taped to a wall Topics: modern art, conceptual art, art controversies Keywords: modern art, conceptual installation, banana art\nScene: indoor, art exhibition. Lighting: well-lit with consistent artificial lighting. Atmosphere: informative and artistic. Style: documentary, casual. Person: Unknown — An individual holding a banana, wearing a dark long-sleeve shirt. Apparent age range is around 30-45.. Role: art attendee. Emotion: neutral. On-screen text: 2019; Ronn Torossian | 5Wpr; Art Basel Miami Beach; And I think this is the; first one in art history; The; Guardian Visual elements: banana, art piece featuring abstract d\nwhen I saw this banana, everyone thinking, you know, how we can answer it to Maurizio.\nthe first one in art history when one artist eat concept for another artist. This was art",
+  "latency_ms": 4455.588800017722,
+  "retrieval_latency_ms": null,
+  "tokens_used": null,
+  "cost_usd": null,
+  "tool_calls": null,
+  "error": null,
+  "metadata": {
+    "search_results_count": 20
+  }
+}

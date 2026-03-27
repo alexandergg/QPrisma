@@ -1,0 +1,19 @@
+{
+  "question_id": "011-3",
+  "method": "direct-search-remote",
+  "answer": "A",
+  "predicted_choice": "A",
+  "predicted_timestamps": null,
+  "predicted_segments": null,
+  "retrieved_nodes": null,
+  "retrieved_context": "Scene: Indoor, in a performance theater.. Lighting: Spotlighting focusing on performers; dim in the audience area.. Atmosphere: Artistic and focused, with a calm intensity.. Style: Professional stage performance.. Person: Unknown — Female dancers, possibly young adults, dressed in white ballet attire and posed in mid-performance.. Role: Performers. Emotion: Focused and expressive.. Visual elements: Stage, Curtains, Spotlights, Dance costumes Actions: Performers are engaging in a synchronized dan\nScene: Indoor, theater stage. Lighting: Well-lit stage with overhead spotlights. Atmosphere: Elegant and formal. Style: Professional performance setup. Person: Unknown — Four dancers in their teens or twenties wearing white tutus and ballet attire. Role: Performers. Emotion: Focused and graceful. On-screen text:  Visual elements: Ballet dancers, Stage with curtain, Audience in silhouette, Stage lighting Actions: Four dancers are performing a classical ballet routine on a stage. Topics: Dance per\nScene: indoor, theater stage. Lighting: focused stage lighting, spotlights on dancers. Atmosphere: elegant, artistic, and lively. Style: performative and stage-oriented. Person: Unknown — Four ballet dancers, wearing white ballet dresses, appearing to be young adults, female.. Role: performers. Emotion: focused and graceful. On-screen text:  Visual elements: ballet stage, theater curtains, dancers in white outfits Actions: performing a ballet routine with synchronized movements Topics: dance per\nScene: Indoor, stage auditorium. Lighting: Spotlighting on performers, dim lighting over audience. Atmosphere: Artistic performance, elegant. Style: Cinematic with dramatic lighting. Person: Unknown — Four dancers in white ballet costumes, female, seemingly young adults. Role: Performers. Emotion: Focused and graceful. Visual elements: Four ballet dancers, Dark stage, Audience in dim lighting, Curtains, Empty stage floor Actions: Four dancers are performing a synchronized ballet choreography on \nScene: indoor stage. Lighting: focused stage lighting with dark surrounding. Atmosphere: elegant and poised. Style: formal theatrical. Person: Unknown — Young individual, appears female, wearing white ballet costume with tutu.. Role: performer. Emotion: focused and concentrated. Person: Unknown — Young individual, appears female, wearing white ballet costume with tutu.. Role: performer. Emotion: focused and concentrated. Person: Unknown — Young individual, appears female, wearing white ballet co",
+  "latency_ms": 4996.983800025191,
+  "retrieval_latency_ms": null,
+  "tokens_used": null,
+  "cost_usd": null,
+  "tool_calls": null,
+  "error": null,
+  "metadata": {
+    "search_results_count": 20
+  }
+}

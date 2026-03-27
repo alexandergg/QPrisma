@@ -1,0 +1,19 @@
+{
+  "question_id": "010-3",
+  "method": "direct-search-remote",
+  "answer": "A",
+  "predicted_choice": "A",
+  "predicted_timestamps": null,
+  "predicted_segments": null,
+  "retrieved_nodes": null,
+  "retrieved_context": "Scene: Outdoor, urban area illustration. Lighting: Neutral, consistent lighting suitable for animation. Atmosphere: Playful, lighthearted. Style: Stylized, hand-drawn animation. Person: Unknown — A cartoon-styled figure with simplified features wearing aviator glasses. Role: Character in animation. Emotion: Determined or cheerful (based on visual cues). Visual elements: Sketch of an airplane, Sketch of twin towers resembling the Petronas Towers, Clouds, Sketchy background texture Actions: A draw\nScene: Outdoor environment, airport setting visualized via a drawing. Lighting: Illustrative drawing with uniform tonal shading. Atmosphere: Neutral and informational. Style: Minimalistic illustrative style, hand-drawn sketch aesthetic. Person: Unknown — Drawn characters in the aircraft boarding area, unstylized and featureless outlines. Role: Passengers depicted in the sketch. Emotion: Neutral due to the basic illustrative style. Visual elements: Aircraft, Passenger boarding stair, Abstract rep\nScene: outdoor, stylized depiction on textured background. Lighting: flat, even lighting. Atmosphere: whimsical, light-hearted. Style: illustrated, hand-drawn. Visual elements: hand-drawn airplane, hand-drawn clouds, hand-drawn tree, textured background suggesting paper or cardboard Actions: illustrated scene showing a plane flying among clouds and next to a tree Topics: cartoon illustration, visual storytelling, artistic animation Keywords: illustrated airplane, hand-drawn art, artistic animati\nIt's a big world, full of difference and diversity.\nTo be a savvy global traveller, you need to be willing to undertake the journey of understanding",
+  "latency_ms": 5491.24360003043,
+  "retrieval_latency_ms": null,
+  "tokens_used": null,
+  "cost_usd": null,
+  "tool_calls": null,
+  "error": null,
+  "metadata": {
+    "search_results_count": 20
+  }
+}

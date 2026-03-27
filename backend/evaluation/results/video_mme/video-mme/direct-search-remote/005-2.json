@@ -1,0 +1,19 @@
+{
+  "question_id": "005-2",
+  "method": "direct-search-remote",
+  "answer": "",
+  "predicted_choice": null,
+  "predicted_timestamps": null,
+  "predicted_segments": null,
+  "retrieved_nodes": null,
+  "retrieved_context": "",
+  "latency_ms": 474.84959999565035,
+  "retrieval_latency_ms": null,
+  "tokens_used": null,
+  "cost_usd": null,
+  "tool_calls": null,
+  "error": "HTTP 503",
+  "metadata": {
+    "search_results_count": 0
+  }
+}
