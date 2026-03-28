@@ -1,15 +1,14 @@
 name: Deploy Hosted Agent
 
-run-name: Deploy hosted agent ${{ inputs.image_tag || 'latest' }} to Foundry
+run-name: Deploy hosted agent to Foundry via azd
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/agent/**'
+      - 'azure.yaml'
   workflow_dispatch:
-    inputs:
-      image_tag:
-        description: 'Image tag to deploy (git SHA)'
-        required: false
-        default: 'latest'
-        type: string
 
 permissions:
   id-token: write
@@ -22,10 +21,13 @@ concurrency:
 jobs:
   deploy-hosted-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment: dev
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Azure Developer CLI
+        uses: Azure/setup-azd@v2
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2
@@ -34,122 +36,45 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Resolve Foundry project endpoint
-        id: resolve-foundry
+      - name: Login azd (federated)
         run: |
-          # Get the AI Foundry account name and project name
+          azd auth login \
+            --client-id "${{ secrets.AZURE_CLIENT_ID }}" \
+            --federated-credential-provider github \
+            --tenant-id "${{ secrets.AZURE_TENANT_ID }}"
+
+      - name: Configure azd environment
+        run: |
+          azd env new dev --no-prompt 2>/dev/null || true
+          azd env select dev
+
+          azd env set AZURE_SUBSCRIPTION_ID "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          azd env set AZURE_RESOURCE_GROUP "${{ vars.AZURE_RESOURCE_GROUP }}"
+          azd env set AZURE_LOCATION "swedencentral"
+
+          # Resolve Foundry project endpoint
           ACCOUNT_NAME="aif-qprisma-dev"
           PROJECT_NAME="${ACCOUNT_NAME}-project"
-
-          # Foundry SDK requires services.ai.azure.com/api/projects/ format
           PROJECT_ENDPOINT="https://${ACCOUNT_NAME}.services.ai.azure.com/api/projects/${PROJECT_NAME}"
-          echo "project_endpoint=$PROJECT_ENDPOINT" >> $GITHUB_OUTPUT
-          echo "account_name=$ACCOUNT_NAME" >> $GITHUB_OUTPUT
-          echo "project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
-          echo "Resolved Foundry endpoint: $PROJECT_ENDPOINT"
+          azd env set AZURE_AI_FOUNDRY_PROJECT_ENDPOINT "$PROJECT_ENDPOINT"
 
-      - name: Grant ACR pull to Foundry project identity
-        run: |
-          # Get the project managed identity principal ID from infra deployment outputs
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+          # Container registry
+          azd env set AZURE_CONTAINER_REGISTRY_ENDPOINT "${{ vars.ACR_LOGIN_SERVER }}"
 
-          # Query the AI Foundry project resource directly
-          ACCOUNT_NAME="${{ steps.resolve-foundry.outputs.account_name }}"
-          PROJECT_NAME="${{ steps.resolve-foundry.outputs.project_name }}"
+          echo "Configured azd env:"
+          echo "  Project endpoint: $PROJECT_ENDPOINT"
+          echo "  ACR: ${{ vars.ACR_LOGIN_SERVER }}"
 
-          PROJECT_PRINCIPAL_ID=$(az resource show \
-            --ids "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/$RG/providers/Microsoft.CognitiveServices/accounts/$ACCOUNT_NAME/projects/$PROJECT_NAME" \
-            --query "identity.principalId" \
-            -o tsv)
+      - name: Deploy hosted agent
+        run: azd deploy --service agent --no-prompt
 
-          if [ -z "$PROJECT_PRINCIPAL_ID" ]; then
-            echo "Warning: Could not resolve project identity, falling back to account identity"
-            PROJECT_PRINCIPAL_ID=$(az cognitiveservices account show \
-              --name "$ACCOUNT_NAME" \
-              --resource-group "$RG" \
-              --query "identity.principalId" \
-              -o tsv)
-          fi
-
-          ACR_ID=$(az acr show \
-            --name ${{ vars.ACR_NAME }} \
-            --query "id" \
-            -o tsv)
-
-          # Assign Container Registry Repository Reader (idempotent)
-          az role assignment create \
-            --role "AcrPull" \
-            --assignee-object-id "$PROJECT_PRINCIPAL_ID" \
-            --assignee-principal-type ServicePrincipal \
-            --scope "$ACR_ID" \
-            2>/dev/null || echo "Role assignment already exists"
-
-          echo "ACR pull role assigned to Foundry project identity"
-
-      - name: Grant Azure AI User to CI principal
-        run: |
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-          ACCOUNT_NAME="${{ steps.resolve-foundry.outputs.account_name }}"
-
-          # Get the AI Foundry account resource ID
-          ACCOUNT_ID=$(az cognitiveservices account show \
-            --name "$ACCOUNT_NAME" \
-            --resource-group "$RG" \
-            --query "id" \
-            -o tsv)
-
-          # Get the current OIDC principal object ID
-          CI_PRINCIPAL_OID=$(az ad sp show \
-            --id "${{ secrets.AZURE_CLIENT_ID }}" \
-            --query "id" \
-            -o tsv)
-
-          # "Azure AI User" is the Foundry role with agents data actions
-          az role assignment create \
-            --role "Azure AI User" \
-            --assignee-object-id "$CI_PRINCIPAL_OID" \
-            --assignee-principal-type ServicePrincipal \
-            --scope "$ACCOUNT_ID" \
-            2>/dev/null || echo "Role assignment already exists"
-
-          echo "Azure AI User role assigned to CI principal on $ACCOUNT_NAME"
-
-          # Wait for RBAC propagation (new assignments can take up to 5 min)
-          echo "Waiting 60s for RBAC propagation..."
-          sleep 60
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install SDK dependencies
-        run: pip install 'azure-ai-projects>=1.0.0b7' azure-identity
-
-      - name: Register agent version in Foundry
-        id: register
-        run: |
-          # Sanitize image tag (strip BOM, whitespace, non-printable chars)
-          IMAGE_TAG=$(echo -n "${{ inputs.image_tag }}" | sed 's/[^a-zA-Z0-9._-]//g')
-          IMAGE="${{ vars.ACR_LOGIN_SERVER }}/qprisma-video-agent:${IMAGE_TAG}"
-          echo "Using image: $IMAGE"
-
-          python scripts/register_hosted_agent.py \
-            --project-endpoint "${{ steps.resolve-foundry.outputs.project_endpoint }}" \
-            --image "$IMAGE" \
-            --agent-name "qprisma-video-agent" \
-            --cpu 2 \
-            --memory 4Gi
-
-      - name: Verify agent registration
+      - name: Deployment summary
         run: |
           echo "## Hosted Agent Deployment" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Agent Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Name**: qprisma-video-agent" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image**: \`${{ vars.ACR_LOGIN_SERVER }}/qprisma-video-agent:${{ inputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Foundry Project**: ${{ steps.resolve-foundry.outputs.project_endpoint }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Resources**: 2 CPU, 4Gi RAM" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Protocols" >> $GITHUB_STEP_SUMMARY
-          echo "- Responses API (v1)" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Agent | qprisma-video-agent |" >> $GITHUB_STEP_SUMMARY
+          echo "| Method | azd deploy |" >> $GITHUB_STEP_SUMMARY
+          echo "| Resources | 2 CPU, 4Gi RAM |" >> $GITHUB_STEP_SUMMARY
+          echo "| Protocols | Responses API v1, A2A v0.2.1 |" >> $GITHUB_STEP_SUMMARY

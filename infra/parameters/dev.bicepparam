@@ -3,7 +3,6 @@ using '../main.bicep'
 param environment = 'dev'
 param dbAdminLogin = 'qprismaadmin'
 param dbAdminPassword = readEnvironmentVariable('DB_ADMIN_PASSWORD', '')
-param deployBatchModel = true
 param neo4jPassword = readEnvironmentVariable('NEO4J_PASSWORD', '')
 param jwtSecretKey = readEnvironmentVariable('JWT_SECRET_KEY', '')
 

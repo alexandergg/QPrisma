@@ -1,0 +1,24 @@
+# QPrisma — Azure Developer CLI Configuration
+# =============================================
+# Used by `azd` to manage the hosted agent lifecycle via the AI Foundry extension.
+# Core infrastructure (Postgres, Redis, Container Apps) is managed separately
+# by deploy-infra.yml and is NOT part of this azd project.
+#
+# Usage:
+#   azd auth login
+#   azd env new dev
+#   azd env set AZURE_AI_FOUNDRY_PROJECT_ENDPOINT <endpoint>
+#   azd deploy --service agent
+#
+# Docs: https://learn.microsoft.com/azure/developer/azure-developer-cli/extensions/azure-ai-foundry-extension
+
+name: qprisma
+
+services:
+  agent:
+    host: ai.foundry
+    project: ./backend/agent/hosted
+    language: python
+    docker:
+      path: ./Dockerfile
+      context: ../..

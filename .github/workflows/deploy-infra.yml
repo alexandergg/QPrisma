@@ -81,74 +81,12 @@ jobs:
             --location "westeurope" \
             --output none
 
-      - name: Cancel stale ARM deployments
-        run: |
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-          echo "Checking for in-progress ARM deployments..."
-          RUNNING=$(az deployment group list \
-            --resource-group "$RG" \
-            --filter "provisioningState eq 'Running'" \
-            --query "[].name" -o tsv 2>/dev/null || true)
-          if [ -n "$RUNNING" ]; then
-            for DEPLOY_NAME in $RUNNING; do
-              echo "  Cancelling stale deployment: $DEPLOY_NAME"
-              az deployment group cancel \
-                --resource-group "$RG" \
-                --name "$DEPLOY_NAME" 2>/dev/null || true
-            done
-            echo "Waiting 30s for cancellation to propagate..."
-            sleep 30
-          else
-            echo "  No stale deployments found."
-          fi
-
-      - name: Wait for AI Foundry provisioning to settle
-        run: |
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-          AI_NAME="aif-qprisma-dev"
-
-          # Skip if the resource doesn't exist yet (first-ever deploy)
-          if ! az cognitiveservices account show \
-            --name "$AI_NAME" --resource-group "$RG" \
-            --query "name" -o tsv 2>/dev/null; then
-            echo "AI Foundry resource does not exist yet — skipping wait."
-            exit 0
-          fi
-
-          # 1. Wait for account-level provisioning state
-          echo "Polling AI Foundry account state (up to 10 min)..."
-          for i in $(seq 1 20); do
-            STATE=$(az cognitiveservices account show \
-              --name "$AI_NAME" --resource-group "$RG" \
-              --query "properties.provisioningState" -o tsv 2>/dev/null || echo "Unknown")
-            echo "  [$i/20] Account provisioningState=$STATE"
-            if [ "$STATE" = "Succeeded" ] || [ "$STATE" = "Failed" ] || [ "$STATE" = "Unknown" ]; then
-              break
-            fi
-            sleep 30
-          done
-
-          # 2. Wait for all model deployments to reach terminal state
-          echo "Checking model deployment states..."
-          for attempt in $(seq 1 10); do
-            NON_TERMINAL=$(az cognitiveservices account deployment list \
-              --name "$AI_NAME" --resource-group "$RG" \
-              --query "[?properties.provisioningState!='Succeeded' && properties.provisioningState!='Failed'].{name:name, state:properties.provisioningState}" \
-              -o tsv 2>/dev/null || true)
-            if [ -z "$NON_TERMINAL" ]; then
-              echo "  All model deployments in terminal state."
-              break
-            fi
-            echo "  [$attempt/10] Waiting on model deployments: $NON_TERMINAL"
-            sleep 30
-          done
-
       - name: Deploy Bicep template
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 20
-          max_attempts: 3
-          retry_wait_seconds: 120
+          max_attempts: 2
+          retry_wait_seconds: 60
           command: |
             az deployment group create \
               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
@@ -175,4 +113,4 @@ jobs:
           echo "| Resource Group | ${{ vars.AZURE_RESOURCE_GROUP }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Key Vault | ${{ vars.KEY_VAULT_NAME }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Neo4j | Provisioned as Container App (internal) |" >> $GITHUB_STEP_SUMMARY
-          echo "| OpenAI | Provisioned via AI Foundry (5 model deployments) |" >> $GITHUB_STEP_SUMMARY
+          echo "| AI Foundry | Referenced (deployed separately via deploy-ai-foundry.yml) |" >> $GITHUB_STEP_SUMMARY

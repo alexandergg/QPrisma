@@ -285,12 +285,13 @@ Phase 6:             Key Vault (needs managed identities from API + Worker)
 |-----------|------|---------|-------------|
 | `environment` | `'dev' \| 'staging' \| 'production'` | `'dev'` | Deployment environment |
 | `location` | string | `'westeurope'` | Primary region for apps |
-| `aiLocation` | string | `'swedencentral'` | AI Foundry region (model availability) |
 | `dbLocation` | string | `'northeurope'` | PostgreSQL region (service availability) |
-| `deployBatchModel` | bool | `true` | Toggle for batch API deployment |
 | `dbAdminPassword` | secureString | — | PostgreSQL admin password |
 | `neo4jPassword` | secureString | — | Neo4j authentication password |
 | `jwtSecretKey` | secureString | — | JWT signing secret |
+
+> **Note:** AI Foundry parameters (`aiLocation`, `deployBatchModel`) are now in
+> `infra/parameters/ai-foundry-dev.bicepparam`, deployed separately via `deploy-ai-foundry.yml`.
 
 ### Container App Environment Variables
 

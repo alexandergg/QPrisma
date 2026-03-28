@@ -4,9 +4,6 @@ param environment string = 'dev'
 @description('Location for all resources')
 param location string = 'westeurope'
 
-@description('Location for Azure AI Foundry (OpenAI) resources')
-param aiLocation string = 'swedencentral'
-
 @description('Location for PostgreSQL Flexible Server')
 param dbLocation string = 'northeurope'
 
@@ -16,9 +13,6 @@ param dbAdminLogin string = 'qprismaadmin'
 @description('Database administrator password')
 @secure()
 param dbAdminPassword string
-
-@description('Deploy batch model (gpt-4o-batch)')
-param deployBatchModel bool = true
 
 @description('Neo4j admin password (for Container App Neo4j instance)')
 @secure()
@@ -79,7 +73,7 @@ var workerContainerAppName = 'ca-qprisma-worker-${environment}'
 var neo4jContainerAppName = 'ca-qprisma-neo4j-${environment}'
 
 // =====================================================================
-// Foundation: Storage, Databases, AI
+// Foundation: Storage, Databases, Container Registry
 // =====================================================================
 
 module storage 'modules/storage.bicep' = {
@@ -116,18 +110,6 @@ module containerRegistry 'modules/container-registry.bicep' = {
   params: {
     name: containerRegistryName
     location: location
-    tags: tags
-  }
-}
-
-module aiFoundry 'modules/ai-foundry.bicep' = {
-  name: 'ai-foundry-deployment'
-  params: {
-    name: aiFoundryName
-    location: aiLocation
-    deployBatchModel: deployBatchModel
-    storageAccountId: storage.outputs.id
-    storageAccountName: storage.outputs.name
     tags: tags
   }
 }
@@ -176,6 +158,11 @@ resource existingAiFoundry 'Microsoft.CognitiveServices/accounts@2025-06-01' exi
   name: aiFoundryName
 }
 
+resource existingAiProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' existing = {
+  name: '${aiFoundryName}-project'
+  parent: existingAiFoundry
+}
+
 resource existingStorage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
   name: storageAccountName
 }
@@ -216,7 +203,7 @@ var frontendFqdn = '${frontendContainerAppName}.${containerAppsEnv.outputs.defau
 var appEnvVars = [
   { name: 'NEO4J_URI', value: neo4j.outputs.boltUri }
   { name: 'NEO4J_USER', value: 'neo4j' }
-  { name: 'AZURE_OPENAI_ENDPOINT', value: aiFoundry.outputs.endpoint }
+  { name: 'AZURE_OPENAI_ENDPOINT', value: existingAiFoundry.properties.endpoint }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT52_CHAT', value: 'gpt-5.2-chat' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
@@ -229,7 +216,7 @@ var appEnvVars = [
   { name: 'ARTIFACT_CACHE_TTL_SECONDS', value: string(artifactCacheTtlSeconds) }
   { name: 'ARTIFACT_CACHE_KEY_PREFIX', value: artifactCacheKeyPrefix }
   { name: 'ARTIFACT_BLOB_PREFIX', value: artifactBlobPrefix }
-  { name: 'FOUNDRY_PROJECT_ENDPOINT', value: aiFoundry.outputs.projectEndpoint }
+  { name: 'FOUNDRY_PROJECT_ENDPOINT', value: 'https://${aiFoundryName}.services.ai.azure.com/api/projects/${existingAiProject.name}' }
   { name: 'FOUNDRY_AGENT_NAME', value: 'qprisma-video-agent' }
 ]
 
@@ -250,7 +237,7 @@ var appSecretEnvVars = [
 
 module apiContainerApp 'modules/container-app-api.bicep' = {
   name: 'api-deployment'
-  dependsOn: [storage, postgres, redis, containerRegistry, aiFoundry]
+  dependsOn: [storage, postgres, redis, containerRegistry]
   params: {
     name: apiContainerAppName
     location: location
@@ -286,7 +273,7 @@ module frontendContainerApp 'modules/container-app-frontend.bicep' = {
 
 module workerContainerApp 'modules/container-app-worker.bicep' = {
   name: 'worker-deployment'
-  dependsOn: [storage, postgres, redis, containerRegistry, aiFoundry]
+  dependsOn: [storage, postgres, redis, containerRegistry]
   params: {
     name: workerContainerAppName
     location: location
@@ -327,10 +314,10 @@ module keyVault 'modules/key-vault.bicep' = {
 output apiFqdn string = apiContainerApp.outputs.fqdn
 output frontendFqdn string = frontendContainerApp.outputs.fqdn
 output acrLoginServer string = containerRegistry.outputs.loginServer
-output openAiEndpoint string = aiFoundry.outputs.endpoint
-output foundryProjectEndpoint string = aiFoundry.outputs.projectEndpoint
-output foundryProjectName string = aiFoundry.outputs.projectName
-output foundryProjectPrincipalId string = aiFoundry.outputs.projectPrincipalId
+output openAiEndpoint string = existingAiFoundry.properties.endpoint
+output foundryProjectEndpoint string = 'https://${aiFoundryName}.services.ai.azure.com/api/projects/${existingAiProject.name}'
+output foundryProjectName string = existingAiProject.name
+output foundryProjectPrincipalId string = existingAiProject.identity.principalId
 output keyVaultUri string = keyVault.outputs.uri
 output storageAccountName string = storage.outputs.name
 output postgresServerName string = postgres.outputs.name
