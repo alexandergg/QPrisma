@@ -193,7 +193,7 @@ var appSecrets = [
   { name: 'jwt-secret-key', value: jwtSecretKey }
   { name: 'database-url', value: pgConnectionString }
   { name: 'redis-url', value: redisConnectionString }
-  { name: 'mem0-api-key', value: mem0ApiKey }
+  { name: 'mem0-api-key', value: empty(mem0ApiKey) ? 'not-configured' : mem0ApiKey }
 ]
 
 // Construct frontend FQDN from naming convention + environment domain (avoids circular dependency)
