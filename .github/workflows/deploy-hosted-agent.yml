@@ -70,6 +70,17 @@ jobs:
           echo "  Project endpoint: $PROJECT_ENDPOINT"
           echo "  ACR: ${{ vars.ACR_LOGIN_SERVER }}"
 
+      - name: Debug agent files
+        run: |
+          echo "=== azure.yaml ==="
+          cat azure.yaml
+          echo ""
+          echo "=== agent.yaml ==="
+          cat backend/agent/hosted/agent.yaml
+          echo ""
+          echo "=== Project dir listing ==="
+          ls -la backend/agent/hosted/
+
       - name: Deploy hosted agent
         run: azd deploy --service agent --no-prompt
 
