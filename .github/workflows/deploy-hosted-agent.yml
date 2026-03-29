@@ -1,13 +1,16 @@
 name: Deploy Hosted Agent
 
-run-name: Deploy hosted agent to Foundry via azd
+run-name: Deploy hosted agent to Foundry
 
 on:
   push:
     branches: [main]
     paths:
       - 'backend/agent/**'
-      - 'azure.yaml'
+      - 'backend/core/**'
+      - 'backend/services/**'
+      - 'backend/models/**'
+      - 'scripts/deploy_agent.py'
   workflow_dispatch:
 
 permissions:
@@ -18,21 +21,17 @@ concurrency:
   group: ${{ github.workflow }}-dev
   cancel-in-progress: false
 
+env:
+  IMAGE_NAME: qprisma-video-agent
+  ACR_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+
 jobs:
   deploy-hosted-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     environment: dev
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Azure Developer CLI
-        uses: Azure/setup-azd@v2
-
-      - name: Install azd AI agent extension
-        run: azd extension install azure.ai.agents
-        env:
-          AZURE_DEV_NO_PROMPT: "true"
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2
@@ -41,48 +40,39 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login azd (federated)
+      - name: Login to ACR
+        run: az acr login --name "${ACR_SERVER%%.*}"
+
+      - name: Build and push agent image
+        working-directory: backend
         run: |
-          azd auth login \
-            --client-id "${{ secrets.AZURE_CLIENT_ID }}" \
-            --federated-credential-provider github \
-            --tenant-id "${{ secrets.AZURE_TENANT_ID }}"
+          IMAGE_TAG="${GITHUB_SHA::8}"
+          FULL_IMAGE="${ACR_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
+          LATEST_IMAGE="${ACR_SERVER}/${IMAGE_NAME}:latest"
 
-      - name: Configure azd environment
-        run: |
-          azd env new dev --no-prompt 2>/dev/null || true
-          azd env select dev
+          echo "Building ${FULL_IMAGE}"
+          docker build \
+            --platform linux/amd64 \
+            -f agent/hosted/Dockerfile \
+            -t "${FULL_IMAGE}" \
+            -t "${LATEST_IMAGE}" \
+            .
 
-          azd env set AZURE_SUBSCRIPTION_ID "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          azd env set AZURE_RESOURCE_GROUP "${{ vars.AZURE_RESOURCE_GROUP }}"
-          azd env set AZURE_LOCATION "swedencentral"
+          docker push "${FULL_IMAGE}"
+          docker push "${LATEST_IMAGE}"
 
-          # Resolve Foundry project endpoint
-          ACCOUNT_NAME="aif-qprisma-dev"
-          PROJECT_NAME="${ACCOUNT_NAME}-project"
-          PROJECT_ENDPOINT="https://${ACCOUNT_NAME}.services.ai.azure.com/api/projects/${PROJECT_NAME}"
-          azd env set AZURE_AI_FOUNDRY_PROJECT_ENDPOINT "$PROJECT_ENDPOINT"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "FULL_IMAGE=${FULL_IMAGE}" >> $GITHUB_ENV
 
-          # Container registry
-          azd env set AZURE_CONTAINER_REGISTRY_ENDPOINT "${{ vars.ACR_LOGIN_SERVER }}"
+      - name: Install SDK dependencies
+        run: pip install azure-ai-projects azure-identity
 
-          echo "Configured azd env:"
-          echo "  Project endpoint: $PROJECT_ENDPOINT"
-          echo "  ACR: ${{ vars.ACR_LOGIN_SERVER }}"
-
-      - name: Debug agent files
-        run: |
-          echo "=== azure.yaml ==="
-          cat azure.yaml
-          echo ""
-          echo "=== agent.yaml ==="
-          cat backend/agent/hosted/agent.yaml
-          echo ""
-          echo "=== Project dir listing ==="
-          ls -la backend/agent/hosted/
-
-      - name: Deploy hosted agent
-        run: azd deploy --service agent --no-prompt
+      - name: Register agent in Foundry
+        env:
+          AZURE_AI_PROJECT_ENDPOINT: https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
+          CONTAINER_IMAGE: ${{ env.FULL_IMAGE }}
+          ENVIRONMENT: production
+        run: python scripts/deploy_agent.py
 
       - name: Deployment summary
         run: |
@@ -91,6 +81,6 @@ jobs:
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Agent | qprisma-video-agent |" >> $GITHUB_STEP_SUMMARY
-          echo "| Method | azd deploy |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${FULL_IMAGE}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Method | Python SDK (AIProjectClient) |" >> $GITHUB_STEP_SUMMARY
           echo "| Resources | 2 CPU, 4Gi RAM |" >> $GITHUB_STEP_SUMMARY
-          echo "| Protocols | Responses API v1, A2A v0.2.1 |" >> $GITHUB_STEP_SUMMARY
