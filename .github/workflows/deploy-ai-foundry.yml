@@ -38,21 +38,6 @@ jobs:
             --location "westeurope" \
             --output none
 
-      - name: Resolve storage account
-        id: storage
-        run: |
-          STORAGE_NAME="stqprismadev"
-          STORAGE_ID=$(az storage account show \
-            --name "$STORAGE_NAME" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --query "id" -o tsv 2>/dev/null || echo "")
-          echo "id=$STORAGE_ID" >> $GITHUB_OUTPUT
-          echo "name=$STORAGE_NAME" >> $GITHUB_OUTPUT
-
-          if [ -z "$STORAGE_ID" ]; then
-            echo "::warning::Storage account not found. CapabilityHost will be skipped."
-          fi
-
       - name: Deploy AI Foundry
         uses: nick-fields/retry@v3
         with:
@@ -63,10 +48,7 @@ jobs:
             az deployment group create \
               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
               --template-file infra/modules/ai-foundry.bicep \
-              --parameters infra/parameters/ai-foundry-dev.bicepparam \
-              --parameters \
-                storageAccountId='${{ steps.storage.outputs.id }}' \
-                storageAccountName='${{ steps.storage.outputs.name }}'
+              --parameters infra/parameters/ai-foundry-dev.bicepparam
 
       - name: Deployment summary
         run: |

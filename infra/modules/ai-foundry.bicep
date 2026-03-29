@@ -7,12 +7,6 @@ param location string = resourceGroup().location
 @description('Deploy batch model (gpt-4o-batch)')
 param deployBatchModel bool = true
 
-@description('Storage account resource ID for agents capability host')
-param storageAccountId string = ''
-
-@description('Storage account name for agents connection')
-param storageAccountName string = ''
-
 @description('Resource tags')
 param tags object = {}
 
@@ -150,35 +144,6 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   dependsOn: [
     whisperDeployment
   ]
-}
-
-// Storage connection for agents (required by capability host)
-resource agentStorageConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(storageAccountId)) {
-  parent: aiFoundry
-  name: 'agents-storage'
-  properties: {
-    authType: 'AAD'
-    category: 'AzureBlob'
-    target: 'https://${storageAccountName}.blob.${az.environment().suffixes.storage}'
-    isSharedToAll: true
-    metadata: {
-      ResourceId: storageAccountId
-      AccountName: storageAccountName
-      ContainerName: 'agents'
-    }
-  }
-}
-
-// Capability Host — enables hosted agent container execution
-resource capabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-06-01' = if (!empty(storageAccountId)) {
-  parent: aiFoundry
-  name: 'agents-host'
-  properties: {
-    capabilityHostKind: 'Agents'
-    storageConnections: [
-      agentStorageConnection.name
-    ]
-  }
 }
 
 output endpoint string = aiFoundry.properties.endpoint
