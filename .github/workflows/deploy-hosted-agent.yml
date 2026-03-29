@@ -30,7 +30,9 @@ jobs:
         uses: Azure/setup-azd@v2
 
       - name: Install azd AI agent extension
-        run: azd extension install azure.ai.agents --yes
+        run: azd extension install azure.ai.agents
+        env:
+          AZURE_DEV_NO_PROMPT: "true"
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2
