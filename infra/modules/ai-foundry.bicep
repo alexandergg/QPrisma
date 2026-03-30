@@ -158,7 +158,7 @@ resource existingAcr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview'
 var acrPullRoleId = '7f951ddd-0ab4-49ed-a135-68bf8b0b6878' // AcrPull built-in role
 
 resource acrPullForFoundry 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(acrName)) {
-  name: guid(existingAcr.id, aiProject.identity.principalId, acrPullRoleId)
+  name: guid(existingAcr.id, aiProject.name, acrPullRoleId)
   scope: existingAcr
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
@@ -168,7 +168,7 @@ resource acrPullForFoundry 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 }
 
 resource acrPullForFoundryAccount 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(acrName)) {
-  name: guid(existingAcr.id, aiFoundry.identity.principalId, acrPullRoleId)
+  name: guid(existingAcr.id, aiFoundry.name, acrPullRoleId)
   scope: existingAcr
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
