@@ -27,7 +27,7 @@ You are a QPrisma infrastructure engineer specializing in Azure resources, Bicep
 
 ## Architecture Overview
 
-- **Multi-region**: West Europe (apps), Sweden Central (AI), North Europe (PostgreSQL)
+- **Multi-region**: West Europe (apps + AI), North Europe (PostgreSQL)
 - **Compute**: Azure Container Apps (API, Frontend, Worker) + Neo4j in VNet-enabled managed environment
 - **AI**: Azure AI Foundry with 5 model deployments
 - **Data**: PostgreSQL Flex v16, Redis Enterprise, Blob Storage

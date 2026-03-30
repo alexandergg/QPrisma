@@ -62,7 +62,7 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
   <img src="docs/assets/qprisma_architecture.png" alt="QPrisma Azure Architecture" width="100%">
 </p>
 
-> Multi-region deployment: **West Europe** (compute), **Sweden Central** (AI Foundry), **North Europe** (PostgreSQL). Full infrastructure defined as code with [Azure Bicep](infra/main.bicep). See [Infrastructure docs](docs/INFRASTRUCTURE.md) for details.
+> Multi-region deployment: **West Europe** (compute + AI Foundry), **North Europe** (PostgreSQL). Full infrastructure defined as code with [Azure Bicep](infra/main.bicep). See [Infrastructure docs](docs/INFRASTRUCTURE.md) for details.
 
 ### Technology Stack
 

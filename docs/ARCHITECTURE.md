@@ -203,8 +203,7 @@ Key patterns: OIDC authentication, stale deployment cancellation, AI Foundry pro
 
 | Region | Resources | Rationale |
 |--------|-----------|-----------|
-| West Europe | Container Apps, Redis, Storage, Key Vault | User proximity |
-| Sweden Central | AI Foundry (GPT-4o, GPT-5.2, Whisper, Embeddings) | Model availability |
+| West Europe | Container Apps, Redis, Storage, Key Vault, AI Foundry | User proximity, co-located compute + AI |
 | North Europe | PostgreSQL Flexible Server | Service availability |
 
 ### 6.4. Security Architecture
