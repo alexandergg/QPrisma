@@ -65,10 +65,10 @@ resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-
   }
 }
 
-// GPT-5.2-chat — GlobalStandard, default max 1M TPM
-resource gpt52chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+// GPT-5.1-chat — GlobalStandard, default max 1M TPM
+resource gpt51chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: aiFoundry
-  name: 'gpt-5.2-chat'
+  name: 'gpt-5.1-chat'
   sku: {
     name: 'GlobalStandard'
     capacity: 1000
@@ -76,8 +76,8 @@ resource gpt52chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-5.2-chat'
-      version: '2025-12-11'
+      name: 'gpt-5.1-chat'
+      version: '2025-11-13'
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
@@ -103,7 +103,7 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
   dependsOn: [
-    gpt52chatDeployment
+    gpt51chatDeployment
   ]
 }
 
