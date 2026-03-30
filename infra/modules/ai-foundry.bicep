@@ -7,6 +7,9 @@ param location string = resourceGroup().location
 @description('Deploy batch model (gpt-4o-batch)')
 param deployBatchModel bool = true
 
+@description('Storage account resource ID for agents capability host')
+param storageAccountId string = ''
+
 @description('Resource tags')
 param tags object = {}
 
@@ -143,6 +146,36 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   }
   dependsOn: [
     whisperDeployment
+  ]
+}
+
+// Storage connection for agents (required by capabilityHost)
+resource agentsStorageConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(storageAccountId)) {
+  name: 'agents-storage'
+  parent: aiFoundry
+  properties: {
+    category: 'AzureBlob'
+    target: 'https://${last(split(storageAccountId, '/'))}.blob.${environment().suffixes.storage}'
+    authType: 'ManagedIdentity'
+    isSharedToAll: true
+    metadata: {
+      ResourceId: storageAccountId
+    }
+  }
+}
+
+// Capability host for Foundry hosted agents (managed environment)
+resource agentsCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-06-01' = if (!empty(storageAccountId)) {
+  name: 'agents-host'
+  parent: aiFoundry
+  properties: {
+    capabilityHostKind: 'Agents'
+    storageConnections: [
+      'agents-storage'
+    ]
+  }
+  dependsOn: [
+    agentsStorageConnection
   ]
 }
 

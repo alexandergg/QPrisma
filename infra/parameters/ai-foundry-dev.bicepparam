@@ -4,5 +4,5 @@ param name = 'aif-qprisma-dev'
 param location = 'swedencentral'
 param deployBatchModel = true
 
-// storageAccountId and storageAccountName are passed from the workflow
-// after resolving the existing storage account.
+// storageAccountId is resolved and passed by deploy-ai-foundry.yml workflow
+// to enable the agents capability host provisioning.

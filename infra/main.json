@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "6130247727460105903"
+      "templateHash": "966640932313402332"
     }
   },
   "parameters": {
@@ -21,13 +21,6 @@
       "defaultValue": "westeurope",
       "metadata": {
         "description": "Location for all resources"
-      }
-    },
-    "aiLocation": {
-      "type": "string",
-      "defaultValue": "swedencentral",
-      "metadata": {
-        "description": "Location for Azure AI Foundry (OpenAI) resources"
       }
     },
     "dbLocation": {
@@ -48,13 +41,6 @@
       "type": "securestring",
       "metadata": {
         "description": "Database administrator password"
-      }
-    },
-    "deployBatchModel": {
-      "type": "bool",
-      "defaultValue": true,
-      "metadata": {
-        "description": "Deploy batch model (gpt-4o-batch)"
       }
     },
     "neo4jPassword": {
@@ -637,299 +623,6 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
-      "name": "ai-foundry-deployment",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "name": {
-            "value": "[variables('aiFoundryName')]"
-          },
-          "location": {
-            "value": "[parameters('aiLocation')]"
-          },
-          "deployBatchModel": {
-            "value": "[parameters('deployBatchModel')]"
-          },
-          "storageAccountId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.id.value]"
-          },
-          "storageAccountName": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'storage-deployment'), '2025-04-01').outputs.name.value]"
-          },
-          "tags": {
-            "value": "[variables('tags')]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.41.2.15936",
-              "templateHash": "13679415845906544207"
-            }
-          },
-          "parameters": {
-            "name": {
-              "type": "string",
-              "metadata": {
-                "description": "Azure AI Foundry resource name"
-              }
-            },
-            "location": {
-              "type": "string",
-              "defaultValue": "[resourceGroup().location]",
-              "metadata": {
-                "description": "Location for resources"
-              }
-            },
-            "deployBatchModel": {
-              "type": "bool",
-              "defaultValue": true,
-              "metadata": {
-                "description": "Deploy batch model (gpt-4o-batch)"
-              }
-            },
-            "storageAccountId": {
-              "type": "string",
-              "defaultValue": "",
-              "metadata": {
-                "description": "Storage account resource ID for agents capability host"
-              }
-            },
-            "storageAccountName": {
-              "type": "string",
-              "defaultValue": "",
-              "metadata": {
-                "description": "Storage account name for agents connection"
-              }
-            },
-            "tags": {
-              "type": "object",
-              "defaultValue": {},
-              "metadata": {
-                "description": "Resource tags"
-              }
-            }
-          },
-          "resources": [
-            {
-              "type": "Microsoft.CognitiveServices/accounts",
-              "apiVersion": "2025-06-01",
-              "name": "[parameters('name')]",
-              "location": "[parameters('location')]",
-              "tags": "[parameters('tags')]",
-              "identity": {
-                "type": "SystemAssigned"
-              },
-              "kind": "AIServices",
-              "sku": {
-                "name": "S0"
-              },
-              "properties": {
-                "allowProjectManagement": true,
-                "customSubDomainName": "[parameters('name')]",
-                "publicNetworkAccess": "Enabled",
-                "disableLocalAuth": false,
-                "networkAcls": {
-                  "defaultAction": "Allow"
-                }
-              }
-            },
-            {
-              "type": "Microsoft.CognitiveServices/accounts/projects",
-              "apiVersion": "2025-06-01",
-              "name": "[format('{0}/{1}', parameters('name'), format('{0}-project', parameters('name')))]",
-              "location": "[parameters('location')]",
-              "identity": {
-                "type": "SystemAssigned"
-              },
-              "properties": {},
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
-              ]
-            },
-            {
-              "type": "Microsoft.CognitiveServices/accounts/deployments",
-              "apiVersion": "2025-06-01",
-              "name": "[format('{0}/{1}', parameters('name'), 'gpt-4o')]",
-              "sku": {
-                "name": "GlobalStandard",
-                "capacity": 450
-              },
-              "properties": {
-                "model": {
-                  "format": "OpenAI",
-                  "name": "gpt-4o",
-                  "version": "2024-11-20"
-                },
-                "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
-              ]
-            },
-            {
-              "type": "Microsoft.CognitiveServices/accounts/deployments",
-              "apiVersion": "2025-06-01",
-              "name": "[format('{0}/{1}', parameters('name'), 'gpt-5.2-chat')]",
-              "sku": {
-                "name": "GlobalStandard",
-                "capacity": 1000
-              },
-              "properties": {
-                "model": {
-                  "format": "OpenAI",
-                  "name": "gpt-5.2-chat",
-                  "version": "2025-12-11"
-                },
-                "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]",
-                "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('name'), 'gpt-4o')]"
-              ]
-            },
-            {
-              "type": "Microsoft.CognitiveServices/accounts/deployments",
-              "apiVersion": "2025-06-01",
-              "name": "[format('{0}/{1}', parameters('name'), 'text-embedding-3-large')]",
-              "sku": {
-                "name": "GlobalStandard",
-                "capacity": 350
-              },
-              "properties": {
-                "model": {
-                  "format": "OpenAI",
-                  "name": "text-embedding-3-large",
-                  "version": "1"
-                },
-                "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]",
-                "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('name'), 'gpt-5.2-chat')]"
-              ]
-            },
-            {
-              "type": "Microsoft.CognitiveServices/accounts/deployments",
-              "apiVersion": "2025-06-01",
-              "name": "[format('{0}/{1}', parameters('name'), 'whisper')]",
-              "sku": {
-                "name": "Standard",
-                "capacity": 3
-              },
-              "properties": {
-                "model": {
-                  "format": "OpenAI",
-                  "name": "whisper",
-                  "version": "001"
-                },
-                "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]",
-                "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('name'), 'text-embedding-3-large')]"
-              ]
-            },
-            {
-              "condition": "[parameters('deployBatchModel')]",
-              "type": "Microsoft.CognitiveServices/accounts/deployments",
-              "apiVersion": "2025-06-01",
-              "name": "[format('{0}/{1}', parameters('name'), 'gpt-4o-batch')]",
-              "sku": {
-                "name": "GlobalBatch",
-                "capacity": 200
-              },
-              "properties": {
-                "model": {
-                  "format": "OpenAI",
-                  "name": "gpt-4o",
-                  "version": "2024-11-20"
-                },
-                "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]",
-                "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('name'), 'whisper')]"
-              ]
-            },
-            {
-              "condition": "[not(empty(parameters('storageAccountId')))]",
-              "type": "Microsoft.CognitiveServices/accounts/connections",
-              "apiVersion": "2025-06-01",
-              "name": "[format('{0}/{1}', parameters('name'), 'agents-storage')]",
-              "properties": {
-                "authType": "AAD",
-                "category": "AzureBlob",
-                "target": "[format('https://{0}.blob.{1}', parameters('storageAccountName'), environment().suffixes.storage)]",
-                "isSharedToAll": true,
-                "metadata": {
-                  "ResourceId": "[parameters('storageAccountId')]",
-                  "AccountName": "[parameters('storageAccountName')]",
-                  "ContainerName": "agents"
-                }
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
-              ]
-            },
-            {
-              "condition": "[not(empty(parameters('storageAccountId')))]",
-              "type": "Microsoft.CognitiveServices/accounts/capabilityHosts",
-              "apiVersion": "2025-06-01",
-              "name": "[format('{0}/{1}', parameters('name'), 'agents-host')]",
-              "properties": {
-                "capabilityHostKind": "Agents",
-                "storageConnections": [
-                  "agents-storage"
-                ]
-              },
-              "dependsOn": [
-                "[resourceId('Microsoft.CognitiveServices/accounts/connections', parameters('name'), 'agents-storage')]",
-                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
-              ]
-            }
-          ],
-          "outputs": {
-            "endpoint": {
-              "type": "string",
-              "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', parameters('name')), '2025-06-01').endpoint]"
-            },
-            "id": {
-              "type": "string",
-              "value": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
-            },
-            "name": {
-              "type": "string",
-              "value": "[parameters('name')]"
-            },
-            "projectName": {
-              "type": "string",
-              "value": "[format('{0}-project', parameters('name'))]"
-            },
-            "projectEndpoint": {
-              "type": "string",
-              "value": "[format('https://{0}.services.ai.azure.com/api/projects/{1}', parameters('name'), format('{0}-project', parameters('name')))]"
-            },
-            "projectPrincipalId": {
-              "type": "string",
-              "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('name'), format('{0}-project', parameters('name'))), '2025-06-01', 'full').identity.principalId]"
-            }
-          }
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'storage-deployment')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
       "name": "cae-deployment",
       "properties": {
         "expressionEvaluationOptions": {
@@ -1385,7 +1078,7 @@
               },
               {
                 "name": "AZURE_OPENAI_ENDPOINT",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.endpoint.value]"
+                "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('aiFoundryName')), '2025-06-01').endpoint]"
               },
               {
                 "name": "AZURE_OPENAI_DEPLOYMENT_GPT",
@@ -1437,7 +1130,7 @@
               },
               {
                 "name": "FOUNDRY_PROJECT_ENDPOINT",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectEndpoint.value]"
+                "value": "[format('https://{0}.services.ai.azure.com/api/projects/{1}', variables('aiFoundryName'), format('{0}-project', variables('aiFoundryName')))]"
               },
               {
                 "name": "FOUNDRY_AGENT_NAME",
@@ -1473,7 +1166,7 @@
               },
               {
                 "name": "mem0-api-key",
-                "value": "[parameters('mem0ApiKey')]"
+                "value": "[if(empty(parameters('mem0ApiKey')), 'not-configured', parameters('mem0ApiKey'))]"
               }
             ]
           },
@@ -1678,7 +1371,6 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'cae-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'acr-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'neo4j-deployment')]",
@@ -1934,7 +1626,7 @@
               },
               {
                 "name": "AZURE_OPENAI_ENDPOINT",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.endpoint.value]"
+                "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('aiFoundryName')), '2025-06-01').endpoint]"
               },
               {
                 "name": "AZURE_OPENAI_DEPLOYMENT_GPT",
@@ -1986,7 +1678,7 @@
               },
               {
                 "name": "FOUNDRY_PROJECT_ENDPOINT",
-                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectEndpoint.value]"
+                "value": "[format('https://{0}.services.ai.azure.com/api/projects/{1}', variables('aiFoundryName'), format('{0}-project', variables('aiFoundryName')))]"
               },
               {
                 "name": "FOUNDRY_AGENT_NAME",
@@ -2022,7 +1714,7 @@
               },
               {
                 "name": "mem0-api-key",
-                "value": "[parameters('mem0ApiKey')]"
+                "value": "[if(empty(parameters('mem0ApiKey')), 'not-configured', parameters('mem0ApiKey'))]"
               }
             ]
           },
@@ -2195,7 +1887,6 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'cae-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'acr-deployment')]",
         "[resourceId('Microsoft.Resources/deployments', 'neo4j-deployment')]",
@@ -2344,19 +2035,19 @@
     },
     "openAiEndpoint": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.endpoint.value]"
+      "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', variables('aiFoundryName')), '2025-06-01').endpoint]"
     },
     "foundryProjectEndpoint": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectEndpoint.value]"
+      "value": "[format('https://{0}.services.ai.azure.com/api/projects/{1}', variables('aiFoundryName'), format('{0}-project', variables('aiFoundryName')))]"
     },
     "foundryProjectName": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectName.value]"
+      "value": "[format('{0}-project', variables('aiFoundryName'))]"
     },
     "foundryProjectPrincipalId": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ai-foundry-deployment'), '2025-04-01').outputs.projectPrincipalId.value]"
+      "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', variables('aiFoundryName'), format('{0}-project', variables('aiFoundryName'))), '2025-06-01', 'full').identity.principalId]"
     },
     "keyVaultUri": {
       "type": "string",
