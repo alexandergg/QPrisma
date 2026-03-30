@@ -150,16 +150,21 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
 }
 
 // Storage connection for agents (required by capabilityHost)
+var storageAccountName = last(split(storageAccountId, '/'))
+
 resource agentsStorageConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(storageAccountId)) {
   name: 'agents-storage'
   parent: aiFoundry
   properties: {
     category: 'AzureBlob'
-    target: 'https://${last(split(storageAccountId, '/'))}.blob.${environment().suffixes.storage}'
-    authType: 'ManagedIdentity'
+    target: 'https://${storageAccountName}.blob.${environment().suffixes.storage}'
+    authType: 'AAD'
     isSharedToAll: true
+    useWorkspaceManagedIdentity: true
     metadata: {
       ResourceId: storageAccountId
+      AccountName: storageAccountName
+      ContainerName: 'agents'
     }
   }
 }
