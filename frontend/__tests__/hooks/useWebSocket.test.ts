@@ -45,10 +45,7 @@ const WebSocketMock = jest.fn().mockImplementation((url: string) => {
 });
 
 // Static constants
-(WebSocketMock as any).CONNECTING = 0;
-(WebSocketMock as any).OPEN = 1;
-(WebSocketMock as any).CLOSING = 2;
-(WebSocketMock as any).CLOSED = 3;
+Object.assign(WebSocketMock, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
 
 Object.defineProperty(global, 'WebSocket', { value: WebSocketMock, writable: true });
 

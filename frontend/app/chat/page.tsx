@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useCallback, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar, VideoPanel } from '@/components/layout';
 import { ChatContainer } from '@/components/chat';
@@ -32,14 +32,10 @@ function NewChatContent() {
 
   // ── Conversation state ────────────────────────────────────────────────
   const [showLibraryHelp, setShowLibraryHelp] = useState(true);
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversations, setConversations] = useState<ConversationSummary[]>(() => loadConversations());
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>();
   const [chatMessages, setChatMessages] = useState<ChatMessageData[]>([]);
   const [chatSessionId, setChatSessionId] = useState<string | undefined>();
-
-  useEffect(() => {
-    setConversations(loadConversations());
-  }, []);
 
   const persistConversationState = useCallback(
     (nextMessages: ChatMessageData[], nextSessionId?: string) => {
@@ -69,9 +65,21 @@ function NewChatContent() {
     [activeConversationId, v.currentMode, v.isMultiVideo, v.selectedVideo?.id, v.selectedVideo?.title, v.selectedVideos],
   );
 
-  useEffect(() => {
-    persistConversationState(chatMessages, chatSessionId);
-  }, [chatMessages, chatSessionId, persistConversationState]);
+  const handleMessagesChange = useCallback(
+    (nextMessages: ChatMessageData[]) => {
+      setChatMessages(nextMessages);
+      persistConversationState(nextMessages, chatSessionId);
+    },
+    [persistConversationState, chatSessionId],
+  );
+
+  const handleSessionIdChange = useCallback(
+    (nextSessionId: string | undefined) => {
+      setChatSessionId(nextSessionId);
+      persistConversationState(chatMessages, nextSessionId);
+    },
+    [persistConversationState, chatMessages],
+  );
 
   const handleDeleteConversation = (conversationId: string) => {
     const updated = removeConversation(conversationId);
@@ -164,8 +172,8 @@ function NewChatContent() {
             userName={user?.full_name || user?.email}
             initialMessages={chatMessages}
             initialSessionId={chatSessionId}
-            onMessagesChange={setChatMessages}
-            onSessionIdChange={setChatSessionId}
+            onMessagesChange={handleMessagesChange}
+            onSessionIdChange={handleSessionIdChange}
           />
         </main>
 
