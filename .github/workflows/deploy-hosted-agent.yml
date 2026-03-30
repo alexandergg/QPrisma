@@ -109,7 +109,7 @@ jobs:
           az role assignment list --scope "$ACR_ID" --role "AcrPull" --query "[].{principal:principalId,type:principalType}" -o table
           echo "ACR access configured"
 
-      - name: Ensure deployer has Azure AI Developer role
+      - name: Ensure deployer has required RBAC roles
         run: |
           RG="rg-qprisma-dev"
           ACCOUNT="aif-qprisma-dev"
@@ -123,26 +123,43 @@ jobs:
             --name ${ACCOUNT} --resource-group ${RG} \
             --query id -o tsv)
 
-          # Azure AI Developer role — includes agents/write data action
-          AI_DEVELOPER_ROLE="64702f94-c441-49e6-a78b-ef80e0188fee"
+          # Roles required for hosted agent deployment:
+          #   Azure AI Developer  — control-plane + OpenAI/Speech/ContentSafety data actions
+          #   Cognitive Services User — wildcard data action (Microsoft.CognitiveServices/*)
+          #     which covers AIServices/agents/write needed by AIProjectClient
+          declare -A ROLES=(
+            ["Azure AI Developer"]="64702f94-c441-49e6-a78b-ef80e0188fee"
+            ["Cognitive Services User"]="a97b65f3-24c7-4388-baec-2e87135dc908"
+          )
 
-          echo "Assigning Azure AI Developer role on AI Foundry account..."
-          RESULT=$(az role assignment create \
-            --assignee-object-id "$DEPLOYER_PID" \
-            --assignee-principal-type ServicePrincipal \
-            --role "$AI_DEVELOPER_ROLE" \
-            --scope "$AI_ACCOUNT_ID" \
-            --output json 2>&1) && CREATED=true || CREATED=false
+          NEED_WAIT=false
+          for ROLE_NAME in "${!ROLES[@]}"; do
+            ROLE_ID="${ROLES[$ROLE_NAME]}"
+            echo "Assigning ${ROLE_NAME} on AI Foundry account..."
+            RESULT=$(az role assignment create \
+              --assignee-object-id "$DEPLOYER_PID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "$ROLE_ID" \
+              --scope "$AI_ACCOUNT_ID" \
+              --output json 2>&1) && CREATED=true || CREATED=false
 
-          if echo "$RESULT" | grep -q "already exists"; then
-            echo "  Role already assigned — no wait needed"
-          elif [ "$CREATED" = true ]; then
-            echo "  Role newly assigned — waiting 120s for RBAC propagation..."
+            if echo "$RESULT" | grep -q "already exists"; then
+              echo "  ${ROLE_NAME}: already assigned"
+            elif [ "$CREATED" = true ]; then
+              echo "  ${ROLE_NAME}: newly assigned"
+              NEED_WAIT=true
+            else
+              echo "  ${ROLE_NAME}: (result: $RESULT)"
+            fi
+          done
+
+          if [ "$NEED_WAIT" = true ]; then
+            echo "New role(s) assigned — waiting 120s for RBAC propagation..."
             sleep 120
           else
-            echo "  (assignment result: $RESULT)"
+            echo "All roles already assigned — no wait needed"
           fi
-          echo "Azure AI Developer role configured"
+          echo "RBAC roles configured"
 
       - name: Register and start agent in Foundry
         id: register
