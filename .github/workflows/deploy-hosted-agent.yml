@@ -68,11 +68,27 @@ jobs:
         run: pip install "azure-ai-projects==2.0.0b3" "azure-identity>=1.25.0"
 
       - name: Register agent in Foundry
+        id: register
         env:
           AZURE_AI_PROJECT_ENDPOINT: https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
           CONTAINER_IMAGE: ${{ env.FULL_IMAGE }}
           ENVIRONMENT: production
         run: python scripts/deploy_agent.py
+
+      - name: Install cognitiveservices CLI extension
+        run: az extension add --name cognitiveservices --upgrade --yes
+
+      - name: Start hosted agent
+        run: |
+          AGENT_VERSION="${{ steps.register.outputs.agent_version }}"
+          echo "Starting agent version ${AGENT_VERSION}"
+          az cognitiveservices agent start \
+            --account-name aif-qprisma-dev \
+            --project-name aif-qprisma-dev-project \
+            --name qprisma-video-agent \
+            --agent-version "${AGENT_VERSION}" \
+            --min-replicas 1 \
+            --max-replicas 2
 
       - name: Deployment summary
         run: |

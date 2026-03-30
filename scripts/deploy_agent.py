@@ -9,7 +9,9 @@ Usage:
     export CONTAINER_IMAGE="<acr>.azurecr.io/qprisma-video-agent:latest"
     python scripts/deploy_agent.py
 
-Reference: https://github.com/leyredelacalzada/hr-hosted-agent/blob/main/deploy.py
+Reference:
+    https://learn.microsoft.com/azure/foundry/agents/how-to/deploy-hosted-agent
+    https://learn.microsoft.com/azure/foundry/agents/how-to/manage-hosted-agent
 """
 
 import os
@@ -65,6 +67,12 @@ def main() -> None:
     )
 
     print(f"Agent registered: {agent.name} (id: {agent.id}, version: {agent.version})")
+
+    # Write version to GITHUB_OUTPUT for downstream steps (az agent start)
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if github_output:
+        with open(github_output, "a") as f:
+            f.write(f"agent_version={agent.version}\n")
 
 
 if __name__ == "__main__":
