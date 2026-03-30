@@ -149,33 +149,8 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   ]
 }
 
-// AcrPull role assignment for AI Foundry project identity
-// Required so hosted agents can pull container images from private ACR
-resource existingAcr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' existing = if (!empty(acrName)) {
-  name: acrName
-}
-
-var acrPullRoleId = '7f951ddd-0ab4-49ed-a135-68bf8b0b6878' // AcrPull built-in role
-
-resource acrPullForFoundry 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(acrName)) {
-  name: guid(existingAcr.id, aiProject.name, acrPullRoleId)
-  scope: existingAcr
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
-    principalId: aiProject.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource acrPullForFoundryAccount 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(acrName)) {
-  name: guid(existingAcr.id, aiFoundry.name, acrPullRoleId)
-  scope: existingAcr
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
-    principalId: aiFoundry.identity.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
+// AcrPull role assignments are managed via CLI in deploy-hosted-agent.yml
+// (Bicep role assignments fail with RoleDefinitionDoesNotExist due to ARM scope resolution)
 
 output endpoint string = aiFoundry.properties.endpoint
 output id string = aiFoundry.id
