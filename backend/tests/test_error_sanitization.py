@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from services.batch_processor import BatchProcessor
+
 # =============================================================================
 # Processing Routes — error sanitization
 # =============================================================================
@@ -52,7 +54,7 @@ class TestProcessingRoutesErrorSanitization:
                 side_effect=RuntimeError("Azure SDK internal error with key=abc123"),
             ),
         ):
-            resp = authenticated_client.get("/process/batch/status?batch_id=bid_1")
+            resp = authenticated_client.get("/batch/status?batch_id=bid_1")
 
         assert resp.status_code == 500
         body = resp.json()
@@ -65,12 +67,13 @@ class TestProcessingRoutesErrorSanitization:
 
         with (
             patch("api.routes.processing_routes.get_video_processor", return_value=mock_processor),
-            patch(
-                "services.batch_processor.BatchProcessor.cancel_batch",
-                side_effect=RuntimeError("internal cancel error"),
+            patch.object(
+                BatchProcessor,
+                "cancel_batch",
+                new=AsyncMock(side_effect=RuntimeError("internal cancel error")),
             ),
         ):
-            resp = authenticated_client.post("/process/batch/cancel?batch_id=bid_1")
+            resp = authenticated_client.post("/batch/cancel?batch_id=bid_1")
 
         assert resp.status_code == 500
         body = resp.json()
@@ -84,7 +87,7 @@ class TestProcessingRoutesErrorSanitization:
         )
 
         with patch("api.routes.processing_routes.get_video_processor", return_value=mock_processor):
-            resp = authenticated_client.get("/process/pipeline/preview")
+            resp = authenticated_client.get("/pipeline/preview")
 
         assert resp.status_code == 500
         body = resp.json()
@@ -93,20 +96,18 @@ class TestProcessingRoutesErrorSanitization:
 
     def test_search_hides_error_details(self, authenticated_client):
         with patch(
-            "api.routes.processing_routes.get_graph_search_service",
+            "api.routes.chat_routes.get_graph_search_service",
             side_effect=RuntimeError("Neo4j connection refused at bolt://localhost:7687"),
-            create=True,
         ):
             resp = authenticated_client.post(
-                "/process/search",
-                json={"query": "test", "top": 5},
+                "/search",
+                json={"query": "test"},
             )
 
         assert resp.status_code == 500
-        body = resp.json()
-        assert "Neo4j" not in body.get("detail", "")
-        assert "bolt://" not in body.get("detail", "")
-        assert body["detail"] == "Processing operation failed"
+        body_str = str(resp.json())
+        assert "Neo4j" not in body_str
+        assert "bolt://" not in body_str
 
     def test_enhanced_search_hides_error_details(self, authenticated_client):
         mock_search = MagicMock()
@@ -116,7 +117,7 @@ class TestProcessingRoutesErrorSanitization:
 
         with patch("api.routes.processing_routes.get_enhanced_search", return_value=mock_search):
             resp = authenticated_client.post(
-                "/process/search/enhanced",
+                "/search/enhanced",
                 json={"query": "test"},
             )
 

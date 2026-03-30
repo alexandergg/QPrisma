@@ -201,9 +201,10 @@ def authenticated_app(app, test_user):
     App with get_current_user overridden to return test_user.
     Use this for route tests that need authentication without real JWT.
     """
-    from api.dependencies import get_current_user
+    from api.dependencies import get_current_user, get_token_from_header
 
     app.dependency_overrides[get_current_user] = lambda: test_user
+    app.dependency_overrides[get_token_from_header] = lambda: "test-token"
     return app
 
 

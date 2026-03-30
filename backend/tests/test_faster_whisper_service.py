@@ -11,6 +11,7 @@ Covers:
 """
 
 import types
+import unittest.mock as unittest_mock
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -431,6 +432,8 @@ class TestAudioProcessorFasterWhisperBranch:
         with (
             patch("services.audio_processor.settings") as mock_settings,
             patch("os.path.getsize", return_value=5 * 1024 * 1024),  # 5MB
+            patch.object(processor, "get_audio_duration", return_value=10.0),
+            patch("builtins.open", unittest_mock.mock_open(read_data=b"")),
         ):
             mock_settings.azure.whisper_backend = "azure"
 

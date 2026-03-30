@@ -155,7 +155,7 @@ class TestDynamicThreadPoolSizing:
         mock_settings.processing.max_extraction_workers = 6
 
         proc = FFmpegVideoProcessor(FFmpegProcessingConfig())
-        with patch("services.ffmpeg_processor.get_settings", return_value=mock_settings):
+        with patch("core.config.get_settings", return_value=mock_settings):
             assert proc._max_extraction_workers == 6
 
     def test_max_extraction_workers_property_falls_back_to_dynamic(self):
@@ -166,7 +166,7 @@ class TestDynamicThreadPoolSizing:
         mock_settings.processing.max_extraction_workers = None
 
         proc = FFmpegVideoProcessor(FFmpegProcessingConfig())
-        with patch("services.ffmpeg_processor.get_settings", return_value=mock_settings):
+        with patch("core.config.get_settings", return_value=mock_settings):
             result = proc._max_extraction_workers
             assert isinstance(result, int)
             assert 2 <= result <= 16
