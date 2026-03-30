@@ -65,10 +65,10 @@ resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-
   }
 }
 
-// GPT-5.1-chat — GlobalStandard, default max 1M TPM
-resource gpt51chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+// GPT-5.2-chat — GlobalStandard, default max 1M TPM
+resource gpt52chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: aiFoundry
-  name: 'gpt-5.1-chat'
+  name: 'gpt-5.2-chat'
   sku: {
     name: 'GlobalStandard'
     capacity: 1000
@@ -76,8 +76,8 @@ resource gpt51chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-5.1-chat'
-      version: '2025-11-13'
+      name: 'gpt-5.2-chat'
+      version: '2025-12-11'
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
@@ -103,7 +103,7 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
   dependsOn: [
-    gpt51chatDeployment
+    gpt52chatDeployment
   ]
 }
 
@@ -149,39 +149,14 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   ]
 }
 
-// Storage connection for agents (required by capabilityHost)
-var storageAccountName = last(split(storageAccountId, '/'))
-
-resource agentsStorageConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(storageAccountId)) {
-  name: 'agents-storage'
-  parent: aiFoundry
-  properties: {
-    category: 'AzureBlob'
-    target: 'https://${storageAccountName}.blob.${environment().suffixes.storage}'
-    authType: 'AAD'
-    isSharedToAll: true
-    useWorkspaceManagedIdentity: true
-    metadata: {
-      ResourceId: storageAccountId
-      AccountName: storageAccountName
-      ContainerName: 'agents'
-    }
-  }
-}
-
 // Capability host for Foundry hosted agents (managed environment)
-resource agentsCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-06-01' = if (!empty(storageAccountId)) {
+resource agentsCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-10-01-preview' = if (!empty(storageAccountId)) {
   name: 'agents-host'
   parent: aiFoundry
   properties: {
     capabilityHostKind: 'Agents'
-    storageConnections: [
-      'agents-storage'
-    ]
+    enablePublicHostingEnvironment: true
   }
-  dependsOn: [
-    agentsStorageConnection
-  ]
 }
 
 // AcrPull role assignments are managed via CLI in deploy-hosted-agent.yml
