@@ -7,6 +7,9 @@ param location string = resourceGroup().location
 @description('Deploy batch model (gpt-4o-batch)')
 param deployBatchModel bool = true
 
+@description('ACR name for AcrPull role assignment (empty = skip)')
+param acrName string = ''
+
 @description('Resource tags')
 param tags object = {}
 
@@ -144,6 +147,34 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   dependsOn: [
     whisperDeployment
   ]
+}
+
+// AcrPull role assignment for AI Foundry project identity
+// Required so hosted agents can pull container images from private ACR
+resource existingAcr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' existing = if (!empty(acrName)) {
+  name: acrName
+}
+
+var acrPullRoleId = '7f951ddd-0ab4-49ed-a135-68bf8b0b6878' // AcrPull built-in role
+
+resource acrPullForFoundry 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(acrName)) {
+  name: guid(existingAcr.id, aiProject.identity.principalId, acrPullRoleId)
+  scope: existingAcr
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalId: aiProject.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource acrPullForFoundryAccount 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(acrName)) {
+  name: guid(existingAcr.id, aiFoundry.identity.principalId, acrPullRoleId)
+  scope: existingAcr
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalId: aiFoundry.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
 }
 
 output endpoint string = aiFoundry.properties.endpoint

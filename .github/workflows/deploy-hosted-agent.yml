@@ -67,47 +67,39 @@ jobs:
       - name: Install SDK dependencies
         run: pip install "azure-ai-projects==2.0.0b3" "azure-identity>=1.25.0"
 
-      - name: Delete broken capabilityHost (if exists)
-        continue-on-error: true
+      - name: Ensure ACR pull access for Foundry
         run: |
           SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           RG="rg-qprisma-dev"
           ACCOUNT="aif-qprisma-dev"
-          PROJECT="aif-qprisma-dev-project"
-          AGENT="qprisma-video-agent"
-          CH="agents-host"
+          ACR_ID=$(az acr show --name "${ACR_SERVER%%.*}" --query id -o tsv)
 
-          CS_BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}"
-          ML_BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.MachineLearningServices/workspaces/${PROJECT}"
-          API_CS="api-version=2025-06-01"
-          API_ML="api-version=2025-01-01-preview"
+          echo "Granting AcrPull to AI Foundry identities on ACR..."
 
-          echo "=== Diagnostic: List hostedAgents via ML workspace ==="
-          az rest --method GET --url "${ML_BASE}/hostedAgents?${API_ML}" 2>&1 || echo "(ML hostedAgents list failed)"
+          # Get AI Foundry account principal ID
+          ACCOUNT_PID=$(az cognitiveservices account show \
+            --name ${ACCOUNT} --resource-group ${RG} \
+            --query identity.principalId -o tsv 2>/dev/null) || true
 
-          echo "=== Diagnostic: List capabilityHost linked deployments ==="
-          az rest --method GET --url "${ML_BASE}/capabilityHosts/${CH}?${API_ML}" 2>&1 || echo "(ML capabilityHost not found)"
+          # Get AI Foundry project principal ID
+          PROJECT_PID=$(az rest --method GET \
+            --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${ACCOUNT}-project?api-version=2025-06-01" \
+            --query identity.principalId -o tsv 2>/dev/null) || true
 
-          echo "=== Stop+delete agent versions 1-20 via CLI ==="
-          for v in $(seq 1 20); do
-            az cognitiveservices agent stop \
-              --account-name ${ACCOUNT} --project-name ${PROJECT} \
-              --name ${AGENT} --agent-version ${v} 2>/dev/null || true
-            az cognitiveservices agent delete \
-              --account-name ${ACCOUNT} --project-name ${PROJECT} \
-              --name ${AGENT} --agent-version ${v} 2>&1 | grep -v "ERROR" || true
+          ACR_PULL_ROLE="7f951ddd-0ab4-49ed-a135-68bf8b0b6878"
+
+          for PID in $ACCOUNT_PID $PROJECT_PID; do
+            if [ -n "$PID" ]; then
+              echo "  Assigning AcrPull to principal: ${PID:0:8}..."
+              az role assignment create \
+                --assignee-object-id "$PID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "$ACR_PULL_ROLE" \
+                --scope "$ACR_ID" \
+                --output none 2>/dev/null || echo "    (already assigned or failed)"
+            fi
           done
-
-          echo "=== Try delete hostedAgent via ML workspace REST ==="
-          az rest --method DELETE --url "${ML_BASE}/hostedAgents/${AGENT}?${API_ML}" 2>&1 || echo "(ML delete failed)"
-
-          echo "=== Try delete capabilityHost via ML workspace ==="
-          az rest --method DELETE --url "${ML_BASE}/capabilityHosts/${CH}?${API_ML}" 2>&1 || echo "(ML CH delete failed)"
-
-          echo "=== Try delete capabilityHost via CS account ==="
-          az rest --method DELETE --url "${CS_BASE}/capabilityHosts/${CH}?${API_CS}" 2>&1 || echo "(CS CH delete failed)"
-
-          echo "Cleanup complete"
+          echo "ACR access configured"
 
       - name: Register and start agent in Foundry
         id: register
