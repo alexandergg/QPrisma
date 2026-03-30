@@ -77,31 +77,39 @@ jobs:
           AGENT="qprisma-video-agent"
           CH="agents-host"
 
-          CS_BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}"
-          ML_BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.MachineLearningServices/workspaces/${ACCOUNT}"
+          BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}"
           API="api-version=2025-06-01"
 
-          echo "Step 1: Stop+delete all agent versions (1-20)..."
+          echo "=== Step 1: Stop all agent versions (1-20) ==="
           for v in $(seq 1 20); do
-            az cognitiveservices agent stop \
+            result=$(az cognitiveservices agent stop \
               --account-name ${ACCOUNT} --project-name ${PROJECT} \
-              --name ${AGENT} --agent-version ${v} 2>/dev/null || true
-            az cognitiveservices agent delete \
-              --account-name ${ACCOUNT} --project-name ${PROJECT} \
-              --name ${AGENT} --agent-version ${v} 2>/dev/null || true
+              --name ${AGENT} --agent-version ${v} 2>&1) && echo "  Stopped v${v}" || true
           done
-          echo "  Done — all versions processed"
 
-          echo "Step 2: Delete capabilityHost via ML workspace API..."
+          echo "=== Step 2: Delete all agent versions (1-20) ==="
+          for v in $(seq 1 20); do
+            result=$(az cognitiveservices agent delete \
+              --account-name ${ACCOUNT} --project-name ${PROJECT} \
+              --name ${AGENT} --agent-version ${v} 2>&1) && echo "  Deleted v${v}: $result" || true
+          done
+
+          echo "=== Step 3: Delete the hostedAgent resource itself via REST ==="
           az rest --method DELETE \
-            --url "${ML_BASE}/capabilityHosts/${CH}?${API}" \
-            2>&1 || echo "  ML capabilityHost delete failed — trying CS API..."
+            --url "${BASE}/projects/${PROJECT}/hostedAgents/${AGENT}?${API}" \
+            2>&1 || echo "  hostedAgent REST delete failed (may not exist at this path)"
 
+          echo "=== Step 4: List remaining resources linked to capabilityHost ==="
+          az rest --method GET \
+            --url "${BASE}/capabilityHosts/${CH}?${API}" \
+            2>&1 || echo "  capabilityHost not found — already clean"
+
+          echo "=== Step 5: Delete capabilityHost ==="
           az rest --method DELETE \
-            --url "${CS_BASE}/capabilityHosts/${CH}?${API}" \
-            2>&1 || echo "  CS capabilityHost delete also failed — continuing"
+            --url "${BASE}/capabilityHosts/${CH}?${API}" \
+            2>&1 || echo "  capabilityHost delete failed — continuing"
 
-          echo "Cleanup complete — agent start will auto-provision fresh capabilityHost"
+          echo "Cleanup complete"
 
       - name: Register and start agent in Foundry
         id: register
