@@ -73,20 +73,24 @@ jobs:
           RG="rg-qprisma-dev"
           ACCOUNT="aif-qprisma-dev"
           ACR_ID=$(az acr show --name "${ACR_SERVER%%.*}" --query id -o tsv)
+          echo "ACR resource ID: ${ACR_ID}"
 
           echo "Granting AcrPull to AI Foundry identities on ACR..."
 
           # Get AI Foundry account principal ID
           ACCOUNT_PID=$(az cognitiveservices account show \
             --name ${ACCOUNT} --resource-group ${RG} \
-            --query identity.principalId -o tsv 2>/dev/null) || true
+            --query identity.principalId -o tsv)
+          echo "  Account principal: ${ACCOUNT_PID:0:8}..."
 
           # Get AI Foundry project principal ID
           PROJECT_PID=$(az rest --method GET \
             --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${ACCOUNT}-project?api-version=2025-06-01" \
-            --query identity.principalId -o tsv 2>/dev/null) || true
+            --query identity.principalId -o tsv)
+          echo "  Project principal: ${PROJECT_PID:0:8}..."
 
-          ACR_PULL_ROLE="7f951ddd-0ab4-49ed-a135-68bf8b0b6878"
+          # AcrPull built-in role (verified from Azure RBAC docs)
+          ACR_PULL_ROLE="7f951dda-4ed3-4680-a7ca-43fe172d538d"
 
           for PID in $ACCOUNT_PID $PROJECT_PID; do
             if [ -n "$PID" ]; then
@@ -96,9 +100,13 @@ jobs:
                 --assignee-principal-type ServicePrincipal \
                 --role "$ACR_PULL_ROLE" \
                 --scope "$ACR_ID" \
-                --output none 2>/dev/null || echo "    (already assigned or failed)"
+                --output none 2>&1 || echo "    (already assigned)"
             fi
           done
+
+          # Verify assignments exist
+          echo "Verifying AcrPull assignments..."
+          az role assignment list --scope "$ACR_ID" --role "AcrPull" --query "[].{principal:principalId,type:principalType}" -o table
           echo "ACR access configured"
 
       - name: Register and start agent in Foundry
