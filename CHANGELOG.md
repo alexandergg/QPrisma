@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **AI Foundry region migrated from Sweden Central to West Europe** — co-locates AI resources with Container Apps and ACR, eliminating cross-region latency and resolving hosted agent ACR pull issues. Requires delete + recreate of the `aif-qprisma-dev` resource (see deployment steps in PR).
+- **AI Foundry region restored to Sweden Central** — moves AI resources back to `swedencentral` for model availability. The previous `aif-qprisma-dev` resource in West Europe was purged and will be recreated via the `deploy-ai-foundry.yml` workflow.
 
 ### Removed
 - **Editor agent (Chat-to-Edit) feature** — incomplete feature removed to simplify the repository.
