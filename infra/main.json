@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "966640932313402332"
+      "templateHash": "15576733542095487713"
     }
   },
   "parameters": {
@@ -1085,8 +1085,8 @@
                 "value": "gpt-4o"
               },
               {
-                "name": "AZURE_OPENAI_DEPLOYMENT_GPT52_CHAT",
-                "value": "gpt-5.2-chat"
+                "name": "AZURE_OPENAI_DEPLOYMENT_GPT_CHAT",
+                "value": "gpt-5.1-chat"
               },
               {
                 "name": "AZURE_OPENAI_DEPLOYMENT_EMBEDDING",
@@ -1633,8 +1633,8 @@
                 "value": "gpt-4o"
               },
               {
-                "name": "AZURE_OPENAI_DEPLOYMENT_GPT52_CHAT",
-                "value": "gpt-5.2-chat"
+                "name": "AZURE_OPENAI_DEPLOYMENT_GPT_CHAT",
+                "value": "gpt-5.1-chat"
               },
               {
                 "name": "AZURE_OPENAI_DEPLOYMENT_EMBEDDING",

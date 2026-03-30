@@ -205,7 +205,7 @@ var appEnvVars = [
   { name: 'NEO4J_USER', value: 'neo4j' }
   { name: 'AZURE_OPENAI_ENDPOINT', value: existingAiFoundry.properties.endpoint }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }
-  { name: 'AZURE_OPENAI_DEPLOYMENT_GPT52_CHAT', value: 'gpt-5.2-chat' }
+  { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_CHAT', value: 'gpt-5.1-chat' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_WHISPER', value: 'whisper' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_BATCH', value: 'gpt-4o-batch' }

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "4181091647337601252"
+      "templateHash": "12607759107584022756"
     }
   },
   "parameters": {
@@ -43,6 +43,9 @@
         "description": "Resource tags"
       }
     }
+  },
+  "variables": {
+    "storageAccountName": "[last(split(parameters('storageAccountId'), '/'))]"
   },
   "resources": [
     {
@@ -104,7 +107,7 @@
     {
       "type": "Microsoft.CognitiveServices/accounts/deployments",
       "apiVersion": "2025-06-01",
-      "name": "[format('{0}/{1}', parameters('name'), 'gpt-5.2-chat')]",
+      "name": "[format('{0}/{1}', parameters('name'), 'gpt-5.1-chat')]",
       "sku": {
         "name": "GlobalStandard",
         "capacity": 1000
@@ -112,8 +115,8 @@
       "properties": {
         "model": {
           "format": "OpenAI",
-          "name": "gpt-5.2-chat",
-          "version": "2025-12-11"
+          "name": "gpt-5.1-chat",
+          "version": "2025-11-13"
         },
         "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
       },
@@ -140,7 +143,7 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]",
-        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('name'), 'gpt-5.2-chat')]"
+        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('name'), 'gpt-5.1-chat')]"
       ]
     },
     {
@@ -193,11 +196,14 @@
       "name": "[format('{0}/{1}', parameters('name'), 'agents-storage')]",
       "properties": {
         "category": "AzureBlob",
-        "target": "[format('https://{0}.blob.{1}', last(split(parameters('storageAccountId'), '/')), environment().suffixes.storage)]",
-        "authType": "ManagedIdentity",
+        "target": "[format('https://{0}.blob.{1}', variables('storageAccountName'), environment().suffixes.storage)]",
+        "authType": "AAD",
         "isSharedToAll": true,
+        "useWorkspaceManagedIdentity": true,
         "metadata": {
-          "ResourceId": "[parameters('storageAccountId')]"
+          "ResourceId": "[parameters('storageAccountId')]",
+          "AccountName": "[variables('storageAccountName')]",
+          "ContainerName": "agents"
         }
       },
       "dependsOn": [

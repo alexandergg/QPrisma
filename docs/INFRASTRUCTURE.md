@@ -98,7 +98,7 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 | Deployment | Model | SKU | Capacity |
 |------------|-------|-----|----------|
 | `gpt-4o` | GPT-4o | GlobalStandard | 450K TPM |
-| `gpt-5.2-chat` | GPT-5.2-chat | GlobalStandard | 1M TPM |
+| `gpt-5.1-chat` | GPT-5.1-chat | GlobalStandard | 1M TPM |
 | `text-embedding-3-large` | text-embedding-3-large | GlobalStandard | 350K TPM |
 | `whisper` | Whisper | Standard | 3 RPM |
 | `gpt-4o-batch` | GPT-4o (Batch) | GlobalBatch | 200M tokens (conditional) |
