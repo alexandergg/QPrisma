@@ -14,9 +14,11 @@ Reference:
     https://learn.microsoft.com/azure/foundry/agents/how-to/manage-hosted-agent
 """
 
+import json
 import os
 import subprocess
 import sys
+import time
 
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
@@ -30,18 +32,26 @@ AGENT_NAME = "qprisma-video-agent"
 ACCOUNT_NAME = "aif-qprisma-dev"
 PROJECT_NAME = "aif-qprisma-dev-project"
 
+# Polling: check agent status every 30s for up to 10 min
+POLL_INTERVAL_SECONDS = 30
+POLL_TIMEOUT_SECONDS = 600
+
+
+def _run_az(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["az", *args], capture_output=True, text=True)
+
 
 def start_agent(version: str) -> bool:
     """Start the agent deployment using az cli."""
     cmd = [
-        "az", "cognitiveservices", "agent", "start",
+        "cognitiveservices", "agent", "start",
         "--account-name", ACCOUNT_NAME,
         "--project-name", PROJECT_NAME,
         "--name", AGENT_NAME,
         "--agent-version", str(version),
     ]
-    print(f"Starting agent with: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    print(f"Starting agent with: az {' '.join(cmd)}")
+    result = _run_az(*cmd)
     if result.returncode == 0:
         print("Agent start command succeeded")
         return True
@@ -49,6 +59,51 @@ def start_agent(version: str) -> bool:
     print(f"az cognitiveservices agent start failed (rc={result.returncode})")
     if result.stderr:
         print(f"  stderr: {result.stderr.strip()}")
+    return False
+
+
+def get_agent_status() -> str | None:
+    """Get the current agent deployment status via az cli."""
+    result = _run_az(
+        "cognitiveservices", "agent", "show",
+        "--account-name", ACCOUNT_NAME,
+        "--project-name", PROJECT_NAME,
+        "--name", AGENT_NAME,
+        "--output", "json",
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+        return data.get("properties", {}).get("provisioningState") or data.get("status")
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def wait_for_agent_running() -> bool:
+    """Poll agent status until it reaches a terminal state or times out."""
+    start = time.time()
+    last_status = None
+
+    while time.time() - start < POLL_TIMEOUT_SECONDS:
+        status = get_agent_status()
+        if status != last_status:
+            elapsed = int(time.time() - start)
+            print(f"  [{elapsed}s] Agent status: {status or 'unknown'}")
+            last_status = status
+
+        if status and status.lower() in ("running", "succeeded", "started"):
+            print(f"Agent is running! (status: {status})")
+            return True
+        if status and status.lower() in ("failed", "error"):
+            print(f"Agent deployment failed (status: {status})")
+            return False
+
+        time.sleep(POLL_INTERVAL_SECONDS)
+
+    elapsed = int(time.time() - start)
+    print(f"Timed out after {elapsed}s waiting for agent (last status: {last_status})")
+    print("The agent may still be provisioning. Check Azure AI Foundry portal.")
     return False
 
 
@@ -96,12 +151,23 @@ def main() -> None:
     started = start_agent(agent.version)
     if not started:
         print("WARNING: Agent registered but auto-start failed. Start manually in Foundry portal.")
+        sys.exit(1)
+
+    # Poll until the agent reaches Running state
+    print("Waiting for agent to reach 'Running' state...")
+    running = wait_for_agent_running()
 
     # Write version to GITHUB_OUTPUT for downstream steps
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a") as f:
             f.write(f"agent_version={agent.version}\n")
+            f.write(f"agent_running={'true' if running else 'false'}\n")
+
+    if not running:
+        print("WARNING: Agent may still be provisioning — check Foundry portal.")
+        # Exit 0 to not fail the pipeline — provisioning is async and may exceed our timeout
+        sys.exit(0)
 
 
 if __name__ == "__main__":

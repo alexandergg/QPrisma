@@ -7,9 +7,6 @@ param location string = resourceGroup().location
 @description('Deploy batch model (gpt-4o-batch)')
 param deployBatchModel bool = true
 
-@description('ACR name for AcrPull role assignment (empty = skip)')
-param acrName string = ''
-
 @description('Resource tags')
 param tags object = {}
 
