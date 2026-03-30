@@ -77,37 +77,35 @@ jobs:
           AGENT="qprisma-video-agent"
           CH="agents-host"
 
-          BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}"
-          API="api-version=2025-06-01"
+          CS_BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}"
+          ML_BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.MachineLearningServices/workspaces/${PROJECT}"
+          API_CS="api-version=2025-06-01"
+          API_ML="api-version=2025-01-01-preview"
 
-          echo "=== Step 1: Stop all agent versions (1-20) ==="
+          echo "=== Diagnostic: List hostedAgents via ML workspace ==="
+          az rest --method GET --url "${ML_BASE}/hostedAgents?${API_ML}" 2>&1 || echo "(ML hostedAgents list failed)"
+
+          echo "=== Diagnostic: List capabilityHost linked deployments ==="
+          az rest --method GET --url "${ML_BASE}/capabilityHosts/${CH}?${API_ML}" 2>&1 || echo "(ML capabilityHost not found)"
+
+          echo "=== Stop+delete agent versions 1-20 via CLI ==="
           for v in $(seq 1 20); do
-            result=$(az cognitiveservices agent stop \
+            az cognitiveservices agent stop \
               --account-name ${ACCOUNT} --project-name ${PROJECT} \
-              --name ${AGENT} --agent-version ${v} 2>&1) && echo "  Stopped v${v}" || true
+              --name ${AGENT} --agent-version ${v} 2>/dev/null || true
+            az cognitiveservices agent delete \
+              --account-name ${ACCOUNT} --project-name ${PROJECT} \
+              --name ${AGENT} --agent-version ${v} 2>&1 | grep -v "ERROR" || true
           done
 
-          echo "=== Step 2: Delete all agent versions (1-20) ==="
-          for v in $(seq 1 20); do
-            result=$(az cognitiveservices agent delete \
-              --account-name ${ACCOUNT} --project-name ${PROJECT} \
-              --name ${AGENT} --agent-version ${v} 2>&1) && echo "  Deleted v${v}: $result" || true
-          done
+          echo "=== Try delete hostedAgent via ML workspace REST ==="
+          az rest --method DELETE --url "${ML_BASE}/hostedAgents/${AGENT}?${API_ML}" 2>&1 || echo "(ML delete failed)"
 
-          echo "=== Step 3: Delete the hostedAgent resource itself via REST ==="
-          az rest --method DELETE \
-            --url "${BASE}/projects/${PROJECT}/hostedAgents/${AGENT}?${API}" \
-            2>&1 || echo "  hostedAgent REST delete failed (may not exist at this path)"
+          echo "=== Try delete capabilityHost via ML workspace ==="
+          az rest --method DELETE --url "${ML_BASE}/capabilityHosts/${CH}?${API_ML}" 2>&1 || echo "(ML CH delete failed)"
 
-          echo "=== Step 4: List remaining resources linked to capabilityHost ==="
-          az rest --method GET \
-            --url "${BASE}/capabilityHosts/${CH}?${API}" \
-            2>&1 || echo "  capabilityHost not found — already clean"
-
-          echo "=== Step 5: Delete capabilityHost ==="
-          az rest --method DELETE \
-            --url "${BASE}/capabilityHosts/${CH}?${API}" \
-            2>&1 || echo "  capabilityHost delete failed — continuing"
+          echo "=== Try delete capabilityHost via CS account ==="
+          az rest --method DELETE --url "${CS_BASE}/capabilityHosts/${CH}?${API_CS}" 2>&1 || echo "(CS CH delete failed)"
 
           echo "Cleanup complete"
 
