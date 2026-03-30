@@ -255,12 +255,12 @@ Key patterns: OIDC auth, path-filtered builds, GHA Docker layer caching, automat
 
 12 Bicep modules in `infra/modules/`:
 - **Compute**: Container Apps (API, Frontend, Worker) + Neo4j in VNet-enabled managed environment
-- **AI**: Azure AI Foundry with 5 model deployments (Sweden Central)
+- **AI**: Azure AI Foundry with 5 model deployments (West Europe)
 - **Data**: PostgreSQL Flex v16 (North Europe), Redis Enterprise, Blob Storage
 - **Security**: Key Vault with RBAC + managed identity access
 - **Observability**: Log Analytics workspace
 
-Multi-region: West Europe (apps), Sweden Central (AI), North Europe (PostgreSQL).
+Multi-region: West Europe (apps + AI), North Europe (PostgreSQL).
 
 ## Common Imports
 

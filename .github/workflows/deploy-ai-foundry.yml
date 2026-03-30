@@ -72,6 +72,6 @@ jobs:
           echo "| Resource | Details |" >> $GITHUB_STEP_SUMMARY
           echo "|----------|---------|" >> $GITHUB_STEP_SUMMARY
           echo "| AI Foundry | aif-qprisma-dev |" >> $GITHUB_STEP_SUMMARY
-          echo "| Location | swedencentral |" >> $GITHUB_STEP_SUMMARY
+          echo "| Location | westeurope |" >> $GITHUB_STEP_SUMMARY
           echo "| Models | gpt-4o, gpt-5.2-chat, text-embedding-3-large, whisper, gpt-4o-batch |" >> $GITHUB_STEP_SUMMARY
           echo "| Capability Host | agents-host (Agents managed environment) |" >> $GITHUB_STEP_SUMMARY

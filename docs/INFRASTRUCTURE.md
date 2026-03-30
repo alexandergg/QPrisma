@@ -48,7 +48,7 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 │                                                                     │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐     │
 │  │ PostgreSQL   │  │  Redis       │  │  Azure AI Foundry      │     │
-│  │ Flex v16     │  │  Enterprise  │  │  (Sweden Central)      │     │
+│  │ Flex v16     │  │  Enterprise  │  │  (West Europe)         │     │
 │  │ (N. Europe)  │  │  Balanced_B0 │  │  GPT-4o, GPT-5.2-chat │     │
 │  │ 32GB         │  │  TLS 1.2+    │  │  Whisper, Embeddings   │     │
 │  └─────────────┘  └──────────────┘  └────────────────────────┘     │
@@ -401,12 +401,11 @@ Developer pushes to main
 
 ## Multi-Region Strategy
 
-QPrisma deploys resources across 3 Azure regions for optimal performance and service availability:
+QPrisma deploys resources across 2 Azure regions for optimal performance and service availability:
 
 | Region | Resources | Rationale |
 |--------|-----------|-----------|
-| **West Europe** (default) | Container Apps, Redis, Storage, Key Vault, ACR | User proximity, low latency |
-| **Sweden Central** | AI Foundry (GPT-4o, GPT-5.2, Whisper, Embeddings) | OpenAI model availability |
+| **West Europe** (default) | Container Apps, Redis, Storage, Key Vault, ACR, AI Foundry | User proximity, low latency, co-located compute + AI |
 | **North Europe** | PostgreSQL Flexible Server | PostgreSQL service availability |
 
 ---

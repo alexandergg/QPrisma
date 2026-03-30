@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **AI Foundry region migrated from Sweden Central to West Europe** — co-locates AI resources with Container Apps and ACR, eliminating cross-region latency and resolving hosted agent ACR pull issues. Requires delete + recreate of the `aif-qprisma-dev` resource (see deployment steps in PR).
+
 ### Removed
 - **Editor agent (Chat-to-Edit) feature** — incomplete feature removed to simplify the repository.
 - **`CLAUDE.md` and `.claude/` directory** — removed Claude Code configuration.
