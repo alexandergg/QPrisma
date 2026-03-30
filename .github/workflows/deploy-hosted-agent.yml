@@ -65,7 +65,7 @@ jobs:
           echo "FULL_IMAGE=${FULL_IMAGE}" >> $GITHUB_ENV
 
       - name: Install SDK dependencies
-        run: pip install azure-ai-projects azure-identity
+        run: pip install "azure-ai-projects==2.0.0b3" "azure-identity>=1.25.0"
 
       - name: Register agent in Foundry
         env:
