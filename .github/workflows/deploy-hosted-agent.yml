@@ -73,37 +73,33 @@ jobs:
           SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           RG="rg-qprisma-dev"
           ACCOUNT="aif-qprisma-dev"
+          PROJECT="aif-qprisma-dev-project"
+          AGENT="qprisma-video-agent"
           CH="agents-host"
-          BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}"
+
+          CS_BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}"
+          ML_BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.MachineLearningServices/workspaces/${ACCOUNT}"
           API="api-version=2025-06-01"
 
-          echo "Step 1: Stop all running agent versions..."
-          az cognitiveservices agent stop \
-            --account-name ${ACCOUNT} \
-            --project-name aif-qprisma-dev-project \
-            --name qprisma-video-agent \
-            2>&1 || echo "  stop returned non-zero (may be already stopped)"
-
-          echo "Step 2: Delete all agent versions..."
-          az rest --method GET --url "${BASE}/projects/aif-qprisma-dev-project/hostedAgents?${API}" 2>/dev/null \
-            | python3 -c "
-          import json, sys
-          try:
-              data = json.load(sys.stdin)
-              for agent in data.get('value', []):
-                  print(agent.get('name', ''))
-          except: pass
-          " | while read -r name; do
-            if [ -n "$name" ]; then
-              echo "  Deleting agent: $name"
-              az rest --method DELETE --url "${BASE}/projects/aif-qprisma-dev-project/hostedAgents/${name}?${API}" 2>&1 || true
-            fi
+          echo "Step 1: Stop+delete all agent versions (1-20)..."
+          for v in $(seq 1 20); do
+            az cognitiveservices agent stop \
+              --account-name ${ACCOUNT} --project-name ${PROJECT} \
+              --name ${AGENT} --agent-version ${v} 2>/dev/null || true
+            az cognitiveservices agent delete \
+              --account-name ${ACCOUNT} --project-name ${PROJECT} \
+              --name ${AGENT} --agent-version ${v} 2>/dev/null || true
           done
+          echo "  Done — all versions processed"
 
-          echo "Step 3: Delete capabilityHost..."
+          echo "Step 2: Delete capabilityHost via ML workspace API..."
           az rest --method DELETE \
-            --url "${BASE}/capabilityHosts/${CH}?${API}" \
-            2>&1 || echo "  capabilityHost delete failed or not found — continuing"
+            --url "${ML_BASE}/capabilityHosts/${CH}?${API}" \
+            2>&1 || echo "  ML capabilityHost delete failed — trying CS API..."
+
+          az rest --method DELETE \
+            --url "${CS_BASE}/capabilityHosts/${CH}?${API}" \
+            2>&1 || echo "  CS capabilityHost delete also failed — continuing"
 
           echo "Cleanup complete — agent start will auto-provision fresh capabilityHost"
 
