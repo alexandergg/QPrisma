@@ -127,12 +127,21 @@ jobs:
           AI_DEVELOPER_ROLE="64702f94-c441-49e6-a78b-ef80e0188fee"
 
           echo "Assigning Azure AI Developer role on AI Foundry account..."
-          az role assignment create \
+          RESULT=$(az role assignment create \
             --assignee-object-id "$DEPLOYER_PID" \
             --assignee-principal-type ServicePrincipal \
             --role "$AI_DEVELOPER_ROLE" \
             --scope "$AI_ACCOUNT_ID" \
-            --output none 2>&1 || echo "  (already assigned)"
+            --output json 2>&1) && CREATED=true || CREATED=false
+
+          if echo "$RESULT" | grep -q "already exists"; then
+            echo "  Role already assigned — no wait needed"
+          elif [ "$CREATED" = true ]; then
+            echo "  Role newly assigned — waiting 120s for RBAC propagation..."
+            sleep 120
+          else
+            echo "  (assignment result: $RESULT)"
+          fi
           echo "Azure AI Developer role configured"
 
       - name: Register and start agent in Foundry
