@@ -70,10 +70,42 @@ jobs:
       - name: Delete broken capabilityHost (if exists)
         continue-on-error: true
         run: |
-          echo "Removing pre-existing capabilityHost so Azure can auto-provision a clean one..."
+          SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          RG="rg-qprisma-dev"
+          ACCOUNT="aif-qprisma-dev"
+          CH="agents-host"
+          BASE="https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}"
+          API="api-version=2025-06-01"
+
+          echo "Step 1: Stop all running agent versions..."
+          az cognitiveservices agent stop \
+            --account-name ${ACCOUNT} \
+            --project-name aif-qprisma-dev-project \
+            --name qprisma-video-agent \
+            2>&1 || echo "  stop returned non-zero (may be already stopped)"
+
+          echo "Step 2: Delete all agent versions..."
+          az rest --method GET --url "${BASE}/projects/aif-qprisma-dev-project/hostedAgents?${API}" 2>/dev/null \
+            | python3 -c "
+          import json, sys
+          try:
+              data = json.load(sys.stdin)
+              for agent in data.get('value', []):
+                  print(agent.get('name', ''))
+          except: pass
+          " | while read -r name; do
+            if [ -n "$name" ]; then
+              echo "  Deleting agent: $name"
+              az rest --method DELETE --url "${BASE}/projects/aif-qprisma-dev-project/hostedAgents/${name}?${API}" 2>&1 || true
+            fi
+          done
+
+          echo "Step 3: Delete capabilityHost..."
           az rest --method DELETE \
-            --url "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-qprisma-dev/providers/Microsoft.CognitiveServices/accounts/aif-qprisma-dev/capabilityHosts/agents-host?api-version=2025-06-01" \
-            || echo "capabilityHost not found or already deleted — OK"
+            --url "${BASE}/capabilityHosts/${CH}?${API}" \
+            2>&1 || echo "  capabilityHost delete failed or not found — continuing"
+
+          echo "Cleanup complete — agent start will auto-provision fresh capabilityHost"
 
       - name: Register and start agent in Foundry
         id: register
