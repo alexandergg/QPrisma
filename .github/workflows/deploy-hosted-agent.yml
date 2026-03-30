@@ -67,6 +67,14 @@ jobs:
       - name: Install SDK dependencies
         run: pip install "azure-ai-projects==2.0.0b3" "azure-identity>=1.25.0"
 
+      - name: Delete broken capabilityHost (if exists)
+        continue-on-error: true
+        run: |
+          echo "Removing pre-existing capabilityHost so Azure can auto-provision a clean one..."
+          az rest --method DELETE \
+            --url "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-qprisma-dev/providers/Microsoft.CognitiveServices/accounts/aif-qprisma-dev/capabilityHosts/agents-host?api-version=2025-06-01" \
+            || echo "capabilityHost not found or already deleted — OK"
+
       - name: Register and start agent in Foundry
         id: register
         env:

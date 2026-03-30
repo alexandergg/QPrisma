@@ -146,21 +146,6 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   ]
 }
 
-// Capability Host — enables hosted agent container execution.
-// Uses Azure-managed default storage (no user connections) to avoid
-// API 2025-06-01 requirement of providing ALL connection types.
-resource capabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-06-01' = {
-  parent: aiFoundry
-  name: 'agents-host'
-  properties: {
-    capabilityHostKind: 'Agents'
-  }
-  dependsOn: [
-    gpt4oBatchDeployment
-    whisperDeployment
-  ]
-}
-
 output endpoint string = aiFoundry.properties.endpoint
 output id string = aiFoundry.id
 output name string = aiFoundry.name
