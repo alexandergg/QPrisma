@@ -109,6 +109,32 @@ jobs:
           az role assignment list --scope "$ACR_ID" --role "AcrPull" --query "[].{principal:principalId,type:principalType}" -o table
           echo "ACR access configured"
 
+      - name: Ensure deployer has Azure AI Developer role
+        run: |
+          RG="rg-qprisma-dev"
+          ACCOUNT="aif-qprisma-dev"
+
+          # Get the OIDC service principal object ID
+          DEPLOYER_PID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv)
+          echo "Deployer principal: ${DEPLOYER_PID:0:8}..."
+
+          # AI Foundry account resource ID
+          AI_ACCOUNT_ID=$(az cognitiveservices account show \
+            --name ${ACCOUNT} --resource-group ${RG} \
+            --query id -o tsv)
+
+          # Azure AI Developer role — includes agents/write data action
+          AI_DEVELOPER_ROLE="64702f94-c441-49e6-a78b-ef80e0188fee"
+
+          echo "Assigning Azure AI Developer role on AI Foundry account..."
+          az role assignment create \
+            --assignee-object-id "$DEPLOYER_PID" \
+            --assignee-principal-type ServicePrincipal \
+            --role "$AI_DEVELOPER_ROLE" \
+            --scope "$AI_ACCOUNT_ID" \
+            --output none 2>&1 || echo "  (already assigned)"
+          echo "Azure AI Developer role configured"
+
       - name: Register and start agent in Foundry
         id: register
         env:
