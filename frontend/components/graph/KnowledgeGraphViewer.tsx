@@ -9,6 +9,7 @@ import { GraphControls } from './GraphControls';
 import { GraphLegend } from './GraphLegend';
 import { NodeDetailPanel } from './NodeDetailPanel';
 import { useGraphData } from './useGraphData';
+import type { GraphNode } from '@/types';
 
 // ============================================================================
 // Props
@@ -33,7 +34,7 @@ export default function KnowledgeGraphViewer({
   const [depth, setDepth] = useState(2);
   const [layout, setLayout] = useState<'forceDirected' | 'd3Force'>('forceDirected');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -58,9 +59,9 @@ export default function KnowledgeGraphViewer({
    */
   const handleNodeClick = useCallback(
     (node: Node) => {
-      setSelectedNodeId(node.id);
+      const gNode = nodeMapRef.current.get(node.id) ?? null;
+      setSelectedNode(gNode);
 
-      const gNode = nodeMapRef.current.get(node.id);
       if (!gNode || !onSeek) return;
 
       const props = gNode.properties;
@@ -90,7 +91,7 @@ export default function KnowledgeGraphViewer({
       handleNodeDoubleClick(node);
     },
     onCanvasClick: () => {
-      setSelectedNodeId(null);
+      setSelectedNode(null);
     },
     onDrag: true,
     onHover: true,
@@ -116,7 +117,7 @@ export default function KnowledgeGraphViewer({
   const handleDepthChange = useCallback((newDepth: number) => {
     setDepth(newDepth);
     resetExpanded();
-    setSelectedNodeId(null);
+    setSelectedNode(null);
   }, [resetExpanded]);
 
   // ── Layout change ────────────────────────────────────────────────────────
@@ -165,11 +166,6 @@ export default function KnowledgeGraphViewer({
       </div>
     );
   }
-
-  // Selected node info panel
-  const selectedNode = selectedNodeId
-    ? nodeMapRef.current.get(selectedNodeId)
-    : null;
 
   const wrapperClasses = isFullscreen
     ? 'fixed inset-0 z-50 bg-white flex flex-col'

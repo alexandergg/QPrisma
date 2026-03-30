@@ -21,6 +21,7 @@ from fastapi import (
     Form,
     HTTPException,
     Request,
+    Response,
     UploadFile,
 )
 
@@ -149,6 +150,7 @@ async def hydrate_data_from_blob(item: dict) -> dict:
 @limiter.limit("20/minute")
 async def upload_media(
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     file: UploadFile = File(...),
@@ -250,6 +252,7 @@ async def upload_media(
 @limiter.limit("20/minute")
 async def upload_media_optimized(
     request: Request,
+    response: Response,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     file: UploadFile = File(...),

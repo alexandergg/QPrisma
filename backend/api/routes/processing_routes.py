@@ -399,7 +399,7 @@ async def cancel_batch(batch_id: str, current_user: User = Depends(get_current_u
         from services.batch_processor import BatchProcessor
 
         batch_proc = BatchProcessor(processor.openai_client)
-        result = batch_proc.cancel_batch(batch_id)
+        result = await batch_proc.cancel_batch(batch_id)
 
         return {"batch_id": batch_id, "message": "Batch cancelled successfully", "result": result}
 

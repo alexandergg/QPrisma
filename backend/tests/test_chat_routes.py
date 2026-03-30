@@ -98,20 +98,13 @@ class TestAgentChat:
         assert resp.status_code in (401, 403)
 
     def test_agent_chat_success(self, authenticated_client):
-        mock_agent = AsyncMock()
-        mock_agent.run = AsyncMock(
-            return_value={
-                "response": "Agent response",
-                "sources": [],
-                "tool_calls_made": 2,
-                "navigation_actions": [],
-                "suggested_questions": [],
-                "clip_suggestions": [],
-                "entities_mentioned": [],
-            }
-        )
+        mock_client = AsyncMock()
+        mock_client.send_message = AsyncMock(return_value={"content": "Agent response"})
 
-        with patch("agent.get_video_agent_graph", new_callable=AsyncMock, return_value=mock_agent):
+        with patch(
+            "services.foundry_agent_client.get_foundry_agent_client",
+            return_value=mock_client,
+        ):
             resp = authenticated_client.post(
                 "/chat/agent",
                 json={"message": "find highlights"},
@@ -120,24 +113,17 @@ class TestAgentChat:
         assert resp.status_code == 200
         body = resp.json()
         assert body["response"] == "Agent response"
-        assert body["tool_calls_made"] == 2
+        assert body["tool_calls_made"] == 0
         assert body["session_id"] is not None
 
     def test_agent_chat_with_session_id(self, authenticated_client):
-        mock_agent = AsyncMock()
-        mock_agent.run = AsyncMock(
-            return_value={
-                "response": "Continued",
-                "sources": [],
-                "tool_calls_made": 1,
-                "navigation_actions": [],
-                "suggested_questions": [],
-                "clip_suggestions": [],
-                "entities_mentioned": [],
-            }
-        )
+        mock_client = AsyncMock()
+        mock_client.send_message = AsyncMock(return_value={"content": "Continued"})
 
-        with patch("agent.get_video_agent_graph", new_callable=AsyncMock, return_value=mock_agent):
+        with patch(
+            "services.foundry_agent_client.get_foundry_agent_client",
+            return_value=mock_client,
+        ):
             resp = authenticated_client.post(
                 "/chat/agent",
                 json={"message": "more details", "session_id": "sess_abc"},

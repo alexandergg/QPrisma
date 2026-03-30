@@ -82,7 +82,7 @@ def kg_empty():
 @pytest.fixture
 def kg_with_video_duration():
     """KG that knows the video is 600 s long."""
-    return _make_kg({"v.duration as duration": [{"duration": 600}]})
+    return _make_kg({"v.duration_seconds as duration": [{"duration": 600}]})
 
 
 @pytest.fixture
@@ -90,7 +90,7 @@ def kg_with_frames():
     """KG with rich-frame candidates and a known duration."""
     return _make_kg(
         {
-            "v.duration as duration": [{"duration": 600}],
+            "v.duration_seconds as duration": [{"duration": 600}],
             "max(s.end_time) as max_end": [{"max_end": 600}],
             "size(f.description) as desc_length": [
                 {"timestamp": 30, "description": "A" * 120, "desc_length": 120},
@@ -106,7 +106,7 @@ def kg_with_scenes():
     """KG with distributed scene data."""
     return _make_kg(
         {
-            "v.duration as duration": [{"duration": 600}],
+            "v.duration_seconds as duration": [{"duration": 600}],
             "max(s.end_time) as max_end": [{"max_end": 600}],
             "scene.start_time as start": [
                 {"start": 10, "end": 30},
@@ -124,7 +124,7 @@ def kg_with_entities():
     """KG with entity-rich frames."""
     return _make_kg(
         {
-            "v.duration as duration": [{"duration": 600}],
+            "v.duration_seconds as duration": [{"duration": 600}],
             "max(s.end_time) as max_end": [{"max_end": 600}],
             "entity_count": [
                 {"timestamp": 100, "description": "Three people talking", "entity_count": 5},
@@ -286,7 +286,7 @@ class TestFindSceneHighlights:
     def test_skips_too_short_scenes(self):
         kg = _make_kg(
             {
-                "v.duration as duration": [{"duration": 600}],
+                "v.duration_seconds as duration": [{"duration": 600}],
                 "scene.start_time as start": [{"start": 10, "end": 12}],
             }
         )
@@ -304,7 +304,7 @@ class TestFindSceneHighlights:
     def test_skips_too_long_scenes(self):
         kg = _make_kg(
             {
-                "v.duration as duration": [{"duration": 600}],
+                "v.duration_seconds as duration": [{"duration": 600}],
                 "scene.start_time as start": [{"start": 0, "end": 120}],
             }
         )
@@ -446,7 +446,7 @@ class TestDetectHighlights:
 
     def test_fallback_kicks_in_when_few_highlights(self):
         """When the first three strategies find < 3, fallback adds samples."""
-        kg = _make_kg({"v.duration as duration": [{"duration": 300}]})
+        kg = _make_kg({"v.duration_seconds as duration": [{"duration": 300}]})
         svc = HighlightDetectionService(kg)
         result = svc.detect_highlights(media_id="vid1")
         # Should get fallback samples since no frames/scenes/entities exist
@@ -466,7 +466,7 @@ class TestGetVideoDuration:
     def test_falls_back_to_scene_max(self):
         kg = _make_kg(
             {
-                "v.duration as duration": [{"duration": 0}],
+                "v.duration_seconds as duration": [{"duration": 0}],
                 "max(s.end_time) as max_end": [{"max_end": 450}],
             }
         )

@@ -12,7 +12,7 @@ import pytest
 
 def _mock_cache_service():
     """Create a mock CacheService for dependency override."""
-    mock = AsyncMock()
+    mock = MagicMock()
     mock.get_metrics.return_value = {
         "connected": True,
         "backend": "memory",

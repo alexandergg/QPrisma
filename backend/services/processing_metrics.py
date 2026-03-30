@@ -61,7 +61,7 @@ class PipelineMetrics:
 
     @property
     def total_duration(self) -> float:
-        if self.pipeline_end and self.pipeline_start:
+        if self.pipeline_end > 0:
             return self.pipeline_end - self.pipeline_start
         return 0.0
 
