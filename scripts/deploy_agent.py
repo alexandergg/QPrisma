@@ -32,46 +32,23 @@ PROJECT_NAME = "aif-qprisma-dev-project"
 
 
 def start_agent(version: str) -> bool:
-    """Start the agent using az cli (requires cognitiveservices extension)."""
+    """Start the agent deployment using az cli."""
     cmd = [
         "az", "cognitiveservices", "agent", "start",
         "--account-name", ACCOUNT_NAME,
         "--project-name", PROJECT_NAME,
         "--name", AGENT_NAME,
         "--agent-version", str(version),
-        "--min-replicas", "1",
-        "--max-replicas", "2",
     ]
     print(f"Starting agent with: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
-        print(f"Agent start command succeeded")
+        print("Agent start command succeeded")
         return True
 
     print(f"az cognitiveservices agent start failed (rc={result.returncode})")
     if result.stderr:
         print(f"  stderr: {result.stderr.strip()}")
-
-    # Fallback: try az rest with the data-plane URL
-    print("Attempting fallback via az rest...")
-    endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "")
-    rest_url = f"{endpoint}/agents/hosted/{AGENT_NAME}/versions/{version}:start?api-version=2025-06-01"
-    rest_cmd = [
-        "az", "rest",
-        "--method", "post",
-        "--url", rest_url,
-        "--resource", "https://cognitiveservices.azure.com",
-        "--body", '{"minReplicas": 1, "maxReplicas": 2}',
-    ]
-    print(f"  POST {rest_url}")
-    rest_result = subprocess.run(rest_cmd, capture_output=True, text=True)
-    if rest_result.returncode == 0:
-        print("Agent started via REST fallback")
-        return True
-
-    print(f"REST fallback also failed (rc={rest_result.returncode})")
-    if rest_result.stderr:
-        print(f"  stderr: {rest_result.stderr.strip()}")
     return False
 
 
