@@ -4,7 +4,7 @@ Authentication Routes
 Handles user registration, login, and token management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from api.dependencies import get_auth_service, get_current_user, get_token_from_header
 from api.rate_limit import limiter
@@ -26,7 +26,7 @@ router = APIRouter(tags=["Authentication"])
 
 @router.post("/register", response_model=TokenResponse)
 @limiter.limit("5/minute")
-async def register(request: Request, body: RegisterRequest):
+async def register(request: Request, body: RegisterRequest, response: Response):
     """
     Register a new user.
 
@@ -48,7 +48,7 @@ async def register(request: Request, body: RegisterRequest):
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
-async def login(request: Request, body: LoginRequest):
+async def login(request: Request, body: LoginRequest, response: Response):
     """
     Authenticate user and get access token.
 
@@ -71,6 +71,7 @@ async def login(request: Request, body: LoginRequest):
 @limiter.limit("10/minute")
 async def logout(
     request: Request,
+    response: Response,
     current_user: User = Depends(get_current_user),
     token: str = Depends(get_token_from_header),
 ):

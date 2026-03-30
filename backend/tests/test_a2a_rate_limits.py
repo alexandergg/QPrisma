@@ -28,7 +28,7 @@ def _make_send_body() -> dict:
     """Minimal valid SendMessageRequest JSON payload."""
     return {
         "message": {
-            "role": "user",
+            "role": "ROLE_USER",
             "parts": [{"text": "hello"}],
         }
     }

@@ -8,7 +8,7 @@ Task management endpoints: get, list, cancel, subscribe.
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from api.dependencies import get_current_user_optional
@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 async def get_task(
     request: Request,
     task_id: str,
+    response: Response,
     historyLength: int | None = Query(None, description="Max messages to include in history"),
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ):
@@ -61,6 +62,7 @@ async def get_task(
 @limiter.limit("60/minute")
 async def list_tasks(
     request: Request,
+    response: Response,
     contextId: str | None = Query(None, description="Filter by context ID"),
     status: TaskState | None = Query(None, description="Filter by status"),
     pageSize: int = Query(50, ge=1, le=100, description="Max tasks to return"),
@@ -96,6 +98,7 @@ async def list_tasks(
 async def cancel_task(
     request: Request,
     task_id: str,
+    response: Response,
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ):
     """

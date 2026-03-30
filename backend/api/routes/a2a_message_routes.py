@@ -8,7 +8,7 @@ Send and streaming message endpoints for the Video agent.
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
 from api.dependencies import get_current_user_optional
@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 async def send_message(
     request: Request,
     body: SendMessageRequest,
+    response: Response,
     current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ):
     """
