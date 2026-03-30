@@ -80,8 +80,8 @@ def main() -> None:
             container_protocol_versions=[
                 ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="v1"),
             ],
-            cpu="2",
-            memory="4Gi",
+            cpu="4",
+            memory="8Gi",
             image=container_image,
             environment_variables={
                 "ENVIRONMENT": os.environ.get("ENVIRONMENT", "production"),

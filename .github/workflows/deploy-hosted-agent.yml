@@ -84,4 +84,4 @@ jobs:
           echo "| Agent | qprisma-video-agent |" >> $GITHUB_STEP_SUMMARY
           echo "| Image | \`${FULL_IMAGE}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Method | Python SDK (AIProjectClient) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Resources | 2 CPU, 4Gi RAM |" >> $GITHUB_STEP_SUMMARY
+          echo "| Resources | 4 CPU, 8Gi RAM |" >> $GITHUB_STEP_SUMMARY
