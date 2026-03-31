@@ -41,6 +41,12 @@ POLL_INTERVAL_SECONDS = 30
 POLL_TIMEOUT_SECONDS = 600
 
 
+def _optional_env(key: str) -> dict[str, str]:
+    """Return {key: value} if the env var is set, otherwise empty dict."""
+    value = os.environ.get(key, "")
+    return {key: value} if value else {}
+
+
 def _run_az(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["az", *args], capture_output=True, text=True)
 
@@ -141,6 +147,7 @@ def main() -> None:
             "LOG_LEVEL": "INFO",
             "AZURE_OPENAI_ENDPOINT": f"https://{ACCOUNT_NAME}.openai.azure.com/",
             "AZURE_OPENAI_API_VERSION": "2024-08-01-preview",
+            **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING"),
         },
     )
 
