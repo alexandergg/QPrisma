@@ -77,14 +77,11 @@ class FoundryAgentClient:
         for agent in client.list_agents():
             if agent.name == self._agent_name:
                 self._agent_id = agent.id
-                logger.info(
-                    f"Resolved agent '{self._agent_name}' → {agent.id}"
-                )
+                logger.info(f"Resolved agent '{self._agent_name}' → {agent.id}")
                 return self._agent_id
 
         raise RuntimeError(
-            f"Agent '{self._agent_name}' not found in project. "
-            f"Check FOUNDRY_AGENT_NAME is correct."
+            f"Agent '{self._agent_name}' not found in project. Check FOUNDRY_AGENT_NAME is correct."
         )
 
     async def send_message(
@@ -144,11 +141,7 @@ class FoundryAgentClient:
 
                 thread = await asyncio.to_thread(
                     client.threads.create,
-                    messages=[
-                        ThreadMessageOptions(
-                            role=MessageRole.USER, content=full_message
-                        )
-                    ],
+                    messages=[ThreadMessageOptions(role=MessageRole.USER, content=full_message)],
                 )
                 thread_id = thread.id
 
@@ -240,11 +233,7 @@ class FoundryAgentClient:
 
                 thread = await asyncio.to_thread(
                     client.threads.create,
-                    messages=[
-                        ThreadMessageOptions(
-                            role=MessageRole.USER, content=full_message
-                        )
-                    ],
+                    messages=[ThreadMessageOptions(role=MessageRole.USER, content=full_message)],
                 )
                 thread_id = thread.id
 
@@ -262,9 +251,7 @@ class FoundryAgentClient:
                     for event_type, event_data, _ in event_stream:
                         yield event_type, event_data
 
-            for event_type, event_data in await asyncio.to_thread(
-                lambda: list(_iter_events())
-            ):
+            for event_type, event_data in await asyncio.to_thread(lambda: list(_iter_events())):
                 if event_type == AgentStreamEvent.THREAD_MESSAGE_DELTA:
                     text = getattr(event_data, "text", "")
                     if text:
@@ -300,9 +287,7 @@ class FoundryAgentClient:
             import asyncio
 
             client = self._get_client()
-            agents = await asyncio.to_thread(
-                lambda: list(client.list_agents(limit=1))
-            )
+            agents = await asyncio.to_thread(lambda: list(client.list_agents(limit=1)))
             return {
                 "status": "healthy",
                 "agent_name": self._agent_name,
@@ -380,8 +365,6 @@ def get_foundry_agent_client() -> FoundryAgentClient:
             project_endpoint=endpoint,
             agent_name=agent_name,
         )
-        logger.info(
-            f"Foundry agent client initialized: {agent_name} @ {endpoint}"
-        )
+        logger.info(f"Foundry agent client initialized: {agent_name} @ {endpoint}")
 
     return _foundry_client
