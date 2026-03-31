@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   PublicClientApplication,
-  type AccountInfo,
   InteractionRequiredAuthError,
 } from '@azure/msal-browser';
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
@@ -27,7 +26,10 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
   const { instance, accounts } = useMsal();
   const isMsalAuthenticated = useIsAuthenticated();
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [userFetched, setUserFetched] = useState(false);
+
+  // Derive loading: true only while actively fetching the user profile
+  const loading = isMsalAuthenticated && accounts.length > 0 && !userFetched;
 
   // Load user profile from backend when MSAL has an active account
   useEffect(() => {
@@ -46,10 +48,8 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
           if (isMounted) setUser(null);
         })
         .finally(() => {
-          if (isMounted) setLoading(false);
+          if (isMounted) setUserFetched(true);
         });
-    } else {
-      setLoading(false);
     }
 
     return () => {

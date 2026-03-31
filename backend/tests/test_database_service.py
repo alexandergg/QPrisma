@@ -82,9 +82,7 @@ class TestUserCRUD:
     def test_create_duplicate_email_raises(self, db_service):
         db_service.create_user(email="dup@example.com", full_name="First")
         with pytest.raises(IntegrityError):
-            db_service.create_user(
-                email="dup@example.com", full_name="Second"
-            )
+            db_service.create_user(email="dup@example.com", full_name="Second")
 
     def test_create_user_with_entra_oid(self, db_service):
         user = db_service.create_user(

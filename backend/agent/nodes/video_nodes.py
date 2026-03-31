@@ -152,9 +152,7 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     if updates:
         logger.info(f"restore_media_context: applying updates {list(updates.keys())}")
     else:
-        logger.debug(
-            f"restore_media_context: no updates needed " f"(media_id={effective_media_id!r})"
-        )
+        logger.debug(f"restore_media_context: no updates needed (media_id={effective_media_id!r})")
 
     return updates
 
@@ -177,9 +175,9 @@ def get_system_message(state: AgentState) -> SystemMessage:
         for i, mid in enumerate(media_ids):
             title = video_titles.get(mid)
             if title:
-                video_lines.append(f'  - Video {i+1}: "{title}" (id: {mid})')
+                video_lines.append(f'  - Video {i + 1}: "{title}" (id: {mid})')
             else:
-                video_lines.append(f"  - Video {i+1}: {mid}")
+                video_lines.append(f"  - Video {i + 1}: {mid}")
         video_list = "\n".join(video_lines)
         content += f"\n\n**Selected Videos ({len(media_ids)}):**\n{video_list}"
         content += "\n\nUse `get_library_overview` first to understand what each video covers."
@@ -233,9 +231,7 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
     is_multi_video = media_ids and len(media_ids) > 1
     has_video = is_multi_video or (video_context and video_context.get("media_id")) or media_id
 
-    logger.info(
-        f"call_model: media_id={media_id}, " f"media_ids={media_ids}, has_video={has_video}"
-    )
+    logger.info(f"call_model: media_id={media_id}, media_ids={media_ids}, has_video={has_video}")
 
     # Get tools - use dynamic binding if enabled
     tools = []
