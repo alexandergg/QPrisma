@@ -308,6 +308,24 @@ module keyVault 'modules/key-vault.bicep' = {
 }
 
 // =====================================================================
+// RBAC — Azure AI Developer for API Container App on AI Foundry
+// Grants agents/read, agents/write, and OpenAI data-plane actions
+// so the backend can call Foundry agents via DefaultAzureCredential.
+// =====================================================================
+
+var azureAiDeveloperRoleId = '64702f94-c441-49e6-a78b-ef80e0188fee'
+
+resource apiAiDeveloperRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingAiFoundry.id, 'ca-qprisma-api', azureAiDeveloperRoleId)
+  scope: existingAiFoundry
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', azureAiDeveloperRoleId)
+    principalId: apiContainerApp.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// =====================================================================
 // Outputs
 // =====================================================================
 
