@@ -55,6 +55,9 @@ dependencies = [
     "slowapi>=0.1.9,<1.0.0",
     "yt-dlp>=2026.3.17",
     "datasets>=4.8.4",
+    # Telemetry / Tracing (Azure Monitor + OpenTelemetry)
+    "azure-monitor-opentelemetry>=1.6.0,<2.0.0",
+    "opentelemetry-instrumentation-openai-v2>=2.0.0,<3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -64,6 +67,8 @@ gpu = [
 hosted = [
     "azure-ai-agentserver-langgraph>=1.0.0b12",
     "starlette>=0.45.0,<1.0.0",
+    "azure-monitor-opentelemetry>=1.6.0,<2.0.0",
+    "opentelemetry-instrumentation-openai-v2>=2.0.0,<3.0.0",
 ]
 
 [build-system]

@@ -84,3 +84,4 @@ output id string = containerAppsEnvironment.id
 output name string = containerAppsEnvironment.name
 output defaultDomain string = containerAppsEnvironment.properties.defaultDomain
 output staticIp string = containerAppsEnvironment.properties.staticIp
+output logAnalyticsWorkspaceId string = logAnalytics.id

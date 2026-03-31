@@ -311,6 +311,25 @@ class FoundrySettings(BaseSettings):
     )
 
 
+class TelemetrySettings(BaseSettings):
+    """Application Insights & OpenTelemetry tracing configuration."""
+
+    model_config = SettingsConfigDict(extra="ignore")
+
+    applicationinsights_connection_string: str | None = Field(
+        default=None,
+        description="Azure Application Insights connection string for distributed tracing",
+    )
+    otel_service_name: str = Field(
+        default="qprisma-api",
+        description="OpenTelemetry service name for trace attribution",
+    )
+    enable_content_recording: bool = Field(
+        default=False,
+        description="Record GenAI prompt/completion content in traces (may contain PII)",
+    )
+
+
 class SearchSettings(BaseSettings):
     """Hybrid search and HNSW vector index configuration."""
 
@@ -452,6 +471,7 @@ class Settings(BaseSettings):
     search: SearchSettings = Field(default_factory=SearchSettings)
     foundry: FoundrySettings = Field(default_factory=FoundrySettings)
     auth: AuthSettings = Field(default_factory=AuthSettings)
+    telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
 
     @model_validator(mode="after")
     def _check_required_secrets(self) -> "Settings":

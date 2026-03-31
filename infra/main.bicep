@@ -67,6 +67,7 @@ var containerRegistryName = 'acrqprisma${environment}'
 var aiFoundryName = 'aif-qprisma-${environment}'
 var containerAppsEnvName = 'cae-qprisma-${environment}'
 var logAnalyticsName = 'log-qprisma-${environment}'
+var appInsightsName = 'appi-qprisma-${environment}'
 var apiContainerAppName = 'ca-qprisma-api-${environment}'
 var frontendContainerAppName = 'ca-qprisma-web-${environment}'
 var workerContainerAppName = 'ca-qprisma-worker-${environment}'
@@ -124,6 +125,20 @@ module containerAppsEnv 'modules/container-apps-env.bicep' = {
     name: containerAppsEnvName
     location: location
     logAnalyticsName: logAnalyticsName
+    tags: tags
+  }
+}
+
+// =====================================================================
+// Application Insights (APM, distributed tracing, Foundry tracing)
+// =====================================================================
+
+module appInsights 'modules/app-insights.bicep' = {
+  name: 'appinsights-deployment'
+  params: {
+    name: appInsightsName
+    location: location
+    logAnalyticsWorkspaceId: containerAppsEnv.outputs.logAnalyticsWorkspaceId
     tags: tags
   }
 }
@@ -218,6 +233,8 @@ var appEnvVars = [
   { name: 'ARTIFACT_BLOB_PREFIX', value: artifactBlobPrefix }
   { name: 'FOUNDRY_PROJECT_ENDPOINT', value: 'https://${aiFoundryName}.services.ai.azure.com/api/projects/${existingAiProject.name}' }
   { name: 'FOUNDRY_AGENT_NAME', value: 'qprisma-video-agent' }
+  { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.outputs.connectionString }
+  { name: 'OTEL_SERVICE_NAME', value: 'qprisma-api' }
 ]
 
 // Env vars that reference secrets by name
@@ -353,3 +370,4 @@ output storageAccountName string = storage.outputs.name
 output postgresServerName string = postgres.outputs.name
 output redisHostName string = redis.outputs.hostName
 output neo4jBoltUri string = neo4j.outputs.boltUri
+output appInsightsConnectionString string = appInsights.outputs.connectionString
