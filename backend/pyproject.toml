@@ -62,6 +62,7 @@ gpu = [
 ]
 hosted = [
     "azure-ai-agentserver-langgraph>=1.0.0b12",
+    "starlette>=0.45.0,<1.0.0",
 ]
 
 [build-system]
