@@ -63,12 +63,14 @@ class A2AAgentExecutor:
                 parts.append(part.text)
             elif part.data:
                 import json
+
                 parts.append(f"[Structured Data]: {json.dumps(part.data, indent=2)}")
         return "\n".join(parts).strip()
 
     def _get_foundry_client(self):
         """Get the Foundry agent client (lazy import)."""
         from services.foundry_agent_client import get_foundry_agent_client
+
         return get_foundry_agent_client()
 
     # ------------------------------------------------------------------
@@ -164,9 +166,7 @@ class A2AAgentExecutor:
 
             persist_start = perf_counter()
             await self.task_store.update_task(task)
-            _record_phase_latency(
-                "task_persist", perf_counter() - persist_start, self.agent_type
-            )
+            _record_phase_latency("task_persist", perf_counter() - persist_start, self.agent_type)
 
             total_duration = perf_counter() - execution_start
             Metrics.record_graph_execution(
@@ -208,9 +208,7 @@ class A2AAgentExecutor:
             )
             persist_start = perf_counter()
             await self.task_store.update_task(task)
-            _record_phase_latency(
-                "task_persist", perf_counter() - persist_start, self.agent_type
-            )
+            _record_phase_latency("task_persist", perf_counter() - persist_start, self.agent_type)
             return task
 
     async def send_streaming_message(
@@ -342,11 +340,7 @@ class A2AAgentExecutor:
                                 state=TaskState.WORKING,
                                 message=Message(
                                     role=Role.AGENT,
-                                    parts=[
-                                        Part(
-                                            text=f"Tool args: {tool_name}|{description}"
-                                        )
-                                    ],
+                                    parts=[Part(text=f"Tool args: {tool_name}|{description}")],
                                 ),
                             ),
                         )
@@ -413,9 +407,7 @@ class A2AAgentExecutor:
 
             persist_start = perf_counter()
             await self.task_store.update_task(task)
-            _record_phase_latency(
-                "task_persist", perf_counter() - persist_start, self.agent_type
-            )
+            _record_phase_latency("task_persist", perf_counter() - persist_start, self.agent_type)
 
             total_duration = perf_counter() - execution_start
             Metrics.record_graph_execution(
@@ -464,9 +456,7 @@ class A2AAgentExecutor:
             )
             persist_start = perf_counter()
             await self.task_store.update_task(task)
-            _record_phase_latency(
-                "task_persist", perf_counter() - persist_start, self.agent_type
-            )
+            _record_phase_latency("task_persist", perf_counter() - persist_start, self.agent_type)
 
             yield StreamResponse(
                 statusUpdate=TaskStatusUpdateEvent(

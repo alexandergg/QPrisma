@@ -79,9 +79,7 @@ def _setup_telemetry() -> None:
         from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 
         os.environ.setdefault("OTEL_SERVICE_NAME", "qprisma-hosted-agent")
-        os.environ.setdefault(
-            "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "false"
-        )
+        os.environ.setdefault("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "false")
 
         configure_azure_monitor(connection_string=conn_str)
         OpenAIInstrumentor().instrument()
@@ -99,9 +97,7 @@ def _setup_telemetry() -> None:
 def main():
     """Start the Foundry hosted agent server."""
     logger.info("Starting QPrisma Video Agent (Foundry Hosted Mode)")
-    logger.info(
-        "Protocols: Responses API + A2A v0.2.1 | Port: 8088"
-    )
+    logger.info("Protocols: Responses API + A2A v0.2.1 | Port: 8088")
 
     # Initialize tracing before the graph/adapter so spans are captured
     _setup_telemetry()
