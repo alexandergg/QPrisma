@@ -16,7 +16,7 @@ export const msalConfig: Configuration = {
   auth: {
     clientId: process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID || '',
     authority: process.env.NEXT_PUBLIC_ENTRA_AUTHORITY || 'https://login.microsoftonline.com/common',
-    redirectUri: `${baseUri}/redirect.html`,
+    redirectUri: `${baseUri}/redirect`,
     postLogoutRedirectUri: baseUri,
   },
   cache: {

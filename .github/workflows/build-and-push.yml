@@ -193,7 +193,7 @@ jobs:
         run: |
           APP_ID="${{ vars.ENTRA_SPA_CLIENT_ID }}"
           REDIRECT_URI="https://${{ steps.resolve-frontend-fqdn.outputs.frontend_fqdn }}"
-          REQUIRED_URIS=("$REDIRECT_URI" "$REDIRECT_URI/redirect.html" "http://localhost:3000" "http://localhost:3000/redirect.html")
+          REQUIRED_URIS=("$REDIRECT_URI" "$REDIRECT_URI/redirect" "http://localhost:3000" "http://localhost:3000/redirect")
 
           # Fetch existing redirect URIs so we merge instead of replace
           EXISTING=$(az rest --method GET \

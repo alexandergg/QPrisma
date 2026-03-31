@@ -10,6 +10,7 @@ This document provides a comprehensive deep-dive into QPrisma's infrastructure a
 - [Infrastructure as Code (Bicep)](#infrastructure-as-code-bicep)
 - [Secrets Management](#secrets-management)
 - [Deployment Flow](#deployment-flow)
+  - [Entra ID SPA Redirect URI Sync](#entra-id-spa-redirect-uri-sync)
 - [Multi-Region Strategy](#multi-region-strategy)
 - [Monitoring & Observability](#monitoring--observability)
 - [Troubleshooting](#troubleshooting)
@@ -345,6 +346,9 @@ Phase 6:             Key Vault (needs managed identities from API + Worker)
 | `AZURE_LOCATION` | Primary deployment region |
 | `KEY_VAULT_NAME` | Key Vault name |
 | `ENVIRONMENT` | Deployment environment name |
+| `ENTRA_SPA_CLIENT_ID` | Frontend SPA Entra app registration Client ID |
+| `ENTRA_TENANT_ID` | Microsoft Entra (Azure AD) tenant ID |
+| `ENTRA_API_SCOPE` | Backend API scope (e.g. `api://qprisma/access_as_user`) |
 
 ### Secret Flow
 
@@ -368,10 +372,63 @@ GitHub Secrets
 
 1. **Create Azure Service Principal** with OIDC federation for GitHub Actions
 2. **Configure GitHub Secrets** (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, DB_ADMIN_PASSWORD, NEO4J_PASSWORD, JWT_SECRET_KEY)
-3. **Configure GitHub Variables** (ACR_NAME, ACR_LOGIN_SERVER, AZURE_RESOURCE_GROUP, AZURE_LOCATION, KEY_VAULT_NAME, ENVIRONMENT)
-4. **Run `deploy-infra.yml`** manually to provision all Azure resources
-5. **Run `build-and-push.yml`** manually to build and push initial container images
-6. **Application auto-deploys** via `deploy-app.yml` triggered by build pipeline
+3. **Configure GitHub Variables** (ACR_NAME, ACR_LOGIN_SERVER, AZURE_RESOURCE_GROUP, AZURE_LOCATION, KEY_VAULT_NAME, ENVIRONMENT, ENTRA_SPA_CLIENT_ID, ENTRA_TENANT_ID, ENTRA_API_SCOPE)
+4. **Grant OIDC SP Graph API permissions** for Entra SPA redirect URI sync (see [below](#entra-id-spa-redirect-uri-sync))
+5. **Run `deploy-infra.yml`** manually to provision all Azure resources
+6. **Run `build-and-push.yml`** manually to build and push initial container images
+7. **Application auto-deploys** via `deploy-app.yml` triggered by build pipeline
+
+### Entra ID SPA Redirect URI Sync
+
+The `build-and-push.yml` workflow automatically keeps the frontend SPA's Entra redirect URIs in sync with the deployed Container App FQDN. This avoids manual Entra portal updates when the FQDN changes.
+
+**How it works:**
+
+1. Resolves the frontend Container App FQDN via `az containerapp show`
+2. Fetches current redirect URIs from the Entra app registration via Microsoft Graph API
+3. Merges required URIs (production FQDN + localhost fallback) with existing ones
+4. Updates the SPA redirect URIs via `az rest --method PATCH`
+
+**Required permissions for the OIDC service principal:**
+
+- **Owner** of the Entra SPA app registration
+- **`Application.ReadWrite.OwnedBy`** Microsoft Graph application role
+
+> **Note:** The sync step is configured with `continue-on-error: true` so a permission failure will not block the image build. A `::warning` annotation is emitted instead.
+
+**Granting the permissions (PowerShell):**
+
+```powershell
+# Authenticate with an account that has Global Admin or Privileged Role Administrator
+az login
+
+# Set your OIDC service principal's client ID (from AZURE_CLIENT_ID GitHub secret)
+$AZURE_CLIENT_ID = "<your-oidc-sp-client-id>"
+
+# Get the OIDC service principal's object ID
+$SP_OBJECT_ID = (az ad sp show --id $AZURE_CLIENT_ID --query id -o tsv).Trim()
+
+# Add the SP as owner of the frontend SPA app registration
+az ad app owner add --id "<ENTRA_SPA_CLIENT_ID>" --owner-object-id $SP_OBJECT_ID
+
+# Get Microsoft Graph's service principal object ID
+$GRAPH_SP_ID = (az ad sp show --id "00000003-0000-0000-c000-000000000000" --query id -o tsv).Trim()
+
+# Grant Application.ReadWrite.OwnedBy (role ID is fixed by Microsoft)
+$body = @{
+    principalId = $SP_OBJECT_ID
+    resourceId  = $GRAPH_SP_ID
+    appRoleId   = "18a4783c-866b-4cc7-a460-3d5e5662c884"
+} | ConvertTo-Json
+$body | Set-Content -Path "$env:TEMP\body.json" -Encoding UTF8
+az rest --method POST `
+    --uri "https://graph.microsoft.com/v1.0/servicePrincipals/$SP_OBJECT_ID/appRoleAssignments" `
+    --headers "Content-Type=application/json" `
+    --body "@$env:TEMP\body.json"
+Remove-Item "$env:TEMP\body.json" -ErrorAction SilentlyContinue
+```
+
+**Verification:** After granting permissions, re-run the `build-and-push.yml` workflow. The "Sync Entra ID SPA redirect URI" step should succeed with `✅ SPA redirect URIs updated`.
 
 ### Ongoing Deployment
 
@@ -441,6 +498,12 @@ QPrisma deploys resources across 2 Azure regions for optimal performance and ser
 - Verify `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` secrets are correct
 - Check Service Principal has federated credentials configured for the repository
 - Ensure the SP has Contributor + User Access Administrator roles on the resource group
+
+**Problem: Entra SPA redirect URI sync fails with 403 Forbidden**
+- The OIDC service principal either does not have the Microsoft Graph `Application.ReadWrite.OwnedBy` application role assigned, or is not an **owner** of the SPA Entra app registration
+- Ensure the OIDC service principal is added as an **Owner** of the SPA app registration and has `Application.ReadWrite.OwnedBy` assigned, then follow the [Entra ID SPA Redirect URI Sync](#entra-id-spa-redirect-uri-sync) setup steps
+- The sync step is non-blocking (`continue-on-error: true`) — the image build will still succeed
+- Requires an account with **Global Admin** or **Privileged Role Administrator** to assign the Microsoft Graph application role to the OIDC service principal
 
 **Problem: Docker build fails**
 - Check Docker layer cache (`type=gha`) — clear by re-running with `workflow_dispatch`
