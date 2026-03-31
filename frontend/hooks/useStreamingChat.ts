@@ -171,7 +171,9 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         let sources: ChatSource[] = [];
         let toolCallsMade = 0;
         let responseCommitted = false;
-        // Track tool descriptions keyed by tool name for the reasoning panel
+        // Local mirror of active tools — React state is async so we need
+        // a synchronous copy to read from at commit time.
+        const localTools: Array<{ name: string; status: string; description?: string }> = [];
         const toolDescriptions: Record<string, string> = {};
 
         const stream = apiClient.chatWithAgentStream(
@@ -191,16 +193,21 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
             case 'thinking':
               break;
 
-            case 'tool_start':
+            case 'tool_start': {
+              const toolName = event.data.tool || 'unknown';
+              localTools.push({ name: toolName, status: 'running' });
               setActiveTools((prev) => [
                 ...prev,
-                { name: event.data.tool || 'unknown', status: 'running' },
+                { name: toolName, status: 'running' },
               ]);
               break;
+            }
 
             case 'tool_args':
               if (event.data.tool && event.data.description) {
                 toolDescriptions[event.data.tool] = event.data.description;
+                const lt = localTools.find((t) => t.name === event.data.tool && t.status === 'running');
+                if (lt) lt.description = event.data.description;
                 setActiveTools((prev) =>
                   prev.map((t) =>
                     t.name === event.data.tool
@@ -211,7 +218,10 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
               }
               break;
 
-            case 'tool_end':
+            case 'tool_end': {
+              const newStatus = event.data.success ? 'success' : 'error';
+              const lt = localTools.find((t) => t.name === event.data.tool && t.status === 'running');
+              if (lt) lt.status = newStatus;
               setActiveTools((prev) =>
                 prev.map((t) =>
                   t.name === event.data.tool
@@ -220,6 +230,7 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
                 ),
               );
               break;
+            }
 
             case 'token':
               if (event.data.token) {
@@ -235,18 +246,12 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
             case 'done': {
               finalResponse = event.data.response || '';
               toolCallsMade = event.data.tool_calls_made || 0;
-              // Build persistent tool details from the active tools snapshot
-              const finalToolDetails: ToolDetail[] = [];
-              setActiveTools((prev) => {
-                for (const t of prev) {
-                  finalToolDetails.push({
-                    name: t.name,
-                    status: t.status === 'error' ? 'error' : 'success',
-                    description: toolDescriptions[t.name] || t.description,
-                  });
-                }
-                return prev;
-              });
+              // Build tool details from our synchronous local mirror
+              const finalToolDetails: ToolDetail[] = localTools.map((t) => ({
+                name: t.name,
+                status: (t.status === 'error' ? 'error' : 'success') as 'success' | 'error',
+                description: toolDescriptions[t.name] || t.description,
+              }));
               commitAssistantMessage(
                 finalResponse || streamedResponse,
                 sources,
@@ -267,18 +272,12 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         }
 
         if (!responseCommitted) {
-          // Build tool details from whatever was tracked
-          const fallbackToolDetails: ToolDetail[] = [];
-          setActiveTools((prev) => {
-            for (const t of prev) {
-              fallbackToolDetails.push({
-                name: t.name,
-                status: t.status === 'error' ? 'error' : 'success',
-                description: toolDescriptions[t.name] || t.description,
-              });
-            }
-            return prev;
-          });
+          // Build tool details from the synchronous local mirror
+          const fallbackToolDetails: ToolDetail[] = localTools.map((t) => ({
+            name: t.name,
+            status: (t.status === 'error' ? 'error' : 'success') as 'success' | 'error',
+            description: toolDescriptions[t.name] || t.description,
+          }));
           commitAssistantMessage(
             finalResponse || streamedResponse,
             sources,
