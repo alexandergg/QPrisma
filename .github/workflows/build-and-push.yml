@@ -191,11 +191,11 @@ jobs:
         if: steps.resolve-frontend-fqdn.outputs.frontend_fqdn != 'localhost:3000'
         run: |
           REDIRECT_URI="https://${{ steps.resolve-frontend-fqdn.outputs.frontend_fqdn }}"
-          echo "Ensuring SPA redirect URI is registered: $REDIRECT_URI"
+          echo "Ensuring SPA redirect URIs are registered: $REDIRECT_URI and $REDIRECT_URI/redirect.html"
           az rest --method PATCH \
             --uri "https://graph.microsoft.com/v1.0/applications(appId='${{ vars.ENTRA_SPA_CLIENT_ID }}')" \
             --headers "Content-Type=application/json" \
-            --body "{\"spa\":{\"redirectUris\":[\"$REDIRECT_URI\",\"http://localhost:3000\"]}}"
+            --body "{\"spa\":{\"redirectUris\":[\"$REDIRECT_URI\",\"$REDIRECT_URI/redirect.html\",\"http://localhost:3000\",\"http://localhost:3000/redirect.html\"]}}"
           echo "✅ SPA redirect URIs updated for app ${{ vars.ENTRA_SPA_CLIENT_ID }}"
 
       - name: Set up Docker Buildx

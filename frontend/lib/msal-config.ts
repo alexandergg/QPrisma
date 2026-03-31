@@ -10,12 +10,14 @@
 
 import { type Configuration, LogLevel, type RedirectRequest } from '@azure/msal-browser';
 
+const baseUri = process.env.NEXT_PUBLIC_ENTRA_REDIRECT_URI || 'http://localhost:3000';
+
 export const msalConfig: Configuration = {
   auth: {
     clientId: process.env.NEXT_PUBLIC_ENTRA_CLIENT_ID || '',
     authority: process.env.NEXT_PUBLIC_ENTRA_AUTHORITY || 'https://login.microsoftonline.com/common',
-    redirectUri: process.env.NEXT_PUBLIC_ENTRA_REDIRECT_URI || 'http://localhost:3000',
-    postLogoutRedirectUri: process.env.NEXT_PUBLIC_ENTRA_REDIRECT_URI || 'http://localhost:3000',
+    redirectUri: `${baseUri}/redirect.html`,
+    postLogoutRedirectUri: baseUri,
   },
   cache: {
     cacheLocation: 'sessionStorage',

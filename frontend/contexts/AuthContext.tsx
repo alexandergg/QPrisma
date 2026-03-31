@@ -72,7 +72,7 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     setUser(null);
     instance.logoutPopup({
-      postLogoutRedirectUri: msalConfig.auth.postLogoutRedirectUri,
+      postLogoutRedirectUri: msalConfig.auth.postLogoutRedirectUri as string,
     });
   }, [instance]);
 
