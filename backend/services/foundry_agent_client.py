@@ -216,6 +216,7 @@ class FoundryAgentClient:
 
             def _stream_worker() -> None:
                 """Run the streaming call in a worker thread."""
+                stream = None
                 try:
                     stream = openai.responses.create(
                         input=input_messages,
@@ -228,6 +229,8 @@ class FoundryAgentClient:
                             {"type": event.type, "data": event},
                         )
                 finally:
+                    if stream is not None:
+                        stream.close()
                     loop.call_soon_threadsafe(queue.put_nowait, None)
 
             accumulated_content = ""
@@ -299,7 +302,7 @@ class FoundryAgentClient:
         """Return True if the exception indicates a bad previous_response_id."""
         import openai as _openai
 
-        return isinstance(exc, (_openai.BadRequestError, _openai.NotFoundError))
+        return isinstance(exc, _openai.BadRequestError | _openai.NotFoundError)
 
     @staticmethod
     def _build_metadata(
