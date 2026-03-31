@@ -7,6 +7,7 @@ This package contains all Pydantic models, database models, and configuration ty
 from .api_schemas import (
     AgentChatRequest,
     AgentChatResponse,
+    AuthConfigResponse,
     # Batch
     BatchStatusResponse,
     # Chat
@@ -15,31 +16,24 @@ from .api_schemas import (
     ChatResponse,
     CostEstimateResponse,
     EnhancedSearchRequest,
-    LoginRequest,
     # Processing
     ProcessingSearchRequest,
-    # Auth
-    RegisterRequest,
     SearchRequest,
     SearchResponse,
     SearchResult,
-    TokenResponse,
+    # Auth
     UserResponse,
 )
-from .user import Token, TokenData, User, UserCreate, UserInDB
+from .user import EntraTokenData, User, UserInDB
 
 __all__ = [
     # User models
     "User",
-    "UserCreate",
     "UserInDB",
-    "Token",
-    "TokenData",
+    "EntraTokenData",
     # API Schemas - Auth
-    "RegisterRequest",
-    "LoginRequest",
-    "TokenResponse",
     "UserResponse",
+    "AuthConfigResponse",
     # API Schemas - Chat
     "ChatMessage",
     "ChatRequest",

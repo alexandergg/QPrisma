@@ -53,7 +53,6 @@ class TestUserCRUD:
     def test_create_user(self, db_service):
         user = db_service.create_user(
             email="test@example.com",
-            hashed_password="$2b$12$hash",
             full_name="Test User",
         )
         assert user.email == "test@example.com"
@@ -62,7 +61,6 @@ class TestUserCRUD:
     def test_get_user_by_email(self, db_service):
         db_service.create_user(
             email="lookup@example.com",
-            hashed_password="$2b$12$hash",
             full_name="Lookup",
         )
         user = db_service.get_user_by_email("lookup@example.com")
@@ -76,18 +74,45 @@ class TestUserCRUD:
     def test_create_user_with_custom_id(self, db_service):
         user = db_service.create_user(
             email="custom@example.com",
-            hashed_password="$2b$12$hash",
             full_name="Custom",
             user_id="user_custom123",
         )
         assert user.id == "user_custom123"
 
     def test_create_duplicate_email_raises(self, db_service):
-        db_service.create_user(email="dup@example.com", hashed_password="hash1", full_name="First")
+        db_service.create_user(email="dup@example.com", full_name="First")
         with pytest.raises(IntegrityError):
             db_service.create_user(
-                email="dup@example.com", hashed_password="hash2", full_name="Second"
+                email="dup@example.com", full_name="Second"
             )
+
+    def test_create_user_with_entra_oid(self, db_service):
+        user = db_service.create_user(
+            email="entra@example.com",
+            full_name="Entra User",
+            entra_oid="00000000-0000-0000-0000-000000000001",
+        )
+        assert user.entra_oid == "00000000-0000-0000-0000-000000000001"
+
+    def test_get_user_by_entra_oid(self, db_service):
+        db_service.create_user(
+            email="oid-lookup@example.com",
+            full_name="OID User",
+            entra_oid="oid-test-123",
+        )
+        user = db_service.get_user_by_entra_oid("oid-test-123")
+        assert user is not None
+        assert user.email == "oid-lookup@example.com"
+
+    def test_update_user_entra_oid(self, db_service):
+        user = db_service.create_user(
+            email="link@example.com",
+            full_name="Link User",
+        )
+        assert user.entra_oid is None
+        updated = db_service.update_user_entra_oid(user.id, "new-oid-456")
+        assert updated is not None
+        assert updated.entra_oid == "new-oid-456"
 
 
 # =============================================================================
@@ -102,7 +127,6 @@ class TestMediaCRUD:
         """Create a user for FK constraints."""
         self.user = db_service.create_user(
             email="mediauser@example.com",
-            hashed_password="$2b$12$hash",
             full_name="Media User",
             user_id="user_media_test",
         )
@@ -201,7 +225,6 @@ class TestJobOperations:
     def _setup_user_and_media(self, db_service):
         self.user = db_service.create_user(
             email="jobuser@example.com",
-            hashed_password="hash",
             full_name="Job User",
             user_id="user_job_test",
         )

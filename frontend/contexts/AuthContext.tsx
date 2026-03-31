@@ -1,78 +1,80 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { apiClient, User } from '@/lib/api';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import {
+  PublicClientApplication,
+  type AccountInfo,
+  InteractionRequiredAuthError,
+} from '@azure/msal-browser';
+import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react';
+import { msalConfig, loginRequest } from '@/lib/msal-config';
+import { apiClient, setMsalInstance, type User } from '@/lib/api';
+
+// Singleton MSAL instance — created once at module scope
+const msalInstance = new PublicClientApplication(msalConfig);
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  login: () => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+function AuthProviderInner({ children }: { children: React.ReactNode }) {
+  const { instance, accounts } = useMsal();
+  const isMsalAuthenticated = useIsAuthenticated();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Check if user is already logged in on mount
+  // Load user profile from backend when MSAL has an active account
   useEffect(() => {
-    const token = localStorage.getItem('auth_token');
     let isMounted = true;
-    if (token) {
-      // Verify token and load user
+
+    if (isMsalAuthenticated && accounts.length > 0) {
+      // Tell api.ts about the MSAL instance so it can acquire tokens
+      setMsalInstance(instance);
+
       apiClient
         .getCurrentUser()
         .then((userData: User) => {
-          if (isMounted) {
-            setUser(userData);
-          }
+          if (isMounted) setUser(userData);
         })
         .catch(() => {
-          // Token invalid or expired
-          localStorage.removeItem('auth_token');
-          if (isMounted) {
-            setUser(null);
-          }
+          if (isMounted) setUser(null);
         })
         .finally(() => {
-          if (isMounted) {
-            setLoading(false);
-          }
+          if (isMounted) setLoading(false);
         });
     } else {
-      Promise.resolve().then(() => setLoading(false));
+      setLoading(false);
     }
+
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isMsalAuthenticated, accounts, instance]);
 
-  const login = async (email: string, password: string) => {
-    const tokenData = await apiClient.login(email, password);
-    localStorage.setItem('auth_token', tokenData.access_token);
+  const login = useCallback(async () => {
+    try {
+      await instance.loginPopup(loginRequest);
+    } catch (err) {
+      if (err instanceof InteractionRequiredAuthError) {
+        await instance.loginRedirect(loginRequest);
+      } else {
+        throw err;
+      }
+    }
+  }, [instance]);
 
-    // Get user info
-    const userData = await apiClient.getCurrentUser();
-    setUser(userData);
-  };
-
-  const register = async (email: string, password: string, name: string) => {
-    const tokenData = await apiClient.register(email, password, name);
-    localStorage.setItem('auth_token', tokenData.access_token);
-
-    // Get user info
-    const userData = await apiClient.getCurrentUser();
-    setUser(userData);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('auth_token');
+  const logout = useCallback(() => {
     setUser(null);
-  };
+    instance.logoutPopup({
+      postLogoutRedirectUri: msalConfig.auth.postLogoutRedirectUri,
+    });
+  }, [instance]);
 
   return (
     <AuthContext.Provider
@@ -80,13 +82,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         loading,
         login,
-        register,
         logout,
         isAuthenticated: !!user,
       }}
     >
       {children}
     </AuthContext.Provider>
+  );
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <MsalProvider instance={msalInstance}>
+      <AuthProviderInner>{children}</AuthProviderInner>
+    </MsalProvider>
   );
 }
 

@@ -44,14 +44,12 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
-from api.dependencies import get_auth_service
 from api.routes.websocket_manager import (
     ConnectionManager,
     MessageType,
     WebSocketMessage,
     get_websocket_manager,
 )
-from models.user import TokenData
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +81,11 @@ async def authenticate_websocket(websocket: WebSocket, token: str | None) -> dic
         return None
 
     try:
-        auth_service = get_auth_service()
-        token_data: TokenData = await auth_service.verify_token(token)
-        return {"user_id": token_data.user_id, "email": token_data.email}
+        from services.entra_auth_service import get_entra_auth_service
+
+        entra_service = get_entra_auth_service()
+        token_data = await entra_service.verify_token(token)
+        return {"user_id": token_data.oid, "email": token_data.email}
     except Exception:
         logger.warning(
             "WebSocket auth failed: invalid or expired token (client=%s)",

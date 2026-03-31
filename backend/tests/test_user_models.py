@@ -1,8 +1,7 @@
 """
 Tests for models/user.py
 
-Covers Pydantic validation for UserCreate (password strength),
-UserInDB, User, Token, and TokenData models.
+Covers Pydantic validation for UserInDB, User, and EntraTokenData models.
 """
 
 from datetime import datetime
@@ -10,70 +9,7 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from models.user import Token, TokenData, User, UserCreate, UserInDB
-
-# =============================================================================
-# UserCreate Password Validation
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestUserCreate:
-    def test_valid_password(self):
-        user = UserCreate(email="a@b.com", password="SecurePass1")
-        assert user.password == "SecurePass1"
-
-    def test_valid_password_with_full_name(self):
-        user = UserCreate(email="a@b.com", password="SecurePass1", full_name="Test User")
-        assert user.full_name == "Test User"
-
-    def test_full_name_optional(self):
-        user = UserCreate(email="a@b.com", password="SecurePass1")
-        assert user.full_name is None
-
-    @pytest.mark.parametrize(
-        "password,reason",
-        [
-            ("Short1A", "too short (< 8 chars)"),
-            ("Ab1", "way too short"),
-            ("alllowercase1", "no uppercase"),
-            ("ALLUPPERCASE1", "no lowercase"),
-            ("NoDigitsHere", "no digit"),
-        ],
-    )
-    def test_invalid_passwords(self, password, reason):
-        with pytest.raises(ValidationError):
-            UserCreate(email="a@b.com", password=password)
-
-    @pytest.mark.parametrize(
-        "password",
-        [
-            "Admin123",  # lowered = "admin123" in weak set
-            "Qwerty123",  # lowered = "qwerty123" in weak set
-        ],
-    )
-    def test_common_weak_passwords_rejected(self, password):
-        with pytest.raises(ValidationError, match="too common"):
-            UserCreate(email="a@b.com", password=password)
-
-    def test_invalid_email(self):
-        with pytest.raises(ValidationError):
-            UserCreate(email="notanemail", password="SecurePass1")
-
-    @pytest.mark.parametrize(
-        "password",
-        [
-            "SecurePass1",
-            "MyP@ssw0rd",
-            "Abcdefg1",
-            "TestUser123",
-            "C0mplexPwd",
-        ],
-    )
-    def test_valid_passwords_parametrized(self, password):
-        user = UserCreate(email="a@b.com", password=password)
-        assert user.password == password
-
+from models.user import EntraTokenData, User, UserInDB
 
 # =============================================================================
 # UserInDB
@@ -86,31 +22,30 @@ class TestUserInDB:
         user = UserInDB(
             id="user_abc",
             email="a@b.com",
-            hashed_password="$2b$12$hash",
             full_name="Test",
+            entra_oid="entra-oid-123",
             is_active=True,
             is_superuser=False,
             created_at=datetime(2024, 1, 1),
             updated_at=datetime(2024, 1, 1),
         )
         assert user.id == "user_abc"
-        assert user.hashed_password == "$2b$12$hash"
+        assert user.entra_oid == "entra-oid-123"
 
     def test_defaults(self):
         user = UserInDB(
             id="user_abc",
             email="a@b.com",
-            hashed_password="$2b$12$hash",
         )
         assert user.is_active is True
         assert user.is_superuser is False
         assert user.full_name is None
+        assert user.entra_oid is None
 
     def test_created_at_has_default(self):
         user = UserInDB(
             id="user_abc",
             email="a@b.com",
-            hashed_password="$2b$12$hash",
         )
         assert user.created_at is not None
         assert isinstance(user.created_at, datetime)
@@ -133,7 +68,7 @@ class TestUser:
         assert user.id == "user_abc"
         assert user.email == "a@b.com"
 
-    def test_no_hashed_password_field(self):
+    def test_no_sensitive_fields(self):
         user = User(
             id="user_abc",
             email="a@b.com",
@@ -141,38 +76,28 @@ class TestUser:
             updated_at=datetime(2024, 1, 1),
         )
         assert not hasattr(user, "hashed_password")
+        assert not hasattr(user, "entra_oid")
 
 
 # =============================================================================
-# Token
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestToken:
-    def test_creates_with_required_fields(self):
-        token = Token(access_token="abc.def.ghi", expires_in=3600)
-        assert token.access_token == "abc.def.ghi"
-        assert token.expires_in == 3600
-
-    def test_token_type_defaults_to_bearer(self):
-        token = Token(access_token="abc.def.ghi", expires_in=3600)
-        assert token.token_type == "bearer"
-
-
-# =============================================================================
-# TokenData
+# EntraTokenData
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestTokenData:
-    def test_defaults_to_none(self):
-        data = TokenData()
-        assert data.user_id is None
+class TestEntraTokenData:
+    def test_required_oid(self):
+        data = EntraTokenData(oid="entra-oid-123")
+        assert data.oid == "entra-oid-123"
         assert data.email is None
+        assert data.name is None
 
-    def test_sets_values(self):
-        data = TokenData(user_id="user_123", email="a@b.com")
-        assert data.user_id == "user_123"
+    def test_all_fields(self):
+        data = EntraTokenData(oid="entra-oid-123", email="a@b.com", name="Test User")
+        assert data.oid == "entra-oid-123"
         assert data.email == "a@b.com"
+        assert data.name == "Test User"
+
+    def test_oid_required(self):
+        with pytest.raises(ValidationError):
+            EntraTokenData(email="a@b.com")
