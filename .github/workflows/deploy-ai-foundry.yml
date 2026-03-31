@@ -52,35 +52,13 @@ jobs:
             echo "::warning::Storage account not found. CapabilityHost will use Azure-managed defaults."
           fi
 
-      - name: Delete existing capability host (update not supported)
-        run: |
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-          SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          ACCOUNT="aif-qprisma-dev"
-          HOST_URL="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/capabilityHosts/agents-host?api-version=2025-10-01-preview"
-
-          # Check if capability host exists
-          echo "Checking for existing capability host..."
-          HTTP_CODE=$(az rest --method GET --url "${HOST_URL}" --query "properties.provisioningState" -o tsv 2>/dev/null && echo "200" || echo "404")
-
-          if [ "$HTTP_CODE" = "404" ]; then
-            echo "No existing capability host — nothing to delete."
-          else
-            echo "Existing capability host found. Deleting..."
-            az rest --method DELETE --url "${HOST_URL}" --verbose || true
-
-            # Poll until gone (max 3 minutes)
-            echo "Waiting for deletion to complete..."
-            for i in $(seq 1 18); do
-              sleep 10
-              STATE=$(az rest --method GET --url "${HOST_URL}" --query "properties.provisioningState" -o tsv 2>/dev/null || echo "NotFound")
-              echo "  [${i}0s] State: $STATE"
-              if [ "$STATE" = "NotFound" ]; then
-                echo "Capability host deleted successfully."
-                break
-              fi
-            done
-          fi
+      # NOTE: Capability host updates are NOT supported by Azure API.
+      # If the host config needs to change, manually delete and recreate:
+      #   1. Azure AI Foundry portal → Project → Hosted Agents
+      #   2. For each agent version: delete its deployment first, then delete the version
+      #   3. Delete the agent itself: az cognitiveservices agent delete --account-name aif-qprisma-dev --project-name aif-qprisma-dev-project --name <agent>
+      #   4. Delete capability host: az rest --method DELETE --url ".../capabilityHosts/agents-host?api-version=2025-10-01-preview"
+      #   5. Re-run this workflow to recreate with new config
 
       - name: Deploy AI Foundry
         uses: nick-fields/retry@v3
