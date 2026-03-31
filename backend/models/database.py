@@ -23,14 +23,14 @@ def generate_uuid() -> str:
 
 
 class UserModel(Base):
-    """User table for authentication."""
+    """User table for authentication (Microsoft Entra ID)."""
 
     __tablename__ = "users"
 
     id = Column(String(64), primary_key=True, default=generate_uuid)
     email = Column(String(255), unique=True, nullable=False, index=True)
     full_name = Column(String(255), nullable=True)
-    hashed_password = Column(String(255), nullable=False)
+    entra_oid = Column(String(128), unique=True, nullable=True, index=True)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))

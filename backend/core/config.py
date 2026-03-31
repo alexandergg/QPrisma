@@ -350,32 +350,38 @@ class SearchSettings(BaseSettings):
 
 
 class AuthSettings(BaseSettings):
-    """Authentication configuration."""
+    """Authentication configuration — Microsoft Entra ID (OIDC)."""
 
     model_config = SettingsConfigDict(extra="ignore")
 
-    # JWT secret MUST be set via JWT_SECRET_KEY environment variable
-    jwt_secret_key: str = Field(
+    # Microsoft Entra ID settings
+    entra_tenant_id: str = Field(
         default="",
-        description="JWT signing secret. Must be set via JWT_SECRET_KEY env var.",
+        description="Microsoft Entra ID tenant ID. Set via ENTRA_TENANT_ID env var.",
     )
-    jwt_algorithm: str = Field(default="HS256")
-    jwt_access_token_expire_minutes: int = Field(default=1440)  # 24 hours
-    jwt_refresh_token_expire_days: int = Field(default=30)  # 30 days
+    entra_client_id: str = Field(
+        default="",
+        description="Backend API app registration client ID. Set via ENTRA_CLIENT_ID env var.",
+    )
+    entra_api_scope: str = Field(
+        default="",
+        description="API scope exposed by the backend app registration (e.g. api://<id>/access_as_user).",
+    )
 
-    @field_validator("jwt_secret_key")
-    @classmethod
-    def validate_jwt_secret(cls, v: str) -> str:
-        """Enforce secure JWT secret in production."""
+    @model_validator(mode="after")
+    def _validate_entra_config(self) -> "AuthSettings":
+        """Enforce Entra ID configuration in production."""
         if _is_production():
-            if not v or v == "your-secret-key-change-in-production":
+            missing = []
+            if not self.entra_tenant_id:
+                missing.append("ENTRA_TENANT_ID")
+            if not self.entra_client_id:
+                missing.append("ENTRA_CLIENT_ID")
+            if missing:
                 raise ValueError(
-                    "JWT secret not configured. "
-                    "Set JWT_SECRET_KEY environment variable with a secure random string."
+                    f"Entra ID not configured for production. Set: {', '.join(missing)}"
                 )
-            if len(v) < 32:
-                raise ValueError("JWT_SECRET_KEY must be at least 32 characters in production.")
-        return v
+        return self
 
 
 class AppSettings(BaseSettings):
@@ -485,8 +491,8 @@ class Settings(BaseSettings):
             errors.append("DATABASE_URL must be set")
         if not self.neo4j.password:
             errors.append("NEO4J_PASSWORD must be set")
-        if not self.auth.jwt_secret_key:
-            errors.append("JWT_SECRET_KEY must be set")
+        if not self.auth.entra_tenant_id or not self.auth.entra_client_id:
+            errors.append("ENTRA_TENANT_ID and ENTRA_CLIENT_ID must be set")
 
         # Reject dev-only features in production
         if self.app.allow_dev_autologin:

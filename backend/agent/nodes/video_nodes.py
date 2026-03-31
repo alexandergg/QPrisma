@@ -73,10 +73,37 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
 
     In multi-video mode, also resolves human-readable video titles from the
     database so the system prompt can display them.
+
+    Also stamps OpenTelemetry span attributes (``gen_ai.conversation.id``,
+    ``enduser.id``) so Azure AI Foundry can group traces by conversation.
     """
     configurable = config.get("configurable", {})
     config_media_id = configurable.get("media_id")
     config_media_ids = configurable.get("media_ids")
+
+    # --- OpenTelemetry conversation/user attribution ---
+    thread_id = configurable.get("thread_id")
+    user_id = state.get("user_id")
+
+    from agent.utils.observability import set_conversation_id, set_otel_user_id
+
+    if thread_id and thread_id != "default":
+        set_conversation_id(thread_id)
+    if user_id:
+        set_otel_user_id(user_id)
+
+    # Also stamp directly on the current span (belt-and-suspenders)
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        if span and span.is_recording():
+            if thread_id and thread_id != "default":
+                span.set_attribute("gen_ai.conversation.id", thread_id)
+            if user_id:
+                span.set_attribute("enduser.id", user_id)
+    except Exception:
+        pass  # OTel not available — safe to ignore
 
     state_media_id = state.get("media_id")
     state_media_ids = state.get("media_ids")
@@ -125,9 +152,7 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     if updates:
         logger.info(f"restore_media_context: applying updates {list(updates.keys())}")
     else:
-        logger.debug(
-            f"restore_media_context: no updates needed " f"(media_id={effective_media_id!r})"
-        )
+        logger.debug(f"restore_media_context: no updates needed (media_id={effective_media_id!r})")
 
     return updates
 
@@ -150,9 +175,9 @@ def get_system_message(state: AgentState) -> SystemMessage:
         for i, mid in enumerate(media_ids):
             title = video_titles.get(mid)
             if title:
-                video_lines.append(f'  - Video {i+1}: "{title}" (id: {mid})')
+                video_lines.append(f'  - Video {i + 1}: "{title}" (id: {mid})')
             else:
-                video_lines.append(f"  - Video {i+1}: {mid}")
+                video_lines.append(f"  - Video {i + 1}: {mid}")
         video_list = "\n".join(video_lines)
         content += f"\n\n**Selected Videos ({len(media_ids)}):**\n{video_list}"
         content += "\n\nUse `get_library_overview` first to understand what each video covers."
@@ -206,9 +231,7 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
     is_multi_video = media_ids and len(media_ids) > 1
     has_video = is_multi_video or (video_context and video_context.get("media_id")) or media_id
 
-    logger.info(
-        f"call_model: media_id={media_id}, " f"media_ids={media_ids}, has_video={has_video}"
-    )
+    logger.info(f"call_model: media_id={media_id}, media_ids={media_ids}, has_video={has_video}")
 
     # Get tools - use dynamic binding if enabled
     tools = []

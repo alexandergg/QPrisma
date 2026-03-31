@@ -106,9 +106,9 @@ class DatabaseService:
     def create_user(
         self,
         email: str,
-        hashed_password: str,
         full_name: str | None = None,
         user_id: str | None = None,
+        entra_oid: str | None = None,
     ) -> UserModel:
         """Create a new user."""
         with self.get_session() as session:
@@ -116,7 +116,7 @@ class DatabaseService:
                 id=user_id or f"user_{os.urandom(6).hex()}",
                 email=email,
                 full_name=full_name,
-                hashed_password=hashed_password,
+                entra_oid=entra_oid,
             )
             session.add(user)
             session.flush()
@@ -138,6 +138,25 @@ class DatabaseService:
             user = session.query(UserModel).filter(UserModel.id == user_id).first()
             if user:
                 session.expunge(user)  # Detach from session to use after close
+            return user
+
+    def get_user_by_entra_oid(self, entra_oid: str) -> UserModel | None:
+        """Get user by Microsoft Entra ID Object ID."""
+        with self.get_session() as session:
+            user = session.query(UserModel).filter(UserModel.entra_oid == entra_oid).first()
+            if user:
+                session.expunge(user)
+            return user
+
+    def update_user_entra_oid(self, user_id: str, entra_oid: str) -> UserModel | None:
+        """Link an existing user to a Microsoft Entra ID Object ID."""
+        with self.get_session() as session:
+            user = session.query(UserModel).filter(UserModel.id == user_id).first()
+            if user:
+                user.entra_oid = entra_oid
+                session.flush()
+                session.refresh(user)
+                session.expunge(user)
             return user
 
     # =========================================================================

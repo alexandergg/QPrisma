@@ -67,6 +67,18 @@ def _setup_telemetry() -> None:
         configure_azure_monitor(connection_string=conn_str)
         OpenAIInstrumentor().instrument()
 
+        # Register span processor so gen_ai.conversation.id appears in Foundry traces
+        try:
+            from agent.utils.observability import ConversationIdSpanProcessor
+            from opentelemetry.trace import get_tracer_provider
+
+            provider = get_tracer_provider()
+            if hasattr(provider, "add_span_processor"):
+                provider.add_span_processor(ConversationIdSpanProcessor())
+                logger.info("ConversationIdSpanProcessor: registered")
+        except Exception as e:
+            logger.warning("ConversationIdSpanProcessor: failed to register (%s)", e)
+
         logger.info(
             "Application Insights: enabled (service=%s)",
             settings.telemetry.otel_service_name,

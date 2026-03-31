@@ -16,6 +16,8 @@
     "analyze": "ANALYZE=true next build"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.6.2",
+    "@azure/msal-react": "^5.2.0",
     "@neo4j-nvl/interaction-handlers": "^1.0.0",
     "@neo4j-nvl/react": "^1.0.0",
     "@tailwindcss/typography": "^0.5.19",

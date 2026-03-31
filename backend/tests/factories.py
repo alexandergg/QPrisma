@@ -20,9 +20,7 @@ class UserFactory(factory.DictFactory):
     id = factory.LazyFunction(lambda: f"user_{uuid.uuid4().hex[:12]}")
     email = factory.LazyFunction(fake.email)
     full_name = factory.LazyFunction(fake.name)
-    hashed_password = factory.LazyFunction(
-        lambda: "$2b$12$LJ3m4ys3Tl0Zj5YK8V6Y5OBZ9Zx8Zv2Xk4Wq3Er1Tp0Sn7Iu6Hm"
-    )
+    entra_oid = factory.LazyFunction(lambda: str(uuid.uuid4()))
     is_active = True
     is_superuser = False
     created_at = factory.LazyFunction(lambda: datetime.now(UTC))

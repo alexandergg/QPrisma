@@ -16,9 +16,11 @@ export interface User {
   created_at?: string;
 }
 
-export interface TokenData {
-  access_token: string;
-  token_type: string;
+// MSAL instance reference — set by AuthContext after initialization
+let _msalInstance: import('@azure/msal-browser').IPublicClientApplication | null = null;
+
+export function setMsalInstance(instance: import('@azure/msal-browser').IPublicClientApplication) {
+  _msalInstance = instance;
 }
 
 export interface MediaItem {
@@ -123,11 +125,6 @@ export interface SearchResult {
   type?: 'visual' | 'audio' | 'entity';
 }
 
-export interface SearchResponse {
-  results: SearchResult[];
-  query_expansion?: string[];
-}
-
 // Streaming event data types
 export interface StreamEventData {
   session_id?: string;
@@ -227,23 +224,49 @@ export interface A2ASendMessageRequest {
 // Helper Functions
 // ============================================================================
 
-function getAuthHeaders(): HeadersInit {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+async function getAuthHeaders(): Promise<HeadersInit> {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+
+  if (_msalInstance) {
+    const accounts = _msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      try {
+        const { loginRequest } = await import('@/lib/msal-config');
+        const response = await _msalInstance.acquireTokenSilent({
+          scopes: loginRequest.scopes as string[],
+          account: accounts[0],
+        });
+        headers['Authorization'] = `Bearer ${response.accessToken}`;
+      } catch {
+        // Token acquisition failed — request will proceed without auth
+      }
+    }
   }
+
   return headers;
 }
 
-function getAuthHeadersWithoutContentType(): HeadersInit {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+async function getAuthHeadersWithoutContentType(): Promise<HeadersInit> {
   const headers: HeadersInit = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+
+  if (_msalInstance) {
+    const accounts = _msalInstance.getAllAccounts();
+    if (accounts.length > 0) {
+      try {
+        const { loginRequest } = await import('@/lib/msal-config');
+        const response = await _msalInstance.acquireTokenSilent({
+          scopes: loginRequest.scopes as string[],
+          account: accounts[0],
+        });
+        headers['Authorization'] = `Bearer ${response.accessToken}`;
+      } catch {
+        // Token acquisition failed
+      }
+    }
   }
+
   return headers;
 }
 
@@ -264,27 +287,9 @@ export const apiClient = {
   // Auth
   // --------------------------------------------------------------------------
 
-  async login(email: string, password: string): Promise<TokenData> {
-    const response = await fetch(`${API_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    return handleResponse<TokenData>(response);
-  },
-
-  async register(email: string, password: string, name?: string): Promise<TokenData> {
-    const response = await fetch(`${API_URL}/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-    });
-    return handleResponse<TokenData>(response);
-  },
-
   async getCurrentUser(): Promise<User> {
     const response = await fetch(`${API_URL}/auth/me`, {
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
     });
     return handleResponse<User>(response);
   },
@@ -295,14 +300,14 @@ export const apiClient = {
 
   async getMedia(): Promise<MediaListResponse> {
     const response = await fetch(`${API_URL}/media`, {
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
     });
     return handleResponse<MediaListResponse>(response);
   },
 
   async getMediaById(mediaId: string): Promise<MediaItem> {
     const response = await fetch(`${API_URL}/media/${mediaId}`, {
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
     });
     return handleResponse<MediaItem>(response);
   },
@@ -310,7 +315,7 @@ export const apiClient = {
   async deleteMedia(mediaId: string): Promise<void> {
     const response = await fetch(`${API_URL}/media/${mediaId}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
     });
     if (!response.ok) {
       throw new Error(`Failed to delete media: ${response.status}`);
@@ -325,7 +330,7 @@ export const apiClient = {
 
     const response = await fetch(`${API_URL}/upload`, {
       method: 'POST',
-      headers: getAuthHeadersWithoutContentType(),
+      headers: await getAuthHeadersWithoutContentType(),
       body: formData,
     });
     return handleResponse<UploadResponse>(response);
@@ -349,7 +354,7 @@ export const apiClient = {
 
     const response = await fetch(`${API_URL}/upload/optimized`, {
       method: 'POST',
-      headers: getAuthHeadersWithoutContentType(),
+      headers: await getAuthHeadersWithoutContentType(),
       body: formData,
     });
     return handleResponse<UploadResponse>(response);
@@ -361,21 +366,9 @@ export const apiClient = {
 
   async getVideoStructure(videoId: string): Promise<VideoStructureResponse> {
     const response = await fetch(`${API_URL}/media/${videoId}/structure`, {
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
     });
     return handleResponse<VideoStructureResponse>(response);
-  },
-
-  async reprocessWithOptimizedPipeline(
-    videoId: string,
-    options: { useSceneDetection: boolean; useHierarchicalSummary: boolean }
-  ): Promise<{ job_id: string }> {
-    const response = await fetch(`${API_URL}/processing/reprocess/${videoId}`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(options),
-    });
-    return handleResponse<{ job_id: string }>(response);
   },
 
   // --------------------------------------------------------------------------
@@ -389,7 +382,7 @@ export const apiClient = {
   ): Promise<ChatResponse> {
     const response = await fetch(`${API_URL}/chat`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       body: JSON.stringify({
         message: query,
         video_id: videoId,
@@ -397,28 +390,6 @@ export const apiClient = {
       }),
     });
     return handleResponse<ChatResponse>(response);
-  },
-
-  async enhancedSearch(
-    query: string,
-    options: {
-      mediaId?: string;
-      topK?: number;
-      useReranking?: boolean;
-      useQueryExpansion?: boolean;
-    }
-  ): Promise<SearchResponse> {
-    const params = new URLSearchParams();
-    params.append('query', query);
-    if (options.mediaId) params.append('media_id', options.mediaId);
-    if (options.topK) params.append('top_k', options.topK.toString());
-    if (options.useReranking !== undefined) params.append('use_reranking', options.useReranking.toString());
-    if (options.useQueryExpansion !== undefined) params.append('use_query_expansion', options.useQueryExpansion.toString());
-
-    const response = await fetch(`${API_URL}/search/enhanced?${params.toString()}`, {
-      headers: getAuthHeaders(),
-    });
-    return handleResponse<SearchResponse>(response);
   },
 
   /**
@@ -480,7 +451,7 @@ export const apiClient = {
 
     const response = await fetch(`${API_URL}/a2a/message:stream`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       body: JSON.stringify(request),
       signal,
     });
@@ -651,7 +622,7 @@ export const apiClient = {
     if (options?.maxNodes != null) params.set('max_nodes', String(options.maxNodes));
     const qs = params.toString();
     const url = `${API_URL}/graph/video/${videoId}/visualization${qs ? `?${qs}` : ''}`;
-    const res = await fetch(url, { headers: getAuthHeaders() });
+    const res = await fetch(url, { headers: await getAuthHeaders() });
     if (!res.ok) throw new Error(`Graph visualization failed: ${res.statusText}`);
     return res.json();
   },
@@ -662,19 +633,10 @@ export const apiClient = {
   async expandGraphNode(nodeId: string, hops = 1, maxNodes = 50) {
     const res = await fetch(`${API_URL}/graph/expand-subgraph`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       body: JSON.stringify({ node_id: nodeId, hops, max_nodes: maxNodes }),
     });
     if (!res.ok) throw new Error(`Graph expansion failed: ${res.statusText}`);
-    return res.json();
-  },
-
-  /**
-   * Get Knowledge Graph stats.
-   */
-  async getGraphStats() {
-    const res = await fetch(`${API_URL}/graph/stats`, { headers: getAuthHeaders() });
-    if (!res.ok) throw new Error(`Graph stats failed: ${res.statusText}`);
     return res.json();
   },
 };

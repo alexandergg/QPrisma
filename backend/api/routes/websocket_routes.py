@@ -44,14 +44,14 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
-from api.dependencies import get_auth_service
 from api.routes.websocket_manager import (
     ConnectionManager,
     MessageType,
     WebSocketMessage,
     get_websocket_manager,
 )
-from models.user import TokenData
+from services.entra_auth_service import get_entra_auth_service
+from services.user_provisioning_service import get_user_provisioning_service
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +83,12 @@ async def authenticate_websocket(websocket: WebSocket, token: str | None) -> dic
         return None
 
     try:
-        auth_service = get_auth_service()
-        token_data: TokenData = await auth_service.verify_token(token)
-        return {"user_id": token_data.user_id, "email": token_data.email}
+        entra_service = get_entra_auth_service()
+        token_data = await entra_service.verify_token(token)
+        # Resolve to internal user (same as get_current_user) so user_id
+        # matches the app's internal users.id, not the Entra OID.
+        user = get_user_provisioning_service().ensure_user_exists(token_data)
+        return {"user_id": user.id, "email": user.email}
     except Exception:
         logger.warning(
             "WebSocket auth failed: invalid or expired token (client=%s)",

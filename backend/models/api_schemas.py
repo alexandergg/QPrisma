@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
 # =============================================================================
@@ -60,35 +60,20 @@ class SourceReference(TypedDict, total=False):
 # =============================================================================
 
 
-class RegisterRequest(BaseModel):
-    """User registration request."""
-
-    email: EmailStr
-    password: str = Field(..., min_length=8)
-    name: str = Field(..., min_length=2)
-
-
-class LoginRequest(BaseModel):
-    """User login request."""
-
-    email: EmailStr
-    password: str
-
-
-class TokenResponse(BaseModel):
-    """Authentication token response."""
-
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int = 86400  # 24 hours
-
-
 class UserResponse(BaseModel):
     """User profile response."""
 
     id: str
     email: str
     name: str
+
+
+class AuthConfigResponse(BaseModel):
+    """Entra ID configuration for the frontend MSAL setup."""
+
+    tenant_id: str
+    client_id: str
+    api_scope: str
 
 
 # =============================================================================
@@ -630,10 +615,8 @@ class EnhancedSearchRequest(BaseModel):
 
 __all__ = [
     # Auth
-    "RegisterRequest",
-    "LoginRequest",
-    "TokenResponse",
     "UserResponse",
+    "AuthConfigResponse",
     # Chat
     "ChatMessage",
     "ChatRequest",

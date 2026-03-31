@@ -5,7 +5,6 @@ This package contains all the service classes used by the API.
 """
 
 from .audio_processor import AudioProcessor
-from .auth_service import AuthService, get_auth_service
 from .batch_processor import BatchProcessor
 from .cache_service import CacheService, get_cache_service
 from .coverage_analyzer import CoverageAnalyzer
@@ -14,6 +13,7 @@ from .database_service import DatabaseService, get_database_service
 from .embedding_service import EmbeddingService, get_embedding_service
 from .enhanced_search import EnhancedSearchService
 from .entity_extractor import EntityExtractor, get_entity_extractor
+from .entra_auth_service import EntraAuthService, get_entra_auth_service
 from .ffmpeg_processor import FFmpegVideoProcessor
 from .graph_expander import GraphExpander
 from .graph_node_repository import GraphNodeRepository
@@ -33,6 +33,7 @@ from .scene_analyzer import SceneAnalyzer
 from .storage_tiering_service import StorageTieringService, get_storage_tiering_service
 from .timestamp_calculator import TimestampCalculator
 from .tool_artifact_service import ToolArtifactService, get_tool_artifact_service
+from .user_provisioning_service import UserProvisioningService
 from .video_processor import VideoProcessor
 
 __all__ = [
@@ -84,7 +85,8 @@ __all__ = [
     "get_storage_tiering_service",
     "ToolArtifactService",
     "get_tool_artifact_service",
-    # Auth
-    "AuthService",
-    "get_auth_service",
+    # Auth (Entra ID)
+    "EntraAuthService",
+    "get_entra_auth_service",
+    "UserProvisioningService",
 ]

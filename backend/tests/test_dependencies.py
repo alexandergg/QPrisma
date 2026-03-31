@@ -5,14 +5,13 @@ Covers authentication dependencies (get_current_user, get_current_user_optional)
 get_media_or_404, singleton service getters, and storage helpers.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
 from api.dependencies import (
-    get_auth_service,
     get_blob_service,
     get_current_user,
     get_current_user_optional,
@@ -21,6 +20,7 @@ from api.dependencies import (
     get_storage_account_info,
     get_storage_container_name,
 )
+from models.user import EntraTokenData
 
 # =============================================================================
 # get_current_user
@@ -29,42 +29,38 @@ from api.dependencies import (
 
 @pytest.mark.unit
 class TestGetCurrentUser:
-    async def test_valid_token(self, auth_service, test_user):
-        token = auth_service.create_access_token({"sub": test_user.id, "email": test_user.email})
-        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    async def test_valid_entra_token(self, test_user):
+        """Valid Entra ID token should return provisioned user."""
+        token_data = EntraTokenData(oid="oid-123", email="test@example.com", name="Test")
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid.entra.token")
 
-        with patch("api.dependencies.get_auth_service", return_value=auth_service):
+        mock_entra = MagicMock()
+        mock_entra.verify_token = AsyncMock(return_value=token_data)
+
+        mock_provisioning = MagicMock()
+        mock_provisioning.ensure_user_exists.return_value = test_user
+
+        with (
+            patch("services.entra_auth_service.get_entra_auth_service", return_value=mock_entra),
+            patch(
+                "services.user_provisioning_service.get_user_provisioning_service",
+                return_value=mock_provisioning,
+            ),
+        ):
             user = await get_current_user(credentials)
 
         assert user.id == test_user.id
-        assert user.email == test_user.email
 
-    async def test_expired_token_raises_401(self, auth_service):
-        from datetime import timedelta
+    async def test_invalid_token_raises_401(self):
+        """Invalid token should raise 401."""
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad.token")
 
-        from freezegun import freeze_time
-
-        with freeze_time("2024-01-01"):
-            token = auth_service.create_access_token(
-                {"sub": "user_123"}, expires_delta=timedelta(seconds=1)
-            )
-
-        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
-
-        with (
-            freeze_time("2024-01-02"),
-            patch("api.dependencies.get_auth_service", return_value=auth_service),
-            pytest.raises(HTTPException) as exc_info,
-        ):
-            await get_current_user(credentials)
-        assert exc_info.value.status_code == 401
-
-    async def test_invalid_token_raises_401(self, auth_service):
-        credentials = HTTPAuthorizationCredentials(
-            scheme="Bearer", credentials="garbage.token.here"
+        mock_entra = MagicMock()
+        mock_entra.verify_token = AsyncMock(
+            side_effect=HTTPException(status_code=401, detail="Invalid token")
         )
 
-        with patch("api.dependencies.get_auth_service", return_value=auth_service):
+        with patch("services.entra_auth_service.get_entra_auth_service", return_value=mock_entra):
             with pytest.raises(HTTPException) as exc_info:
                 await get_current_user(credentials)
             assert exc_info.value.status_code == 401
@@ -77,11 +73,23 @@ class TestGetCurrentUser:
 
 @pytest.mark.unit
 class TestGetCurrentUserOptional:
-    async def test_valid_token(self, auth_service, test_user):
-        token = auth_service.create_access_token({"sub": test_user.id, "email": test_user.email})
-        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    async def test_valid_token(self, test_user):
+        token_data = EntraTokenData(oid="oid-123", email="test@example.com")
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid.entra.token")
 
-        with patch("api.dependencies.get_auth_service", return_value=auth_service):
+        mock_entra = MagicMock()
+        mock_entra.verify_token = AsyncMock(return_value=token_data)
+
+        mock_provisioning = MagicMock()
+        mock_provisioning.ensure_user_exists.return_value = test_user
+
+        with (
+            patch("services.entra_auth_service.get_entra_auth_service", return_value=mock_entra),
+            patch(
+                "services.user_provisioning_service.get_user_provisioning_service",
+                return_value=mock_provisioning,
+            ),
+        ):
             user = await get_current_user_optional(credentials)
 
         assert user is not None
@@ -91,10 +99,13 @@ class TestGetCurrentUserOptional:
         user = await get_current_user_optional(None)
         assert user is None
 
-    async def test_invalid_token_returns_none(self, auth_service):
+    async def test_invalid_token_returns_none(self):
         credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="bad.token")
 
-        with patch("api.dependencies.get_auth_service", return_value=auth_service):
+        mock_entra = MagicMock()
+        mock_entra.verify_token = AsyncMock(side_effect=Exception("Bad token"))
+
+        with patch("services.entra_auth_service.get_entra_auth_service", return_value=mock_entra):
             user = await get_current_user_optional(credentials)
 
         assert user is None
@@ -190,15 +201,6 @@ class TestSingletonGetters:
             mock_settings.azure.openai_api_key = None
             result = get_openai_client()
         assert result is None
-
-    def test_auth_service_returns_instance(self):
-        import api.dependencies as deps
-
-        deps._auth_service = None
-        service = get_auth_service()
-        assert service is not None
-        # Calling again returns same instance
-        assert get_auth_service() is service
 
     def test_storage_container_name(self):
         name = get_storage_container_name()

@@ -134,36 +134,21 @@ class TestNeo4jSettings:
 class TestAuthSettings:
     def test_defaults(self):
         s = AuthSettings()
-        assert s.jwt_algorithm == "HS256"
-        assert s.jwt_access_token_expire_minutes == 1440
-        assert s.jwt_refresh_token_expire_days == 30
+        assert s.entra_tenant_id == ""
+        assert s.entra_client_id == ""
+        assert s.entra_api_scope == ""
 
-    def test_production_rejects_default_secret(self):
+    def test_production_rejects_missing_entra_config(self):
         with (
             patch.dict(os.environ, {"APP_ENV": "production"}),
-            pytest.raises(ValueError, match="JWT secret not configured"),
+            pytest.raises(ValueError, match="Entra ID not configured"),
         ):
-            AuthSettings(jwt_secret_key="your-secret-key-change-in-production")
+            AuthSettings(entra_tenant_id="", entra_client_id="")
 
-    def test_production_rejects_empty_secret(self):
-        with (
-            patch.dict(os.environ, {"APP_ENV": "production"}),
-            pytest.raises(ValueError, match="JWT secret not configured"),
-        ):
-            AuthSettings(jwt_secret_key="")
-
-    def test_production_rejects_short_secret(self):
-        with (
-            patch.dict(os.environ, {"APP_ENV": "production"}),
-            pytest.raises(ValueError, match="at least 32 characters"),
-        ):
-            AuthSettings(jwt_secret_key="tooshort")
-
-    def test_production_accepts_secure_secret(self):
+    def test_production_accepts_entra_config(self):
         with patch.dict(os.environ, {"APP_ENV": "production"}):
-            secret = "a" * 32
-            s = AuthSettings(jwt_secret_key=secret)
-            assert s.jwt_secret_key == secret
+            s = AuthSettings(entra_tenant_id="tenant-123", entra_client_id="client-456")
+            assert s.entra_tenant_id == "tenant-123"
 
 
 # =============================================================================
@@ -295,7 +280,7 @@ class TestSettings:
                 app=AppSettings(environment="production"),
                 postgres=PostgresSettings(database_url=""),
                 neo4j=Neo4jSettings(password=""),
-                auth=AuthSettings(jwt_secret_key="a" * 32),
+                auth=AuthSettings(entra_tenant_id="t", entra_client_id="c"),
             )
 
     def test_staging_rejects_empty_secrets(self):
@@ -304,7 +289,7 @@ class TestSettings:
                 app=AppSettings(environment="staging"),
                 postgres=PostgresSettings(database_url="postgresql://u:p@h/d"),
                 neo4j=Neo4jSettings(password=""),
-                auth=AuthSettings(jwt_secret_key="a" * 32),
+                auth=AuthSettings(entra_tenant_id="t", entra_client_id="c"),
             )
 
     def test_production_accepts_all_secrets_set(self):
@@ -312,20 +297,19 @@ class TestSettings:
             app=AppSettings(environment="production"),
             postgres=PostgresSettings(database_url="postgresql://prod:secure@host/db"),
             neo4j=Neo4jSettings(password="secure-neo4j-password"),
-            auth=AuthSettings(jwt_secret_key="a" * 32),
+            auth=AuthSettings(entra_tenant_id="t", entra_client_id="c"),
         )
         assert s.app.environment == "production"
 
     def test_dev_allows_empty_secrets(self):
-        # Explicitly pass empty secrets to verify dev mode doesn't reject them
         s = Settings(
             postgres=PostgresSettings(database_url=""),
             neo4j=Neo4jSettings(password=""),
-            auth=AuthSettings(jwt_secret_key=""),
+            auth=AuthSettings(),
         )
         assert s.postgres.database_url == ""
         assert s.neo4j.password == ""
-        assert s.auth.jwt_secret_key == ""
+        assert s.auth.entra_tenant_id == ""
 
     def test_production_rejects_dev_autologin(self):
         with pytest.raises(ValueError, match="allow_dev_autologin must be False"):
@@ -333,7 +317,7 @@ class TestSettings:
                 app=AppSettings(environment="production", allow_dev_autologin=True),
                 postgres=PostgresSettings(database_url="postgresql://prod:secure@host/db"),
                 neo4j=Neo4jSettings(password="secure-neo4j-password"),
-                auth=AuthSettings(jwt_secret_key="a" * 32),
+                auth=AuthSettings(entra_tenant_id="t", entra_client_id="c"),
             )
 
     def test_staging_rejects_dev_autologin(self):
@@ -342,7 +326,7 @@ class TestSettings:
                 app=AppSettings(environment="staging", allow_dev_autologin=True),
                 postgres=PostgresSettings(database_url="postgresql://prod:secure@host/db"),
                 neo4j=Neo4jSettings(password="secure-neo4j-password"),
-                auth=AuthSettings(jwt_secret_key="a" * 32),
+                auth=AuthSettings(entra_tenant_id="t", entra_client_id="c"),
             )
 
     def test_dev_allows_dev_autologin(self):
