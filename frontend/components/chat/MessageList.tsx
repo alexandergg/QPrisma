@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useRef, useEffect } from 'react';
-import { Wrench } from 'lucide-react';
-import { MessageBubble, ToolProgress } from './MessageBubble';
+import { MessageBubble } from './MessageBubble';
+import { LiveReasoningPanel } from './ReasoningPanel';
 import type { ChatMessageData, ChatMessageSource, ToolStatus } from './MessageBubble';
 
 // Re-export types for backward compatibility
@@ -39,22 +39,9 @@ export default function MessageList({ messages, isLoading, onTimestampClick, onS
           />
         ))}
 
-        {/* Active Tools Display - Rendering as a distinct section in the chat stream */}
+        {/* Live Reasoning Panel — shows tool progress during streaming */}
         {activeTools.length > 0 && (
-           <div className="flex justify-start animate-in slide-in-from-bottom-2 duration-300">
-             <div className="max-w-[85%] w-full">
-               <div className="flex items-center gap-2 mb-2">
-                 <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center border border-gray-200">
-                   <Wrench className="w-3.5 h-3.5 text-gray-500" />
-                 </div>
-                 <span className="text-sm font-medium text-gray-500">Agent Tools</span>
-               </div>
-               
-               <div className="ml-9">
-                 <ToolProgress tools={activeTools} />
-               </div>
-             </div>
-           </div>
+          <LiveReasoningPanel tools={activeTools} />
         )}
 
         {/* Streaming response */}

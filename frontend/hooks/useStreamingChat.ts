@@ -9,7 +9,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { ToolStatus } from '@/components/chat/MessageBubble';
 import { apiClient } from '@/lib/api';
-import type { ChatMessage, ChatMessageSource } from './useChatState';
+import type { ChatMessage, ChatMessageSource, ToolDetail } from './useChatState';
 
 // =============================================================================
 // Types
@@ -87,6 +87,7 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
       response: string,
       sources: ChatSource[],
       toolCallsMade: number,
+      toolDetails?: ToolDetail[],
     ) => {
       if (!response) {
         return;
@@ -114,6 +115,7 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         timestamp: new Date(),
         sources: mappedSources,
         toolCalls: toolCallsMade > 0 ? toolCallsMade : undefined,
+        toolDetails: toolDetails && toolDetails.length > 0 ? toolDetails : undefined,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -169,6 +171,8 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         let sources: ChatSource[] = [];
         let toolCallsMade = 0;
         let responseCommitted = false;
+        // Track tool descriptions keyed by tool name for the reasoning panel
+        const toolDescriptions: Record<string, string> = {};
 
         const stream = apiClient.chatWithAgentStream(
           messageText,
@@ -194,6 +198,19 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
               ]);
               break;
 
+            case 'tool_args':
+              if (event.data.tool && event.data.description) {
+                toolDescriptions[event.data.tool] = event.data.description;
+                setActiveTools((prev) =>
+                  prev.map((t) =>
+                    t.name === event.data.tool
+                      ? { ...t, description: event.data.description }
+                      : t,
+                  ),
+                );
+              }
+              break;
+
             case 'tool_end':
               setActiveTools((prev) =>
                 prev.map((t) =>
@@ -215,16 +232,30 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
               sources = (event.data.sources as ChatSource[] | undefined) || [];
               break;
 
-            case 'done':
+            case 'done': {
               finalResponse = event.data.response || '';
               toolCallsMade = event.data.tool_calls_made || 0;
+              // Build persistent tool details from the active tools snapshot
+              const finalToolDetails: ToolDetail[] = [];
+              setActiveTools((prev) => {
+                for (const t of prev) {
+                  finalToolDetails.push({
+                    name: t.name,
+                    status: t.status === 'error' ? 'error' : 'success',
+                    description: toolDescriptions[t.name] || t.description,
+                  });
+                }
+                return prev;
+              });
               commitAssistantMessage(
                 finalResponse || streamedResponse,
                 sources,
                 toolCallsMade,
+                finalToolDetails,
               );
               responseCommitted = true;
               break;
+            }
 
             case 'error':
               throw new Error(event.data.error || 'Unknown error');
@@ -236,7 +267,24 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         }
 
         if (!responseCommitted) {
-          commitAssistantMessage(finalResponse || streamedResponse, sources, toolCallsMade);
+          // Build tool details from whatever was tracked
+          const fallbackToolDetails: ToolDetail[] = [];
+          setActiveTools((prev) => {
+            for (const t of prev) {
+              fallbackToolDetails.push({
+                name: t.name,
+                status: t.status === 'error' ? 'error' : 'success',
+                description: toolDescriptions[t.name] || t.description,
+              });
+            }
+            return prev;
+          });
+          commitAssistantMessage(
+            finalResponse || streamedResponse,
+            sources,
+            toolCallsMade,
+            fallbackToolDetails,
+          );
           setStreamingContent('');
           setActiveTools([]);
         }

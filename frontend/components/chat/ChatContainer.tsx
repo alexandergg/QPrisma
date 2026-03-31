@@ -63,9 +63,11 @@ export default function ChatContainer({
   const isMultiVideo = videoIds && videoIds.length > 1;
   const hasVideo = isMultiVideo || !!videoId;
 
-  const handleQuickSuggestion = (suggestion: string) => {
-    setInputValue(suggestion);
-  };
+  const handleQuickSuggestion = useCallback((suggestion: string) => {
+    if (isLoading) return;
+    setInputValue('');
+    handleSend(suggestion);
+  }, [isLoading, setInputValue, handleSend]);
 
   const handleSendFromInput = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;

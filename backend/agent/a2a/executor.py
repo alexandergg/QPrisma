@@ -331,6 +331,48 @@ class A2AAgentExecutor:
                         )
                     )
 
+                elif event_type == "tool_args":
+                    description = event.get("description", "")
+                    tool_name = event.get("name", "unknown")
+                    yield StreamResponse(
+                        statusUpdate=TaskStatusUpdateEvent(
+                            taskId=task.id,
+                            contextId=task.contextId,
+                            status=TaskStatus(
+                                state=TaskState.WORKING,
+                                message=Message(
+                                    role=Role.AGENT,
+                                    parts=[
+                                        Part(
+                                            text=f"Tool args: {tool_name}|{description}"
+                                        )
+                                    ],
+                                ),
+                            ),
+                        )
+                    )
+
+                elif event_type == "tool_end":
+                    tool_name = event.get("name", "unknown")
+                    success = event.get("success", True)
+                    yield StreamResponse(
+                        statusUpdate=TaskStatusUpdateEvent(
+                            taskId=task.id,
+                            contextId=task.contextId,
+                            status=TaskStatus(
+                                state=TaskState.WORKING,
+                                message=Message(
+                                    role=Role.AGENT,
+                                    parts=[
+                                        Part(
+                                            text=f"Tool completed: {tool_name}|{'success' if success else 'error'}"
+                                        )
+                                    ],
+                                ),
+                            ),
+                        )
+                    )
+
                 elif event_type == "done":
                     accumulated_content = event.get("content", accumulated_content)
 

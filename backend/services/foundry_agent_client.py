@@ -235,6 +235,8 @@ class FoundryAgentClient:
 
             accumulated_content = ""
             response_id = ""
+            # Track active function calls to pair start/end events
+            active_tool_calls: dict[str, str] = {}  # item_id -> function name
 
             reader_task = asyncio.create_task(asyncio.to_thread(_stream_worker))
             try:
@@ -251,6 +253,58 @@ class FoundryAgentClient:
                         if delta:
                             accumulated_content += delta
                             yield {"type": "token", "content": delta}
+
+                    elif event_type == "response.output_item.added":
+                        # A new output item appeared — check if it's a function call
+                        output_item = getattr(event, "item", None)
+                        if output_item and getattr(output_item, "type", "") == "function_call":
+                            fn_name = getattr(output_item, "name", "") or "unknown"
+                            item_id = getattr(output_item, "id", "")
+                            if item_id:
+                                active_tool_calls[item_id] = fn_name
+                            yield {
+                                "type": "tool_start",
+                                "name": fn_name,
+                                "call_id": getattr(output_item, "call_id", item_id),
+                            }
+
+                    elif event_type == "response.function_call_arguments.done":
+                        # Function call arguments are fully assembled
+                        fn_name = getattr(event, "name", "") or "unknown"
+                        raw_args = getattr(event, "arguments", "") or ""
+                        parsed_args: dict[str, Any] = {}
+                        try:
+                            parsed_args = json.loads(raw_args) if raw_args else {}
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                        # Extract a human-readable description from args
+                        description = (
+                            parsed_args.get("query")
+                            or parsed_args.get("entity_name")
+                            or parsed_args.get("topic")
+                            or ""
+                        )
+                        yield {
+                            "type": "tool_args",
+                            "name": fn_name,
+                            "arguments": parsed_args,
+                            "description": str(description)[:100],
+                        }
+
+                    elif event_type == "response.output_item.done":
+                        # An output item finished — emit tool_end for function calls
+                        output_item = getattr(event, "item", None)
+                        if output_item and getattr(output_item, "type", "") == "function_call":
+                            fn_name = getattr(output_item, "name", "") or "unknown"
+                            item_id = getattr(output_item, "id", "")
+                            active_tool_calls.pop(item_id, None)
+                            yield {
+                                "type": "tool_end",
+                                "name": fn_name,
+                                "call_id": getattr(output_item, "call_id", item_id),
+                                "success": True,
+                            }
+
                     elif event_type == "response.completed":
                         resp = getattr(event, "response", None)
                         if resp:

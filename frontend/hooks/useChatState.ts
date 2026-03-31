@@ -23,7 +23,17 @@ export interface ChatMessage {
   isLoading?: boolean;
   videoName?: string;
   toolCalls?: number;
+  /** Detailed tool invocation records for the reasoning panel. */
+  toolDetails?: ToolDetail[];
   isError?: boolean;
+}
+
+/** Individual tool invocation record persisted on a committed message. */
+export interface ToolDetail {
+  name: string;
+  status: 'success' | 'error';
+  /** Human-readable description of what the tool was asked (e.g. the query). */
+  description?: string;
 }
 
 export interface ChatMessageSource {
