@@ -43,7 +43,7 @@ dependencies = [
     # A2A (Agent-to-Agent) Protocol
     "a2a-sdk[http-server]>=0.3.22,<1.0.0",
     # Async I/O
-    "aiofiles>=24.1.0,<25.0.0",
+    "aiofiles>=24.1.0,<26.0.0",
     # Utils
     "python-dotenv>=1.0.1,<2.0.0",
     "httpx>=0.28.0,<1.0.0",
