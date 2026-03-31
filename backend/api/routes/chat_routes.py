@@ -161,17 +161,15 @@ async def agent_chat(
     - Suggested follow-up questions
     - Clip suggestions for export
     """
-    import uuid
-
     from services.foundry_agent_client import get_foundry_agent_client
 
     try:
-        session_id = request.session_id or str(uuid.uuid4())
         user_id = str(current_user.id) if current_user else None
 
-        # Pass thread_id only when the frontend sends a previously
-        # returned session_id (which is a real Foundry thread ID).
-        thread_id = request.session_id if request.session_id else None
+        # On first request session_id is None — send_message will create
+        # a new Foundry thread and return its ID.  On follow-ups the
+        # frontend sends back the thread ID it received previously.
+        thread_id = request.session_id or None
 
         client = get_foundry_agent_client()
         result = await client.send_message(
@@ -179,13 +177,13 @@ async def agent_chat(
             media_id=request.media_id,
             media_ids=request.get_effective_media_ids() or None,
             user_id=user_id,
-            session_id=session_id,
+            session_id=request.session_id,
             thread_id=thread_id,
         )
 
-        # Use the real Foundry thread ID as session_id so the frontend
-        # can send it back for conversation continuity.
-        real_session_id = result.get("thread_id") or session_id
+        # The real Foundry thread ID becomes the session_id so the
+        # frontend can send it back for conversation continuity.
+        real_session_id = result.get("thread_id", "")
 
         return AgentChatResponse(
             response=result.get("content", ""),

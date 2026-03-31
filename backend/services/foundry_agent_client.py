@@ -128,13 +128,10 @@ class FoundryAgentClient:
         full_message = self._prepend_context(message, metadata)
 
         try:
-            # Create or reuse thread
+            # Create or reuse thread (with fallback for invalid thread IDs)
             if thread_id:
-                await asyncio.to_thread(
-                    client.messages.create,
-                    thread_id=thread_id,
-                    role=MessageRole.USER,
-                    content=full_message,
+                thread_id = await self._append_or_create_thread(
+                    client, thread_id, MessageRole.USER, full_message
                 )
             else:
                 from azure.ai.agents.models import ThreadMessageOptions
@@ -220,13 +217,10 @@ class FoundryAgentClient:
         full_message = self._prepend_context(message, metadata)
 
         try:
-            # Create or reuse thread
+            # Create or reuse thread (with fallback for invalid thread IDs)
             if thread_id:
-                await asyncio.to_thread(
-                    client.messages.create,
-                    thread_id=thread_id,
-                    role=MessageRole.USER,
-                    content=full_message,
+                thread_id = await self._append_or_create_thread(
+                    client, thread_id, MessageRole.USER, full_message
                 )
             else:
                 from azure.ai.agents.models import ThreadMessageOptions
@@ -237,21 +231,37 @@ class FoundryAgentClient:
                 )
                 thread_id = thread.id
 
-            # Stream the run
+            # Stream the run incrementally via a queue
+            queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+            async def _produce():
+                """Run the stream in a worker thread, pushing events to the queue."""
+
+                def _consume_stream():
+                    with event_stream:
+                        for event_type, event_data, _ in event_stream:
+                            queue_item = {"event_type": event_type, "event_data": event_data}
+                            asyncio.run_coroutine_threadsafe(queue.put(queue_item), loop).result()
+                    asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
+
+                await asyncio.to_thread(_consume_stream)
+
+            loop = asyncio.get_running_loop()
             event_stream = await asyncio.to_thread(
                 client.runs.stream,
                 thread_id=thread_id,
                 agent_id=agent_id,
             )
+            producer = asyncio.ensure_future(_produce())
 
             accumulated_content = ""
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                event_type = item["event_type"]
+                event_data = item["event_data"]
 
-            def _iter_events():
-                with event_stream:
-                    for event_type, event_data, _ in event_stream:
-                        yield event_type, event_data
-
-            for event_type, event_data in await asyncio.to_thread(lambda: list(_iter_events())):
                 if event_type == AgentStreamEvent.THREAD_MESSAGE_DELTA:
                     text = getattr(event_data, "text", "")
                     if text:
@@ -267,6 +277,8 @@ class FoundryAgentClient:
                     step_type = getattr(event_data, "type", "")
                     if step_type == "tool_calls":
                         yield {"type": "tool_end", "name": "agent_tool"}
+
+            await producer
 
             yield {
                 "type": "done",
@@ -304,6 +316,34 @@ class FoundryAgentClient:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _append_or_create_thread(
+        self,
+        client,
+        thread_id: str,
+        role,
+        content: str,
+    ) -> str:
+        """Append a message to an existing thread, or create a new one if invalid."""
+        import asyncio
+
+        from azure.ai.agents.models import ThreadMessageOptions
+
+        try:
+            await asyncio.to_thread(
+                client.messages.create,
+                thread_id=thread_id,
+                role=role,
+                content=content,
+            )
+            return thread_id
+        except Exception:
+            logger.warning(f"Thread '{thread_id}' not found or invalid, creating new thread")
+            thread = await asyncio.to_thread(
+                client.threads.create,
+                messages=[ThreadMessageOptions(role=role, content=content)],
+            )
+            return thread.id
 
     @staticmethod
     def _build_metadata(
