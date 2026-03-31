@@ -4,10 +4,14 @@ import React, { memo } from 'react';
 import { Sparkles, Film, Loader2, CheckCircle2, XCircle, Wrench, Terminal, ArrowRightCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import TimestampBadge from './TimestampBadge';
+import { ReasoningPanel } from './ReasoningPanel';
+import type { ToolDetail } from '@/hooks/useChatState';
 
 export interface ToolStatus {
   name: string;
   status: 'running' | 'success' | 'error';
+  /** Human-readable description of what the tool is doing (e.g. the search query). */
+  description?: string;
 }
 
 export interface ChatMessageSource {
@@ -28,6 +32,7 @@ export interface ChatMessageData {
   isLoading?: boolean;
   videoName?: string;
   toolCalls?: number;
+  toolDetails?: ToolDetail[];
   isError?: boolean;
 }
 
@@ -121,14 +126,31 @@ export const MessageBubble = memo(function MessageBubble({
   let displayContent = message.content;
   let suggestions: string[] = [];
   
+  // Primary: structured delimiter from system prompt
   const suggestionSplit = displayContent.split('---SUGGESTED_QUESTIONS---');
   if (suggestionSplit.length > 1) {
     displayContent = suggestionSplit[0].trim();
     const suggestionsText = suggestionSplit[1].trim();
     suggestions = suggestionsText
       .split('\n')
-      .map(s => s.trim())
+      .map(s => s.replace(/^\d+\.\s*/, '').replace(/^[-*•]\s*/, '').trim())
       .filter(s => s.length > 0 && s.includes('?'));
+  }
+
+  // Fallback: detect markdown-style follow-up sections at the end of content
+  if (suggestions.length === 0 && !isUser) {
+    const followUpPattern = /(?:\n\s*(?:\*\*)?(?:Suggested|Follow[- ]?up|Related)\s+(?:questions?|follow[- ]?ups?)(?:\*\*)?[:\s]*\n)([\s\S]+?)$/i;
+    const match = displayContent.match(followUpPattern);
+    if (match) {
+      const lines = match[1]
+        .split('\n')
+        .map(s => s.replace(/^\d+\.\s*/, '').replace(/^[-*•]\s*/, '').replace(/\*\*/g, '').trim())
+        .filter(s => s.length > 0 && s.includes('?'));
+      if (lines.length >= 2) {
+        suggestions = lines;
+        displayContent = displayContent.slice(0, match.index).trim();
+      }
+    }
   }
 
   return (
@@ -176,6 +198,11 @@ export const MessageBubble = memo(function MessageBubble({
                 <div className="text-sm leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-gray-900 prose-code:text-indigo-600 prose-code:bg-indigo-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
                   <ReactMarkdown>{displayContent}</ReactMarkdown>
                 </div>
+              )}
+
+              {/* Agent Reasoning Panel — collapsible tool call details */}
+              {!isUser && message.toolDetails && message.toolDetails.length > 0 && (
+                <ReasoningPanel toolDetails={message.toolDetails} />
               )}
 
               {/* Suggestions Chips */}

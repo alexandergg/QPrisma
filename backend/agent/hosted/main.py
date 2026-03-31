@@ -65,12 +65,42 @@ def create_hosted_app():
     return app
 
 
+def _setup_telemetry() -> None:
+    """Configure Azure Monitor tracing for the hosted agent container."""
+    import os
+
+    conn_str = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
+    if not conn_str:
+        logger.info("Application Insights: not configured (no connection string)")
+        return
+
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+
+        os.environ.setdefault("OTEL_SERVICE_NAME", "qprisma-hosted-agent")
+        os.environ.setdefault("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "false")
+
+        configure_azure_monitor(connection_string=conn_str)
+        OpenAIInstrumentor().instrument()
+
+        logger.info("Application Insights: enabled (service=qprisma-hosted-agent)")
+    except ImportError:
+        logger.warning(
+            "Application Insights: packages not installed "
+            "(pip install azure-monitor-opentelemetry opentelemetry-instrumentation-openai-v2)"
+        )
+    except Exception as e:
+        logger.warning("Application Insights: failed to initialize (%s)", e)
+
+
 def main():
     """Start the Foundry hosted agent server."""
     logger.info("Starting QPrisma Video Agent (Foundry Hosted Mode)")
-    logger.info(
-        "Protocols: Responses API + A2A v0.2.1 | Port: 8088"
-    )
+    logger.info("Protocols: Responses API + A2A v0.2.1 | Port: 8088")
+
+    # Initialize tracing before the graph/adapter so spans are captured
+    _setup_telemetry()
 
     app = create_hosted_app()
 

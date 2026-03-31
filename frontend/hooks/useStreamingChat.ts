@@ -9,7 +9,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { ToolStatus } from '@/components/chat/MessageBubble';
 import { apiClient } from '@/lib/api';
-import type { ChatMessage, ChatMessageSource } from './useChatState';
+import type { ChatMessage, ChatMessageSource, ToolDetail } from './useChatState';
 
 // =============================================================================
 // Types
@@ -87,6 +87,7 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
       response: string,
       sources: ChatSource[],
       toolCallsMade: number,
+      toolDetails?: ToolDetail[],
     ) => {
       if (!response) {
         return;
@@ -114,6 +115,7 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         timestamp: new Date(),
         sources: mappedSources,
         toolCalls: toolCallsMade > 0 ? toolCallsMade : undefined,
+        toolDetails: toolDetails && toolDetails.length > 0 ? toolDetails : undefined,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -169,6 +171,10 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         let sources: ChatSource[] = [];
         let toolCallsMade = 0;
         let responseCommitted = false;
+        // Local mirror of active tools — React state is async so we need
+        // a synchronous copy to read from at commit time.
+        const localTools: Array<{ name: string; status: string; description?: string }> = [];
+        const toolDescriptions: Record<string, string> = {};
 
         const stream = apiClient.chatWithAgentStream(
           messageText,
@@ -187,14 +193,35 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
             case 'thinking':
               break;
 
-            case 'tool_start':
+            case 'tool_start': {
+              const toolName = event.data.tool || 'unknown';
+              localTools.push({ name: toolName, status: 'running' });
               setActiveTools((prev) => [
                 ...prev,
-                { name: event.data.tool || 'unknown', status: 'running' },
+                { name: toolName, status: 'running' },
               ]);
               break;
+            }
 
-            case 'tool_end':
+            case 'tool_args':
+              if (event.data.tool && event.data.description) {
+                toolDescriptions[event.data.tool] = event.data.description;
+                const lt = localTools.find((t) => t.name === event.data.tool && t.status === 'running');
+                if (lt) lt.description = event.data.description;
+                setActiveTools((prev) =>
+                  prev.map((t) =>
+                    t.name === event.data.tool
+                      ? { ...t, description: event.data.description }
+                      : t,
+                  ),
+                );
+              }
+              break;
+
+            case 'tool_end': {
+              const newStatus = event.data.success ? 'success' : 'error';
+              const lt = localTools.find((t) => t.name === event.data.tool && t.status === 'running');
+              if (lt) lt.status = newStatus;
               setActiveTools((prev) =>
                 prev.map((t) =>
                   t.name === event.data.tool
@@ -203,6 +230,7 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
                 ),
               );
               break;
+            }
 
             case 'token':
               if (event.data.token) {
@@ -215,16 +243,24 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
               sources = (event.data.sources as ChatSource[] | undefined) || [];
               break;
 
-            case 'done':
+            case 'done': {
               finalResponse = event.data.response || '';
               toolCallsMade = event.data.tool_calls_made || 0;
+              // Build tool details from our synchronous local mirror
+              const finalToolDetails: ToolDetail[] = localTools.map((t) => ({
+                name: t.name,
+                status: (t.status === 'error' ? 'error' : 'success') as 'success' | 'error',
+                description: toolDescriptions[t.name] || t.description,
+              }));
               commitAssistantMessage(
                 finalResponse || streamedResponse,
                 sources,
                 toolCallsMade,
+                finalToolDetails,
               );
               responseCommitted = true;
               break;
+            }
 
             case 'error':
               throw new Error(event.data.error || 'Unknown error');
@@ -236,7 +272,18 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
         }
 
         if (!responseCommitted) {
-          commitAssistantMessage(finalResponse || streamedResponse, sources, toolCallsMade);
+          // Build tool details from the synchronous local mirror
+          const fallbackToolDetails: ToolDetail[] = localTools.map((t) => ({
+            name: t.name,
+            status: (t.status === 'error' ? 'error' : 'success') as 'success' | 'error',
+            description: toolDescriptions[t.name] || t.description,
+          }));
+          commitAssistantMessage(
+            finalResponse || streamedResponse,
+            sources,
+            toolCallsMade,
+            fallbackToolDetails,
+          );
           setStreamingContent('');
           setActiveTools([]);
         }

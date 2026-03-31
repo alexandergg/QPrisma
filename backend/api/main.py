@@ -40,6 +40,47 @@ from api.dependencies import get_blob_service, get_openai_client
 from services.database_service import get_database_service
 
 # =============================================================================
+# Telemetry (Azure Monitor + OpenTelemetry)
+# =============================================================================
+
+
+def _setup_telemetry() -> None:
+    """Configure Azure Monitor and OpenAI instrumentation if a connection string is set."""
+    import os
+
+    conn_str = settings.telemetry.applicationinsights_connection_string
+    if not conn_str:
+        logger.info("Application Insights: not configured (no connection string)")
+        return
+
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+
+        # Control GenAI content capture (prompts/completions may contain PII)
+        os.environ.setdefault(
+            "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED",
+            str(settings.telemetry.enable_content_recording).lower(),
+        )
+        os.environ.setdefault("OTEL_SERVICE_NAME", settings.telemetry.otel_service_name)
+
+        configure_azure_monitor(connection_string=conn_str)
+        OpenAIInstrumentor().instrument()
+
+        logger.info(
+            "Application Insights: enabled (service=%s)",
+            settings.telemetry.otel_service_name,
+        )
+    except ImportError:
+        logger.warning(
+            "Application Insights: packages not installed "
+            "(pip install azure-monitor-opentelemetry opentelemetry-instrumentation-openai-v2)"
+        )
+    except Exception as e:
+        logger.warning("Application Insights: failed to initialize (%s)", e)
+
+
+# =============================================================================
 # Lifespan Context Manager
 # =============================================================================
 
@@ -53,6 +94,9 @@ async def lifespan(app: FastAPI):
     # Fix Windows console encoding for emojis
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    # --- Azure Monitor / OpenTelemetry tracing ---
+    _setup_telemetry()
 
     # Startup
     logger.info("=" * 50)

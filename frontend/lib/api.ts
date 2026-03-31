@@ -133,6 +133,7 @@ export interface StreamEventData {
   session_id?: string;
   tool?: string;
   success?: boolean;
+  description?: string;
   token?: string;
   sources?: Array<{
     timestamp: number;
@@ -538,6 +539,26 @@ export const apiClient = {
                   yield {
                     event: 'tool_start',
                     data: { tool: toolName },
+                  };
+                } else if (toolMessage?.startsWith('Tool args:')) {
+                  // Parse "Tool args: tool_name|description"
+                  const payload = toolMessage.replace('Tool args:', '').trim();
+                  const sepIdx = payload.indexOf('|');
+                  const toolName = sepIdx >= 0 ? payload.slice(0, sepIdx) : payload;
+                  const description = sepIdx >= 0 ? payload.slice(sepIdx + 1) : '';
+                  yield {
+                    event: 'tool_args',
+                    data: { tool: toolName, description },
+                  };
+                } else if (toolMessage?.startsWith('Tool completed:')) {
+                  // Parse "Tool completed: tool_name|success"
+                  const payload = toolMessage.replace('Tool completed:', '').trim();
+                  const sepIdx = payload.indexOf('|');
+                  const toolName = sepIdx >= 0 ? payload.slice(0, sepIdx) : payload;
+                  const successStr = sepIdx >= 0 ? payload.slice(sepIdx + 1) : 'success';
+                  yield {
+                    event: 'tool_end',
+                    data: { tool: toolName, success: successStr === 'success' },
                   };
                 } else {
                   yield {
