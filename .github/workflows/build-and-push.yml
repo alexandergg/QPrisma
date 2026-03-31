@@ -185,6 +185,30 @@ jobs:
           echo "frontend_fqdn=$FRONTEND_FQDN" >> $GITHUB_OUTPUT
           echo "Resolved Frontend FQDN: $FRONTEND_FQDN"
 
+      # Requires the OIDC service principal to have Microsoft Graph
+      # Application.ReadWrite.OwnedBy (or Application.ReadWrite.All) permission.
+      - name: Sync Entra ID SPA redirect URI
+        if: steps.resolve-frontend-fqdn.outputs.frontend_fqdn != 'localhost:3000'
+        run: |
+          APP_ID="${{ vars.ENTRA_SPA_CLIENT_ID }}"
+          REDIRECT_URI="https://${{ steps.resolve-frontend-fqdn.outputs.frontend_fqdn }}"
+          REQUIRED_URIS=("$REDIRECT_URI" "$REDIRECT_URI/redirect.html" "http://localhost:3000" "http://localhost:3000/redirect.html")
+
+          # Fetch existing redirect URIs so we merge instead of replace
+          EXISTING=$(az rest --method GET \
+            --uri "https://graph.microsoft.com/v1.0/applications(appId='$APP_ID')" \
+            --query "spa.redirectUris" -o json 2>/dev/null || echo "[]")
+
+          # Merge existing + required, deduplicate
+          MERGED=$(echo "$EXISTING" | jq -c --argjson new "$(printf '%s\n' "${REQUIRED_URIS[@]}" | jq -R . | jq -s .)" '. + $new | unique')
+
+          echo "Merged SPA redirect URIs: $MERGED"
+          az rest --method PATCH \
+            --uri "https://graph.microsoft.com/v1.0/applications(appId='$APP_ID')" \
+            --headers "Content-Type=application/json" \
+            --body "{\"spa\":{\"redirectUris\":$MERGED}}"
+          echo "✅ SPA redirect URIs updated for app $APP_ID"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
