@@ -2,8 +2,13 @@
 Foundry Agent Client
 ====================
 
-Wraps the Azure AI Agents SDK to communicate with QPrisma's
-hosted video agent via the standard Threads → Messages → Runs API.
+Wraps the Azure AI Projects SDK to communicate with QPrisma's
+hosted video agent via the Foundry Responses API.
+
+Hosted agents are containerized agents deployed to Azure AI Foundry
+Agent Service.  They expose a ``/responses`` endpoint and are invoked
+through the project-level Responses API — **not** the standard
+Threads/Messages/Runs (assistants) pattern.
 
 Usage::
 
@@ -18,6 +23,8 @@ Usage::
         )
 """
 
+import asyncio
+import json
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -26,13 +33,17 @@ from core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Default API version for Foundry Agent Service
+_API_VERSION = "2025-05-15-preview"
+
 
 class FoundryAgentClient:
     """
     Client for communicating with QPrisma's Foundry Hosted Agent.
 
-    Uses the ``azure-ai-agents`` SDK with the Threads/Messages/Runs
-    pattern for both synchronous and streaming interactions.
+    Uses the ``AIProjectClient.send_request()`` low-level method to call the
+    Foundry Responses API, which proxies to the hosted container's
+    ``/responses`` endpoint.
     """
 
     def __init__(
@@ -43,46 +54,30 @@ class FoundryAgentClient:
         self._project_endpoint = project_endpoint
         self._agent_name = agent_name
         self._client = None
-        self._agent_id: str | None = None
 
     def _get_client(self):
-        """Lazy-initialize the Azure AI Agents client."""
+        """Lazy-initialize the AIProjectClient."""
         if self._client is not None:
             return self._client
 
         try:
-            from azure.ai.agents import AgentsClient
+            from azure.ai.projects import AIProjectClient
             from azure.identity import DefaultAzureCredential
 
-            self._client = AgentsClient(
+            self._client = AIProjectClient(
                 endpoint=self._project_endpoint,
                 credential=DefaultAzureCredential(),
             )
             return self._client
         except ImportError:
             logger.error(
-                "azure-ai-agents SDK not installed. "
-                "Install with: pip install 'azure-ai-agents>=1.0.0'"
+                "azure-ai-projects SDK not installed. "
+                "Install with: pip install 'azure-ai-projects>=1.0.0'"
             )
             raise
         except Exception as e:
-            logger.error(f"Failed to create Agents client: {e}")
+            logger.error(f"Failed to create AIProjectClient: {e}")
             raise
-
-    def _resolve_agent_id(self, client) -> str:
-        """Resolve agent name to agent ID (cached)."""
-        if self._agent_id is not None:
-            return self._agent_id
-
-        for agent in client.list_agents():
-            if agent.name == self._agent_name:
-                self._agent_id = agent.id
-                logger.info(f"Resolved agent '{self._agent_name}' → {agent.id}")
-                return self._agent_id
-
-        raise RuntimeError(
-            f"Agent '{self._agent_name}' not found in project. Check FOUNDRY_AGENT_NAME is correct."
-        )
 
     async def send_message(
         self,
@@ -95,7 +90,7 @@ class FoundryAgentClient:
         thread_id: str | None = None,
     ) -> dict[str, Any]:
         """
-        Send a message to the hosted agent via Threads/Messages/Runs API.
+        Send a message to the hosted agent via the Foundry Responses API.
 
         QPrisma-specific context (media_id, user_id, etc.) is prepended
         to the message, which the hosted agent extracts in its
@@ -107,17 +102,14 @@ class FoundryAgentClient:
             media_ids: Multiple video IDs for cross-video queries
             user_id: Authenticated user ID for multi-tenant isolation
             session_id: Conversation session ID
-            thread_id: Foundry thread ID for conversation continuity
+            thread_id: Previous response ID for conversation continuity
 
         Returns:
             Dictionary with 'content' (str), 'thread_id' (str), and 'metadata' (dict)
         """
-        import asyncio
-
-        from azure.ai.agents.models import MessageRole
+        from azure.core.rest import HttpRequest
 
         client = self._get_client()
-        agent_id = await asyncio.to_thread(self._resolve_agent_id, client)
 
         metadata = self._build_metadata(
             media_id=media_id,
@@ -127,40 +119,31 @@ class FoundryAgentClient:
         )
         full_message = self._prepend_context(message, metadata)
 
+        body: dict[str, Any] = {
+            "input": full_message,
+            "stream": False,
+        }
+        if thread_id:
+            body["previous_response_id"] = thread_id
+
         try:
-            # Create or reuse thread (with fallback for invalid thread IDs)
-            if thread_id:
-                thread_id = await self._append_or_create_thread(
-                    client, thread_id, MessageRole.USER, full_message
-                )
-            else:
-                from azure.ai.agents.models import ThreadMessageOptions
-
-                thread = await asyncio.to_thread(
-                    client.threads.create,
-                    messages=[ThreadMessageOptions(role=MessageRole.USER, content=full_message)],
-                )
-                thread_id = thread.id
-
-            # Run the agent and poll until completion
-            await asyncio.to_thread(
-                client.runs.create_and_process,
-                thread_id=thread_id,
-                agent_id=agent_id,
+            request = HttpRequest(
+                method="POST",
+                url=f"agents/{self._agent_name}/responses?api-version={_API_VERSION}",
+                json=body,
+                headers={"Content-Type": "application/json"},
             )
 
-            # Retrieve the assistant's response
-            last_msg = await asyncio.to_thread(
-                client.messages.get_last_message_text_by_role,
-                thread_id=thread_id,
-                role=MessageRole.AGENT,
-            )
+            response = await asyncio.to_thread(client.send_request, request)
+            response.raise_for_status()
+            result = response.json()
 
-            content = last_msg.text if last_msg else ""
+            response_id = result.get("id", "")
+            content = self._extract_text(result)
 
             return {
                 "content": content,
-                "thread_id": thread_id,
+                "thread_id": response_id,
                 "metadata": metadata,
             }
 
@@ -186,8 +169,6 @@ class FoundryAgentClient:
 
         Yields dictionaries with event type and data:
         - {"type": "token", "content": "..."}
-        - {"type": "tool_start", "name": "..."}
-        - {"type": "tool_end", "name": "..."}
         - {"type": "done", "content": "full response", "thread_id": "..."}
 
         Args:
@@ -196,17 +177,14 @@ class FoundryAgentClient:
             media_ids: Multiple video IDs
             user_id: Authenticated user ID
             session_id: Conversation session ID
-            thread_id: Foundry thread ID
+            thread_id: Previous response ID for conversation continuity
 
         Yields:
             Event dictionaries with type and content
         """
-        import asyncio
-
-        from azure.ai.agents.models import AgentStreamEvent, MessageRole
+        from azure.core.rest import HttpRequest
 
         client = self._get_client()
-        agent_id = await asyncio.to_thread(self._resolve_agent_id, client)
 
         metadata = self._build_metadata(
             media_id=media_id,
@@ -216,74 +194,66 @@ class FoundryAgentClient:
         )
         full_message = self._prepend_context(message, metadata)
 
+        body: dict[str, Any] = {
+            "input": full_message,
+            "stream": True,
+        }
+        if thread_id:
+            body["previous_response_id"] = thread_id
+
         try:
-            # Create or reuse thread (with fallback for invalid thread IDs)
-            if thread_id:
-                thread_id = await self._append_or_create_thread(
-                    client, thread_id, MessageRole.USER, full_message
-                )
-            else:
-                from azure.ai.agents.models import ThreadMessageOptions
-
-                thread = await asyncio.to_thread(
-                    client.threads.create,
-                    messages=[ThreadMessageOptions(role=MessageRole.USER, content=full_message)],
-                )
-                thread_id = thread.id
-
-            # Stream the run incrementally via a queue
-            queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
-
-            async def _produce():
-                """Run the stream in a worker thread, pushing events to the queue."""
-
-                def _consume_stream():
-                    with event_stream:
-                        for event_type, event_data, _ in event_stream:
-                            queue_item = {"event_type": event_type, "event_data": event_data}
-                            asyncio.run_coroutine_threadsafe(queue.put(queue_item), loop).result()
-                    asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
-
-                await asyncio.to_thread(_consume_stream)
-
-            loop = asyncio.get_running_loop()
-            event_stream = await asyncio.to_thread(
-                client.runs.stream,
-                thread_id=thread_id,
-                agent_id=agent_id,
+            request = HttpRequest(
+                method="POST",
+                url=f"agents/{self._agent_name}/responses?api-version={_API_VERSION}",
+                json=body,
+                headers={"Content-Type": "application/json"},
             )
-            producer = asyncio.ensure_future(_produce())
+
+            response = await asyncio.to_thread(
+                client.send_request, request, stream=True
+            )
+            response.raise_for_status()
 
             accumulated_content = ""
-            while True:
-                item = await queue.get()
-                if item is None:
-                    break
-                event_type = item["event_type"]
-                event_data = item["event_data"]
+            response_id = ""
 
-                if event_type == AgentStreamEvent.THREAD_MESSAGE_DELTA:
-                    text = getattr(event_data, "text", "")
-                    if text:
-                        accumulated_content += text
-                        yield {"type": "token", "content": text}
+            def _read_stream():
+                """Read SSE stream from the response."""
+                events = []
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    text = line.decode("utf-8") if isinstance(line, bytes) else line
+                    if text.startswith("data: "):
+                        data_str = text[6:]
+                        if data_str.strip() == "[DONE]":
+                            break
+                        try:
+                            events.append(json.loads(data_str))
+                        except json.JSONDecodeError:
+                            pass
+                response.close()
+                return events
 
-                elif event_type == AgentStreamEvent.THREAD_RUN_STEP_CREATED:
-                    step_type = getattr(event_data, "type", "")
-                    if step_type == "tool_calls":
-                        yield {"type": "tool_start", "name": "agent_tool"}
+            events = await asyncio.to_thread(_read_stream)
 
-                elif event_type == AgentStreamEvent.THREAD_RUN_STEP_COMPLETED:
-                    step_type = getattr(event_data, "type", "")
-                    if step_type == "tool_calls":
-                        yield {"type": "tool_end", "name": "agent_tool"}
-
-            await producer
+            for event_data in events:
+                event_type = event_data.get("type", "")
+                if event_type == "response.output_text.delta":
+                    delta = event_data.get("delta", "")
+                    if delta:
+                        accumulated_content += delta
+                        yield {"type": "token", "content": delta}
+                elif event_type == "response.completed":
+                    resp = event_data.get("response", {})
+                    response_id = resp.get("id", "")
+                    if not accumulated_content:
+                        accumulated_content = self._extract_text(resp)
 
             yield {
                 "type": "done",
                 "content": accumulated_content,
-                "thread_id": thread_id,
+                "thread_id": response_id,
             }
 
         except Exception as e:
@@ -296,15 +266,15 @@ class FoundryAgentClient:
     async def health_check(self) -> dict[str, Any]:
         """Check if the Foundry hosted agent is reachable."""
         try:
-            import asyncio
-
             client = self._get_client()
-            agents = await asyncio.to_thread(lambda: list(client.list_agents(limit=1)))
+            agent = await asyncio.to_thread(
+                client.agents.get, agent_name=self._agent_name
+            )
             return {
                 "status": "healthy",
                 "agent_name": self._agent_name,
                 "endpoint": self._project_endpoint,
-                "agents_found": len(agents),
+                "agent_id": getattr(agent, "id", "unknown"),
             }
         except Exception as e:
             return {
@@ -317,33 +287,23 @@ class FoundryAgentClient:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def _append_or_create_thread(
-        self,
-        client,
-        thread_id: str,
-        role,
-        content: str,
-    ) -> str:
-        """Append a message to an existing thread, or create a new one if invalid."""
-        import asyncio
-
-        from azure.ai.agents.models import ThreadMessageOptions
-
-        try:
-            await asyncio.to_thread(
-                client.messages.create,
-                thread_id=thread_id,
-                role=role,
-                content=content,
-            )
-            return thread_id
-        except Exception:
-            logger.warning(f"Thread '{thread_id}' not found or invalid, creating new thread")
-            thread = await asyncio.to_thread(
-                client.threads.create,
-                messages=[ThreadMessageOptions(role=role, content=content)],
-            )
-            return thread.id
+    @staticmethod
+    def _extract_text(response_data: dict[str, Any]) -> str:
+        """Extract text content from a Responses API result."""
+        output = response_data.get("output", [])
+        parts: list[str] = []
+        for item in output:
+            if item.get("type") == "message":
+                for content in item.get("content", []):
+                    if content.get("type") == "output_text":
+                        parts.append(content.get("text", ""))
+            elif isinstance(item, str):
+                parts.append(item)
+        if parts:
+            return "\n".join(parts)
+        # Fallback: try top-level 'output' as string
+        raw = response_data.get("output", "")
+        return raw if isinstance(raw, str) else str(raw)
 
     @staticmethod
     def _build_metadata(
@@ -369,8 +329,6 @@ class FoundryAgentClient:
         """Prepend QPrisma context for the hosted agent to parse."""
         if not metadata:
             return message
-        import json
-
         return f"[QPRISMA_CONTEXT:{json.dumps(metadata)}]\n{message}"
 
 

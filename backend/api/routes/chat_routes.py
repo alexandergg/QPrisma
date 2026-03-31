@@ -151,9 +151,10 @@ async def agent_chat(
     which can search video content, navigate structure, explore the
     knowledge graph, find highlights, and compare moments.
 
-    On first request for a session, a new Foundry thread is created.
-    The returned ``session_id`` carries the real thread ID so subsequent
-    requests reuse the same conversation thread.
+    On first request for a session, the Responses API creates a new
+    response.  The returned ``session_id`` carries the response ID so
+    subsequent requests pass it as ``previous_response_id`` for
+    conversation continuity.
 
     Response includes:
     - Rich sources with timestamps and thumbnails
