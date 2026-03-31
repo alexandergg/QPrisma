@@ -164,24 +164,9 @@ jobs:
         run: |
           pip install pip-audit
           pip-audit --format json --output pip-audit-results.json || true
-          pip-audit --desc on || true
           echo ""
-          echo "=== Checking for vulnerable dependencies ==="
-          python3 <<'PY'
-          import sys, json, pathlib
-          raw = pathlib.Path("pip-audit-results.json").read_text()
-          data = json.loads(raw)
-          vulns = data.get("dependencies", [])
-          affected = [v for v in vulns if v.get("vulns")]
-          if affected:
-              print(f"Found {len(affected)} vulnerable package(s)")
-              for pkg in affected:
-                  print(f"  - {pkg['name']} {pkg.get('version', 'unknown')}")
-                  for vuln in pkg.get("vulns", []):
-                      print(f"    {vuln['id']}: {vuln.get('description', 'N/A')[:100]}")
-              sys.exit(1)
-          print("No known vulnerabilities found.")
-          PY
+          echo "=== Python Dependency Security Audit ==="
+          pip-audit --desc on
 
       - name: Upload pip-audit results
         if: always()
