@@ -3,17 +3,34 @@ Tests for WebSocket authentication security fixes.
 
 Covers:
     - authenticate_websocket helper
-    - /ws/jobs/{job_id}  — JWT via query param
-    - /ws/user/{user_id} — JWT via query param + user_id ownership check
+    - /ws/jobs/{job_id}  — token via query param
+    - /ws/user/{user_id} — token via query param + user_id ownership check
     - /ws/all            — first-message auth pattern
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from api.routes.websocket_routes import authenticate_websocket
+
+
+def _mock_entra_service(oid="user_abc123", email="alice@example.com", name="Alice"):
+    """Create a mock EntraAuthService that returns a given user."""
+    from models.user import EntraTokenData
+
+    svc = MagicMock()
+    svc.verify_token = AsyncMock(return_value=EntraTokenData(oid=oid, email=email, name=name))
+    return svc
+
+
+def _failing_entra_service():
+    """Create a mock EntraAuthService that always raises."""
+    svc = MagicMock()
+    svc.verify_token = AsyncMock(side_effect=Exception("Invalid token"))
+    return svc
+
 
 # =============================================================================
 # authenticate_websocket helper
@@ -40,11 +57,13 @@ class TestAuthenticateWebsocket:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_returns_user_dict_on_valid_token(self, mock_ws, auth_service):
-        token = auth_service.create_access_token(
-            {"sub": "user_abc123", "email": "alice@example.com"}
-        )
-        result = await authenticate_websocket(mock_ws, token)
+    async def test_returns_user_dict_on_valid_token(self, mock_ws):
+        mock_svc = _mock_entra_service(oid="user_abc123", email="alice@example.com")
+        with patch(
+            "api.routes.websocket_routes.get_entra_auth_service",
+            return_value=mock_svc,
+        ):
+            result = await authenticate_websocket(mock_ws, "valid-entra-token")
 
         assert result is not None
         assert result["user_id"] == "user_abc123"
@@ -52,24 +71,36 @@ class TestAuthenticateWebsocket:
 
     @pytest.mark.asyncio
     async def test_returns_none_on_invalid_token(self, mock_ws):
-        result = await authenticate_websocket(mock_ws, "not-a-jwt")
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_returns_none_on_expired_token(self, mock_ws, auth_service):
-        from datetime import timedelta
-
-        token = auth_service.create_access_token(
-            {"sub": "user_expired", "email": "e@x.com"},
-            expires_delta=timedelta(seconds=-1),
-        )
-        result = await authenticate_websocket(mock_ws, token)
+        mock_svc = _failing_entra_service()
+        with patch(
+            "api.routes.websocket_routes.get_entra_auth_service",
+            return_value=mock_svc,
+        ):
+            result = await authenticate_websocket(mock_ws, "not-a-jwt")
         assert result is None
 
 
 # =============================================================================
 # /ws/jobs/{job_id} endpoint
 # =============================================================================
+
+
+def _patch_ws_auth(oid="user_test123", email="test@example.com"):
+    """Patch authenticate_websocket to return a fixed user dict."""
+    return patch(
+        "api.routes.websocket_routes.authenticate_websocket",
+        new_callable=AsyncMock,
+        return_value={"user_id": oid, "email": email},
+    )
+
+
+def _patch_ws_auth_fail():
+    """Patch authenticate_websocket to return None (auth failure)."""
+    return patch(
+        "api.routes.websocket_routes.authenticate_websocket",
+        new_callable=AsyncMock,
+        return_value=None,
+    )
 
 
 class TestWebSocketJobAuth:
@@ -94,18 +125,19 @@ class TestWebSocketJobAuth:
     async def test_job_ws_rejects_invalid_token(self, client, _reset_ws_manager):
         """Connection with a bad token should be closed with 4001."""
         with (
+            _patch_ws_auth_fail(),
             pytest.raises(WebSocketDisconnect),
             client.websocket_connect("/ws/jobs/job-123?token=bad-token") as ws,
         ):
             ws.receive_json()  # pragma: no cover
 
     @pytest.mark.asyncio
-    async def test_job_ws_accepts_valid_token(self, client, auth_service, _reset_ws_manager):
-        """Connection with a valid JWT should succeed and receive 'connected' message."""
-        token = auth_service.create_access_token(
-            {"sub": "user_test123", "email": "test@example.com"}
-        )
-        with client.websocket_connect(f"/ws/jobs/job-123?token={token}") as ws:
+    async def test_job_ws_accepts_valid_token(self, client, _reset_ws_manager):
+        """Connection with a valid token should succeed and receive 'connected' message."""
+        with (
+            _patch_ws_auth(),
+            client.websocket_connect("/ws/jobs/job-123?token=mock-entra-token") as ws,
+        ):
             data = ws.receive_json()
             assert data["type"] == "connected"
             assert data["payload"]["job_id"] == "job-123"
@@ -137,24 +169,22 @@ class TestWebSocketUserAuth:
             ws.receive_json()  # pragma: no cover
 
     @pytest.mark.asyncio
-    async def test_user_ws_rejects_wrong_user(self, client, auth_service, _reset_ws_manager):
+    async def test_user_ws_rejects_wrong_user(self, client, _reset_ws_manager):
         """Token for user A but URL has user B → 4003 Forbidden close."""
-        token = auth_service.create_access_token(
-            {"sub": "user_alice", "email": "alice@example.com"}
-        )
         with (
+            _patch_ws_auth(oid="user_alice", email="alice@example.com"),
             pytest.raises(WebSocketDisconnect),
-            client.websocket_connect(f"/ws/user/user_bob?token={token}") as ws,
+            client.websocket_connect("/ws/user/user_bob?token=mock-entra-token") as ws,
         ):
             ws.receive_json()  # pragma: no cover
 
     @pytest.mark.asyncio
-    async def test_user_ws_accepts_matching_user(self, client, auth_service, _reset_ws_manager):
+    async def test_user_ws_accepts_matching_user(self, client, _reset_ws_manager):
         """Token user matches URL user → connected."""
-        token = auth_service.create_access_token(
-            {"sub": "user_test123", "email": "test@example.com"}
-        )
-        with client.websocket_connect(f"/ws/user/user_test123?token={token}") as ws:
+        with (
+            _patch_ws_auth(),
+            client.websocket_connect("/ws/user/user_test123?token=mock-entra-token") as ws,
+        ):
             data = ws.receive_json()
             assert data["type"] == "connected"
             assert data["payload"]["user_id"] == "user_test123"
@@ -181,14 +211,13 @@ class TestWebSocketAllAuth:
         """Sending a non-auth first message should close with 4001."""
         with client.websocket_connect("/ws/all") as ws:
             ws.send_json({"type": "ping"})
-            # Server should close the connection
             with pytest.raises(WebSocketDisconnect):
                 ws.receive_json()
 
     @pytest.mark.asyncio
     async def test_all_ws_rejects_invalid_token(self, client, _reset_ws_manager):
         """Auth message with invalid JWT should close with 4001."""
-        with client.websocket_connect("/ws/all") as ws:
+        with _patch_ws_auth_fail(), client.websocket_connect("/ws/all") as ws:
             ws.send_json({"type": "auth", "token": "bad-token"})
             with pytest.raises(WebSocketDisconnect):
                 ws.receive_json()
@@ -210,26 +239,26 @@ class TestWebSocketAllAuth:
                 ws.receive_json()
 
     @pytest.mark.asyncio
-    async def test_all_ws_accepts_valid_auth(self, client, auth_service, _reset_ws_manager):
+    async def test_all_ws_accepts_valid_auth(self, client, _reset_ws_manager):
         """Valid first-message auth should keep the connection alive."""
-        token = auth_service.create_access_token(
-            {"sub": "user_admin", "email": "admin@example.com"}
-        )
-        with client.websocket_connect("/ws/all") as ws:
-            ws.send_json({"type": "auth", "token": token})
+        with (
+            _patch_ws_auth(oid="user_admin", email="admin@example.com"),
+            client.websocket_connect("/ws/all") as ws,
+        ):
+            ws.send_json({"type": "auth", "token": "mock-entra-token"})
             data = ws.receive_json()
             assert data["type"] == "connected"
             assert data["payload"]["user_id"] == "user_admin"
 
     @pytest.mark.asyncio
-    async def test_all_ws_ping_after_auth(self, client, auth_service, _reset_ws_manager):
+    async def test_all_ws_ping_after_auth(self, client, _reset_ws_manager):
         """After auth, normal messages like ping should work."""
-        token = auth_service.create_access_token(
-            {"sub": "user_admin", "email": "admin@example.com"}
-        )
-        with client.websocket_connect("/ws/all") as ws:
+        with (
+            _patch_ws_auth(oid="user_admin", email="admin@example.com"),
+            client.websocket_connect("/ws/all") as ws,
+        ):
             # Authenticate
-            ws.send_json({"type": "auth", "token": token})
+            ws.send_json({"type": "auth", "token": "mock-entra-token"})
             connected = ws.receive_json()
             assert connected["type"] == "connected"
 

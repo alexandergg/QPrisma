@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -12,10 +12,11 @@ export default function AuthPage() {
   const router = useRouter();
 
   // Redirect if already authenticated
-  if (isAuthenticated) {
-    router.push('/');
-    return null;
-  }
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push('/');
+    }
+  }, [isAuthenticated, router]);
 
   const handleLogin = async () => {
     setError('');

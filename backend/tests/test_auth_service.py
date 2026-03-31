@@ -4,13 +4,12 @@ Tests for services/entra_auth_service.py
 Covers Entra ID JWT token validation with mocked JWKS.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
 from models.user import EntraTokenData
-
 
 # =============================================================================
 # EntraAuthService Token Validation

@@ -20,7 +20,7 @@ from api.dependencies import (
     get_storage_account_info,
     get_storage_container_name,
 )
-from models.user import EntraTokenData, User
+from models.user import EntraTokenData
 
 # =============================================================================
 # get_current_user
@@ -42,7 +42,10 @@ class TestGetCurrentUser:
 
         with (
             patch("services.entra_auth_service.get_entra_auth_service", return_value=mock_entra),
-            patch("services.user_provisioning_service.get_user_provisioning_service", return_value=mock_provisioning),
+            patch(
+                "services.user_provisioning_service.get_user_provisioning_service",
+                return_value=mock_provisioning,
+            ),
         ):
             user = await get_current_user(credentials)
 
@@ -82,7 +85,10 @@ class TestGetCurrentUserOptional:
 
         with (
             patch("services.entra_auth_service.get_entra_auth_service", return_value=mock_entra),
-            patch("services.user_provisioning_service.get_user_provisioning_service", return_value=mock_provisioning),
+            patch(
+                "services.user_provisioning_service.get_user_provisioning_service",
+                return_value=mock_provisioning,
+            ),
         ):
             user = await get_current_user_optional(credentials)
 

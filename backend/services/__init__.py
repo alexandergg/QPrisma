@@ -12,8 +12,8 @@ from .cross_video_search_service import CrossVideoSearchService, get_cross_video
 from .database_service import DatabaseService, get_database_service
 from .embedding_service import EmbeddingService, get_embedding_service
 from .enhanced_search import EnhancedSearchService
-from .entra_auth_service import EntraAuthService, get_entra_auth_service
 from .entity_extractor import EntityExtractor, get_entity_extractor
+from .entra_auth_service import EntraAuthService, get_entra_auth_service
 from .ffmpeg_processor import FFmpegVideoProcessor
 from .graph_expander import GraphExpander
 from .graph_node_repository import GraphNodeRepository

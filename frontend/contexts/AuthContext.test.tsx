@@ -16,18 +16,17 @@ import { render, screen, act, waitFor } from '@testing-library/react';
 // Mock MSAL before importing AuthContext
 // ---------------------------------------------------------------------------
 
-const mockLoginPopup = jest.fn();
-const mockLogoutPopup = jest.fn();
-const mockAcquireTokenSilent = jest.fn();
-const mockGetAllAccounts = jest.fn().mockReturnValue([]);
+// jest.mock factories are hoisted above const declarations, so we cannot
+// reference outer `const` variables inside them.  Instead we create the
+// mock fns inside the factory and expose them via the module mock itself.
 
 jest.mock('@azure/msal-browser', () => {
   return {
     PublicClientApplication: jest.fn().mockImplementation(() => ({
-      loginPopup: mockLoginPopup,
-      logoutPopup: mockLogoutPopup,
-      acquireTokenSilent: mockAcquireTokenSilent,
-      getAllAccounts: mockGetAllAccounts,
+      loginPopup: jest.fn().mockResolvedValue({}),
+      logoutPopup: jest.fn().mockResolvedValue(undefined),
+      acquireTokenSilent: jest.fn(),
+      getAllAccounts: jest.fn().mockReturnValue([]),
       getActiveAccount: jest.fn().mockReturnValue(null),
       setActiveAccount: jest.fn(),
       initialize: jest.fn().mockResolvedValue(undefined),
@@ -42,13 +41,14 @@ jest.mock('@azure/msal-browser', () => {
   };
 });
 
-const mockUseMsal = jest.fn();
-const mockUseIsAuthenticated = jest.fn();
+// Mocks for @azure/msal-react hooks — controlled per-test via mockReturnValue
+const _mockUseMsal = jest.fn();
+const _mockUseIsAuthenticated = jest.fn();
 
 jest.mock('@azure/msal-react', () => ({
   MsalProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  useMsal: () => mockUseMsal(),
-  useIsAuthenticated: () => mockUseIsAuthenticated(),
+  useMsal: () => _mockUseMsal(),
+  useIsAuthenticated: () => _mockUseIsAuthenticated(),
 }));
 
 jest.mock('@/lib/msal-config', () => ({
@@ -85,9 +85,20 @@ function AuthConsumer() {
 // ---------------------------------------------------------------------------
 
 describe('AuthContext (MSAL)', () => {
+  // Create per-test mock functions (avoids jest.mock hoisting issues)
+  let mockLoginPopup: jest.Mock;
+  let mockLogoutPopup: jest.Mock;
+  let mockAcquireTokenSilent: jest.Mock;
+  let mockGetAllAccounts: jest.Mock;
+
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseMsal.mockReturnValue({
+    mockLoginPopup = jest.fn().mockResolvedValue({});
+    mockLogoutPopup = jest.fn().mockResolvedValue(undefined);
+    mockAcquireTokenSilent = jest.fn();
+    mockGetAllAccounts = jest.fn().mockReturnValue([]);
+
+    _mockUseMsal.mockReturnValue({
       instance: {
         loginPopup: mockLoginPopup,
         logoutPopup: mockLogoutPopup,
@@ -96,7 +107,7 @@ describe('AuthContext (MSAL)', () => {
       },
       accounts: [],
     });
-    mockUseIsAuthenticated.mockReturnValue(false);
+    _mockUseIsAuthenticated.mockReturnValue(false);
   });
 
   it('throws when useAuth is used outside AuthProvider', () => {
@@ -125,7 +136,7 @@ describe('AuthContext (MSAL)', () => {
   });
 
   it('loads user profile when MSAL account is present', async () => {
-    mockUseMsal.mockReturnValue({
+    _mockUseMsal.mockReturnValue({
       instance: {
         loginPopup: mockLoginPopup,
         logoutPopup: mockLogoutPopup,
@@ -134,7 +145,7 @@ describe('AuthContext (MSAL)', () => {
       },
       accounts: [{ username: 'user@example.com' }],
     });
-    mockUseIsAuthenticated.mockReturnValue(true);
+    _mockUseIsAuthenticated.mockReturnValue(true);
     mockGetCurrentUser.mockResolvedValueOnce({ id: '1', email: 'user@example.com' });
 
     render(
@@ -152,8 +163,6 @@ describe('AuthContext (MSAL)', () => {
   });
 
   it('login triggers MSAL loginPopup', async () => {
-    mockLoginPopup.mockResolvedValue({});
-
     render(
       <AuthProvider>
         <AuthConsumer />
@@ -172,7 +181,7 @@ describe('AuthContext (MSAL)', () => {
   });
 
   it('logout clears user and calls MSAL logoutPopup', async () => {
-    mockUseMsal.mockReturnValue({
+    _mockUseMsal.mockReturnValue({
       instance: {
         loginPopup: mockLoginPopup,
         logoutPopup: mockLogoutPopup,
@@ -181,7 +190,7 @@ describe('AuthContext (MSAL)', () => {
       },
       accounts: [{ username: 'user@example.com' }],
     });
-    mockUseIsAuthenticated.mockReturnValue(true);
+    _mockUseIsAuthenticated.mockReturnValue(true);
     mockGetCurrentUser.mockResolvedValueOnce({ id: '1', email: 'user@example.com' });
 
     render(

@@ -54,7 +54,9 @@ class TestRemovedEndpoints:
     """Verify legacy auth endpoints no longer exist."""
 
     def test_register_gone(self, client):
-        resp = client.post("/auth/register", json={"email": "a@b.com", "password": "x", "name": "Y"})
+        resp = client.post(
+            "/auth/register", json={"email": "a@b.com", "password": "x", "name": "Y"}
+        )
         assert resp.status_code in (404, 405)
 
     def test_login_gone(self, client):

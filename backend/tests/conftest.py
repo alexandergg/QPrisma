@@ -151,7 +151,9 @@ def auth_service():
 
     mock = MagicMock()
     mock.verify_token = AsyncMock(
-        return_value=EntraTokenData(oid="entra-oid-test123", email="test@example.com", name="Test User")
+        return_value=EntraTokenData(
+            oid="entra-oid-test123", email="test@example.com", name="Test User"
+        )
     )
     return mock
 

@@ -50,6 +50,7 @@ from api.routes.websocket_manager import (
     WebSocketMessage,
     get_websocket_manager,
 )
+from services.entra_auth_service import get_entra_auth_service
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +82,6 @@ async def authenticate_websocket(websocket: WebSocket, token: str | None) -> dic
         return None
 
     try:
-        from services.entra_auth_service import get_entra_auth_service
-
         entra_service = get_entra_auth_service()
         token_data = await entra_service.verify_token(token)
         return {"user_id": token_data.oid, "email": token_data.email}
