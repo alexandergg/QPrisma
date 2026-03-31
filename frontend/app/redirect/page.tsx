@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useLayoutEffect } from 'react';
 
 /**
  * MSAL popup/redirect landing page.
@@ -11,9 +11,17 @@ import { useEffect } from 'react';
  * background so the popup appears blank while MSAL processes the response.
  */
 export default function RedirectPage() {
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const prevBody = document.body.style.background;
+    const prevHtml = document.documentElement.style.background;
+
     document.body.style.background = 'transparent';
     document.documentElement.style.background = 'transparent';
+
+    return () => {
+      document.body.style.background = prevBody;
+      document.documentElement.style.background = prevHtml;
+    };
   }, []);
 
   return null;
