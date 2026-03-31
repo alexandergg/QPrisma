@@ -66,6 +66,14 @@ HYBRID_MEMORY_DETAIL_BUDGET_CHARS = 2200
 # =============================================================================
 
 
+def _get_azure_ad_token_provider():
+    """Create an AAD token provider for managed identity auth (hosted agent)."""
+    from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+
+    credential = DefaultAzureCredential()
+    return get_bearer_token_provider(credential, "https://cognitiveservices.azure.com/.default")
+
+
 @lru_cache(maxsize=8)
 def create_model(
     model_deployment: str | None = None,
@@ -74,6 +82,9 @@ def create_model(
 ) -> AzureChatOpenAI:
     """
     Create Azure OpenAI chat model (cached by deployment + params).
+
+    Uses API key when available, falls back to managed identity (AAD)
+    for hosted agent containers.
 
     Args:
         model_deployment: Azure deployment name
@@ -85,14 +96,20 @@ def create_model(
     """
     deployment = model_deployment or settings.azure.openai_deployment_gpt
 
-    return AzureChatOpenAI(
-        azure_deployment=deployment,
-        api_version=settings.azure.openai_api_version,
-        azure_endpoint=settings.azure.openai_endpoint,
-        api_key=settings.azure.openai_api_key,
-        temperature=temperature,
-        streaming=streaming,
-    )
+    kwargs = {
+        "azure_deployment": deployment,
+        "api_version": settings.azure.openai_api_version,
+        "azure_endpoint": settings.azure.openai_endpoint,
+        "temperature": temperature,
+        "streaming": streaming,
+    }
+
+    if settings.azure.openai_api_key:
+        kwargs["api_key"] = settings.azure.openai_api_key
+    else:
+        kwargs["azure_ad_token_provider"] = _get_azure_ad_token_provider()
+
+    return AzureChatOpenAI(**kwargs)
 
 
 # =============================================================================

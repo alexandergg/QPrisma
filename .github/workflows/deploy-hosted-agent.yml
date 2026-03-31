@@ -161,6 +161,48 @@ jobs:
           fi
           echo "RBAC roles configured"
 
+      - name: Ensure hosted agent identity has Cognitive Services access
+        run: |
+          RG="rg-qprisma-dev"
+          ACCOUNT="aif-qprisma-dev"
+          SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+          AI_ACCOUNT_ID=$(az cognitiveservices account show \
+            --name ${ACCOUNT} --resource-group ${RG} \
+            --query id -o tsv)
+
+          # Get project managed identity (used by hosted agent containers)
+          PROJECT_PID=$(az rest --method GET \
+            --url "https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${ACCOUNT}-project?api-version=2025-06-01" \
+            --query identity.principalId -o tsv)
+          echo "Project principal: ${PROJECT_PID:0:8}..."
+
+          # Cognitive Services User — grants OpenAI data actions for the hosted container
+          CS_USER_ROLE="a97b65f3-24c7-4388-baec-2e87135dc908"
+
+          echo "Assigning Cognitive Services User to project identity..."
+          az role assignment create \
+            --assignee-object-id "$PROJECT_PID" \
+            --assignee-principal-type ServicePrincipal \
+            --role "$CS_USER_ROLE" \
+            --scope "$AI_ACCOUNT_ID" \
+            --output none 2>&1 || echo "  (already assigned)"
+
+          # Also grant to AI Foundry account identity
+          ACCOUNT_PID=$(az cognitiveservices account show \
+            --name ${ACCOUNT} --resource-group ${RG} \
+            --query identity.principalId -o tsv)
+          echo "Account principal: ${ACCOUNT_PID:0:8}..."
+
+          az role assignment create \
+            --assignee-object-id "$ACCOUNT_PID" \
+            --assignee-principal-type ServicePrincipal \
+            --role "$CS_USER_ROLE" \
+            --scope "$AI_ACCOUNT_ID" \
+            --output none 2>&1 || echo "  (already assigned)"
+
+          echo "Cognitive Services access configured for hosted agents"
+
       - name: Wait for capability host readiness
         run: |
           echo "Checking capability host provisioning state..."

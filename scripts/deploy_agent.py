@@ -138,6 +138,8 @@ def main() -> None:
         environment_variables={
             "ENVIRONMENT": os.environ.get("ENVIRONMENT", "hosted"),
             "LOG_LEVEL": "INFO",
+            "AZURE_OPENAI_ENDPOINT": f"https://{ACCOUNT_NAME}.openai.azure.com/",
+            "AZURE_OPENAI_API_VERSION": "2024-08-01-preview",
         },
     )
 
