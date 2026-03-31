@@ -74,7 +74,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy scan API image
-        uses: aquasecurity/trivy-action@v0.30.0
+        uses: aquasecurity/trivy-action@v0.35.0
         continue-on-error: true
         with:
           image-ref: "${{ vars.ACR_LOGIN_SERVER }}/qprisma-api:${{ github.sha }}"
@@ -124,7 +124,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy scan Worker image
-        uses: aquasecurity/trivy-action@v0.30.0
+        uses: aquasecurity/trivy-action@v0.35.0
         continue-on-error: true
         with:
           image-ref: "${{ vars.ACR_LOGIN_SERVER }}/qprisma-worker:${{ github.sha }}"
@@ -208,7 +208,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy scan Frontend image
-        uses: aquasecurity/trivy-action@v0.30.0
+        uses: aquasecurity/trivy-action@v0.35.0
         continue-on-error: true
         with:
           image-ref: "${{ vars.ACR_LOGIN_SERVER }}/qprisma-frontend:${{ github.sha }}"
