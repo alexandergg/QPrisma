@@ -28,7 +28,7 @@ dependencies = [
     "networkx>=3.2,<4.0.0",
     "python-louvain>=0.16,<1.0.0",
     # Image/Video Processing
-    "pillow>=11.0.0,<12.0.0",
+    "pillow>=12.1.1,<13.0.0",
     "ffmpeg-python>=0.2.0,<1.0.0",
     "av>=16.0.0,<17.0.0",
     "imagehash>=4.3.0,<5.0.0",
@@ -115,6 +115,7 @@ select = [
     "C4",     # flake8-comprehensions
     "UP",     # pyupgrade
     "SIM",    # flake8-simplify
+    "S",      # flake8-bandit (security checks)
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
@@ -127,7 +128,13 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["F841"]  # unused variables OK in tests
+"tests/*" = [
+    "F841",   # unused variables OK in tests
+    "S101",   # assert usage expected in tests
+    "S105",   # possible hardcoded password (test fixtures)
+    "S106",   # possible hardcoded password in function arg (test fixtures)
+    "S311",   # pseudo-random generators OK in tests
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["api", "services", "models", "tasks", "core", "evaluation"]

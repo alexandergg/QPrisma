@@ -14,6 +14,7 @@ on:
 permissions:
   id-token: write
   contents: read
+  security-events: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -72,6 +73,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Trivy scan API image
+        uses: aquasecurity/trivy-action@0.30.0
+        continue-on-error: true
+        with:
+          image-ref: "${{ vars.ACR_LOGIN_SERVER }}/qprisma-api:${{ github.sha }}"
+          format: "sarif"
+          output: "trivy-api.sarif"
+          severity: "HIGH,CRITICAL"
+
+      - name: Upload Trivy API scan results
+        if: always() && hashFiles('trivy-api.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: "trivy-api.sarif"
+          category: "trivy-api"
+
   build-worker:
     needs: detect-changes
     if: needs.detect-changes.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch'
@@ -104,6 +122,23 @@ jobs:
             ${{ vars.ACR_LOGIN_SERVER }}/qprisma-worker:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trivy scan Worker image
+        uses: aquasecurity/trivy-action@0.30.0
+        continue-on-error: true
+        with:
+          image-ref: "${{ vars.ACR_LOGIN_SERVER }}/qprisma-worker:${{ github.sha }}"
+          format: "sarif"
+          output: "trivy-worker.sarif"
+          severity: "HIGH,CRITICAL"
+
+      - name: Upload Trivy Worker scan results
+        if: always() && hashFiles('trivy-worker.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: "trivy-worker.sarif"
+          category: "trivy-worker"
 
   build-frontend:
     needs: detect-changes
@@ -152,6 +187,23 @@ jobs:
             NEXT_PUBLIC_WS_URL=wss://${{ steps.resolve-fqdn.outputs.api_fqdn }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trivy scan Frontend image
+        uses: aquasecurity/trivy-action@0.30.0
+        continue-on-error: true
+        with:
+          image-ref: "${{ vars.ACR_LOGIN_SERVER }}/qprisma-frontend:${{ github.sha }}"
+          format: "sarif"
+          output: "trivy-frontend.sarif"
+          severity: "HIGH,CRITICAL"
+
+      - name: Upload Trivy Frontend scan results
+        if: always() && hashFiles('trivy-frontend.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: "trivy-frontend.sarif"
+          category: "trivy-frontend"
 
   trigger-deploy:
     needs: [detect-changes, build-api, build-worker, build-frontend]

@@ -166,12 +166,33 @@ jobs:
 
       - name: Audit Python dependencies
         working-directory: backend
-        continue-on-error: true
         run: |
           pip install pip-audit
-          pip-audit --fix --dry-run || true
+          pip-audit --format json --output pip-audit-results.json || true
+          echo ""
+          echo "=== Python Dependency Security Audit ==="
+          pip-audit --desc on
+
+      - name: Upload pip-audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-results
+          path: backend/pip-audit-results.json
+          retention-days: 30
 
       - name: Audit npm dependencies
         working-directory: frontend
-        continue-on-error: true
-        run: npm audit --audit-level=high || true
+        run: |
+          npm audit --json > npm-audit-results.json || true
+          npm audit --audit-level=critical
+          echo ""
+          echo "=== npm audit completed ==="
+
+      - name: Upload npm audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: frontend/npm-audit-results.json
+          retention-days: 30
