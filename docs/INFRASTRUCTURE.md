@@ -500,10 +500,10 @@ QPrisma deploys resources across 2 Azure regions for optimal performance and ser
 - Ensure the SP has Contributor + User Access Administrator roles on the resource group
 
 **Problem: Entra SPA redirect URI sync fails with 403 Forbidden**
-- The OIDC service principal lacks `Application.ReadWrite.OwnedBy` on the Entra app registration
-- Grant the permission by following the [Entra ID SPA Redirect URI Sync](#entra-id-spa-redirect-uri-sync) setup steps
+- The OIDC service principal either does not have the Microsoft Graph `Application.ReadWrite.OwnedBy` application role assigned, or is not an **owner** of the SPA Entra app registration
+- Ensure the OIDC service principal is added as an **Owner** of the SPA app registration and has `Application.ReadWrite.OwnedBy` assigned, then follow the [Entra ID SPA Redirect URI Sync](#entra-id-spa-redirect-uri-sync) setup steps
 - The sync step is non-blocking (`continue-on-error: true`) — the image build will still succeed
-- Requires an account with **Global Admin** or **Privileged Role Administrator** to grant the Graph API role
+- Requires an account with **Global Admin** or **Privileged Role Administrator** to assign the Microsoft Graph application role to the OIDC service principal
 
 **Problem: Docker build fails**
 - Check Docker layer cache (`type=gha`) — clear by re-running with `workflow_dispatch`
