@@ -92,6 +92,17 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // In MSAL popup flow the parent window polls the popup's URL to read
+  // the auth response.  If MsalProvider runs inside the popup it races
+  // with the parent (both call handleRedirectPromise), so skip it.
+  const [isPopup] = useState(
+    () => typeof window !== 'undefined' && !!window.opener
+  );
+
+  if (isPopup) {
+    return <>{children}</>;
+  }
+
   return (
     <MsalProvider instance={msalInstance}>
       <AuthProviderInner>{children}</AuthProviderInner>
