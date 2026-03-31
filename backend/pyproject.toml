@@ -48,9 +48,7 @@ dependencies = [
     "python-dotenv>=1.0.1,<2.0.0",
     "httpx>=0.28.0,<1.0.0",
     "tenacity>=9.0.0,<10.0.0",
-    "python-jose[cryptography]>=3.5.0,<4.0.0",
-    "passlib[bcrypt]>=1.7.4,<2.0.0",
-    "bcrypt~=4.2",
+    "PyJWT[crypto]>=2.9.0,<3.0.0",
     # Rate Limiting
     "slowapi>=0.1.9,<1.0.0",
     "yt-dlp>=2026.3.17",

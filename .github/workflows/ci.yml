@@ -44,7 +44,7 @@ jobs:
 
           echo "Comparing changes from $FROM_SHA to $TO_SHA"
 
-          mapfile -t changed_files < <(git diff --name-only "$FROM_SHA" "$TO_SHA" -- 'backend/**/*.py')
+          mapfile -t changed_files < <(git diff --name-only --diff-filter=d "$FROM_SHA" "$TO_SHA" -- 'backend/**/*.py')
 
           if [[ ${#changed_files[@]} -eq 0 ]]; then
             echo "No backend Python files changed. Skipping pre-commit."

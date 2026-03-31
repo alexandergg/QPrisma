@@ -28,6 +28,30 @@ from typing import Any
 # Context variable for request-scoped data
 _request_context: ContextVar[dict[str, Any] | None] = ContextVar("request_context", default=None)
 
+# OpenTelemetry conversation/user context (read by ConversationIdSpanProcessor)
+_otel_conversation_id: ContextVar[str | None] = ContextVar("otel_conversation_id", default=None)
+_otel_user_id: ContextVar[str | None] = ContextVar("otel_user_id", default=None)
+
+
+def set_conversation_id(conversation_id: str | None) -> None:
+    """Set the conversation ID for OpenTelemetry span attribution."""
+    _otel_conversation_id.set(conversation_id)
+
+
+def get_conversation_id() -> str | None:
+    """Get the current conversation ID for OpenTelemetry spans."""
+    return _otel_conversation_id.get()
+
+
+def set_otel_user_id(user_id: str | None) -> None:
+    """Set the user ID for OpenTelemetry span attribution."""
+    _otel_user_id.set(user_id)
+
+
+def get_otel_user_id() -> str | None:
+    """Get the current user ID for OpenTelemetry spans."""
+    return _otel_user_id.get()
+
 
 @dataclass
 class RequestContext:
@@ -542,3 +566,43 @@ def inject_request_context_to_config(config: dict, context: RequestContext | Non
 def extract_request_id_from_config(config: dict) -> str | None:
     """Extract request ID from RunnableConfig."""
     return config.get("configurable", {}).get("request_id")
+
+
+# =============================================================================
+# OpenTelemetry SpanProcessor for Conversation ID
+# =============================================================================
+
+
+class ConversationIdSpanProcessor:
+    """
+    Custom SpanProcessor that stamps ``gen_ai.conversation.id`` and
+    ``enduser.id`` on every span using values from ContextVars.
+
+    Azure AI Foundry uses ``gen_ai.conversation.id`` to group traces
+    by conversation in the Traces UI.  The Playground SDK sets this
+    automatically; hosted agents must do it explicitly.
+
+    Register this processor after ``configure_azure_monitor()``::
+
+        from opentelemetry.trace import get_tracer_provider
+        provider = get_tracer_provider()
+        provider.add_span_processor(ConversationIdSpanProcessor())
+    """
+
+    def on_start(self, span, parent_context=None) -> None:
+        conversation_id = _otel_conversation_id.get()
+        if conversation_id:
+            span.set_attribute("gen_ai.conversation.id", conversation_id)
+
+        user_id = _otel_user_id.get()
+        if user_id:
+            span.set_attribute("enduser.id", user_id)
+
+    def on_end(self, span) -> None:
+        pass
+
+    def shutdown(self) -> None:
+        pass
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        return True

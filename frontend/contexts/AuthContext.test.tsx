@@ -1,47 +1,69 @@
 /**
- * Tests for contexts/AuthContext.tsx
+ * Tests for contexts/AuthContext.tsx (MSAL-based auth)
  *
  * Covers:
  * - useAuth throws when used outside provider
- * - Renders children and provides default state
- * - Login flow (sets user and stores token)
- * - Logout flow (clears user and removes token)
+ * - Renders unauthenticated state when no MSAL account
+ * - Loads user profile when MSAL account is present
+ * - Login triggers MSAL loginPopup
+ * - Logout clears user and calls MSAL logoutPopup
  */
 
 import React from 'react';
 import { render, screen, act, waitFor } from '@testing-library/react';
-import { AuthProvider, useAuth } from './AuthContext';
 
 // ---------------------------------------------------------------------------
-// Mocks
+// Mock MSAL before importing AuthContext
 // ---------------------------------------------------------------------------
 
-const mockFetch = jest.fn();
-global.fetch = mockFetch;
+// jest.mock factories are hoisted above const declarations, so we cannot
+// reference outer `const` variables inside them.  Instead we create the
+// mock fns inside the factory and expose them via the module mock itself.
 
-const store: Record<string, string> = {};
-const localStorageMock = {
-  getItem: jest.fn((key: string) => store[key] ?? null),
-  setItem: jest.fn((key: string, value: string) => {
-    store[key] = value;
-  }),
-  removeItem: jest.fn((key: string) => {
-    delete store[key];
-  }),
-  clear: jest.fn(() => {
-    for (const key of Object.keys(store)) delete store[key];
-  }),
-};
-Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
-
-function jsonResponse(body: unknown, status = 200): Response {
+jest.mock('@azure/msal-browser', () => {
   return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: () => Promise.resolve(body),
-    headers: new Headers(),
-  } as unknown as Response;
-}
+    PublicClientApplication: jest.fn().mockImplementation(() => ({
+      loginPopup: jest.fn().mockResolvedValue({}),
+      logoutPopup: jest.fn().mockResolvedValue(undefined),
+      acquireTokenSilent: jest.fn(),
+      getAllAccounts: jest.fn().mockReturnValue([]),
+      getActiveAccount: jest.fn().mockReturnValue(null),
+      setActiveAccount: jest.fn(),
+      initialize: jest.fn().mockResolvedValue(undefined),
+    })),
+    InteractionRequiredAuthError: class extends Error {
+      constructor(msg: string) {
+        super(msg);
+        this.name = 'InteractionRequiredAuthError';
+      }
+    },
+    LogLevel: { Warning: 2 },
+  };
+});
+
+// Mocks for @azure/msal-react hooks — controlled per-test via mockReturnValue
+const _mockUseMsal = jest.fn();
+const _mockUseIsAuthenticated = jest.fn();
+
+jest.mock('@azure/msal-react', () => ({
+  MsalProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useMsal: () => _mockUseMsal(),
+  useIsAuthenticated: () => _mockUseIsAuthenticated(),
+}));
+
+jest.mock('@/lib/msal-config', () => ({
+  msalConfig: { auth: { postLogoutRedirectUri: 'http://localhost:3000' } },
+  loginRequest: { scopes: ['api://test/access_as_user'] },
+}));
+
+// Mock api module
+const mockGetCurrentUser = jest.fn();
+jest.mock('@/lib/api', () => ({
+  apiClient: { getCurrentUser: (...args: unknown[]) => mockGetCurrentUser(...args) },
+  setMsalInstance: jest.fn(),
+}));
+
+import { AuthProvider, useAuth } from './AuthContext';
 
 // Consumer component to access the context
 function AuthConsumer() {
@@ -52,7 +74,7 @@ function AuthConsumer() {
       <span data-testid="loading">{String(loading)}</span>
       <span data-testid="authenticated">{String(isAuthenticated)}</span>
       <span data-testid="user">{user ? user.email : 'none'}</span>
-      <button onClick={() => login('test@test.com', 'pass')}>Login</button>
+      <button onClick={() => login()}>Login</button>
       <button onClick={logout}>Logout</button>
     </div>
   );
@@ -62,10 +84,30 @@ function AuthConsumer() {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('AuthContext', () => {
+describe('AuthContext (MSAL)', () => {
+  // Create per-test mock functions (avoids jest.mock hoisting issues)
+  let mockLoginPopup: jest.Mock;
+  let mockLogoutPopup: jest.Mock;
+  let mockAcquireTokenSilent: jest.Mock;
+  let mockGetAllAccounts: jest.Mock;
+
   beforeEach(() => {
     jest.clearAllMocks();
-    localStorageMock.clear();
+    mockLoginPopup = jest.fn().mockResolvedValue({});
+    mockLogoutPopup = jest.fn().mockResolvedValue(undefined);
+    mockAcquireTokenSilent = jest.fn();
+    mockGetAllAccounts = jest.fn().mockReturnValue([]);
+
+    _mockUseMsal.mockReturnValue({
+      instance: {
+        loginPopup: mockLoginPopup,
+        logoutPopup: mockLogoutPopup,
+        acquireTokenSilent: mockAcquireTokenSilent,
+        getAllAccounts: mockGetAllAccounts,
+      },
+      accounts: [],
+    });
+    _mockUseIsAuthenticated.mockReturnValue(false);
   });
 
   it('throws when useAuth is used outside AuthProvider', () => {
@@ -78,7 +120,7 @@ describe('AuthContext', () => {
     spy.mockRestore();
   });
 
-  it('provides unauthenticated state initially when no token', async () => {
+  it('provides unauthenticated state when no MSAL account', async () => {
     render(
       <AuthProvider>
         <AuthConsumer />
@@ -93,13 +135,18 @@ describe('AuthContext', () => {
     expect(screen.getByTestId('user').textContent).toBe('none');
   });
 
-  it('verifies existing token on mount', async () => {
-    localStorageMock.setItem('auth_token', 'existing-token');
-    store['auth_token'] = 'existing-token';
-
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ id: '1', email: 'saved@test.com' }),
-    );
+  it('loads user profile when MSAL account is present', async () => {
+    _mockUseMsal.mockReturnValue({
+      instance: {
+        loginPopup: mockLoginPopup,
+        logoutPopup: mockLogoutPopup,
+        acquireTokenSilent: mockAcquireTokenSilent,
+        getAllAccounts: mockGetAllAccounts,
+      },
+      accounts: [{ username: 'user@example.com' }],
+    });
+    _mockUseIsAuthenticated.mockReturnValue(true);
+    mockGetCurrentUser.mockResolvedValueOnce({ id: '1', email: 'user@example.com' });
 
     render(
       <AuthProvider>
@@ -112,41 +159,10 @@ describe('AuthContext', () => {
     });
 
     expect(screen.getByTestId('authenticated').textContent).toBe('true');
-    expect(screen.getByTestId('user').textContent).toBe('saved@test.com');
+    expect(screen.getByTestId('user').textContent).toBe('user@example.com');
   });
 
-  it('clears invalid token on mount', async () => {
-    localStorageMock.setItem('auth_token', 'bad-token');
-    store['auth_token'] = 'bad-token';
-
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ detail: 'Invalid' }, 401),
-    );
-
-    render(
-      <AuthProvider>
-        <AuthConsumer />
-      </AuthProvider>,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('loading').textContent).toBe('false');
-    });
-
-    expect(screen.getByTestId('authenticated').textContent).toBe('false');
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('auth_token');
-  });
-
-  it('login stores token and loads user', async () => {
-    // login response
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ access_token: 'new-tok', token_type: 'bearer' }),
-    );
-    // getCurrentUser response
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ id: '2', email: 'new@test.com' }),
-    );
-
+  it('login triggers MSAL loginPopup', async () => {
     render(
       <AuthProvider>
         <AuthConsumer />
@@ -161,20 +177,21 @@ describe('AuthContext', () => {
       screen.getByText('Login').click();
     });
 
-    await waitFor(() => {
-      expect(screen.getByTestId('user').textContent).toBe('new@test.com');
-    });
-
-    expect(localStorageMock.setItem).toHaveBeenCalledWith('auth_token', 'new-tok');
+    expect(mockLoginPopup).toHaveBeenCalled();
   });
 
-  it('logout clears token and user', async () => {
-    localStorageMock.setItem('auth_token', 'tok');
-    store['auth_token'] = 'tok';
-
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ id: '1', email: 'u@t.com' }),
-    );
+  it('logout clears user and calls MSAL logoutPopup', async () => {
+    _mockUseMsal.mockReturnValue({
+      instance: {
+        loginPopup: mockLoginPopup,
+        logoutPopup: mockLogoutPopup,
+        acquireTokenSilent: mockAcquireTokenSilent,
+        getAllAccounts: mockGetAllAccounts,
+      },
+      accounts: [{ username: 'user@example.com' }],
+    });
+    _mockUseIsAuthenticated.mockReturnValue(true);
+    mockGetCurrentUser.mockResolvedValueOnce({ id: '1', email: 'user@example.com' });
 
     render(
       <AuthProvider>
@@ -190,8 +207,7 @@ describe('AuthContext', () => {
       screen.getByText('Logout').click();
     });
 
-    expect(screen.getByTestId('authenticated').textContent).toBe('false');
+    expect(mockLogoutPopup).toHaveBeenCalled();
     expect(screen.getByTestId('user').textContent).toBe('none');
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('auth_token');
   });
 });

@@ -1,398 +1,222 @@
 """
-Tests for services/auth_service.py
+Tests for services/entra_auth_service.py
 
-Covers password hashing, JWT token lifecycle, user creation,
-authentication, login, and registration flows.
+Covers Entra ID JWT token validation with mocked JWKS.
 """
 
-from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
-from freezegun import freeze_time
 
-from models.user import UserCreate
-
-# =============================================================================
-# Password Hashing
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestPasswordHashing:
-    def test_hash_returns_bcrypt_format(self, auth_service):
-        hashed = auth_service.hash_password("SecurePass1")
-        assert hashed.startswith("$2b$")
-
-    def test_same_password_different_hashes(self, auth_service):
-        h1 = auth_service.hash_password("SecurePass1")
-        h2 = auth_service.hash_password("SecurePass1")
-        assert h1 != h2  # salt differs
-
-    def test_verify_correct_password(self, auth_service):
-        hashed = auth_service.hash_password("SecurePass1")
-        assert auth_service.verify_password("SecurePass1", hashed) is True
-
-    def test_verify_incorrect_password(self, auth_service):
-        hashed = auth_service.hash_password("SecurePass1")
-        assert auth_service.verify_password("WrongPass1", hashed) is False
-
-    def test_verify_empty_password(self, auth_service):
-        hashed = auth_service.hash_password("SecurePass1")
-        assert auth_service.verify_password("", hashed) is False
-
+from models.user import EntraTokenData
 
 # =============================================================================
-# JWT Tokens
+# EntraAuthService Token Validation
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestJWTTokens:
-    def test_create_access_token_decodable(self, auth_service):
-        token = auth_service.create_access_token({"sub": "user_123", "email": "a@b.com"})
-        assert isinstance(token, str)
-        assert len(token) > 20
+class TestEntraAuthServiceVerifyToken:
+    """Tests for EntraAuthService.verify_token()."""
 
-    async def test_verify_valid_access_token(self, auth_service):
-        token = auth_service.create_access_token({"sub": "user_123", "email": "a@b.com"})
-        data = await auth_service.verify_token(token)
-        assert data.user_id == "user_123"
-        assert data.email == "a@b.com"
+    @pytest.fixture
+    def entra_service(self):
+        """Create an EntraAuthService with mocked JWKS client."""
+        from services.entra_auth_service import EntraAuthService
 
-    async def test_create_refresh_token(self, auth_service):
-        token = auth_service.create_refresh_token({"sub": "user_123", "email": "a@b.com"})
-        data = await auth_service.verify_token(token, token_type="refresh")
-        assert data.user_id == "user_123"
+        service = EntraAuthService.__new__(EntraAuthService)
+        service._tenant_id = "test-tenant-id"
+        service._client_id = "test-client-id"
+        service._issuer = "https://login.microsoftonline.com/test-tenant-id/v2.0"
+        service._jwks_client = MagicMock()
+        return service
 
-    async def test_verify_expired_token_raises_401(self, auth_service):
-        with freeze_time("2024-01-01"):
-            token = auth_service.create_access_token(
-                {"sub": "user_123"}, expires_delta=timedelta(minutes=1)
-            )
-        with freeze_time("2024-01-02"):
+    @pytest.mark.asyncio
+    async def test_valid_token_returns_entra_data(self, entra_service):
+        """Valid Entra ID token should return EntraTokenData."""
+        mock_key = MagicMock()
+        mock_key.key = "test-signing-key"
+        entra_service._jwks_client.get_signing_key_from_jwt.return_value = mock_key
+
+        payload = {
+            "oid": "entra-oid-123",
+            "preferred_username": "user@example.com",
+            "name": "Test User",
+            "iss": entra_service._issuer,
+            "aud": entra_service._client_id,
+            "exp": 9999999999,
+        }
+
+        with patch("services.entra_auth_service.jwt.decode", return_value=payload):
+            result = await entra_service.verify_token("valid.token.here")
+
+        assert isinstance(result, EntraTokenData)
+        assert result.oid == "entra-oid-123"
+        assert result.email == "user@example.com"
+        assert result.name == "Test User"
+
+    @pytest.mark.asyncio
+    async def test_expired_token_raises_401(self, entra_service):
+        """Expired token should raise 401."""
+        import jwt as pyjwt
+
+        mock_key = MagicMock()
+        mock_key.key = "test-signing-key"
+        entra_service._jwks_client.get_signing_key_from_jwt.return_value = mock_key
+
+        with patch(
+            "services.entra_auth_service.jwt.decode",
+            side_effect=pyjwt.ExpiredSignatureError("Token expired"),
+        ):
             with pytest.raises(HTTPException) as exc_info:
-                await auth_service.verify_token(token)
+                await entra_service.verify_token("expired.token.here")
+            assert exc_info.value.status_code == 401
+            assert "expired" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_invalid_token_raises_401(self, entra_service):
+        """Invalid/tampered token should raise 401."""
+        import jwt as pyjwt
+
+        mock_key = MagicMock()
+        mock_key.key = "test-signing-key"
+        entra_service._jwks_client.get_signing_key_from_jwt.return_value = mock_key
+
+        with patch(
+            "services.entra_auth_service.jwt.decode",
+            side_effect=pyjwt.InvalidTokenError("Bad token"),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await entra_service.verify_token("bad.token.here")
             assert exc_info.value.status_code == 401
 
-    async def test_verify_wrong_token_type_raises_401(self, auth_service):
-        # Create refresh token, verify as access
-        token = auth_service.create_refresh_token({"sub": "user_123"})
-        with pytest.raises(HTTPException) as exc_info:
-            await auth_service.verify_token(token, token_type="access")
-        assert exc_info.value.status_code == 401
+    @pytest.mark.asyncio
+    async def test_email_fallback_to_email_claim(self, entra_service):
+        """When preferred_username is missing, fall back to email claim."""
+        mock_key = MagicMock()
+        mock_key.key = "test-signing-key"
+        entra_service._jwks_client.get_signing_key_from_jwt.return_value = mock_key
 
-    async def test_verify_tampered_token_raises_401(self, auth_service):
-        token = auth_service.create_access_token({"sub": "user_123"})
-        tampered = token[:-5] + "XXXXX"
-        with pytest.raises(HTTPException) as exc_info:
-            await auth_service.verify_token(tampered)
-        assert exc_info.value.status_code == 401
+        payload = {
+            "oid": "entra-oid-456",
+            "email": "fallback@example.com",
+            "iss": entra_service._issuer,
+            "aud": entra_service._client_id,
+            "exp": 9999999999,
+        }
 
-    async def test_verify_token_missing_sub_raises_401(self, auth_service):
-        # Token without "sub" claim
-        token = auth_service.create_access_token({"email": "a@b.com"})
-        with pytest.raises(HTTPException) as exc_info:
-            await auth_service.verify_token(token)
-        assert exc_info.value.status_code == 401
+        with patch("services.entra_auth_service.jwt.decode", return_value=payload):
+            result = await entra_service.verify_token("valid.token.here")
 
-    async def test_custom_expiry_delta(self, auth_service):
-        token = auth_service.create_access_token(
-            {"sub": "user_123"}, expires_delta=timedelta(hours=2)
-        )
-        data = await auth_service.verify_token(token)
-        assert data.user_id == "user_123"
-
-    def test_get_token_expiry_seconds(self, auth_service):
-        expected = auth_service.access_token_expire_minutes * 60
-        assert auth_service.get_token_expiry_seconds() == expected
-
-    async def test_verify_garbage_string_raises_401(self, auth_service):
-        with pytest.raises(HTTPException) as exc_info:
-            await auth_service.verify_token("not.a.jwt")
-        assert exc_info.value.status_code == 401
-
-    def test_access_token_contains_jti(self, auth_service):
-        """Verify that access tokens include a JTI (JWT ID) claim."""
-        from jose import jwt as jose_jwt
-
-        token = auth_service.create_access_token({"sub": "user_123", "email": "a@b.com"})
-        payload = jose_jwt.decode(
-            token, auth_service.secret_key, algorithms=[auth_service.algorithm]
-        )
-        assert "jti" in payload
-        # JTI should be a valid UUID4 string
-        import uuid
-
-        uuid.UUID(payload["jti"], version=4)
-
-    def test_refresh_token_contains_jti(self, auth_service):
-        """Verify that refresh tokens include a JTI (JWT ID) claim."""
-        from jose import jwt as jose_jwt
-
-        token = auth_service.create_refresh_token({"sub": "user_123", "email": "a@b.com"})
-        payload = jose_jwt.decode(
-            token, auth_service.secret_key, algorithms=[auth_service.algorithm]
-        )
-        assert "jti" in payload
-        import uuid
-
-        uuid.UUID(payload["jti"], version=4)
-
-    def test_each_token_has_unique_jti(self, auth_service):
-        """Verify that each token gets a unique JTI."""
-        from jose import jwt as jose_jwt
-
-        token1 = auth_service.create_access_token({"sub": "user_123"})
-        token2 = auth_service.create_access_token({"sub": "user_123"})
-        payload1 = jose_jwt.decode(
-            token1, auth_service.secret_key, algorithms=[auth_service.algorithm]
-        )
-        payload2 = jose_jwt.decode(
-            token2, auth_service.secret_key, algorithms=[auth_service.algorithm]
-        )
-        assert payload1["jti"] != payload2["jti"]
+        assert result.email == "fallback@example.com"
 
 
 # =============================================================================
-# Create User
+# UserProvisioningService
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestCreateUser:
-    def test_returns_user_in_db(self, auth_service):
-        user_data = UserCreate(email="new@example.com", password="SecurePass1", full_name="New")
-        user = auth_service.create_user(user_data)
-        assert user.email == "new@example.com"
-        assert user.full_name == "New"
+class TestUserProvisioningService:
+    """Tests for auto-provisioning users from Entra ID tokens."""
 
-    def test_hashes_password(self, auth_service):
-        user_data = UserCreate(email="new@example.com", password="SecurePass1")
-        user = auth_service.create_user(user_data)
-        assert user.hashed_password != "SecurePass1"
-        assert user.hashed_password.startswith("$2b$")
+    @pytest.fixture
+    def provisioning_service(self):
+        from services.user_provisioning_service import UserProvisioningService
 
-    def test_generates_uuid_prefixed_id(self, auth_service):
-        user_data = UserCreate(email="new@example.com", password="SecurePass1")
-        user = auth_service.create_user(user_data)
-        assert user.id.startswith("user_")
-        assert len(user.id) > 5
+        return UserProvisioningService()
 
-    def test_sets_timestamps(self, auth_service):
-        user_data = UserCreate(email="new@example.com", password="SecurePass1")
-        user = auth_service.create_user(user_data)
-        assert user.created_at is not None
-        assert user.updated_at is not None
+    def test_existing_user_by_entra_oid(self, provisioning_service):
+        """User with matching entra_oid should be returned directly."""
+        from datetime import UTC, datetime
 
-    def test_sets_defaults(self, auth_service):
-        user_data = UserCreate(email="new@example.com", password="SecurePass1")
-        user = auth_service.create_user(user_data)
-        assert user.is_active is True
-        assert user.is_superuser is False
-
-
-# =============================================================================
-# Authenticate User
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestAuthenticateUser:
-    def test_valid_credentials(self, auth_service):
-        mock_db_user = MagicMock()
-        mock_db_user.id = "user_abc"
-        mock_db_user.email = "test@example.com"
-        mock_db_user.full_name = "Test"
-        mock_db_user.hashed_password = auth_service.hash_password("SecurePass1")
-        mock_db_user.is_active = True
-        mock_db_user.is_superuser = False
-        mock_db_user.created_at = datetime(2024, 1, 1, tzinfo=UTC)
-        mock_db_user.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
-
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.return_value = mock_db_user
-
-        with patch("services.database_service.get_database_service", return_value=mock_db):
-            result = auth_service.authenticate_user("test@example.com", "SecurePass1")
-
-        assert result is not None
-        assert result.email == "test@example.com"
-
-    def test_wrong_password_returns_none(self, auth_service):
-        mock_db_user = MagicMock()
-        mock_db_user.hashed_password = auth_service.hash_password("SecurePass1")
-
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.return_value = mock_db_user
-
-        with patch("services.database_service.get_database_service", return_value=mock_db):
-            result = auth_service.authenticate_user("test@example.com", "WrongPass1")
-
-        assert result is None
-
-    def test_nonexistent_email_returns_none(self, auth_service):
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.return_value = None
-
-        with patch("services.database_service.get_database_service", return_value=mock_db):
-            result = auth_service.authenticate_user("nobody@example.com", "SecurePass1")
-
-        assert result is None
-
-    def test_db_error_returns_none(self, auth_service):
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.side_effect = ValueError("DB down")
-
-        with patch("services.database_service.get_database_service", return_value=mock_db):
-            result = auth_service.authenticate_user("test@example.com", "SecurePass1")
-
-        assert result is None
-
-
-# =============================================================================
-# Login
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestLogin:
-    def test_success_returns_access_token(self, auth_service):
-        mock_db_user = MagicMock()
-        mock_db_user.id = "user_abc"
-        mock_db_user.email = "test@example.com"
-        mock_db_user.full_name = "Test"
-        mock_db_user.hashed_password = auth_service.hash_password("SecurePass1")
-        mock_db_user.is_active = True
-        mock_db_user.is_superuser = False
-        mock_db_user.created_at = datetime(2024, 1, 1, tzinfo=UTC)
-        mock_db_user.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
-
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.return_value = mock_db_user
-
-        with patch("services.database_service.get_database_service", return_value=mock_db):
-            result = auth_service.login("test@example.com", "SecurePass1")
-
-        assert "access_token" in result
-        assert "error" not in result
-
-    def test_invalid_credentials_returns_error(self, auth_service):
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.return_value = None
-
-        with (
-            patch("services.database_service.get_database_service", return_value=mock_db),
-            patch.object(
-                type(auth_service),
-                "login",
-                wraps=auth_service.login,
-            ),
-            patch("services.auth_service.settings") as mock_settings,
-        ):
-            # In non-dev mode, should return error
-            mock_settings.app.environment = "production"
-            result = auth_service.login("test@example.com", "WrongPass1")
-
-        assert "error" in result
-
-    def test_dev_mode_auto_login(self, auth_service):
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.return_value = None
-        mock_created = MagicMock()
-        mock_created.id = "user_demo_uuid"
-        mock_db.create_user.return_value = mock_created
-
-        with (
-            patch("services.database_service.get_database_service", return_value=mock_db),
-            patch("services.auth_service.settings") as mock_settings,
-        ):
-            mock_settings.app.allow_dev_autologin = True
-            result = auth_service.login("test@dev.com", "anypassword123")
-
-        assert "access_token" in result
-
-    def test_auto_login_uses_uuid_not_email(self, auth_service):
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.return_value = None
-        mock_created = MagicMock()
-        mock_created.id = "uuid-based-id"
-        mock_db.create_user.return_value = mock_created
-
-        with (
-            patch("services.database_service.get_database_service", return_value=mock_db),
-            patch("services.auth_service.settings") as mock_settings,
-        ):
-            mock_settings.app.allow_dev_autologin = True
-            auth_service.login("test@dev.com", "anypassword123")
-
-        # Verify user_id passed to create_user is a UUID, not the email
-        call_kwargs = mock_db.create_user.call_args
-        user_id_arg = call_kwargs.kwargs.get("user_id") or call_kwargs[1].get("user_id")
-        assert user_id_arg != "test@dev.com"
-
-    def test_rejects_auto_login_when_flag_disabled(self, auth_service):
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.return_value = None
-
-        with (
-            patch("services.database_service.get_database_service", return_value=mock_db),
-            patch("services.auth_service.settings") as mock_settings,
-        ):
-            mock_settings.app.allow_dev_autologin = False
-            result = auth_service.login("test@dev.com", "anypassword123")
-
-        assert "error" in result
-
-
-# =============================================================================
-# Register
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestRegister:
-    def test_success_returns_access_token(self, auth_service):
         mock_user = MagicMock()
-        mock_user.id = "user_new"
-        mock_user.email = "new@example.com"
+        mock_user.id = "user_existing"
+        mock_user.email = "existing@example.com"
+        mock_user.full_name = "Existing"
+        mock_user.is_active = True
+        mock_user.is_superuser = False
+        mock_user.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_user.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
 
         mock_db = MagicMock()
+        mock_db.get_user_by_entra_oid.return_value = mock_user
+
+        token_data = EntraTokenData(oid="known-oid", email="existing@example.com")
+
+        with patch("services.user_provisioning_service.get_database_service", return_value=mock_db):
+            user = provisioning_service.ensure_user_exists(token_data)
+
+        assert user.id == "user_existing"
+        mock_db.get_user_by_email.assert_not_called()
+
+    def test_email_match_links_entra_oid(self, provisioning_service):
+        """Existing user matched by email should get linked to Entra OID."""
+        from datetime import UTC, datetime
+
+        mock_user = MagicMock()
+        mock_user.id = "user_local"
+        mock_user.email = "local@example.com"
+        mock_user.full_name = "Local User"
+        mock_user.is_active = True
+        mock_user.is_superuser = False
+        mock_user.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_user.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
+
+        mock_db = MagicMock()
+        mock_db.get_user_by_entra_oid.return_value = None
+        mock_db.get_user_by_email.return_value = mock_user
+
+        token_data = EntraTokenData(oid="new-oid", email="local@example.com", name="Local User")
+
+        with patch("services.user_provisioning_service.get_database_service", return_value=mock_db):
+            user = provisioning_service.ensure_user_exists(token_data)
+
+        assert user.id == "user_local"
+        mock_db.update_user_entra_oid.assert_called_once_with("user_local", "new-oid")
+
+    def test_new_user_auto_provisioned(self, provisioning_service):
+        """Unknown user should be auto-created."""
+        from datetime import UTC, datetime
+
+        mock_created = MagicMock()
+        mock_created.id = "user_new"
+        mock_created.email = "new@example.com"
+        mock_created.full_name = "New User"
+        mock_created.is_active = True
+        mock_created.is_superuser = False
+        mock_created.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_created.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
+
+        mock_db = MagicMock()
+        mock_db.get_user_by_entra_oid.return_value = None
         mock_db.get_user_by_email.return_value = None
-        mock_db.create_user.return_value = mock_user
+        mock_db.create_user.return_value = mock_created
 
-        with patch("services.database_service.get_database_service", return_value=mock_db):
-            result = auth_service.register("new@example.com", "SecurePass1", "New User")
+        token_data = EntraTokenData(oid="brand-new-oid", email="new@example.com", name="New User")
 
-        assert "access_token" in result
+        with patch("services.user_provisioning_service.get_database_service", return_value=mock_db):
+            user = provisioning_service.ensure_user_exists(token_data)
 
-    def test_duplicate_email_returns_error(self, auth_service):
+        assert user.id == "user_new"
+        mock_db.create_user.assert_called_once_with(
+            email="new@example.com",
+            full_name="New User",
+            entra_oid="brand-new-oid",
+        )
+
+    def test_inactive_user_raises_403(self, provisioning_service):
+        """Deactivated user should get 403."""
+        mock_user = MagicMock()
+        mock_user.is_active = False
+
         mock_db = MagicMock()
-        mock_db.get_user_by_email.return_value = MagicMock()  # exists
+        mock_db.get_user_by_entra_oid.return_value = mock_user
 
-        with patch("services.database_service.get_database_service", return_value=mock_db):
-            result = auth_service.register("existing@example.com", "SecurePass1", "Existing")
+        token_data = EntraTokenData(oid="inactive-oid", email="inactive@example.com")
 
-        assert result == {"error": "Email already registered"}
-
-    def test_invalid_email_returns_error(self, auth_service):
-        result = auth_service.register("notanemail", "SecurePass1", "Test")
-        assert result == {"error": "Invalid email format"}
-
-    def test_short_password_returns_error(self, auth_service):
-        result = auth_service.register("new@example.com", "short", "Test")
-        assert result == {"error": "Password must be at least 8 characters"}
-
-    def test_short_name_returns_error(self, auth_service):
-        result = auth_service.register("new@example.com", "SecurePass1", "A")
-        assert result == {"error": "Name must be at least 2 characters"}
-
-    def test_db_error_returns_error(self, auth_service):
-        mock_db = MagicMock()
-        mock_db.get_user_by_email.side_effect = Exception("DB down")
-
-        with patch("services.database_service.get_database_service", return_value=mock_db):
-            result = auth_service.register("new@example.com", "SecurePass1", "Test")
-
-        assert "error" in result
+        with patch("services.user_provisioning_service.get_database_service", return_value=mock_db):
+            with pytest.raises(HTTPException) as exc_info:
+                provisioning_service.ensure_user_exists(token_data)
+            assert exc_info.value.status_code == 403

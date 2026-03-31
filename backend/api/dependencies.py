@@ -15,7 +15,6 @@ from openai import AsyncAzureOpenAI, AzureOpenAI
 
 from core.config import settings
 from models.user import User
-from services.auth_service import AuthService
 from services.database_service import get_database_service
 
 logger = logging.getLogger(__name__)
@@ -35,7 +34,6 @@ _blob_service: BlobServiceClient | None = None
 _openai_client: AzureOpenAI | None = None
 _async_openai_client: AsyncAzureOpenAI | None = None
 _video_processor = None
-_auth_service: AuthService | None = None
 _pyav_extractor = None
 
 
@@ -118,14 +116,6 @@ def get_pyav_extractor():
         except ImportError:
             logger.debug("pyav_extractor module not found — returning None")
     return _pyav_extractor
-
-
-def get_auth_service() -> AuthService:
-    """Get or create Auth Service."""
-    global _auth_service
-    if _auth_service is None:
-        _auth_service = AuthService()
-    return _auth_service
 
 
 _knowledge_graph_service = None
@@ -359,44 +349,23 @@ def get_media_or_404(
 security_optional = HTTPBearer(auto_error=False)
 
 
-async def get_token_from_header(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> str:
-    """
-    Extract raw JWT token string from Authorization header.
-
-    Returns:
-        Raw JWT token string
-    """
-    return credentials.credentials
-
-
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> User:
     """
-    Validate JWT token and return current user.
+    Validate Entra ID Bearer token and return current user.
+
+    Auto-provisions user in PostgreSQL on first login (email-matched to existing records).
 
     Raises:
         HTTPException: 401 if token is invalid or expired
     """
-    from datetime import UTC, datetime
-
-    auth_service = get_auth_service()
+    from services.entra_auth_service import get_entra_auth_service
+    from services.user_provisioning_service import get_user_provisioning_service
 
     try:
-        token_data = await auth_service.verify_token(credentials.credentials)
-        # Create User from token data
-        now = datetime.now(UTC)
-        return User(
-            id=token_data.user_id,
-            email=token_data.email or "",
-            full_name=None,
-            is_active=True,
-            is_superuser=False,
-            created_at=now,
-            updated_at=now,
-        )
+        token_data = await get_entra_auth_service().verify_token(credentials.credentials)
+        return get_user_provisioning_service().ensure_user_exists(token_data)
     except HTTPException:
         raise
     except Exception:
@@ -407,7 +376,7 @@ async def get_current_user_optional(
     credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),
 ) -> User | None:
     """
-    Optionally validate JWT token and return current user.
+    Optionally validate Entra ID token and return current user.
 
     Returns None if no token is provided or if token is invalid.
     Does not raise exceptions - useful for endpoints that work with or without auth.
@@ -415,22 +384,11 @@ async def get_current_user_optional(
     if credentials is None:
         return None
 
-    from datetime import UTC, datetime
-
-    auth_service = get_auth_service()
+    from services.entra_auth_service import get_entra_auth_service
+    from services.user_provisioning_service import get_user_provisioning_service
 
     try:
-        token_data = await auth_service.verify_token(credentials.credentials)
-        now = datetime.now(UTC)
-        return User(
-            id=token_data.user_id,
-            email=token_data.email or "",
-            full_name=None,
-            is_active=True,
-            is_superuser=False,
-            created_at=now,
-            updated_at=now,
-        )
+        token_data = await get_entra_auth_service().verify_token(credentials.credentials)
+        return get_user_provisioning_service().ensure_user_exists(token_data)
     except Exception:
-        # Token invalid or expired - return None instead of raising
         return None

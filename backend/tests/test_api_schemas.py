@@ -13,7 +13,6 @@ from models.api_schemas import (
     ChatRequest,
     JobStatus,
     ProcessingConfig,
-    RegisterRequest,
     SearchRequest,
 )
 
@@ -89,30 +88,6 @@ class TestAgentChatRequest:
         for fmt in ("markdown", "json", "structured"):
             req = AgentChatRequest(message="hi", output_format=fmt)
             assert req.output_format == fmt
-
-
-# =============================================================================
-# RegisterRequest
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestRegisterRequest:
-    def test_valid(self):
-        req = RegisterRequest(email="a@b.com", password="longpassword", name="Test")
-        assert req.email == "a@b.com"
-
-    def test_short_password(self):
-        with pytest.raises(ValidationError):
-            RegisterRequest(email="a@b.com", password="short", name="Test")
-
-    def test_short_name(self):
-        with pytest.raises(ValidationError):
-            RegisterRequest(email="a@b.com", password="longpassword", name="A")
-
-    def test_invalid_email(self):
-        with pytest.raises(ValidationError):
-            RegisterRequest(email="notanemail", password="longpassword", name="Test")
 
 
 # =============================================================================

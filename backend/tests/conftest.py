@@ -105,7 +105,6 @@ def app(reset_settings):
     deps._openai_client = None
     deps._async_openai_client = None
     deps._video_processor = None
-    deps._auth_service = None
     deps._pyav_extractor = None
     deps._faster_whisper_transcriber = None
     deps._video_decoder = None
@@ -145,10 +144,18 @@ async def async_client(app):
 
 @pytest.fixture
 def auth_service():
-    """Create a real AuthService instance for unit tests."""
-    from services.auth_service import AuthService
+    """Create a mock EntraAuthService for unit tests."""
+    from unittest.mock import AsyncMock, MagicMock
 
-    return AuthService()
+    from models.user import EntraTokenData
+
+    mock = MagicMock()
+    mock.verify_token = AsyncMock(
+        return_value=EntraTokenData(
+            oid="entra-oid-test123", email="test@example.com", name="Test User"
+        )
+    )
+    return mock
 
 
 @pytest.fixture
@@ -185,8 +192,8 @@ def superuser():
 
 @pytest.fixture
 def auth_token(auth_service, test_user):
-    """Generate a valid JWT access token for test_user."""
-    return auth_service.create_access_token({"sub": test_user.id, "email": test_user.email})
+    """Generate a mock Bearer token for test_user."""
+    return "mock-entra-id-token-for-tests"
 
 
 @pytest.fixture
@@ -201,10 +208,9 @@ def authenticated_app(app, test_user):
     App with get_current_user overridden to return test_user.
     Use this for route tests that need authentication without real JWT.
     """
-    from api.dependencies import get_current_user, get_token_from_header
+    from api.dependencies import get_current_user
 
     app.dependency_overrides[get_current_user] = lambda: test_user
-    app.dependency_overrides[get_token_from_header] = lambda: "test-token"
     return app
 
 
