@@ -308,18 +308,30 @@ module keyVault 'modules/key-vault.bicep' = {
 }
 
 // =====================================================================
-// RBAC — Azure AI Developer for API Container App on AI Foundry
-// Grants agents/read, agents/write, and OpenAI data-plane actions
-// so the backend can call Foundry agents via DefaultAzureCredential.
+// RBAC — AI Foundry access for API Container App
+// Azure AI Developer: agents/read, agents/write, OpenAI data actions
+// Cognitive Services User: wildcard data actions for threads/messages/runs
+// Both are needed so the backend can fully operate Foundry agents.
 // =====================================================================
 
 var azureAiDeveloperRoleId = '64702f94-c441-49e6-a78b-ef80e0188fee'
+var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
 
 resource apiAiDeveloperRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(existingAiFoundry.id, 'ca-qprisma-api', azureAiDeveloperRoleId)
   scope: existingAiFoundry
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', azureAiDeveloperRoleId)
+    principalId: apiContainerApp.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource apiCognitiveServicesUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingAiFoundry.id, 'ca-qprisma-api', cognitiveServicesUserRoleId)
+  scope: existingAiFoundry
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRoleId)
     principalId: apiContainerApp.outputs.principalId
     principalType: 'ServicePrincipal'
   }
