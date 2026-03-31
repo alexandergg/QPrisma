@@ -248,6 +248,14 @@ class FoundryAgentClient:
                     event_type = item["type"]
                     event = item["data"]
 
+                    # Log every event for diagnostics (helps validate hosted agent behavior)
+                    if event_type != "response.output_text.delta":
+                        logger.debug(
+                            "Foundry stream event: %s (item_type=%s)",
+                            event_type,
+                            getattr(getattr(event, "item", None), "type", "-"),
+                        )
+
                     if event_type == "response.output_text.delta":
                         delta = getattr(event, "delta", "")
                         if delta:
