@@ -64,7 +64,7 @@ gpu = [
 ]
 hosted = [
     "azure-ai-agentserver-langgraph>=1.0.0b12",
-    "starlette>=0.45.0,<1.0.0",
+    "starlette>=0.45.0,<2.0.0",
     "azure-monitor-opentelemetry>=1.6.0,<2.0.0",
     "opentelemetry-instrumentation-openai-v2>=2.0.0,<3.0.0",
 ]
