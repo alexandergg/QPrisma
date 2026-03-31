@@ -38,6 +38,22 @@ ARG NEXT_PUBLIC_WS_URL=ws://localhost:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 
+# Microsoft Entra ID (SSO) — required for MSAL to send client_id
+ARG NEXT_PUBLIC_ENTRA_CLIENT_ID
+ARG NEXT_PUBLIC_ENTRA_AUTHORITY=https://login.microsoftonline.com/common
+ARG NEXT_PUBLIC_ENTRA_REDIRECT_URI=http://localhost:3000
+ARG NEXT_PUBLIC_ENTRA_API_SCOPE=api://qprisma/access_as_user
+ENV NEXT_PUBLIC_ENTRA_CLIENT_ID=${NEXT_PUBLIC_ENTRA_CLIENT_ID}
+ENV NEXT_PUBLIC_ENTRA_AUTHORITY=${NEXT_PUBLIC_ENTRA_AUTHORITY}
+ENV NEXT_PUBLIC_ENTRA_REDIRECT_URI=${NEXT_PUBLIC_ENTRA_REDIRECT_URI}
+ENV NEXT_PUBLIC_ENTRA_API_SCOPE=${NEXT_PUBLIC_ENTRA_API_SCOPE}
+
+# Fail fast if Entra client ID is missing — prevents silent SSO breakage
+RUN if [ -z "$NEXT_PUBLIC_ENTRA_CLIENT_ID" ]; then \
+      echo "ERROR: NEXT_PUBLIC_ENTRA_CLIENT_ID is required. Pass it via --build-arg." >&2; \
+      exit 1; \
+    fi
+
 # Build de producción
 RUN npm run build
 
