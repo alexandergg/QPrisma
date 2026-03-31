@@ -177,7 +177,11 @@ jobs:
             --name ca-qprisma-web-dev \
             --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
             --query "properties.configuration.ingress.fqdn" \
-            -o tsv)
+            -o tsv 2>/dev/null || true)
+          if [ -z "$FRONTEND_FQDN" ]; then
+            echo "::warning::Could not resolve frontend FQDN — container app may not exist yet. Falling back to localhost."
+            FRONTEND_FQDN="localhost:3000"
+          fi
           echo "frontend_fqdn=$FRONTEND_FQDN" >> $GITHUB_OUTPUT
           echo "Resolved Frontend FQDN: $FRONTEND_FQDN"
 

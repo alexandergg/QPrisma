@@ -48,6 +48,12 @@ ENV NEXT_PUBLIC_ENTRA_AUTHORITY=${NEXT_PUBLIC_ENTRA_AUTHORITY}
 ENV NEXT_PUBLIC_ENTRA_REDIRECT_URI=${NEXT_PUBLIC_ENTRA_REDIRECT_URI}
 ENV NEXT_PUBLIC_ENTRA_API_SCOPE=${NEXT_PUBLIC_ENTRA_API_SCOPE}
 
+# Fail fast if Entra client ID is missing — prevents silent SSO breakage
+RUN if [ -z "$NEXT_PUBLIC_ENTRA_CLIENT_ID" ]; then \
+      echo "ERROR: NEXT_PUBLIC_ENTRA_CLIENT_ID is required. Pass it via --build-arg." >&2; \
+      exit 1; \
+    fi
+
 # Build de producción
 RUN npm run build
 
