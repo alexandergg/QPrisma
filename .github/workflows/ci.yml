@@ -145,8 +145,8 @@ jobs:
       - name: Run Jest tests
         run: npm test -- --ci --coverage
 
-  security-python:
-    name: Python Dependency Security Audit
+  security:
+    name: Dependency Security Audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -158,6 +158,11 @@ jobs:
         uses: ./.github/actions/setup-backend
         with:
           working-directory: backend
+
+      - name: Setup frontend
+        uses: ./.github/actions/setup-frontend
+        with:
+          working-directory: frontend
 
       - name: Audit Python dependencies
         working-directory: backend
@@ -175,20 +180,6 @@ jobs:
           name: pip-audit-results
           path: backend/pip-audit-results.json
           retention-days: 30
-
-  security-frontend:
-    name: Frontend Dependency Security Audit
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup frontend
-        uses: ./.github/actions/setup-frontend
-        with:
-          working-directory: frontend
 
       - name: Audit npm dependencies
         working-directory: frontend
