@@ -72,7 +72,7 @@ class FoundryAgentClient:
         except ImportError:
             logger.error(
                 "azure-ai-projects SDK not installed. "
-                "Install with: pip install 'azure-ai-projects>=1.0.0'"
+                "Install with: pip install 'azure-ai-projects>=1.0.0b7'"
             )
             raise
         except Exception as e:
@@ -148,6 +148,24 @@ class FoundryAgentClient:
             }
 
         except Exception as e:
+            # If a stale previous_response_id caused the failure, retry without it
+            if thread_id and self._is_retriable_status(e):
+                logger.warning(f"Retrying without previous_response_id (was '{thread_id}')")
+                body.pop("previous_response_id", None)
+                request = HttpRequest(
+                    method="POST",
+                    url=f"agents/{self._agent_name}/responses?api-version={_API_VERSION}",
+                    json=body,
+                    headers={"Content-Type": "application/json"},
+                )
+                response = await asyncio.to_thread(client.send_request, request)
+                response.raise_for_status()
+                result = response.json()
+                return {
+                    "content": self._extract_text(result),
+                    "thread_id": result.get("id", ""),
+                    "metadata": metadata,
+                }
             logger.error(
                 f"Foundry agent call failed: {e}",
                 extra={"agent_name": self._agent_name, "media_id": media_id},
@@ -209,46 +227,55 @@ class FoundryAgentClient:
                 headers={"Content-Type": "application/json"},
             )
 
-            response = await asyncio.to_thread(
-                client.send_request, request, stream=True
-            )
+            response = await asyncio.to_thread(client.send_request, request, stream=True)
             response.raise_for_status()
 
             accumulated_content = ""
             response_id = ""
 
-            def _read_stream():
-                """Read SSE stream from the response."""
-                events = []
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    text = line.decode("utf-8") if isinstance(line, bytes) else line
-                    if text.startswith("data: "):
-                        data_str = text[6:]
-                        if data_str.strip() == "[DONE]":
-                            break
-                        try:
-                            events.append(json.loads(data_str))
-                        except json.JSONDecodeError:
-                            pass
-                response.close()
-                return events
+            loop = asyncio.get_running_loop()
+            queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
-            events = await asyncio.to_thread(_read_stream)
+            def _read_stream() -> None:
+                """Read SSE stream from the response in a worker thread."""
+                try:
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        text = line.decode("utf-8") if isinstance(line, bytes) else line
+                        if text.startswith("data: "):
+                            data_str = text[6:]
+                            if data_str.strip() == "[DONE]":
+                                break
+                            try:
+                                event = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+                            loop.call_soon_threadsafe(queue.put_nowait, event)
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+                    response.close()
 
-            for event_data in events:
-                event_type = event_data.get("type", "")
-                if event_type == "response.output_text.delta":
-                    delta = event_data.get("delta", "")
-                    if delta:
-                        accumulated_content += delta
-                        yield {"type": "token", "content": delta}
-                elif event_type == "response.completed":
-                    resp = event_data.get("response", {})
-                    response_id = resp.get("id", "")
-                    if not accumulated_content:
-                        accumulated_content = self._extract_text(resp)
+            reader_task = asyncio.create_task(asyncio.to_thread(_read_stream))
+            try:
+                while True:
+                    event_data = await queue.get()
+                    if event_data is None:
+                        break
+
+                    event_type = event_data.get("type", "")
+                    if event_type == "response.output_text.delta":
+                        delta = event_data.get("delta", "")
+                        if delta:
+                            accumulated_content += delta
+                            yield {"type": "token", "content": delta}
+                    elif event_type == "response.completed":
+                        resp = event_data.get("response", {})
+                        response_id = resp.get("id", "")
+                        if not accumulated_content:
+                            accumulated_content = self._extract_text(resp)
+            finally:
+                await reader_task
 
             yield {
                 "type": "done",
@@ -267,9 +294,7 @@ class FoundryAgentClient:
         """Check if the Foundry hosted agent is reachable."""
         try:
             client = self._get_client()
-            agent = await asyncio.to_thread(
-                client.agents.get, agent_name=self._agent_name
-            )
+            agent = await asyncio.to_thread(client.agents.get, agent_name=self._agent_name)
             return {
                 "status": "healthy",
                 "agent_name": self._agent_name,
@@ -288,15 +313,29 @@ class FoundryAgentClient:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _is_retriable_status(exc: Exception) -> bool:
+        """Return True if the exception indicates a bad previous_response_id."""
+        from azure.core.exceptions import HttpResponseError
+
+        if isinstance(exc, HttpResponseError):
+            return exc.status_code in (400, 404)
+        return False
+
+    @staticmethod
     def _extract_text(response_data: dict[str, Any]) -> str:
         """Extract text content from a Responses API result."""
         output = response_data.get("output", [])
         parts: list[str] = []
-        for item in output:
-            if item.get("type") == "message":
-                for content in item.get("content", []):
-                    if content.get("type") == "output_text":
-                        parts.append(content.get("text", ""))
+        # Normalize: if output is a string, wrap it so we don't iterate chars
+        output_items = output if isinstance(output, list) else [output]
+        for item in output_items:
+            if isinstance(item, dict):
+                if item.get("type") == "message":
+                    for content in item.get("content", []):
+                        if isinstance(content, dict) and content.get("type") == "output_text":
+                            text = content.get("text", "")
+                            if isinstance(text, str):
+                                parts.append(text)
             elif isinstance(item, str):
                 parts.append(item)
         if parts:
