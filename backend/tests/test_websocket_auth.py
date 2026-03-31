@@ -25,6 +25,26 @@ def _mock_entra_service(oid="user_abc123", email="alice@example.com", name="Alic
     return svc
 
 
+def _mock_provisioning_service(user_id="user_abc123", email="alice@example.com"):
+    """Create a mock UserProvisioningService that returns a User with given id."""
+    from datetime import UTC, datetime
+
+    from models.user import User
+
+    now = datetime.now(UTC)
+    svc = MagicMock()
+    svc.ensure_user_exists.return_value = User(
+        id=user_id,
+        email=email,
+        full_name="Test User",
+        is_active=True,
+        is_superuser=False,
+        created_at=now,
+        updated_at=now,
+    )
+    return svc
+
+
 def _failing_entra_service():
     """Create a mock EntraAuthService that always raises."""
     svc = MagicMock()
@@ -58,15 +78,24 @@ class TestAuthenticateWebsocket:
 
     @pytest.mark.asyncio
     async def test_returns_user_dict_on_valid_token(self, mock_ws):
-        mock_svc = _mock_entra_service(oid="user_abc123", email="alice@example.com")
-        with patch(
-            "api.routes.websocket_routes.get_entra_auth_service",
-            return_value=mock_svc,
+        mock_svc = _mock_entra_service(oid="entra-oid-123", email="alice@example.com")
+        mock_prov = _mock_provisioning_service(
+            user_id="internal-user-id", email="alice@example.com"
+        )
+        with (
+            patch(
+                "api.routes.websocket_routes.get_entra_auth_service",
+                return_value=mock_svc,
+            ),
+            patch(
+                "api.routes.websocket_routes.get_user_provisioning_service",
+                return_value=mock_prov,
+            ),
         ):
             result = await authenticate_websocket(mock_ws, "valid-entra-token")
 
         assert result is not None
-        assert result["user_id"] == "user_abc123"
+        assert result["user_id"] == "internal-user-id"
         assert result["email"] == "alice@example.com"
 
     @pytest.mark.asyncio
