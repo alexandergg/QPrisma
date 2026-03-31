@@ -151,6 +151,10 @@ async def agent_chat(
     which can search video content, navigate structure, explore the
     knowledge graph, find highlights, and compare moments.
 
+    On first request for a session, a new Foundry thread is created.
+    The returned ``session_id`` carries the real thread ID so subsequent
+    requests reuse the same conversation thread.
+
     Response includes:
     - Rich sources with timestamps and thumbnails
     - Navigation actions for UI seeking
@@ -165,6 +169,10 @@ async def agent_chat(
         session_id = request.session_id or str(uuid.uuid4())
         user_id = str(current_user.id) if current_user else None
 
+        # Pass thread_id only when the frontend sends a previously
+        # returned session_id (which is a real Foundry thread ID).
+        thread_id = request.session_id if request.session_id else None
+
         client = get_foundry_agent_client()
         result = await client.send_message(
             message=request.message,
@@ -172,14 +180,18 @@ async def agent_chat(
             media_ids=request.get_effective_media_ids() or None,
             user_id=user_id,
             session_id=session_id,
-            thread_id=session_id,
+            thread_id=thread_id,
         )
+
+        # Use the real Foundry thread ID as session_id so the frontend
+        # can send it back for conversation continuity.
+        real_session_id = result.get("thread_id") or session_id
 
         return AgentChatResponse(
             response=result.get("content", ""),
             sources=[],
             tool_calls_made=0,
-            session_id=session_id,
+            session_id=real_session_id,
             navigation_actions=[],
             suggested_questions=[],
             clip_suggestions=[],
