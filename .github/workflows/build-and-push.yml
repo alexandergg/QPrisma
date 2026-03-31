@@ -189,6 +189,7 @@ jobs:
       # Application.ReadWrite.OwnedBy (or Application.ReadWrite.All) permission.
       - name: Sync Entra ID SPA redirect URI
         if: steps.resolve-frontend-fqdn.outputs.frontend_fqdn != 'localhost:3000'
+        continue-on-error: true
         run: |
           APP_ID="${{ vars.ENTRA_SPA_CLIENT_ID }}"
           REDIRECT_URI="https://${{ steps.resolve-frontend-fqdn.outputs.frontend_fqdn }}"
@@ -203,11 +204,14 @@ jobs:
           MERGED=$(echo "$EXISTING" | jq -c --argjson new "$(printf '%s\n' "${REQUIRED_URIS[@]}" | jq -R . | jq -s .)" '. + $new | unique')
 
           echo "Merged SPA redirect URIs: $MERGED"
-          az rest --method PATCH \
+          if az rest --method PATCH \
             --uri "https://graph.microsoft.com/v1.0/applications(appId='$APP_ID')" \
             --headers "Content-Type=application/json" \
-            --body "{\"spa\":{\"redirectUris\":$MERGED}}"
-          echo "✅ SPA redirect URIs updated for app $APP_ID"
+            --body "{\"spa\":{\"redirectUris\":$MERGED}}"; then
+            echo "✅ SPA redirect URIs updated for app $APP_ID"
+          else
+            echo "::warning::Failed to sync Entra SPA redirect URIs. Ensure the OIDC service principal has Application.ReadWrite.OwnedBy on the app registration."
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
