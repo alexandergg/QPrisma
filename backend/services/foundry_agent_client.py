@@ -6,9 +6,18 @@ Wraps the Azure AI Projects SDK to communicate with QPrisma's
 hosted video agent via the Foundry Responses API.
 
 Hosted agents are containerized agents deployed to Azure AI Foundry
-Agent Service.  They expose a ``/responses`` endpoint and are invoked
-through the project-level Responses API — **not** the standard
+Agent Service.  They are invoked through the OpenAI Responses API
+using an ``agent_reference`` — **not** the standard
 Threads/Messages/Runs (assistants) pattern.
+
+Official pattern (from Microsoft docs)::
+
+    project = AIProjectClient(endpoint=..., credential=...)
+    openai = project.get_openai_client()
+    response = openai.responses.create(
+        input=[{"role": "user", "content": "Hello!"}],
+        extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
+    )
 
 Usage::
 
@@ -33,17 +42,14 @@ from core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Default API version for Foundry Agent Service
-_API_VERSION = "2025-05-15-preview"
-
 
 class FoundryAgentClient:
     """
     Client for communicating with QPrisma's Foundry Hosted Agent.
 
-    Uses the ``AIProjectClient.send_request()`` low-level method to call the
-    Foundry Responses API, which proxies to the hosted container's
-    ``/responses`` endpoint.
+    Uses ``AIProjectClient.get_openai_client()`` to obtain an OpenAI client
+    configured for the Foundry project, then calls ``openai.responses.create()``
+    with an ``agent_reference`` to route to the hosted agent.
     """
 
     def __init__(
@@ -53,22 +59,24 @@ class FoundryAgentClient:
     ):
         self._project_endpoint = project_endpoint
         self._agent_name = agent_name
-        self._client = None
+        self._project_client = None
+        self._openai_client = None
 
-    def _get_client(self):
-        """Lazy-initialize the AIProjectClient."""
-        if self._client is not None:
-            return self._client
+    def _get_openai_client(self):
+        """Lazy-initialize the OpenAI client via AIProjectClient."""
+        if self._openai_client is not None:
+            return self._openai_client
 
         try:
             from azure.ai.projects import AIProjectClient
             from azure.identity import DefaultAzureCredential
 
-            self._client = AIProjectClient(
+            self._project_client = AIProjectClient(
                 endpoint=self._project_endpoint,
                 credential=DefaultAzureCredential(),
             )
-            return self._client
+            self._openai_client = self._project_client.get_openai_client()
+            return self._openai_client
         except ImportError:
             logger.error(
                 "azure-ai-projects SDK not installed. "
@@ -76,8 +84,12 @@ class FoundryAgentClient:
             )
             raise
         except Exception as e:
-            logger.error(f"Failed to create AIProjectClient: {e}")
+            logger.error(f"Failed to create OpenAI client: {e}")
             raise
+
+    def _agent_ref(self) -> dict[str, str]:
+        """Return the agent_reference body for Responses API calls."""
+        return {"name": self._agent_name, "type": "agent_reference"}
 
     async def send_message(
         self,
@@ -90,11 +102,7 @@ class FoundryAgentClient:
         thread_id: str | None = None,
     ) -> dict[str, Any]:
         """
-        Send a message to the hosted agent via the Foundry Responses API.
-
-        QPrisma-specific context (media_id, user_id, etc.) is prepended
-        to the message, which the hosted agent extracts in its
-        ``restore_media_context`` node.
+        Send a message to the hosted agent via the OpenAI Responses API.
 
         Args:
             message: The user's query text
@@ -107,9 +115,7 @@ class FoundryAgentClient:
         Returns:
             Dictionary with 'content' (str), 'thread_id' (str), and 'metadata' (dict)
         """
-        from azure.core.rest import HttpRequest
-
-        client = self._get_client()
+        openai = self._get_openai_client()
 
         metadata = self._build_metadata(
             media_id=media_id,
@@ -119,27 +125,20 @@ class FoundryAgentClient:
         )
         full_message = self._prepend_context(message, metadata)
 
-        body: dict[str, Any] = {
-            "input": full_message,
-            "stream": False,
-        }
+        input_messages = [{"role": "user", "content": full_message}]
+        extra: dict[str, Any] = {"agent_reference": self._agent_ref()}
         if thread_id:
-            body["previous_response_id"] = thread_id
+            extra["previous_response_id"] = thread_id
 
         try:
-            request = HttpRequest(
-                method="POST",
-                url=f"agents/{self._agent_name}/responses?api-version={_API_VERSION}",
-                json=body,
-                headers={"Content-Type": "application/json"},
+            response = await asyncio.to_thread(
+                openai.responses.create,
+                input=input_messages,
+                extra_body=extra,
             )
 
-            response = await asyncio.to_thread(client.send_request, request)
-            response.raise_for_status()
-            result = response.json()
-
-            response_id = result.get("id", "")
-            content = self._extract_text(result)
+            response_id = response.id or ""
+            content = response.output_text or ""
 
             return {
                 "content": content,
@@ -149,21 +148,17 @@ class FoundryAgentClient:
 
         except Exception as e:
             # If a stale previous_response_id caused the failure, retry without it
-            if thread_id and self._is_retriable_status(e):
+            if thread_id and self._is_retriable(e):
                 logger.warning(f"Retrying without previous_response_id (was '{thread_id}')")
-                body.pop("previous_response_id", None)
-                request = HttpRequest(
-                    method="POST",
-                    url=f"agents/{self._agent_name}/responses?api-version={_API_VERSION}",
-                    json=body,
-                    headers={"Content-Type": "application/json"},
+                extra.pop("previous_response_id", None)
+                response = await asyncio.to_thread(
+                    openai.responses.create,
+                    input=input_messages,
+                    extra_body=extra,
                 )
-                response = await asyncio.to_thread(client.send_request, request)
-                response.raise_for_status()
-                result = response.json()
                 return {
-                    "content": self._extract_text(result),
-                    "thread_id": result.get("id", ""),
+                    "content": response.output_text or "",
+                    "thread_id": response.id or "",
                     "metadata": metadata,
                 }
             logger.error(
@@ -200,9 +195,7 @@ class FoundryAgentClient:
         Yields:
             Event dictionaries with type and content
         """
-        from azure.core.rest import HttpRequest
-
-        client = self._get_client()
+        openai = self._get_openai_client()
 
         metadata = self._build_metadata(
             media_id=media_id,
@@ -212,68 +205,55 @@ class FoundryAgentClient:
         )
         full_message = self._prepend_context(message, metadata)
 
-        body: dict[str, Any] = {
-            "input": full_message,
-            "stream": True,
-        }
+        input_messages = [{"role": "user", "content": full_message}]
+        extra: dict[str, Any] = {"agent_reference": self._agent_ref()}
         if thread_id:
-            body["previous_response_id"] = thread_id
+            extra["previous_response_id"] = thread_id
 
         try:
-            request = HttpRequest(
-                method="POST",
-                url=f"agents/{self._agent_name}/responses?api-version={_API_VERSION}",
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
+            loop = asyncio.get_running_loop()
+            queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
-            response = await asyncio.to_thread(client.send_request, request, stream=True)
-            response.raise_for_status()
+            def _stream_worker() -> None:
+                """Run the streaming call in a worker thread."""
+                try:
+                    stream = openai.responses.create(
+                        input=input_messages,
+                        stream=True,
+                        extra_body=extra,
+                    )
+                    for event in stream:
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait,
+                            {"type": event.type, "data": event},
+                        )
+                finally:
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
 
             accumulated_content = ""
             response_id = ""
 
-            loop = asyncio.get_running_loop()
-            queue: asyncio.Queue[dict | None] = asyncio.Queue()
-
-            def _read_stream() -> None:
-                """Read SSE stream from the response in a worker thread."""
-                try:
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        text = line.decode("utf-8") if isinstance(line, bytes) else line
-                        if text.startswith("data: "):
-                            data_str = text[6:]
-                            if data_str.strip() == "[DONE]":
-                                break
-                            try:
-                                event = json.loads(data_str)
-                            except json.JSONDecodeError:
-                                continue
-                            loop.call_soon_threadsafe(queue.put_nowait, event)
-                finally:
-                    loop.call_soon_threadsafe(queue.put_nowait, None)
-                    response.close()
-
-            reader_task = asyncio.create_task(asyncio.to_thread(_read_stream))
+            reader_task = asyncio.create_task(asyncio.to_thread(_stream_worker))
             try:
                 while True:
-                    event_data = await queue.get()
-                    if event_data is None:
+                    item = await queue.get()
+                    if item is None:
                         break
 
-                    event_type = event_data.get("type", "")
+                    event_type = item["type"]
+                    event = item["data"]
+
                     if event_type == "response.output_text.delta":
-                        delta = event_data.get("delta", "")
+                        delta = getattr(event, "delta", "")
                         if delta:
                             accumulated_content += delta
                             yield {"type": "token", "content": delta}
                     elif event_type == "response.completed":
-                        resp = event_data.get("response", {})
-                        response_id = resp.get("id", "")
-                        if not accumulated_content:
-                            accumulated_content = self._extract_text(resp)
+                        resp = getattr(event, "response", None)
+                        if resp:
+                            response_id = getattr(resp, "id", "")
+                            if not accumulated_content:
+                                accumulated_content = getattr(resp, "output_text", "") or ""
             finally:
                 await reader_task
 
@@ -293,7 +273,9 @@ class FoundryAgentClient:
     async def health_check(self) -> dict[str, Any]:
         """Check if the Foundry hosted agent is reachable."""
         try:
-            client = self._get_client()
+            if self._project_client is None:
+                self._get_openai_client()
+            client = self._project_client
             agent = await asyncio.to_thread(client.agents.get, agent_name=self._agent_name)
             return {
                 "status": "healthy",
@@ -313,36 +295,11 @@ class FoundryAgentClient:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _is_retriable_status(exc: Exception) -> bool:
+    def _is_retriable(exc: Exception) -> bool:
         """Return True if the exception indicates a bad previous_response_id."""
-        from azure.core.exceptions import HttpResponseError
+        import openai as _openai
 
-        if isinstance(exc, HttpResponseError):
-            return exc.status_code in (400, 404)
-        return False
-
-    @staticmethod
-    def _extract_text(response_data: dict[str, Any]) -> str:
-        """Extract text content from a Responses API result."""
-        output = response_data.get("output", [])
-        parts: list[str] = []
-        # Normalize: if output is a string, wrap it so we don't iterate chars
-        output_items = output if isinstance(output, list) else [output]
-        for item in output_items:
-            if isinstance(item, dict):
-                if item.get("type") == "message":
-                    for content in item.get("content", []):
-                        if isinstance(content, dict) and content.get("type") == "output_text":
-                            text = content.get("text", "")
-                            if isinstance(text, str):
-                                parts.append(text)
-            elif isinstance(item, str):
-                parts.append(item)
-        if parts:
-            return "\n".join(parts)
-        # Fallback: try top-level 'output' as string
-        raw = response_data.get("output", "")
-        return raw if isinstance(raw, str) else str(raw)
+        return isinstance(exc, (_openai.BadRequestError, _openai.NotFoundError))
 
     @staticmethod
     def _build_metadata(
