@@ -136,7 +136,7 @@ def main() -> None:
         memory="7Gi",
         image=container_image,
         environment_variables={
-            "ENVIRONMENT": os.environ.get("ENVIRONMENT", "production"),
+            "ENVIRONMENT": os.environ.get("ENVIRONMENT", "hosted"),
             "LOG_LEVEL": "INFO",
         },
     )

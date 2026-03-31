@@ -198,7 +198,7 @@ jobs:
         env:
           AZURE_AI_PROJECT_ENDPOINT: https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
           CONTAINER_IMAGE: ${{ env.FULL_IMAGE }}
-          ENVIRONMENT: production
+          ENVIRONMENT: hosted
         run: python scripts/deploy_agent.py
 
       - name: Deployment summary
