@@ -38,6 +38,20 @@ jobs:
             --location "westeurope" \
             --output none
 
+      - name: Resolve storage account
+        id: storage
+        run: |
+          STORAGE_NAME="stqprismadev"
+          STORAGE_ID=$(az storage account show \
+            --name "$STORAGE_NAME" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query "id" -o tsv 2>/dev/null || echo "")
+          echo "id=$STORAGE_ID" >> $GITHUB_OUTPUT
+          echo "name=$STORAGE_NAME" >> $GITHUB_OUTPUT
+          if [ -z "$STORAGE_ID" ]; then
+            echo "::warning::Storage account not found. CapabilityHost will use Azure-managed defaults."
+          fi
+
       - name: Deploy AI Foundry
         uses: nick-fields/retry@v3
         with:
@@ -45,25 +59,13 @@ jobs:
           max_attempts: 2
           retry_wait_seconds: 60
           command: |
-            # Resolve storage account resource ID for agents capability host
-            STORAGE_ID=$(az storage account show \
-              --name stqprismadev \
-              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-              --query id -o tsv 2>/dev/null || echo "")
-
-            EXTRA_PARAMS=""
-            if [ -n "$STORAGE_ID" ]; then
-              echo "Storage account found: ${STORAGE_ID}"
-              EXTRA_PARAMS="storageAccountId=${STORAGE_ID}"
-            else
-              echo "WARNING: Storage account stqprismadev not found — capabilityHost will not be provisioned"
-            fi
-
             az deployment group create \
               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
               --template-file infra/modules/ai-foundry.bicep \
               --parameters infra/parameters/ai-foundry-dev.bicepparam \
-              ${EXTRA_PARAMS:+--parameters $EXTRA_PARAMS}
+              --parameters \
+                storageAccountId='${{ steps.storage.outputs.id }}' \
+                storageAccountName='${{ steps.storage.outputs.name }}'
 
       - name: Deployment summary
         run: |

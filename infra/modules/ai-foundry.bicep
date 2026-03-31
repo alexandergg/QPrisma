@@ -10,6 +10,9 @@ param deployBatchModel bool = true
 @description('Storage account resource ID for agents capability host')
 param storageAccountId string = ''
 
+@description('Storage account name for agents connection')
+param storageAccountName string = ''
+
 @description('Resource tags')
 param tags object = {}
 
@@ -149,8 +152,68 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   ]
 }
 
-// Capability host for Foundry hosted agents (managed environment)
-resource agentsCapabilityHost 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-10-01-preview' = if (!empty(storageAccountId)) {
+// Reference to existing storage account for agents (when provided)
+resource existingAgentStorage 'Microsoft.Storage/storageAccounts@2023-05-01' existing = if (!empty(storageAccountName)) {
+  name: storageAccountName
+}
+
+// Storage connection for agents (required by capability host)
+resource agentStorageConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(storageAccountId)) {
+  parent: aiFoundry
+  name: 'agents-storage'
+  properties: {
+    authType: 'AAD'
+    category: 'AzureBlob'
+    target: 'https://${storageAccountName}.blob.${az.environment().suffixes.storage}'
+    isSharedToAll: true
+    metadata: {
+      ResourceId: storageAccountId
+      AccountName: storageAccountName
+      ContainerName: 'agents'
+    }
+  }
+}
+
+// RBAC — Storage Blob Data Contributor for AI Foundry managed identity
+var storageBlobDataContributorRole = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+
+resource storageRoleAiFoundry 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(storageAccountId)) {
+  name: guid(storageAccountId, aiFoundry.id, storageBlobDataContributorRole)
+  scope: existingAgentStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRole)
+    principalId: aiFoundry.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// RBAC — Storage Blob Data Contributor for project managed identity
+resource storageRoleProject 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(storageAccountId)) {
+  name: guid(storageAccountId, aiProject.id, storageBlobDataContributorRole)
+  scope: existingAgentStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRole)
+    principalId: aiProject.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Capability Host with explicit connections — enables hosted agent container execution.
+// API 2025-10-01-preview requires ALL three connection types together.
+resource capabilityHostWithStorage 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-10-01-preview' = if (!empty(storageAccountId)) {
+  name: 'agents-host'
+  parent: aiFoundry
+  properties: {
+    capabilityHostKind: 'Agents'
+    enablePublicHostingEnvironment: true
+    storageConnections: [ agentStorageConnection.name ]
+    vectorStoreConnections: [ agentStorageConnection.name ]
+    threadStorageConnections: [ agentStorageConnection.name ]
+  }
+}
+
+// Fallback: bare capability host when no storage account is provided
+resource capabilityHostBare 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-10-01-preview' = if (empty(storageAccountId)) {
   name: 'agents-host'
   parent: aiFoundry
   properties: {

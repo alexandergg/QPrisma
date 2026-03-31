@@ -26,11 +26,15 @@ from azure.ai.projects.models import (
     ImageBasedHostedAgentDefinition,
     ProtocolVersionRecord,
 )
+from azure.core.exceptions import HttpResponseError
 from azure.identity import DefaultAzureCredential
 
 AGENT_NAME = "qprisma-video-agent"
 ACCOUNT_NAME = "aif-qprisma-dev"
 PROJECT_NAME = "aif-qprisma-dev-project"
+
+MAX_RETRIES = 3
+RETRY_WAIT_SECONDS = [120, 240]  # 2min, 4min between retries
 
 # Polling: check agent status every 30s for up to 10 min
 POLL_INTERVAL_SECONDS = 30
@@ -124,28 +128,51 @@ def main() -> None:
         credential=DefaultAzureCredential(),
     )
 
-    agent = client.agents.create_version(
-        agent_name=AGENT_NAME,
-        description=(
-            "QPrisma Video Agent — intelligent video analysis powered by LangGraph. "
-            "Searches visual content, audio transcriptions, and knowledge graphs "
-            "to answer questions with timestamped citations."
-        ),
-        definition=ImageBasedHostedAgentDefinition(
-            container_protocol_versions=[
-                ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="v1"),
-            ],
-            cpu="3.5",
-            memory="7Gi",
-            image=container_image,
-            environment_variables={
-                "ENVIRONMENT": os.environ.get("ENVIRONMENT", "production"),
-                "LOG_LEVEL": "INFO",
-            },
-        ),
+    definition = ImageBasedHostedAgentDefinition(
+        container_protocol_versions=[
+            ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="v1"),
+        ],
+        cpu="3.5",
+        memory="7Gi",
+        image=container_image,
+        environment_variables={
+            "ENVIRONMENT": os.environ.get("ENVIRONMENT", "production"),
+            "LOG_LEVEL": "INFO",
+        },
     )
 
-    print(f"Agent registered: {agent.name} (id: {agent.id}, version: {agent.version})")
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            print(f"\nAttempt {attempt}/{MAX_RETRIES}: creating agent version...")
+            agent = client.agents.create_version(
+                agent_name=AGENT_NAME,
+                description=(
+                    "QPrisma Video Agent — intelligent video analysis powered by LangGraph. "
+                    "Searches visual content, audio transcriptions, and knowledge graphs "
+                    "to answer questions with timestamped citations."
+                ),
+                definition=definition,
+            )
+            print(f"Agent registered: {agent.name} (id: {agent.id}, version: {agent.version})")
+            break
+        except HttpResponseError as e:
+            last_error = e
+            error_msg = str(e).lower()
+            is_retryable = any(
+                keyword in error_msg
+                for keyword in ["timed out", "timeout", "provisioning", "503", "429"]
+            )
+            if is_retryable and attempt < MAX_RETRIES:
+                wait = RETRY_WAIT_SECONDS[attempt - 1]
+                print(f"Retryable error: {e}")
+                print(f"Waiting {wait}s before retry...")
+                time.sleep(wait)
+            else:
+                raise
+    else:
+        print(f"ERROR: All {MAX_RETRIES} attempts failed.")
+        raise last_error  # type: ignore[misc]
 
     # Auto-start the agent deployment
     started = start_agent(agent.version)

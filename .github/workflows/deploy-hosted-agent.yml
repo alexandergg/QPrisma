@@ -28,7 +28,7 @@ env:
 jobs:
   deploy-hosted-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     environment: dev
     steps:
       - uses: actions/checkout@v4
@@ -160,6 +160,38 @@ jobs:
             echo "All roles already assigned — no wait needed"
           fi
           echo "RBAC roles configured"
+
+      - name: Wait for capability host readiness
+        run: |
+          echo "Checking capability host provisioning state..."
+          ACCOUNT_NAME="aif-qprisma-dev"
+          RG="${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}"
+          MAX_WAIT=900  # 15 minutes max
+          INTERVAL=30
+          ELAPSED=0
+
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            STATE=$(az rest --method GET \
+              --url "https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT_NAME}/capabilityHosts/agents-host?api-version=2025-10-01-preview" \
+              --query "properties.provisioningState" -o tsv 2>/dev/null || echo "Unknown")
+
+            echo "  [$ELAPSED s] Capability host state: $STATE"
+
+            if [ "$STATE" = "Succeeded" ]; then
+              echo "Capability host is ready."
+              break
+            elif [ "$STATE" = "Failed" ]; then
+              echo "::error::Capability host provisioning failed."
+              exit 1
+            fi
+
+            sleep $INTERVAL
+            ELAPSED=$((ELAPSED + INTERVAL))
+          done
+
+          if [ $ELAPSED -ge $MAX_WAIT ]; then
+            echo "::warning::Capability host not confirmed ready after ${MAX_WAIT}s. Proceeding anyway."
+          fi
 
       - name: Register and start agent in Foundry
         id: register
