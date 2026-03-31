@@ -1,7 +1,7 @@
 # Dockerfile para QPrisma Backend API
 # FastAPI application with Azure integrations
 
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Instalar dependencias del sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
