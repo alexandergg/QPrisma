@@ -10,7 +10,7 @@
 
 import { type Configuration, LogLevel, type RedirectRequest } from '@azure/msal-browser';
 
-const baseUri = process.env.NEXT_PUBLIC_ENTRA_REDIRECT_URI || 'http://localhost:3000';
+const baseUri = (process.env.NEXT_PUBLIC_ENTRA_REDIRECT_URI || 'http://localhost:3000').replace(/\/+$/, '');
 
 export const msalConfig: Configuration = {
   auth: {
