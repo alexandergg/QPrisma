@@ -145,8 +145,8 @@ jobs:
       - name: Run Jest tests
         run: npm test -- --ci --coverage
 
-  security:
-    name: Dependency Security Audit
+  security-python:
+    name: Python Dependency Security Audit
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -159,19 +159,63 @@ jobs:
         with:
           working-directory: backend
 
+      - name: Audit Python dependencies
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          pip-audit --format json --output pip-audit-results.json || true
+          pip-audit --desc on
+          echo ""
+          echo "=== Checking for CRITICAL/HIGH vulnerabilities ==="
+          pip-audit --format json | python -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          vulns = data.get('dependencies', [])
+          critical = [v for v in vulns if v.get('vulns')]
+          if critical:
+              print(f'Found {len(critical)} vulnerable package(s)')
+              for pkg in critical:
+                  print(f'  - {pkg[\"name\"]} {pkg.get(\"version\", \"unknown\")}')
+                  for vuln in pkg.get('vulns', []):
+                      print(f'    {vuln[\"id\"]}: {vuln.get(\"description\", \"N/A\")[:100]}')
+              sys.exit(1)
+          print('No known vulnerabilities found.')
+          " || echo "::warning::Python dependency vulnerabilities detected — review pip-audit output above"
+
+      - name: Upload pip-audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-results
+          path: backend/pip-audit-results.json
+          retention-days: 30
+
+  security-frontend:
+    name: Frontend Dependency Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Setup frontend
         uses: ./.github/actions/setup-frontend
         with:
           working-directory: frontend
 
-      - name: Audit Python dependencies
-        working-directory: backend
-        continue-on-error: true
-        run: |
-          pip install pip-audit
-          pip-audit --fix --dry-run || true
-
       - name: Audit npm dependencies
         working-directory: frontend
-        continue-on-error: true
-        run: npm audit --audit-level=high || true
+        run: |
+          npm audit --json > npm-audit-results.json || true
+          npm audit --audit-level=critical
+          echo ""
+          echo "=== npm audit completed ==="
+
+      - name: Upload npm audit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: frontend/npm-audit-results.json
+          retention-days: 30
