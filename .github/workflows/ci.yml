@@ -167,9 +167,10 @@ jobs:
           pip-audit --desc on || true
           echo ""
           echo "=== Checking for vulnerable dependencies ==="
-          pip-audit --format json | python3 - <<'PY'
-          import sys, json
-          data = json.load(sys.stdin)
+          python3 <<'PY'
+          import sys, json, pathlib
+          raw = pathlib.Path("pip-audit-results.json").read_text()
+          data = json.loads(raw)
           vulns = data.get("dependencies", [])
           affected = [v for v in vulns if v.get("vulns")]
           if affected:
