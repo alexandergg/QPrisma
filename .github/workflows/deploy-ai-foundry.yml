@@ -52,6 +52,28 @@ jobs:
             echo "::warning::Storage account not found. CapabilityHost will use Azure-managed defaults."
           fi
 
+      - name: Resolve App Insights and Log Analytics
+        id: observability
+        run: |
+          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+          APPI_NAME="appi-qprisma-dev"
+          LOG_NAME="log-qprisma-dev"
+
+          APPI_ID=$(az monitor app-insights component show \
+            --app "$APPI_NAME" --resource-group "$RG" \
+            --query "id" -o tsv 2>/dev/null || echo "")
+          echo "app_insights_id=$APPI_ID" >> $GITHUB_OUTPUT
+          LOG_ID=$(az monitor log-analytics workspace show \
+            --workspace-name "$LOG_NAME" --resource-group "$RG" \
+            --query "id" -o tsv 2>/dev/null || echo "")
+          echo "log_analytics_id=$LOG_ID" >> $GITHUB_OUTPUT
+
+          if [ -z "$APPI_ID" ]; then
+            echo "::warning::App Insights not found. Foundry tracing connection will be skipped."
+          else
+            echo "App Insights resolved: ${APPI_ID}"
+          fi
+
       # NOTE: Capability host updates are NOT supported by Azure API.
       # If the host config needs to change, manually delete and recreate:
       #   1. Azure AI Foundry portal → Project → Hosted Agents
@@ -73,7 +95,9 @@ jobs:
               --parameters infra/parameters/ai-foundry-dev.bicepparam \
               --parameters \
                 storageAccountId='${{ steps.storage.outputs.id }}' \
-                storageAccountName='${{ steps.storage.outputs.name }}'
+                storageAccountName='${{ steps.storage.outputs.name }}' \
+                appInsightsId='${{ steps.observability.outputs.app_insights_id }}' \
+                logAnalyticsWorkspaceId='${{ steps.observability.outputs.log_analytics_id }}'
 
       - name: Deployment summary
         run: |
@@ -85,3 +109,4 @@ jobs:
           echo "| Location | swedencentral |" >> $GITHUB_STEP_SUMMARY
           echo "| Models | gpt-4o, gpt-5.2-chat, text-embedding-3-large, whisper, gpt-4o-batch |" >> $GITHUB_STEP_SUMMARY
           echo "| Capability Host | agents-host (Agents managed environment) |" >> $GITHUB_STEP_SUMMARY
+          echo "| App Insights | ${{ steps.observability.outputs.app_insights_id && 'Connected' || 'Not configured' }} |" >> $GITHUB_STEP_SUMMARY

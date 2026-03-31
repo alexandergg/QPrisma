@@ -235,12 +235,28 @@ jobs:
             echo "::warning::Capability host not confirmed ready after ${MAX_WAIT}s. Proceeding anyway."
           fi
 
+      - name: Resolve App Insights connection string
+        id: appinsights
+        run: |
+          RG="${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}"
+          APPI_NAME="appi-qprisma-dev"
+          CONN_STR=$(az monitor app-insights component show \
+            --app "$APPI_NAME" --resource-group "$RG" \
+            --query "connectionString" -o tsv 2>/dev/null || echo "")
+          echo "connection_string=$CONN_STR" >> $GITHUB_OUTPUT
+          if [ -z "$CONN_STR" ]; then
+            echo "::warning::App Insights not found. Hosted agent telemetry will be disabled."
+          else
+            echo "App Insights connection string resolved"
+          fi
+
       - name: Register and start agent in Foundry
         id: register
         env:
           AZURE_AI_PROJECT_ENDPOINT: https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
           CONTAINER_IMAGE: ${{ env.FULL_IMAGE }}
           ENVIRONMENT: hosted
+          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ steps.appinsights.outputs.connection_string }}
         run: python scripts/deploy_agent.py
 
       - name: Deployment summary

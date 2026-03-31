@@ -13,6 +13,12 @@ param storageAccountId string = ''
 @description('Storage account name for agents connection')
 param storageAccountName string = ''
 
+@description('Application Insights resource ID for tracing connection')
+param appInsightsId string = ''
+
+@description('Log Analytics Workspace resource ID for diagnostic settings')
+param logAnalyticsWorkspaceId string = ''
+
 @description('Resource tags')
 param tags object = {}
 
@@ -224,6 +230,52 @@ resource capabilityHostBare 'Microsoft.CognitiveServices/accounts/capabilityHost
 
 // AcrPull role assignments are managed via CLI in deploy-hosted-agent.yml
 // (Bicep role assignments fail with RoleDefinitionDoesNotExist due to ARM scope resolution)
+
+// =====================================================================
+// Application Insights connection (enables Foundry portal tracing)
+// =====================================================================
+
+resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(appInsightsId)) {
+  parent: aiFoundry
+  name: 'appinsights'
+  properties: {
+    authType: 'AAD'
+    category: 'ApplicationInsights'
+    target: appInsightsId
+    isSharedToAll: true
+    metadata: {
+      ResourceId: appInsightsId
+    }
+  }
+}
+
+// =====================================================================
+// Diagnostic settings (route AI Foundry platform logs/metrics)
+// =====================================================================
+
+resource aiFoundryDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (!empty(logAnalyticsWorkspaceId)) {
+  name: 'ai-foundry-diagnostics'
+  scope: aiFoundry
+  properties: {
+    workspaceId: logAnalyticsWorkspaceId
+    metrics: [
+      {
+        category: 'AllMetrics'
+        enabled: true
+      }
+    ]
+    logs: [
+      {
+        category: 'RequestResponse'
+        enabled: true
+      }
+      {
+        category: 'Audit'
+        enabled: true
+      }
+    ]
+  }
+}
 
 output endpoint string = aiFoundry.properties.endpoint
 output id string = aiFoundry.id
