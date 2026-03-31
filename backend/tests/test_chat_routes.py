@@ -99,7 +99,9 @@ class TestAgentChat:
 
     def test_agent_chat_success(self, authenticated_client):
         mock_client = AsyncMock()
-        mock_client.send_message = AsyncMock(return_value={"content": "Agent response"})
+        mock_client.send_message = AsyncMock(
+            return_value={"content": "Agent response", "thread_id": "thread_001"}
+        )
 
         with patch(
             "services.foundry_agent_client.get_foundry_agent_client",
@@ -118,7 +120,9 @@ class TestAgentChat:
 
     def test_agent_chat_with_session_id(self, authenticated_client):
         mock_client = AsyncMock()
-        mock_client.send_message = AsyncMock(return_value={"content": "Continued"})
+        mock_client.send_message = AsyncMock(
+            return_value={"content": "Continued", "thread_id": "sess_abc"}
+        )
 
         with patch(
             "services.foundry_agent_client.get_foundry_agent_client",

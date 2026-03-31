@@ -14,7 +14,8 @@ dependencies = [
     "azure-storage-blob>=12.24.0,<13.0.0",
     "azure-identity>=1.19.0,<2.0.0",
     "azure-ai-projects>=1.0.0b7",
-    "openai>=1.55.0,<2.0.0",
+    "azure-ai-agents>=1.0.0",
+    "openai>=1.55.0",
     # Database (PostgreSQL)
     "sqlalchemy>=2.0.0,<3.0.0",
     "psycopg2-binary>=2.9.9,<3.0.0",
