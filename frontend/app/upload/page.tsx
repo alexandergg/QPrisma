@@ -35,11 +35,12 @@ export default function UploadPage() {
 
   // Cancel ongoing chunked uploads on unmount
   useEffect(() => {
+    const uploaders = uploadersRef.current;
     return () => {
-      uploadersRef.current.forEach((uploader) => {
+      uploaders.forEach((uploader) => {
         uploader.cancel().catch(() => {});
       });
-      uploadersRef.current.clear();
+      uploaders.clear();
     };
   }, []);
 

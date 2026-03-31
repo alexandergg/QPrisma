@@ -50,7 +50,7 @@ jobs:
           fi
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           # GITHUB_TOKEN pushes do NOT trigger other workflows.
