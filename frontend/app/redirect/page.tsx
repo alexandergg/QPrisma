@@ -1,27 +1,24 @@
 'use client';
 
-import { useLayoutEffect } from 'react';
+import { useEffect } from 'react';
+import { broadcastResponseToMainFrame } from '@azure/msal-browser/redirect-bridge';
 
 /**
- * MSAL popup/redirect landing page.
+ * MSAL v5 popup redirect bridge page.
  *
- * The root layout's MsalProvider already calls handleRedirectPromise(),
- * which broadcasts the auth response to the parent window via
- * BroadcastChannel. This page only needs to override the app's dark
- * background so the popup appears blank while MSAL processes the response.
+ * After the user authenticates, Microsoft redirects the popup here with
+ * the auth code in the URL.  broadcastResponseToMainFrame() sends the
+ * response to the parent window via BroadcastChannel, which resolves
+ * the parent's loginPopup() promise and closes this popup automatically.
+ *
+ * IMPORTANT: This page must NOT be wrapped in MsalProvider — the
+ * AuthProvider in layout.tsx detects pathname === '/redirect' and
+ * renders children without MsalProvider so the hash is not consumed
+ * before the bridge can process it.
  */
 export default function RedirectPage() {
-  useLayoutEffect(() => {
-    const prevBody = document.body.style.background;
-    const prevHtml = document.documentElement.style.background;
-
-    document.body.style.background = 'transparent';
-    document.documentElement.style.background = 'transparent';
-
-    return () => {
-      document.body.style.background = prevBody;
-      document.documentElement.style.background = prevHtml;
-    };
+  useEffect(() => {
+    broadcastResponseToMainFrame();
   }, []);
 
   return null;

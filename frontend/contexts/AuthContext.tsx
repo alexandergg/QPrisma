@@ -44,7 +44,8 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
         .then((userData: User) => {
           if (isMounted) setUser(userData);
         })
-        .catch(() => {
+        .catch((err) => {
+          console.error('[AuthProvider] getCurrentUser failed:', err);
           if (isMounted) setUser(null);
         })
         .finally(() => {
@@ -92,21 +93,17 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // In MSAL popup flow the popup must still load MsalProvider so that
-  // handleRedirectPromise() runs — it processes the auth code and
-  // broadcasts the result back to the parent window via BroadcastChannel.
-  // We only skip AuthProviderInner (user profile fetch, auth context) in
-  // the popup since it isn't needed there.
-  const [isPopup] = useState(
-    () => typeof window !== 'undefined' && !!window.opener
+  // The /redirect page is the MSAL v5 popup bridge target. It must call
+  // broadcastResponseToMainFrame() BEFORE MsalProvider mounts, because
+  // MsalProvider's handleRedirectPromise() would consume the auth hash
+  // first.  We detect the redirect page by pathname (window.opener is
+  // null in the popup due to Microsoft's COOP headers).
+  const [isRedirectPage] = useState(
+    () => typeof window !== 'undefined' && window.location.pathname === '/redirect'
   );
 
-  if (isPopup) {
-    return (
-      <MsalProvider instance={msalInstance}>
-        {children}
-      </MsalProvider>
-    );
+  if (isRedirectPage) {
+    return <>{children}</>;
   }
 
   return (

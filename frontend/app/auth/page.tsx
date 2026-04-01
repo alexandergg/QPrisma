@@ -23,7 +23,8 @@ export default function AuthPage() {
     setLoading(true);
     try {
       await login();
-      router.push('/');
+      // Don't navigate here — the useEffect above will redirect to '/'
+      // once isAuthenticated becomes true after the user profile is fetched.
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign-in failed. Please try again.');
     } finally {

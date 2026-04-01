@@ -23,7 +23,12 @@ class EntraAuthService:
     def __init__(self, tenant_id: str, client_id: str) -> None:
         self._tenant_id = tenant_id
         self._client_id = client_id
-        self._issuer = f"https://login.microsoftonline.com/{tenant_id}/v2.0"
+        # Accept both v1 and v2 issuer formats — the actual format depends on
+        # the accessTokenAcceptedVersion in the API app registration in Azure.
+        self._issuers = [
+            f"https://login.microsoftonline.com/{tenant_id}/v2.0",
+            f"https://sts.windows.net/{tenant_id}/",
+        ]
         jwks_url = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
         self._jwks_client = PyJWKClient(jwks_url, cache_keys=True)
 
@@ -46,7 +51,7 @@ class EntraAuthService:
                 signing_key.key,
                 algorithms=["RS256"],
                 audience=self._client_id,
-                issuer=self._issuer,
+                issuer=self._issuers,
                 options={"require": ["exp", "iss", "aud", "oid"]},
             )
 
