@@ -143,37 +143,35 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     state_media_ids = state.get("media_ids")
 
     # --- Defense-in-depth: parse QPRISMA_CONTEXT from messages ----------
-    # QPrismaStateConverter normally handles this, but if the converter
-    # didn't run (e.g. direct graph invocation) or the prefix wasn't
-    # stripped, we catch it here.
+    # Always attempt to strip QPRISMA_CONTEXT so it cannot leak into the LLM
+    # prompt, even if state already has a media_id from a checkpoint.
     msg_media_id = None
     msg_media_ids = None
     updates: dict = {}
 
-    if not config_media_id and not state_media_id:
-        messages = state.get("messages", [])
-        msg_ctx, cleaned_messages = _parse_qprisma_context_from_messages(messages)
-        if msg_ctx:
-            msg_media_id = msg_ctx.get("media_id")
-            msg_media_ids = msg_ctx.get("media_ids")
-            msg_user_id = msg_ctx.get("user_id")
-            if msg_user_id and not user_id:
-                updates["user_id"] = msg_user_id
-            if cleaned_messages is not None:
-                updates["messages"] = cleaned_messages
-            logger.info(
-                "restore_media_context: extracted QPRISMA_CONTEXT from messages — "
-                "media_id=%s, media_ids=%s",
-                msg_media_id,
-                msg_media_ids,
-            )
+    messages = state.get("messages", [])
+    msg_ctx, cleaned_messages = _parse_qprisma_context_from_messages(messages)
+    if msg_ctx:
+        msg_media_id = msg_ctx.get("media_id")
+        msg_media_ids = msg_ctx.get("media_ids")
+        msg_user_id = msg_ctx.get("user_id")
+        if msg_user_id and not user_id:
+            updates["user_id"] = msg_user_id
+        if cleaned_messages is not None:
+            updates["messages"] = cleaned_messages
+        logger.info(
+            "restore_media_context: extracted QPRISMA_CONTEXT from messages — "
+            "media_id=%s, media_ids=%s",
+            msg_media_id,
+            msg_media_ids,
+        )
 
-    # Resolve effective media_id: config > state (converter/checkpoint) > message
-    effective_media_id = config_media_id or state_media_id or msg_media_id
-    effective_media_ids = config_media_ids or state_media_ids or msg_media_ids
+    # Resolve effective media_id: config > message > state (converter/checkpoint)
+    effective_media_id = config_media_id or msg_media_id or state_media_id
+    effective_media_ids = config_media_ids or msg_media_ids or state_media_ids
 
     if effective_media_id and effective_media_id != state_media_id:
-        source = "config" if config_media_id else "state" if state_media_id else "message"
+        source = "config" if config_media_id else "message" if msg_media_id else "checkpoint"
         logger.info(
             f"restore_media_context: overriding state media_id "
             f"'{state_media_id}' → '{effective_media_id}' (source={source})"
