@@ -65,7 +65,7 @@ gpu = [
     "faster-whisper>=1.1.0,<2.0.0",
 ]
 hosted = [
-    "azure-ai-agentserver-langgraph>=1.0.0b12",
+    "azure-ai-agentserver-langgraph>=1.0.0b17",
     "starlette>=0.45.0,<1.0.0",
     "azure-monitor-opentelemetry>=1.6.0,<2.0.0",
     "opentelemetry-instrumentation-openai-v2>=2.0.0,<3.0.0",
