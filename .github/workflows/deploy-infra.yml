@@ -14,6 +14,7 @@ concurrency:
 permissions:
   id-token: write
   contents: read
+  actions: write
 
 jobs:
   validate:
@@ -136,3 +137,28 @@ jobs:
           echo "| Key Vault | ${{ vars.KEY_VAULT_NAME }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Neo4j | Provisioned as Container App (internal) |" >> $GITHUB_STEP_SUMMARY
           echo "| AI Foundry | Referenced (deployed separately via deploy-ai-foundry.yml) |" >> $GITHUB_STEP_SUMMARY
+
+  restore-containers:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Trigger app deployment with latest images
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-app.yml',
+              ref: 'main',
+              inputs: {
+                image_tag: 'latest',
+                deploy_api: 'true',
+                deploy_worker: 'true',
+                deploy_frontend: 'true'
+              }
+            });
+            console.log('Triggered deploy-app.yml with image_tag: latest to restore containers after infra update');
