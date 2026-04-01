@@ -104,7 +104,8 @@ jobs:
                 storageAccountName='${{ steps.storage.outputs.name }}' \
                 appInsightsId='${{ steps.observability.outputs.app_insights_id }}' \
                 appInsightsConnectionString='${{ steps.observability.outputs.app_insights_connection_string }}' \
-                logAnalyticsWorkspaceId='${{ steps.observability.outputs.log_analytics_id }}'
+                logAnalyticsWorkspaceId='${{ steps.observability.outputs.log_analytics_id }}' \
+              --output none
 
       - name: Deployment summary
         run: |
