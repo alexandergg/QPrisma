@@ -31,14 +31,14 @@ param entraAuthClientId string
 @description('Backend API scope exposed by the app registration (e.g. api://<id>/access_as_user)')
 param entraAuthApiScope string
 
-@description('API container image')
-param apiImageName string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+@description('API container image (leave empty to use ACR default)')
+param apiImageName string = ''
 
-@description('Frontend container image')
-param frontendImageName string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+@description('Frontend container image (leave empty to use ACR default)')
+param frontendImageName string = ''
 
-@description('Worker container image')
-param workerImageName string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+@description('Worker container image (leave empty to use ACR default)')
+param workerImageName string = ''
 
 @description('Enable Mem0 semantic memory integration')
 param mem0Enabled bool = false
@@ -81,6 +81,13 @@ var apiContainerAppName = 'ca-qprisma-api-${environment}'
 var frontendContainerAppName = 'ca-qprisma-web-${environment}'
 var workerContainerAppName = 'ca-qprisma-worker-${environment}'
 var neo4jContainerAppName = 'ca-qprisma-neo4j-${environment}'
+
+// Compute default container images from ACR (used when image params are empty)
+var acrLoginServer = '${containerRegistryName}.azurecr.io'
+var effectiveApiImage = empty(apiImageName) ? '${acrLoginServer}/qprisma-api:latest' : apiImageName
+var effectiveFrontendImage = empty(frontendImageName) ? '${acrLoginServer}/qprisma-frontend:latest' : frontendImageName
+var effectiveWorkerImage = empty(workerImageName) ? '${acrLoginServer}/qprisma-worker:latest' : workerImageName
+var apiIsPlaceholder = contains(effectiveApiImage, 'helloworld') || contains(effectiveApiImage, 'mcr.microsoft.com')
 
 // =====================================================================
 // Foundation: Storage, Databases, Container Registry
@@ -271,10 +278,11 @@ module apiContainerApp 'modules/container-app-api.bicep' = {
     name: apiContainerAppName
     location: location
     environmentId: containerAppsEnv.outputs.id
-    imageName: apiImageName
+    imageName: effectiveApiImage
     registryServer: containerRegistry.outputs.loginServer
     registryUsername: containerRegistry.outputs.name
     registryPassword: acrAdminPassword
+    enableProbes: !apiIsPlaceholder
     envVars: appEnvVars
     secrets: appSecrets
     secretEnvVars: appSecretEnvVars
@@ -289,7 +297,7 @@ module frontendContainerApp 'modules/container-app-frontend.bicep' = {
     name: frontendContainerAppName
     location: location
     environmentId: containerAppsEnv.outputs.id
-    imageName: frontendImageName
+    imageName: effectiveFrontendImage
     registryServer: containerRegistry.outputs.loginServer
     registryUsername: containerRegistry.outputs.name
     registryPassword: acrAdminPassword
@@ -307,7 +315,7 @@ module workerContainerApp 'modules/container-app-worker.bicep' = {
     name: workerContainerAppName
     location: location
     environmentId: containerAppsEnv.outputs.id
-    imageName: workerImageName
+    imageName: effectiveWorkerImage
     registryServer: containerRegistry.outputs.loginServer
     registryUsername: containerRegistry.outputs.name
     registryPassword: acrAdminPassword

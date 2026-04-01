@@ -10,6 +10,12 @@ param environmentId string
 @description('Container image name')
 param imageName string
 
+@description('Ingress target port')
+param targetPort int = 8000
+
+@description('Enable health probes (disable for placeholder images that do not expose /health)')
+param enableProbes bool = true
+
 @description('Container Registry server')
 param registryServer string
 
@@ -44,7 +50,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
     configuration: {
       ingress: {
         external: true
-        targetPort: 8000
+        targetPort: targetPort
         transport: 'auto'
         allowInsecure: false
       }
@@ -70,12 +76,12 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
             memory: '1Gi'
           }
           env: union(envVars, secretEnvVars)
-          probes: [
+          probes: enableProbes ? [
             {
               type: 'Startup'
               httpGet: {
                 path: '/'
-                port: 8000
+                port: targetPort
                 scheme: 'HTTP'
               }
               periodSeconds: 10
@@ -85,7 +91,7 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
               type: 'Liveness'
               httpGet: {
                 path: '/health'
-                port: 8000
+                port: targetPort
                 scheme: 'HTTP'
               }
               periodSeconds: 30
@@ -95,13 +101,13 @@ resource apiContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
               type: 'Readiness'
               httpGet: {
                 path: '/health'
-                port: 8000
+                port: targetPort
                 scheme: 'HTTP'
               }
               periodSeconds: 10
               failureThreshold: 3
             }
-          ]
+          ] : []
         }
       ]
       scale: {
