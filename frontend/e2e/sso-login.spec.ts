@@ -209,11 +209,15 @@ test.describe('SSO Login Flow', () => {
         }
 
         // Check if there's an AADSTS error in the URL
-        if (popupUrl.includes('error=') || popupUrl.includes('AADSTS')) {
-          const urlParams = new URL(popupUrl).searchParams;
-          console.log(`\n❌ ENTRA ID ERROR IN URL:`);
-          console.log(`  error: ${urlParams.get('error')}`);
-          console.log(`  error_description: ${urlParams.get('error_description')}`);
+        try {
+          const parsedPopupUrl = new URL(popupUrl);
+          if (parsedPopupUrl.searchParams.has('error') || parsedPopupUrl.hash.includes('AADSTS')) {
+            console.log(`\n❌ ENTRA ID ERROR IN URL:`);
+            console.log(`  error: ${parsedPopupUrl.searchParams.get('error')}`);
+            console.log(`  error_description: ${parsedPopupUrl.searchParams.get('error_description')}`);
+          }
+        } catch {
+          // Malformed URL — skip check
         }
 
         // Check for email input field
