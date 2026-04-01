@@ -9,7 +9,6 @@ paths-ignore:
   - "frontend/e2e"
   - "**/*.lock"
   - "**/node_modules"
-  - "scripts"
 
 # Use the security-and-quality suite: thorough coverage without the
 # experimental rules from security-extended that generate excessive
