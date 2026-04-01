@@ -243,7 +243,7 @@ resource capabilityHostBare 'Microsoft.CognitiveServices/accounts/capabilityHost
 // Application Insights connection (enables Foundry portal tracing)
 // =====================================================================
 
-resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(appInsightsId) && !empty(appInsightsConnectionString)) {
+resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(appInsightsId) && !empty(appInsightsConnectionString) && !empty(appInsightsInstrumentationKey)) {
   parent: aiFoundry
   name: 'appinsights'
   properties: {

@@ -70,6 +70,9 @@ jobs:
           APPI_KEY=$(az monitor app-insights component show \
             --app "$APPI_NAME" --resource-group "$RG" \
             --query "instrumentationKey" -o tsv 2>/dev/null || echo "")
+          if [ -z "$APPI_KEY" ] && [ -n "$APPI_ID" ]; then
+            echo "::warning::App Insights instrumentation key not retrievable. Foundry tracing connection will be skipped."
+          fi
           if [ -n "$APPI_CONN" ]; then
             echo "::add-mask::$APPI_CONN"
           fi

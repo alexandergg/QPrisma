@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "11758639767123412188"
+      "templateHash": "15672466249199034137"
     }
   },
   "parameters": {
@@ -55,6 +55,13 @@
       "defaultValue": "",
       "metadata": {
         "description": "Application Insights connection string (target for Foundry tracing connection)"
+      }
+    },
+    "appInsightsInstrumentationKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Application Insights instrumentation key (credential for Foundry tracing connection)"
       }
     },
     "logAnalyticsWorkspaceId": {
@@ -304,15 +311,18 @@
       ]
     },
     {
-      "condition": "[and(not(empty(parameters('appInsightsId'))), not(empty(parameters('appInsightsConnectionString'))))]",
+      "condition": "[and(and(not(empty(parameters('appInsightsId'))), not(empty(parameters('appInsightsConnectionString')))), not(empty(parameters('appInsightsInstrumentationKey'))))]",
       "type": "Microsoft.CognitiveServices/accounts/connections",
       "apiVersion": "2025-06-01",
       "name": "[format('{0}/{1}', parameters('name'), 'appinsights')]",
       "properties": {
-        "authType": "AAD",
+        "authType": "ApiKey",
         "category": "AppInsights",
         "target": "[parameters('appInsightsConnectionString')]",
         "isSharedToAll": true,
+        "credentials": {
+          "key": "[parameters('appInsightsInstrumentationKey')]"
+        },
         "metadata": {
           "ResourceId": "[parameters('appInsightsId')]"
         }
