@@ -18,6 +18,9 @@ const config: Config = {
     '**/__tests__/**/*.[jt]s?(x)',
     '**/?(*.)+(spec|test).[jt]s?(x)',
   ],
+
+  // Exclude Playwright E2E tests (run separately via npx playwright test)
+  testPathIgnorePatterns: ['/node_modules/', '/e2e/', '/\\.next/'],
   
   // Module path aliases (matching tsconfig paths)
   moduleNameMapper: {

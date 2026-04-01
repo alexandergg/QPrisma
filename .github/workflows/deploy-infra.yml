@@ -37,6 +37,19 @@ jobs:
             --location "westeurope" \
             --output none
 
+      - name: Validate Entra ID configuration
+        run: |
+          for var in ENTRA_TENANT_ID ENTRA_CLIENT_ID ENTRA_API_SCOPE; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Required environment variable $var is empty or unset"
+              exit 1
+            fi
+          done
+        env:
+          ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+          ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
+          ENTRA_API_SCOPE: ${{ vars.ENTRA_API_SCOPE }}
+
       - name: Validate Bicep template
         run: |
           az deployment group validate \
@@ -46,7 +59,10 @@ jobs:
             --parameters \
               dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
               neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
-              jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
+              jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}' \
+              entraAuthTenantId='${{ vars.ENTRA_TENANT_ID }}' \
+              entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
+              entraAuthApiScope='${{ vars.ENTRA_API_SCOPE }}'
 
       - name: Preview changes (What-If)
         run: |
@@ -57,7 +73,10 @@ jobs:
             --parameters \
               dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
               neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
-              jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
+              jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}' \
+              entraAuthTenantId='${{ vars.ENTRA_TENANT_ID }}' \
+              entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
+              entraAuthApiScope='${{ vars.ENTRA_API_SCOPE }}'
 
   deploy:
     needs: validate
@@ -95,7 +114,10 @@ jobs:
               --parameters \
                 dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
                 neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
-                jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}'
+                jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}' \
+                entraAuthTenantId='${{ vars.ENTRA_TENANT_ID }}' \
+                entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
+                entraAuthApiScope='${{ vars.ENTRA_API_SCOPE }}'
 
       - name: Set Key Vault secrets
         run: |
