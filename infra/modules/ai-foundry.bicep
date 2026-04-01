@@ -243,7 +243,7 @@ resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections
   name: 'appinsights'
   properties: {
     authType: 'AAD'
-    category: 'ApplicationInsights'
+    category: 'AppInsights'
     target: appInsightsConnectionString
     isSharedToAll: true
     metadata: {
