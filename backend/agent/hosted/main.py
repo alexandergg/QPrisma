@@ -48,7 +48,7 @@ def create_hosted_app():
     except ImportError as exc:
         logger.error(
             "azure-ai-agentserver-langgraph is not installed. "
-            "Install with: pip install 'azure-ai-agentserver-langgraph>=1.0.0b12'"
+            "Install with: pip install 'azure-ai-agentserver-langgraph>=1.0.0b17'"
         )
         raise SystemExit(1) from exc
 
@@ -62,8 +62,8 @@ def create_hosted_app():
     logger.info("Wrapping graph with Foundry from_langgraph() adapter")
     from agent.hosted.state_converter import QPrismaStateConverter
 
-    converter = QPrismaStateConverter()
-    app = from_langgraph(graph, converter)
+    converter = QPrismaStateConverter(graph=graph)
+    app = from_langgraph(graph, converter=converter)
     logger.info("Using QPrismaStateConverter for media_id/media_ids injection")
 
     return app

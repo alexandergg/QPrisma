@@ -2,10 +2,10 @@
 QPrisma State Converter for Azure AI Foundry Hosted Agent
 =========================================================
 
-Custom ``LanggraphStateConverter`` that bridges the Foundry Responses API
+Custom ``ResponseAPIConverter`` that bridges the Foundry Responses API
 and QPrisma's LangGraph agent state.
 
-The default ``LanggraphMessageStateConverter`` only maps input messages into
+The default ``ResponseAPIDefaultConverter`` only maps input messages into
 ``{"messages": [...]}`` — it has no awareness of QPrisma-specific fields like
 ``media_id``, ``media_ids``, or ``user_id``.
 
@@ -23,7 +23,8 @@ prepends a ``[QPRISMA_CONTEXT:{...}]`` JSON envelope to the user message
 Usage::
 
     from agent.hosted.state_converter import QPrismaStateConverter
-    app = from_langgraph(graph, QPrismaStateConverter())
+    converter = QPrismaStateConverter(graph=graph)
+    app = from_langgraph(graph, converter=converter)
 """
 
 import json
@@ -31,8 +32,11 @@ import logging
 import re
 from typing import Any
 
-from azure.ai.agentserver.core.server.common.agent_run_context import AgentRunContext
-from azure.ai.agentserver.langgraph.models import LanggraphMessageStateConverter
+from azure.ai.agentserver.langgraph import LanggraphRunContext
+from azure.ai.agentserver.langgraph.models.response_api_converter import GraphInputArguments
+from azure.ai.agentserver.langgraph.models.response_api_default_converter import (
+    ResponseAPIDefaultConverter,
+)
 from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
@@ -63,21 +67,25 @@ def _extract_qprisma_context(text: str) -> tuple[dict[str, Any], str]:
     return metadata, cleaned
 
 
-class QPrismaStateConverter(LanggraphMessageStateConverter):
+class QPrismaStateConverter(ResponseAPIDefaultConverter):
     """Converter that injects QPrisma video context into the LangGraph state.
 
-    Extends the default message-based converter with extraction of the
+    Extends the default response-API converter with extraction of the
     ``[QPRISMA_CONTEXT:...]`` envelope that carries ``media_id`` and
     related metadata through the Foundry Responses API.
     """
 
-    def request_to_state(self, context: AgentRunContext) -> dict[str, Any]:
-        """Convert incoming request to LangGraph state with QPrisma context."""
-        state = super().request_to_state(context)
+    async def convert_request(self, context: LanggraphRunContext) -> GraphInputArguments:
+        """Convert incoming request to LangGraph input with QPrisma context."""
+        result = await super().convert_request(context)
+        input_data = result["input"]
 
-        messages = state.get("messages", [])
+        if not isinstance(input_data, dict):
+            return result
+
+        messages = input_data.get("messages", [])
         if not messages:
-            return state
+            return result
 
         # Find the last HumanMessage (the current user turn)
         last_human_idx = None
@@ -87,21 +95,21 @@ class QPrismaStateConverter(LanggraphMessageStateConverter):
                 break
 
         if last_human_idx is None:
-            return state
+            return result
 
         human_msg = messages[last_human_idx]
         content = human_msg.content if isinstance(human_msg.content, str) else ""
         if not content:
-            return state
+            return result
 
         metadata, cleaned_content = _extract_qprisma_context(content)
         if not metadata:
             logger.debug("No QPRISMA_CONTEXT prefix in user message")
-            return state
+            return result
 
         # Replace the HumanMessage with the cleaned version
         messages[last_human_idx] = HumanMessage(content=cleaned_content)
-        state["messages"] = messages
+        input_data["messages"] = messages
 
         # Inject QPrisma fields into the initial graph state
         media_id = metadata.get("media_id")
@@ -110,19 +118,19 @@ class QPrismaStateConverter(LanggraphMessageStateConverter):
         session_id = metadata.get("session_id")
 
         if media_id:
-            state["media_id"] = media_id
+            input_data["media_id"] = media_id
         if media_ids:
-            state["media_ids"] = media_ids
+            input_data["media_ids"] = media_ids
         if user_id:
-            state["user_id"] = user_id
+            input_data["user_id"] = user_id
         if session_id:
-            state["session_id"] = session_id
+            input_data["session_id"] = session_id
 
         logger.info(
-            "QPrismaStateConverter: injected context — " "media_id=%s, media_ids=%s, user_id=%s",
+            "QPrismaStateConverter: injected context — media_id=%s, media_ids=%s, user_id=%s",
             media_id,
             [mid[:8] + "…" for mid in media_ids] if media_ids else None,
             user_id[:8] + "…" if user_id else None,
         )
 
-        return state
+        return result
