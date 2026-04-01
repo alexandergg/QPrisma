@@ -17,6 +17,7 @@ param storageAccountName string = ''
 param appInsightsId string = ''
 
 @description('Application Insights connection string (target for Foundry tracing connection)')
+@secure()
 param appInsightsConnectionString string = ''
 
 @description('Log Analytics Workspace resource ID for diagnostic settings')
