@@ -20,6 +20,10 @@ param appInsightsId string = ''
 @secure()
 param appInsightsConnectionString string = ''
 
+@description('Application Insights instrumentation key (credential for Foundry tracing connection)')
+@secure()
+param appInsightsInstrumentationKey string = ''
+
 @description('Log Analytics Workspace resource ID for diagnostic settings')
 param logAnalyticsWorkspaceId string = ''
 
@@ -243,10 +247,13 @@ resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections
   parent: aiFoundry
   name: 'appinsights'
   properties: {
-    authType: 'AAD'
+    authType: 'ApiKey'
     category: 'AppInsights'
     target: appInsightsConnectionString
     isSharedToAll: true
+    credentials: {
+      key: appInsightsInstrumentationKey
+    }
     metadata: {
       ResourceId: appInsightsId
     }
