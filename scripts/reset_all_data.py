@@ -169,7 +169,8 @@ def reset_neo4j(dry_run: bool) -> bool:
             for c in constraints:
                 name = c.get("name")
                 if name:
-                    session.run(f"DROP CONSTRAINT {name} IF EXISTS")
+                    safe_name = name.replace("`", "``")
+                    session.run(f"DROP CONSTRAINT `{safe_name}` IF EXISTS")
                     print(f"  ✓ Dropped constraint {cyan(name)}")
 
             indexes = session.run("SHOW INDEXES").data()
@@ -178,7 +179,8 @@ def reset_neo4j(dry_run: bool) -> bool:
                 idx_type = idx.get("type", "")
                 # Skip internal lookup indexes
                 if name and idx_type != "LOOKUP":
-                    session.run(f"DROP INDEX {name} IF EXISTS")
+                    safe_name = name.replace("`", "``")
+                    session.run(f"DROP INDEX `{safe_name}` IF EXISTS")
                     print(f"  ✓ Dropped index {cyan(name)}")
 
         driver.close()
@@ -274,7 +276,7 @@ def reset_redis(dry_run: bool) -> bool:
         r.ping()
 
         db_size = r.dbsize()
-        print(f"  URL   : {cyan(settings.redis.url)}")
+        print(f"  URL   : {cyan(_mask_url(settings.redis.url))}")
         print(f"  Keys  : {db_size:,}")
 
         if db_size == 0:
@@ -350,6 +352,11 @@ def main() -> None:
     parser.add_argument("--skip-neo4j", action="store_true", help="Skip Neo4j reset.")
     parser.add_argument("--skip-blob", action="store_true", help="Skip Blob Storage reset.")
     parser.add_argument("--skip-redis", action="store_true", help="Skip Redis reset.")
+    parser.add_argument(
+        "--allow-production",
+        action="store_true",
+        help="Override the production environment safety guard.",
+    )
 
     args = parser.parse_args()
     dry_run = not args.execute
@@ -358,6 +365,14 @@ def main() -> None:
     print(bold("╔══════════════════════════════════════════════════════════╗"))
     print(bold("║           QPrisma — Full Data Reset Utility             ║"))
     print(bold("╚══════════════════════════════════════════════════════════╝"))
+
+    # Block execution against production unless explicitly overridden
+    from core.config import settings as _settings
+    env = getattr(getattr(_settings, "app", None), "environment", "development")
+    if env in ("production", "staging") and not args.allow_production:
+        print(red(f"\n  ✗ Refusing to run against '{env}' environment."))
+        print(red("    Pass --allow-production to override this safety guard.\n"))
+        sys.exit(1)
 
     if dry_run:
         print(yellow("\n  Mode: DRY-RUN (pass --execute to perform the reset)\n"))

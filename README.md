@@ -205,6 +205,10 @@ The `scripts/` directory contains utilities for development and maintenance:
 
 ### Resetting all data
 
+> **⚠️ Warning:** This script permanently deletes data and cannot be undone.
+> Only use against **development** environments. The script refuses to run
+> against production/staging unless `--allow-production` is explicitly passed.
+
 ```bash
 # Dry-run — shows what would be deleted without touching anything
 python scripts/reset_all_data.py
