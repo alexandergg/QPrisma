@@ -1,12 +1,15 @@
 import { defineConfig } from '@playwright/test';
 
+// Default to local dev server; override with PLAYWRIGHT_BASE_URL when targeting a remote env.
+// Remote example: PLAYWRIGHT_BASE_URL=https://ca-qprisma-web-dev.lemoncoast-87c1f692.westeurope.azurecontainerapps.io
 const BASE_URL =
   process.env.PLAYWRIGHT_BASE_URL ||
-  'https://ca-qprisma-web-dev.lemoncoast-87c1f692.westeurope.azurecontainerapps.io';
+  'http://localhost:3000';
 
+// Remote example: PLAYWRIGHT_BACKEND_URL=https://ca-qprisma-api-dev.lemoncoast-87c1f692.westeurope.azurecontainerapps.io
 const BACKEND_URL =
   process.env.PLAYWRIGHT_BACKEND_URL ||
-  'https://ca-qprisma-api-dev.lemoncoast-87c1f692.westeurope.azurecontainerapps.io';
+  'http://localhost:8000';
 
 export { BACKEND_URL };
 

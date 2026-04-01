@@ -184,14 +184,14 @@ test.describe('SSO Login Flow', () => {
       });
 
       // Check: did we land on Microsoft login?
-      const MICROSOFT_LOGIN_HOSTS = new Set([
-        'login.microsoftonline.com',
-        'login.live.com',
-        'login.microsoft.com',
-      ]);
       const isMicrosoftLogin = (() => {
         try {
-          return MICROSOFT_LOGIN_HOSTS.has(new URL(popupUrl).hostname);
+          const hostname = new URL(popupUrl).hostname;
+          return (
+            hostname === 'login.microsoftonline.com' ||
+            hostname === 'login.live.com' ||
+            hostname === 'login.microsoft.com'
+          );
         } catch {
           return false;
         }
@@ -411,38 +411,34 @@ test.describe('SSO Login Flow', () => {
     expect(response?.status()).toBe(200);
   });
 
-  test('backend API connectivity and auth config check', async ({ page }) => {
+  test('backend API connectivity and auth config check', async ({ page, request }) => {
     await page.goto('/auth', { waitUntil: 'networkidle' });
 
-    const apiChecks = await page.evaluate(async (backendUrl: string) => {
-      const results: Record<string, unknown> = {};
+    const apiChecks: Record<string, unknown> = {};
 
-      // 1. Health check
-      try {
-        const resp = await fetch(`${backendUrl}/`, { method: 'GET' });
-        results['health'] = { status: resp.status, body: await resp.text() };
-      } catch (e) {
-        results['health'] = { error: String(e) };
-      }
+    // 1. Health check (using Playwright request fixture — bypasses CORS)
+    try {
+      const resp = await request.get(`${BACKEND_URL}/`);
+      apiChecks['health'] = { status: resp.status(), body: await resp.text() };
+    } catch (e) {
+      apiChecks['health'] = { error: String(e) };
+    }
 
-      // 2. Auth config (public endpoint)
-      try {
-        const resp = await fetch(`${backendUrl}/auth/config`, { method: 'GET' });
-        results['auth_config'] = { status: resp.status, body: await resp.json() };
-      } catch (e) {
-        results['auth_config'] = { error: String(e) };
-      }
+    // 2. Auth config (public endpoint)
+    try {
+      const resp = await request.get(`${BACKEND_URL}/auth/config`);
+      apiChecks['auth_config'] = { status: resp.status(), body: await resp.json() };
+    } catch (e) {
+      apiChecks['auth_config'] = { error: String(e) };
+    }
 
-      // 3. /auth/me without token
-      try {
-        const resp = await fetch(`${backendUrl}/auth/me`, { method: 'GET' });
-        results['auth_me_no_token'] = { status: resp.status, body: await resp.json() };
-      } catch (e) {
-        results['auth_me_no_token'] = { error: String(e) };
-      }
-
-      return results;
-    }, BACKEND_URL);
+    // 3. /auth/me without token
+    try {
+      const resp = await request.get(`${BACKEND_URL}/auth/me`);
+      apiChecks['auth_me_no_token'] = { status: resp.status(), body: await resp.json() };
+    } catch (e) {
+      apiChecks['auth_me_no_token'] = { error: String(e) };
+    }
 
     console.log(`\n=== BACKEND API DIAGNOSTICS ===`);
     console.log(JSON.stringify(apiChecks, null, 2));

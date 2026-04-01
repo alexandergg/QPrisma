@@ -22,14 +22,17 @@ param neo4jPassword string
 @secure()
 param jwtSecretKey string = ''
 
+@minLength(1)
 @description('Microsoft Entra ID tenant ID for backend token validation')
-param entraAuthTenantId string = ''
+param entraAuthTenantId string
 
+@minLength(1)
 @description('Backend API app registration client ID (Entra ID)')
-param entraAuthClientId string = ''
+param entraAuthClientId string
 
+@minLength(1)
 @description('Backend API scope exposed by the app registration (e.g. api://<id>/access_as_user)')
-param entraAuthApiScope string = ''
+param entraAuthApiScope string
 
 @description('API container image')
 param apiImageName string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'

@@ -37,6 +37,19 @@ jobs:
             --location "westeurope" \
             --output none
 
+      - name: Validate Entra ID configuration
+        run: |
+          for var in ENTRA_TENANT_ID ENTRA_CLIENT_ID ENTRA_API_SCOPE; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Required environment variable $var is empty or unset"
+              exit 1
+            fi
+          done
+        env:
+          ENTRA_TENANT_ID: ${{ vars.ENTRA_TENANT_ID }}
+          ENTRA_CLIENT_ID: ${{ vars.ENTRA_CLIENT_ID }}
+          ENTRA_API_SCOPE: ${{ vars.ENTRA_API_SCOPE }}
+
       - name: Validate Bicep template
         run: |
           az deployment group validate \
