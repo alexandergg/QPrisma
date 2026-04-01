@@ -73,13 +73,19 @@ export function ToolProgress({ tools }: { tools: ToolStatus[] }) {
               {tool.status === 'error' && <XCircle className="w-4 h-4" />}
             </div>
             
-            <div className="flex flex-col">
+            <div className="flex flex-col min-w-0">
               <span className="font-medium">
                 {tool.name.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
               </span>
-              <span className="text-xs opacity-80">
-                {tool.status === 'running' ? 'Executing...' : tool.status === 'success' ? 'Completed' : 'Failed'}
-              </span>
+              {tool.description ? (
+                <span className="text-xs opacity-80 truncate">
+                  {tool.description}
+                </span>
+              ) : (
+                <span className="text-xs opacity-80">
+                  {tool.status === 'running' ? 'Executing...' : tool.status === 'success' ? 'Completed' : 'Failed'}
+                </span>
+              )}
             </div>
           </div>
         ))}

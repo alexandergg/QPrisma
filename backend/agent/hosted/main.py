@@ -60,7 +60,11 @@ def create_hosted_app():
     graph = create_video_agent_graph(checkpointer=checkpointer)
 
     logger.info("Wrapping graph with Foundry from_langgraph() adapter")
-    app = from_langgraph(graph)
+    from agent.hosted.state_converter import QPrismaStateConverter
+
+    converter = QPrismaStateConverter()
+    app = from_langgraph(graph, converter)
+    logger.info("Using QPrismaStateConverter for media_id/media_ids injection")
 
     return app
 
