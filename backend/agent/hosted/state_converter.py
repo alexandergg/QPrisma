@@ -59,7 +59,7 @@ def _extract_qprisma_context(text: str) -> tuple[dict[str, Any], str]:
         logger.warning("QPRISMA_CONTEXT prefix found but JSON is malformed")
         return {}, text
 
-    cleaned = text[match.end():]
+    cleaned = text[match.end() :]
     return metadata, cleaned
 
 
@@ -119,8 +119,7 @@ class QPrismaStateConverter(LanggraphMessageStateConverter):
             state["session_id"] = session_id
 
         logger.info(
-            "QPrismaStateConverter: injected context — "
-            "media_id=%s, media_ids=%s, user_id=%s",
+            "QPrismaStateConverter: injected context — " "media_id=%s, media_ids=%s, user_id=%s",
             media_id,
             [mid[:8] + "…" for mid in media_ids] if media_ids else None,
             user_id[:8] + "…" if user_id else None,

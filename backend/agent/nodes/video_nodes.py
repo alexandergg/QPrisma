@@ -83,7 +83,7 @@ def _parse_qprisma_context_from_messages(
                     metadata = json.loads(match.group(1))
                 except (json.JSONDecodeError, TypeError):
                     return {}, None
-                cleaned = msg.content[match.end():]
+                cleaned = msg.content[match.end() :]
                 new_messages = list(messages)
                 new_messages[i] = HumanMessage(content=cleaned)
                 return metadata, new_messages
@@ -136,7 +136,7 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
                 span.set_attribute("gen_ai.conversation.id", thread_id)
             if user_id:
                 span.set_attribute("enduser.id", user_id)
-    except Exception:
+    except Exception:  # noqa: S110
         pass  # OTel not available — safe to ignore
 
     state_media_id = state.get("media_id")
@@ -173,11 +173,7 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     effective_media_ids = config_media_ids or state_media_ids or msg_media_ids
 
     if effective_media_id and effective_media_id != state_media_id:
-        source = (
-            "config" if config_media_id
-            else "state" if state_media_id
-            else "message"
-        )
+        source = "config" if config_media_id else "state" if state_media_id else "message"
         logger.info(
             f"restore_media_context: overriding state media_id "
             f"'{state_media_id}' → '{effective_media_id}' (source={source})"
