@@ -128,7 +128,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = [
+"**/tests/*" = [
     "F841",   # unused variables OK in tests
     "S101",   # assert usage expected in tests
     "S105",   # possible hardcoded password (test fixtures)
