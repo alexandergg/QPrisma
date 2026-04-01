@@ -572,8 +572,13 @@ def extract_request_id_from_config(config: dict) -> str | None:
 # OpenTelemetry SpanProcessor for Conversation ID
 # =============================================================================
 
+try:
+    from opentelemetry.sdk.trace import SpanProcessor as _SpanProcessorBase
+except ImportError:  # SDK not installed
+    _SpanProcessorBase = object
 
-class ConversationIdSpanProcessor:
+
+class ConversationIdSpanProcessor(_SpanProcessorBase):
     """
     Custom SpanProcessor that stamps ``gen_ai.conversation.id`` and
     ``enduser.id`` on every span using values from ContextVars.
