@@ -20,6 +20,10 @@ param appInsightsId string = ''
 @secure()
 param appInsightsConnectionString string = ''
 
+@description('Application Insights instrumentation key (credential for Foundry tracing connection)')
+@secure()
+param appInsightsInstrumentationKey string = ''
+
 @description('Log Analytics Workspace resource ID for diagnostic settings')
 param logAnalyticsWorkspaceId string = ''
 
@@ -239,14 +243,17 @@ resource capabilityHostBare 'Microsoft.CognitiveServices/accounts/capabilityHost
 // Application Insights connection (enables Foundry portal tracing)
 // =====================================================================
 
-resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(appInsightsId) && !empty(appInsightsConnectionString)) {
+resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections@2025-06-01' = if (!empty(appInsightsId) && !empty(appInsightsConnectionString) && !empty(appInsightsInstrumentationKey)) {
   parent: aiFoundry
   name: 'appinsights'
   properties: {
-    authType: 'AAD'
+    authType: 'ApiKey'
     category: 'AppInsights'
     target: appInsightsConnectionString
     isSharedToAll: true
+    credentials: {
+      key: appInsightsInstrumentationKey
+    }
     metadata: {
       ResourceId: appInsightsId
     }

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "12607759107584022756"
+      "templateHash": "15672466249199034137"
     }
   },
   "parameters": {
@@ -36,6 +36,41 @@
         "description": "Storage account resource ID for agents capability host"
       }
     },
+    "storageAccountName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Storage account name for agents connection"
+      }
+    },
+    "appInsightsId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Application Insights resource ID for tracing connection"
+      }
+    },
+    "appInsightsConnectionString": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Application Insights connection string (target for Foundry tracing connection)"
+      }
+    },
+    "appInsightsInstrumentationKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Application Insights instrumentation key (credential for Foundry tracing connection)"
+      }
+    },
+    "logAnalyticsWorkspaceId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Log Analytics Workspace resource ID for diagnostic settings"
+      }
+    },
     "tags": {
       "type": "object",
       "defaultValue": {},
@@ -45,7 +80,7 @@
     }
   },
   "variables": {
-    "storageAccountName": "[last(split(parameters('storageAccountId'), '/'))]"
+    "storageBlobDataContributorRole": "ba92f5b4-2d11-453d-a403-e96b0029c9fe"
   },
   "resources": [
     {
@@ -107,7 +142,7 @@
     {
       "type": "Microsoft.CognitiveServices/accounts/deployments",
       "apiVersion": "2025-06-01",
-      "name": "[format('{0}/{1}', parameters('name'), 'gpt-5.1-chat')]",
+      "name": "[format('{0}/{1}', parameters('name'), 'gpt-5.2-chat')]",
       "sku": {
         "name": "GlobalStandard",
         "capacity": 1000
@@ -115,8 +150,8 @@
       "properties": {
         "model": {
           "format": "OpenAI",
-          "name": "gpt-5.1-chat",
-          "version": "2025-11-13"
+          "name": "gpt-5.2-chat",
+          "version": "2025-12-11"
         },
         "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
       },
@@ -143,7 +178,7 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]",
-        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('name'), 'gpt-5.1-chat')]"
+        "[resourceId('Microsoft.CognitiveServices/accounts/deployments', parameters('name'), 'gpt-5.2-chat')]"
       ]
     },
     {
@@ -195,14 +230,13 @@
       "apiVersion": "2025-06-01",
       "name": "[format('{0}/{1}', parameters('name'), 'agents-storage')]",
       "properties": {
-        "category": "AzureBlob",
-        "target": "[format('https://{0}.blob.{1}', variables('storageAccountName'), environment().suffixes.storage)]",
         "authType": "AAD",
+        "category": "AzureBlob",
+        "target": "[format('https://{0}.blob.{1}', parameters('storageAccountName'), environment().suffixes.storage)]",
         "isSharedToAll": true,
-        "useWorkspaceManagedIdentity": true,
         "metadata": {
           "ResourceId": "[parameters('storageAccountId')]",
-          "AccountName": "[variables('storageAccountName')]",
+          "AccountName": "[parameters('storageAccountName')]",
           "ContainerName": "agents"
         }
       },
@@ -212,17 +246,117 @@
     },
     {
       "condition": "[not(empty(parameters('storageAccountId')))]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+      "name": "[guid(parameters('storageAccountId'), resourceId('Microsoft.CognitiveServices/accounts', parameters('name')), variables('storageBlobDataContributorRole'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRole'))]",
+        "principalId": "[reference(resourceId('Microsoft.CognitiveServices/accounts', parameters('name')), '2025-06-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('storageAccountId')))]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+      "name": "[guid(parameters('storageAccountId'), resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('name'), format('{0}-project', parameters('name'))), variables('storageBlobDataContributorRole'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataContributorRole'))]",
+        "principalId": "[reference(resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('name'), format('{0}-project', parameters('name'))), '2025-06-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts/projects', parameters('name'), format('{0}-project', parameters('name')))]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('storageAccountId')))]",
       "type": "Microsoft.CognitiveServices/accounts/capabilityHosts",
-      "apiVersion": "2025-06-01",
+      "apiVersion": "2025-10-01-preview",
       "name": "[format('{0}/{1}', parameters('name'), 'agents-host')]",
       "properties": {
         "capabilityHostKind": "Agents",
+        "enablePublicHostingEnvironment": true,
         "storageConnections": [
+          "agents-storage"
+        ],
+        "vectorStoreConnections": [
+          "agents-storage"
+        ],
+        "threadStorageConnections": [
           "agents-storage"
         ]
       },
       "dependsOn": [
         "[resourceId('Microsoft.CognitiveServices/accounts/connections', parameters('name'), 'agents-storage')]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
+      ]
+    },
+    {
+      "condition": "[empty(parameters('storageAccountId'))]",
+      "type": "Microsoft.CognitiveServices/accounts/capabilityHosts",
+      "apiVersion": "2025-10-01-preview",
+      "name": "[format('{0}/{1}', parameters('name'), 'agents-host')]",
+      "properties": {
+        "capabilityHostKind": "Agents",
+        "enablePublicHostingEnvironment": true
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
+      ]
+    },
+    {
+      "condition": "[and(and(not(empty(parameters('appInsightsId'))), not(empty(parameters('appInsightsConnectionString')))), not(empty(parameters('appInsightsInstrumentationKey'))))]",
+      "type": "Microsoft.CognitiveServices/accounts/connections",
+      "apiVersion": "2025-06-01",
+      "name": "[format('{0}/{1}', parameters('name'), 'appinsights')]",
+      "properties": {
+        "authType": "ApiKey",
+        "category": "AppInsights",
+        "target": "[parameters('appInsightsConnectionString')]",
+        "isSharedToAll": true,
+        "credentials": {
+          "key": "[parameters('appInsightsInstrumentationKey')]"
+        },
+        "metadata": {
+          "ResourceId": "[parameters('appInsightsId')]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
+      ]
+    },
+    {
+      "condition": "[not(empty(parameters('logAnalyticsWorkspaceId')))]",
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]",
+      "name": "ai-foundry-diagnostics",
+      "properties": {
+        "workspaceId": "[parameters('logAnalyticsWorkspaceId')]",
+        "metrics": [
+          {
+            "category": "AllMetrics",
+            "enabled": true
+          }
+        ],
+        "logs": [
+          {
+            "category": "RequestResponse",
+            "enabled": true
+          },
+          {
+            "category": "Audit",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
         "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
       ]
     }
