@@ -28,7 +28,11 @@ class TestEntraAuthServiceVerifyToken:
         service = EntraAuthService.__new__(EntraAuthService)
         service._tenant_id = "test-tenant-id"
         service._client_id = "test-client-id"
-        service._issuer = "https://login.microsoftonline.com/test-tenant-id/v2.0"
+        service._issuers = [
+            "https://login.microsoftonline.com/test-tenant-id/v2.0",
+            "https://sts.windows.net/test-tenant-id/",
+        ]
+        service._audiences = ["test-client-id", "api://test-client-id"]
         service._jwks_client = MagicMock()
         return service
 
@@ -43,7 +47,7 @@ class TestEntraAuthServiceVerifyToken:
             "oid": "entra-oid-123",
             "preferred_username": "user@example.com",
             "name": "Test User",
-            "iss": entra_service._issuer,
+            "iss": entra_service._issuers[0],
             "aud": entra_service._client_id,
             "exp": 9999999999,
         }
@@ -101,7 +105,7 @@ class TestEntraAuthServiceVerifyToken:
         payload = {
             "oid": "entra-oid-456",
             "email": "fallback@example.com",
-            "iss": entra_service._issuer,
+            "iss": entra_service._issuers[0],
             "aud": entra_service._client_id,
             "exp": 9999999999,
         }
