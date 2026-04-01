@@ -69,7 +69,7 @@ QPrisma uses [CodeQL](https://codeql.github.com/) for static analysis of both Py
 
 ```bash
 # List all open alerts with their rule, severity, and file
-gh api "/repos/{owner}/{repo}/code-scanning/alerts?state=open&per_page=100" \
+gh api "/repos/{owner}/{repo}/code-scanning/alerts?state=open&per_page=100" --paginate \
   --jq '.[] | [.number, .rule.id, .rule.security_severity_level // .rule.severity, .most_recent_instance.location.path] | @tsv'
 
 # Count alerts grouped by rule
@@ -78,11 +78,15 @@ gh api "/repos/{owner}/{repo}/code-scanning/alerts?state=open&per_page=100" --pa
 
 # Dismiss a specific alert as false positive
 gh api "/repos/{owner}/{repo}/code-scanning/alerts/{alert_number}" \
-  -X PATCH -f state=dismissed -f dismissed_reason=false-positive
+  -X PATCH -f state=dismissed -f dismissed_reason="false positive"
 
 # Dismiss a specific alert as won't fix
 gh api "/repos/{owner}/{repo}/code-scanning/alerts/{alert_number}" \
   -X PATCH -f state=dismissed -f dismissed_reason="won't fix"
+
+# Dismiss a specific alert as used in tests
+gh api "/repos/{owner}/{repo}/code-scanning/alerts/{alert_number}" \
+  -X PATCH -f state=dismissed -f dismissed_reason="used in tests"
 ```
 
 > **Tip:** Replace `{owner}/{repo}` with `alexandergg/QPrisma` and `{alert_number}` with the alert number from the list command.
@@ -92,7 +96,7 @@ gh api "/repos/{owner}/{repo}/code-scanning/alerts/{alert_number}" \
 - CodeQL runs on every push and PR to `main` — new vulnerabilities are caught before merge.
 - Dependabot opens weekly PRs for dependency updates (pip, npm, Actions, Docker).
 - Consider enabling **Copilot Autofix** in repo settings (Settings → Code security → Code scanning) for automated fix suggestions.
-- Add a branch protection rule requiring the "Analyze" status check to pass before merging.
+- Add a branch protection rule requiring the "Analyze (python)" and "Analyze (javascript-typescript)" status checks to pass before merging.
 
 ## Acknowledgments
 
