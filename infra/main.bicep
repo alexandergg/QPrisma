@@ -22,6 +22,15 @@ param neo4jPassword string
 @secure()
 param jwtSecretKey string = ''
 
+@description('Microsoft Entra ID tenant ID for backend token validation')
+param entraAuthTenantId string = ''
+
+@description('Backend API app registration client ID (Entra ID)')
+param entraAuthClientId string = ''
+
+@description('Backend API scope exposed by the app registration (e.g. api://<id>/access_as_user)')
+param entraAuthApiScope string = ''
+
 @description('API container image')
 param apiImageName string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
@@ -235,6 +244,9 @@ var appEnvVars = [
   { name: 'FOUNDRY_AGENT_NAME', value: 'qprisma-video-agent' }
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.outputs.connectionString }
   { name: 'OTEL_SERVICE_NAME', value: 'qprisma-api' }
+  { name: 'ENTRA_TENANT_ID', value: entraAuthTenantId }
+  { name: 'ENTRA_CLIENT_ID', value: entraAuthClientId }
+  { name: 'ENTRA_API_SCOPE', value: entraAuthApiScope }
 ]
 
 // Env vars that reference secrets by name
