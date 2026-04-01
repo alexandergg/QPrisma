@@ -37,7 +37,11 @@ class EntraAuthService:
         # "api://<client-id>") as the aud claim, not the bare GUID.
         audiences: list[str] = [client_id]
         if api_scope:
-            app_id_uri = api_scope.rsplit("/", 1)[0]  # strip scope name
+            # Strip the scope name (e.g. "/access_as_user") but only if the
+            # remainder still looks like a valid URI.  A bare URI without a
+            # scope path (e.g. "api://<id>") must be kept as-is.
+            candidate = api_scope.rsplit("/", 1)[0]
+            app_id_uri = candidate if "://" in candidate else api_scope
             if app_id_uri and app_id_uri != client_id:
                 audiences.append(app_id_uri)
         self._audiences = audiences

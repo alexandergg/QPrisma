@@ -12,6 +12,47 @@ from fastapi import HTTPException
 from models.user import EntraTokenData
 
 # =============================================================================
+# EntraAuthService Audience Derivation
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestEntraAuthServiceAudienceDerivation:
+    """Tests for audience list construction from api_scope."""
+
+    def _make_service(self, client_id: str, api_scope: str):  # noqa: ANN202
+        from services.entra_auth_service import EntraAuthService
+
+        svc = EntraAuthService.__new__(EntraAuthService)
+        svc.__init__(
+            tenant_id="test-tenant-id",
+            client_id=client_id,
+            api_scope=api_scope,
+        )
+        return svc
+
+    def test_scope_with_path(self):
+        """api://<id>/access_as_user → audiences include both GUID and URI."""
+        svc = self._make_service("cid", "api://cid/access_as_user")
+        assert svc._audiences == ["cid", "api://cid"]
+
+    def test_bare_uri_without_scope_path(self):
+        """api://<id> (no trailing scope) → URI preserved, not truncated."""
+        svc = self._make_service("cid", "api://cid")
+        assert svc._audiences == ["cid", "api://cid"]
+
+    def test_empty_scope(self):
+        """Empty api_scope → only bare client ID."""
+        svc = self._make_service("cid", "")
+        assert svc._audiences == ["cid"]
+
+    def test_scope_matching_client_id(self):
+        """If URI equals client_id, no duplicate added."""
+        svc = self._make_service("api://cid", "api://cid/scope")
+        assert svc._audiences == ["api://cid"]
+
+
+# =============================================================================
 # EntraAuthService Token Validation
 # =============================================================================
 
