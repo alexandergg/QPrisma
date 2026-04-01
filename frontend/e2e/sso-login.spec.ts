@@ -184,10 +184,18 @@ test.describe('SSO Login Flow', () => {
       });
 
       // Check: did we land on Microsoft login?
-      const isMicrosoftLogin =
-        popupUrl.includes('login.microsoftonline.com') ||
-        popupUrl.includes('login.live.com') ||
-        popupUrl.includes('login.microsoft.com');
+      const MICROSOFT_LOGIN_HOSTS = new Set([
+        'login.microsoftonline.com',
+        'login.live.com',
+        'login.microsoft.com',
+      ]);
+      const isMicrosoftLogin = (() => {
+        try {
+          return MICROSOFT_LOGIN_HOSTS.has(new URL(popupUrl).hostname);
+        } catch {
+          return false;
+        }
+      })();
 
       console.log(`Is Microsoft login page: ${isMicrosoftLogin}`);
 
@@ -291,9 +299,14 @@ test.describe('SSO Login Flow', () => {
     console.log(`Auth page loaded: ✅`);
     console.log(`Popup opened: ${popup && !popupFailed ? '✅' : '❌ ' + popupError}`);
     if (popup && !popupFailed) {
-      const isMsLogin =
-        popup.url().includes('login.microsoftonline.com') ||
-        popup.url().includes('login.live.com');
+      const isMsLogin = (() => {
+        try {
+          const host = new URL(popup.url()).hostname;
+          return host === 'login.microsoftonline.com' || host === 'login.live.com';
+        } catch {
+          return false;
+        }
+      })();
       console.log(`Microsoft login reached: ${isMsLogin ? '✅' : '❌'}`);
     }
     console.log(`Page errors: ${pageErrors.length}`);
