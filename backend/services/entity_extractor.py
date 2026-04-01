@@ -87,10 +87,18 @@ def _normalize_entity_type(raw_type: str) -> EntityType:
 # Relation-type normalisation helpers
 # ---------------------------------------------------------------------------
 
-_VALID_SEMANTIC_RELATION_TYPES = frozenset({
-    "INTERACTS_WITH", "CONTAINS", "CAUSES", "CAUSED_BY",
-    "RELATES_TO", "SIMILAR_TO", "MENTIONED_IN", "APPEARS_WITH",
-})
+_VALID_SEMANTIC_RELATION_TYPES = frozenset(
+    {
+        "INTERACTS_WITH",
+        "CONTAINS",
+        "CAUSES",
+        "CAUSED_BY",
+        "RELATES_TO",
+        "SIMILAR_TO",
+        "MENTIONED_IN",
+        "APPEARS_WITH",
+    }
+)
 
 _RELATION_TYPE_MAP: dict[str, str] = {
     "NEAR": "RELATES_TO",
@@ -617,17 +625,17 @@ Respond with JSON following this schema:
             if not source or not target:
                 continue
 
-            edges.append({
-                "source_name": source.lower().replace(" ", "_"),
-                "target_name": target.lower().replace(" ", "_"),
-                "relation_type": _normalize_relation_type(
-                    rel.get("type", "RELATES_TO")
-                ),
-                "description": rel.get("description", ""),
-                "weight": min(1.0, max(0.1, float(rel.get("strength", 5)) / 10.0)),
-                "frame_id": frame_id,
-                "timestamp": analysis.timestamp,
-            })
+            edges.append(
+                {
+                    "source_name": source.lower().replace(" ", "_"),
+                    "target_name": target.lower().replace(" ", "_"),
+                    "relation_type": _normalize_relation_type(rel.get("type", "RELATES_TO")),
+                    "description": rel.get("description", ""),
+                    "weight": min(1.0, max(0.1, float(rel.get("strength", 5)) / 10.0)),
+                    "frame_id": frame_id,
+                    "timestamp": analysis.timestamp,
+                }
+            )
 
         return edges
 

@@ -183,9 +183,7 @@ class CommunityDetectionService:
             import igraph as ig
             import leidenalg
         except ImportError:
-            logger.warning(
-                "leidenalg/igraph not installed, falling back to louvain"
-            )
+            logger.warning("leidenalg/igraph not installed, falling back to louvain")
             return self._detect_louvain(G)
 
         # Convert NetworkX graph to igraph
@@ -209,7 +207,7 @@ class CommunityDetectionService:
         all_communities: list[set[str]] = []
 
         for level in range(hierarchical_levels):
-            level_resolution = resolution * (2.0 ** level)
+            level_resolution = resolution * (2.0**level)
 
             partition = leidenalg.find_partition(
                 ig_graph,
@@ -221,9 +219,7 @@ class CommunityDetectionService:
 
             level_communities: dict[int, set[str]] = {}
             for node_idx, comm_id in enumerate(partition.membership):
-                level_communities.setdefault(comm_id, set()).add(
-                    node_list[node_idx]
-                )
+                level_communities.setdefault(comm_id, set()).add(node_list[node_idx])
 
             # Tag communities with their hierarchy level
             for comm_set in level_communities.values():

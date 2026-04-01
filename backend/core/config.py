@@ -414,7 +414,7 @@ class AppSettings(BaseSettings):
     debug: bool = Field(default=False)
 
     # Server
-    host: str = Field(default="0.0.0.0")
+    host: str = Field(default="0.0.0.0")  # noqa: S104
     port: int = Field(
         default=8000,
         validation_alias=AliasChoices("api_port", "port"),

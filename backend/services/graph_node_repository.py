@@ -920,9 +920,7 @@ class GraphNodeRepository:
             record = result.single()
             count = record["linked"] if record else 0
             if count > 0:
-                logger.info(
-                    f"Resolved {count} cross-video entity matches for video {video_id}"
-                )
+                logger.info(f"Resolved {count} cross-video entity matches for video {video_id}")
             return count
 
     # =====================================================================
