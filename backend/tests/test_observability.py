@@ -1,9 +1,8 @@
 """Regression tests for agent.utils.observability module."""
 
 import pytest
-from opentelemetry.sdk.trace import SpanProcessor
-
 from agent.utils.observability import ConversationIdSpanProcessor
+from opentelemetry.sdk.trace import SpanProcessor
 
 
 @pytest.mark.unit
