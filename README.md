@@ -192,6 +192,33 @@ infra/
 - Validate endpoint/key/API version in `backend/.env`.
 - Confirm model deployments exist and names match configuration.
 
+## Development Scripts
+
+The `scripts/` directory contains utilities for development and maintenance:
+
+| Script | Purpose |
+|--------|---------|
+| `reset_all_data.py` | Wipe all data from Blob Storage, Neo4j, PostgreSQL, and Redis for a fresh start |
+| `deploy_agent.py` | Deploy QPrisma hosted agent to Microsoft AI Foundry |
+| `setup_entra_apps.ps1` | Set up Entra ID (Azure AD) applications for authentication |
+| `migrate_entra_auth.sql` | Database migration for Entra ID authentication |
+
+### Resetting all data
+
+```bash
+# Dry-run — shows what would be deleted without touching anything
+python scripts/reset_all_data.py
+
+# Execute the reset (interactive confirmation)
+python scripts/reset_all_data.py --execute
+
+# Skip specific stores
+python scripts/reset_all_data.py --execute --skip-blob --skip-redis
+
+# Non-interactive mode (CI / automation)
+python scripts/reset_all_data.py --execute --yes
+```
+
 ## Azure Deployment
 
 QPrisma includes production-oriented Azure deployment assets:
