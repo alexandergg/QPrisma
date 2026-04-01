@@ -92,15 +92,21 @@ function AuthProviderInner({ children }: { children: React.ReactNode }) {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // In MSAL popup flow the parent window polls the popup's URL to read
-  // the auth response.  If MsalProvider runs inside the popup it races
-  // with the parent (both call handleRedirectPromise), so skip it.
+  // In MSAL popup flow the popup must still load MsalProvider so that
+  // handleRedirectPromise() runs — it processes the auth code and
+  // broadcasts the result back to the parent window via BroadcastChannel.
+  // We only skip AuthProviderInner (user profile fetch, auth context) in
+  // the popup since it isn't needed there.
   const [isPopup] = useState(
     () => typeof window !== 'undefined' && !!window.opener
   );
 
   if (isPopup) {
-    return <>{children}</>;
+    return (
+      <MsalProvider instance={msalInstance}>
+        {children}
+      </MsalProvider>
+    );
   }
 
   return (
