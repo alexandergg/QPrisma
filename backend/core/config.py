@@ -235,6 +235,14 @@ class ProcessingSettings(BaseSettings):
         gt=0,
     )
 
+    # Entity extraction gleaning (GraphRAG multi-pass)
+    max_gleanings: int = Field(
+        default=1,
+        description="Number of gleaning passes for entity extraction (0 = disabled, 1 = recommended).",
+        ge=0,
+        le=3,
+    )
+
 
 class ArtifactSettings(BaseSettings):
     """Tool artifact storage configuration."""
@@ -266,13 +274,19 @@ class CommunitySettings(BaseSettings):
         description="Enable community detection during video processing pipeline.",
     )
     algorithm: str = Field(
-        default="louvain",
-        description="Community detection algorithm: 'louvain' or 'connected_components'.",
+        default="leiden",
+        description="Community detection algorithm: 'leiden', 'louvain', or 'connected_components'.",
     )
     resolution: float = Field(
         default=1.0,
-        description="Resolution parameter for Louvain (higher = smaller communities).",
+        description="Resolution parameter for Leiden/Louvain (higher = smaller communities).",
         gt=0.0,
+    )
+    hierarchical_levels: int = Field(
+        default=2,
+        description="Number of hierarchical levels for Leiden community detection (1 = flat, 2+ = hierarchical).",
+        ge=1,
+        le=5,
     )
     min_community_size: int = Field(
         default=3,

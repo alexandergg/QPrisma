@@ -27,6 +27,8 @@ dependencies = [
     # Community detection
     "networkx>=3.2,<4.0.0",
     "python-louvain>=0.16,<1.0.0",
+    "leidenalg>=0.10.0,<1.0.0",
+    "igraph>=0.11.0,<1.0.0",
     # Image/Video Processing
     "pillow>=12.1.1,<13.0.0",
     "ffmpeg-python>=0.2.0,<1.0.0",

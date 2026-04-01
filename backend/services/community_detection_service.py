@@ -7,7 +7,7 @@ via LLM for macro-level reasoning in the knowledge graph.
 
 Pipeline:
 1. Extract entity co-occurrence graph from Neo4j into NetworkX
-2. Run Louvain community detection to cluster related entities
+2. Run Leiden community detection (Louvain fallback) to cluster related entities
 3. Generate LLM summaries for each community
 4. Store Community nodes with embeddings back into Neo4j
 """
@@ -152,7 +152,9 @@ class CommunityDetectionService:
         min_size = settings.community.min_community_size
         max_communities = settings.community.max_communities_per_video
 
-        if algorithm == "louvain":
+        if algorithm == "leiden":
+            communities = self._detect_leiden(G)
+        elif algorithm == "louvain":
             communities = self._detect_louvain(G)
         else:
             communities = self._detect_connected_components(G)
@@ -169,6 +171,79 @@ class CommunityDetectionService:
             f"(algorithm={algorithm}, min_size={min_size})"
         )
         return communities
+
+    def _detect_leiden(self, G: nx.Graph) -> list[set[str]]:
+        """Leiden community detection with hierarchical multi-resolution support.
+
+        Produces higher-quality partitions than Louvain (guaranteed connected
+        communities) and supports multiple resolution levels for hierarchical
+        graph summarization.
+        """
+        try:
+            import igraph as ig
+            import leidenalg
+        except ImportError:
+            logger.warning(
+                "leidenalg/igraph not installed, falling back to louvain"
+            )
+            return self._detect_louvain(G)
+
+        # Convert NetworkX graph to igraph
+        node_list = list(G.nodes())
+        node_index = {n: i for i, n in enumerate(node_list)}
+
+        ig_graph = ig.Graph()
+        ig_graph.add_vertices(len(node_list))
+
+        edges = []
+        weights = []
+        for u, v, data in G.edges(data=True):
+            edges.append((node_index[u], node_index[v]))
+            weights.append(data.get("weight", 1.0))
+        ig_graph.add_edges(edges)
+        ig_graph.es["weight"] = weights
+
+        resolution = settings.community.resolution
+        hierarchical_levels = settings.community.hierarchical_levels
+
+        all_communities: list[set[str]] = []
+
+        for level in range(hierarchical_levels):
+            level_resolution = resolution * (2.0 ** level)
+
+            partition = leidenalg.find_partition(
+                ig_graph,
+                leidenalg.RBConfigurationVertexPartition,
+                weights=weights,
+                resolution_parameter=level_resolution,
+                seed=42,
+            )
+
+            level_communities: dict[int, set[str]] = {}
+            for node_idx, comm_id in enumerate(partition.membership):
+                level_communities.setdefault(comm_id, set()).add(
+                    node_list[node_idx]
+                )
+
+            # Tag communities with their hierarchy level
+            for comm_set in level_communities.values():
+                all_communities.append(comm_set)
+
+            logger.info(
+                f"Leiden level {level} (resolution={level_resolution:.2f}): "
+                f"{len(level_communities)} communities"
+            )
+
+        # Deduplicate identical communities across levels
+        unique_communities: list[set[str]] = []
+        seen: set[frozenset[str]] = set()
+        for comm in all_communities:
+            key = frozenset(comm)
+            if key not in seen:
+                seen.add(key)
+                unique_communities.append(comm)
+
+        return unique_communities
 
     def _detect_louvain(self, G: nx.Graph) -> list[set[str]]:
         """Louvain community detection via python-louvain."""
@@ -362,7 +437,7 @@ class CommunityDetectionService:
 
         Steps:
         1. Build entity co-occurrence graph from Neo4j
-        2. Detect communities via Louvain
+        2. Detect communities via Leiden (or Louvain fallback)
         3. Generate LLM summaries for each community
         4. Store Community nodes with embeddings back into Neo4j
 

@@ -1346,6 +1346,8 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 from services.entity_extractor import get_entity_extractor
                 from services.knowledge_graph import get_knowledge_graph_service
 
+                from core.config import settings as _settings
+
                 extractor = get_entity_extractor()
                 graph = get_knowledge_graph_service()
 
@@ -1360,6 +1362,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         analysis = extractor.extract_from_description(
                             description=frame_node.description,
                             timestamp=frame_node.timestamp,
+                            max_gleanings=_settings.processing.max_gleanings,
                         )
                         entity_nodes = extractor.convert_to_entity_nodes(analysis, video_id)
                         for entity_node in entity_nodes:
