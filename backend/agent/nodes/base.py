@@ -98,6 +98,7 @@ def create_model(
 
     kwargs = {
         "azure_deployment": deployment,
+        "model": deployment,  # Needed for OpenTelemetry gen_ai instrumentation
         "api_version": settings.azure.openai_api_version,
         "azure_endpoint": settings.azure.openai_endpoint,
         "temperature": temperature,
