@@ -63,6 +63,12 @@ jobs:
             --app "$APPI_NAME" --resource-group "$RG" \
             --query "id" -o tsv 2>/dev/null || echo "")
           echo "app_insights_id=$APPI_ID" >> $GITHUB_OUTPUT
+
+          APPI_CONN=$(az monitor app-insights component show \
+            --app "$APPI_NAME" --resource-group "$RG" \
+            --query "connectionString" -o tsv 2>/dev/null || echo "")
+          echo "app_insights_connection_string=$APPI_CONN" >> $GITHUB_OUTPUT
+
           LOG_ID=$(az monitor log-analytics workspace show \
             --workspace-name "$LOG_NAME" --resource-group "$RG" \
             --query "id" -o tsv 2>/dev/null || echo "")
@@ -97,6 +103,7 @@ jobs:
                 storageAccountId='${{ steps.storage.outputs.id }}' \
                 storageAccountName='${{ steps.storage.outputs.name }}' \
                 appInsightsId='${{ steps.observability.outputs.app_insights_id }}' \
+                appInsightsConnectionString='${{ steps.observability.outputs.app_insights_connection_string }}' \
                 logAnalyticsWorkspaceId='${{ steps.observability.outputs.log_analytics_id }}'
 
       - name: Deployment summary
