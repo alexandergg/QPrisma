@@ -172,6 +172,7 @@ Respond with a JSON object following this exact schema:
             "source": "entity name",
             "target": "entity name",
             "type": "INTERACTS_WITH|CONTAINS|CAUSES|RELATES_TO|SIMILAR_TO",
+            "strength": 1-10,
             "description": "brief description of relationship"
         }}
     ],
@@ -425,6 +426,7 @@ Respond with JSON following this schema:
             "source": "entity name",
             "target": "entity name",
             "type": "INTERACTS_WITH|CONTAINS|CAUSES|RELATES_TO|SIMILAR_TO",
+            "strength": 1-10,
             "description": "relationship description"
         }}
     ],
@@ -622,6 +624,7 @@ Respond with JSON following this schema:
                     rel.get("type", "RELATES_TO")
                 ),
                 "description": rel.get("description", ""),
+                "weight": min(1.0, max(0.1, float(rel.get("strength", 5)) / 10.0)),
                 "frame_id": frame_id,
                 "timestamp": analysis.timestamp,
             })

@@ -20,6 +20,7 @@ from neo4j.exceptions import AuthError, ServiceUnavailable
 from core.config import settings
 from models.graph_models import (
     AudioSegmentNode,
+    ChapterNode,
     CommunityNode,
     EntityNode,
     EntityType,
@@ -420,6 +421,10 @@ class KnowledgeGraphService:
         """Create a Scene node and connect it to its Video."""
         return self.nodes.create_scene_node(scene)
 
+    def create_chapter_node(self, chapter: ChapterNode) -> str:
+        """Create a Chapter node and connect it to Video and Scenes."""
+        return self.nodes.create_chapter_node(chapter)
+
     def get_video_scenes(self, video_id: str) -> list[dict]:
         """Retrieve all scenes for a video, ordered by start time."""
         return self.nodes.get_video_scenes(video_id)
@@ -507,6 +512,10 @@ class KnowledgeGraphService:
     def create_semantic_relations_batch(self, relations: list[dict]) -> int:
         """Create LLM-extracted semantic relations between entities."""
         return self.nodes.create_semantic_relations_batch(relations)
+
+    def resolve_cross_video_entities(self, video_id: str) -> int:
+        """Find and link same entities across different videos."""
+        return self.nodes.resolve_cross_video_entities(video_id)
 
     # =========================================================================
     # Search Operations
@@ -824,6 +833,18 @@ class KnowledgeGraphService:
     def get_community_context(self, video_id: str, topic: str | None = None) -> list[dict]:
         """Retrieve community summaries for a video, optionally filtered by topic."""
         return self.expander.get_community_context(video_id, topic)
+
+    # =========================================================================
+    # Delegation — Topic operations
+    # =========================================================================
+
+    def create_topic_nodes_batch(self, topics, video_id: str) -> int:
+        """Create Topic nodes and link them to the Video."""
+        return self.nodes.create_topic_nodes_batch(topics, video_id)
+
+    def link_entities_to_topics(self, video_id: str) -> int:
+        """Link entities to matching topics via ABOUT edges."""
+        return self.nodes.link_entities_to_topics(video_id)
 
     # ----- Dense Temporal Chain delegation -----
 
