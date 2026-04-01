@@ -26,37 +26,135 @@ from models.graph_models import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Entity-type normalisation helpers
+# ---------------------------------------------------------------------------
+
+_ENTITY_TYPE_ALIASES: dict[str, str] = {
+    # Common LLM hallucinations → closest valid EntityType value
+    "lighting": "concept",
+    "animal": "object",
+    "vehicle": "object",
+    "place": "location",
+    "activity": "action",
+    "thing": "object",
+    "organization": "brand",
+    "product": "object",
+    "scene": "location",
+    "setting": "location",
+    "emotion": "concept",
+    "weather": "concept",
+    "time": "concept",
+    "color": "concept",
+    "sound": "concept",
+    "music": "concept",
+    "food": "object",
+    "clothing": "object",
+    "furniture": "object",
+    "technology": "object",
+    "nature": "location",
+    "abstract": "concept",
+    "gesture": "action",
+    "movement": "action",
+    "expression": "concept",
+    "symbol": "concept",
+    "logo": "brand",
+    "company": "brand",
+    "group": "person",
+    "crowd": "person",
+}
+
+
+def _normalize_entity_type(raw_type: str) -> EntityType:
+    """Normalize a raw entity type string to a valid EntityType.
+
+    Tries direct enum lookup, then alias mapping, then falls back to CONCEPT
+    so that the entity is never silently dropped.
+    """
+    normalized = raw_type.lower().strip()
+    try:
+        return EntityType(normalized)
+    except ValueError:
+        pass
+    mapped = _ENTITY_TYPE_ALIASES.get(normalized)
+    if mapped is not None:
+        return EntityType(mapped)
+    logger.warning(f"Unknown entity type '{raw_type}' normalized to 'concept'")
+    return EntityType.CONCEPT
+
+
+# ---------------------------------------------------------------------------
+# Relation-type normalisation helpers
+# ---------------------------------------------------------------------------
+
+_VALID_SEMANTIC_RELATION_TYPES = frozenset(
+    {
+        "INTERACTS_WITH",
+        "CONTAINS",
+        "CAUSES",
+        "CAUSED_BY",
+        "RELATES_TO",
+        "SIMILAR_TO",
+        "MENTIONED_IN",
+        "APPEARS_WITH",
+    }
+)
+
+_RELATION_TYPE_MAP: dict[str, str] = {
+    "NEAR": "RELATES_TO",
+    "ON": "RELATES_TO",
+    "INSIDE": "CONTAINS",
+    "PART_OF": "CONTAINS",
+    "HAS": "CONTAINS",
+    "USES": "INTERACTS_WITH",
+    "HOLDS": "INTERACTS_WITH",
+    "WEARS": "INTERACTS_WITH",
+}
+
+
+def _normalize_relation_type(raw_type: str) -> str:
+    """Normalize a relation type to a valid semantic edge label."""
+    upper = raw_type.upper().strip()
+    if upper in _VALID_SEMANTIC_RELATION_TYPES:
+        return upper
+    return _RELATION_TYPE_MAP.get(upper, "RELATES_TO")
+
+
 # System prompt for entity extraction
-ENTITY_EXTRACTION_SYSTEM_PROMPT = """You are an expert visual analyst for a video understanding system. Your task is to analyze video frames and extract structured information about entities, relationships, and context.
+ENTITY_EXTRACTION_SYSTEM_PROMPT = """You are an expert visual analyst for a video understanding system.
+Your task is to extract structured entities, relationships, and context from video frames.
 
-For each frame, you must identify and extract:
+## ENTITY TYPES (use exactly one per entity)
 
-1. **ENTITIES** - Things that can be named and tracked:
-   - PERSON: People visible (describe appearance, estimated age, gender, clothing, role if apparent)
-   - OBJECT: Physical objects (vehicles, furniture, tools, devices, etc.)
-   - LOCATION: Places or settings (indoor/outdoor, type of location)
-   - ACTION: Activities being performed
-   - TEXT: Any visible text (signs, labels, screens)
-   - BRAND: Recognizable brands or logos
-   - CONCEPT: Abstract concepts represented visually
+| Type     | What to extract                                               | Name style                         |
+|----------|---------------------------------------------------------------|-------------------------------------|
+| person   | People: appearance, age estimate, clothing, role              | "woman in red jacket", "presenter" |
+| object   | Physical objects: vehicles, furniture, tools, devices, food   | "red sports car", "laptop"          |
+| location | Places or settings: indoor/outdoor, specific venue type       | "office meeting room", "park"       |
+| action   | Activities being performed by people or machines              | "typing on keyboard", "running"     |
+| text     | Visible text: signs, labels, screens, captions                | exact text content                  |
+| brand    | Recognizable brands, logos, company names                     | "Nike", "Microsoft"                 |
+| concept  | Abstract ideas, emotions, themes represented visually         | "teamwork", "celebration"           |
+| event    | Notable events, incidents, or occurrences in the scene        | "press conference", "car accident"  |
 
-2. **RELATIONSHIPS** between entities:
-   - Who is interacting with whom/what
-   - Spatial relationships (near, on, inside, etc.)
-   - Actions connecting entities
+## RELATIONSHIPS (between entities)
+Use typed relationships to capture how entities relate:
+- INTERACTS_WITH: direct interaction (person uses object, people talking)
+- CONTAINS: spatial containment (room contains table, car contains person)
+- CAUSES: causal link (rain causes umbrella use)
+- RELATES_TO: general semantic connection
+- SIMILAR_TO: visually or conceptually similar entities
 
-3. **TOPICS/THEMES** - What is this frame about?
+## EXTRACTION RULES
+1. Be specific: "woman in blue dress" not "person"; "wooden bookshelf" not "object"
+2. Use lowercase names, no special characters
+3. Extract ALL visible entities, even partially visible ones
+4. Assign confidence 0.7-1.0 for clearly visible, 0.3-0.6 for partially visible
+5. Create relationships between entities that interact or are spatially related
+6. Never invent entities not supported by the description or visual content
+7. Prefer the most specific entity_type — use "concept" only for truly abstract ideas
 
-4. **SCENE CONTEXT** - Indoor/outdoor, time of day, atmosphere
-
-IMPORTANT RULES:
-- Use specific, descriptive names for entities (e.g., "red sports car" not just "car")
-- Normalize names consistently (lowercase, no special characters)
-- Estimate confidence (0.0-1.0) based on visibility and certainty
-- Include bounding box estimates as percentages (0-100) if possible
-- Be thorough but avoid hallucinating entities that aren't clearly visible
-
-Output ONLY valid JSON matching the specified schema."""
+Output ONLY valid JSON matching the requested schema."""
 
 
 ENTITY_EXTRACTION_USER_PROMPT = """Analyze this video frame and extract all entities, relationships, and context.
@@ -69,7 +167,7 @@ Respond with a JSON object following this exact schema:
     "description": "Overall description of what's happening in the frame",
     "entities": [
         {{
-            "entity_type": "person|object|location|action|text|brand|concept",
+            "entity_type": "person|object|location|action|text|brand|concept|event",
             "name": "descriptive name for the entity",
             "confidence": 0.0-1.0,
             "bounding_box": {{"x": 0-100, "y": 0-100, "width": 0-100, "height": 0-100}} or null,
@@ -81,7 +179,8 @@ Respond with a JSON object following this exact schema:
         {{
             "source": "entity name",
             "target": "entity name",
-            "type": "INTERACTS_WITH|APPEARS_WITH|CONTAINS|CAUSES|NEAR|ON|INSIDE",
+            "type": "INTERACTS_WITH|CONTAINS|CAUSES|RELATES_TO|SIMILAR_TO",
+            "strength": 1-10,
             "description": "brief description of relationship"
         }}
     ],
@@ -91,6 +190,20 @@ Respond with a JSON object following this exact schema:
     "scene_type": "indoor|outdoor|mixed",
     "scene_context": "brief context description"
 }}"""
+
+
+GLEANING_PROMPT = """Many entities and relationships may have been missed in the previous extraction.
+Re-examine the description carefully and extract any additional entities and relationships
+that were not captured above. Focus on:
+- Subtle or background entities (objects, people, locations partially visible)
+- Implicit relationships between already-extracted entities
+- Events or actions that were overlooked
+- Text, brands, or concepts not yet captured
+
+If no additional entities were missed, respond with:
+{{"entities": [], "relations": [], "topics": [], "actions": []}}
+
+Otherwise, respond with the additional entities and relationships using the same JSON format as before."""
 
 
 class EntityExtractor:
@@ -249,7 +362,7 @@ class EntityExtractor:
         for e in data.get("entities", []):
             try:
                 entity = ExtractedEntity(
-                    entity_type=EntityType(e.get("entity_type", "object")),
+                    entity_type=_normalize_entity_type(e.get("entity_type", "object")),
                     name=e.get("name", "unknown"),
                     confidence=float(e.get("confidence", 0.5)),
                     bounding_box=e.get("bounding_box"),
@@ -278,16 +391,20 @@ class EntityExtractor:
         description: str,
         timestamp: float = 0.0,
         context: str = "",
+        max_gleanings: int = 0,
     ) -> FrameAnalysisResult:
         """
         Extract entities from an existing frame description.
 
         Useful for re-processing frames that already have a description but no structured entities.
+        Supports multi-pass gleaning (GraphRAG pattern) to recover additional entities.
 
         Args:
             description: Textual description of the frame.
             timestamp: Frame timestamp.
             context: Additional context.
+            max_gleanings: Number of continuation passes to recover missed entities
+                (0 = disabled, 1 = recommended).
 
         Returns:
             FrameAnalysisResult with extracted entities.
@@ -305,7 +422,7 @@ Respond with JSON following this schema:
 {{
     "entities": [
         {{
-            "entity_type": "person|object|location|action|text|brand|concept",
+            "entity_type": "person|object|location|action|text|brand|concept|event",
             "name": "entity name",
             "confidence": 0.0-1.0,
             "attributes": {{}},
@@ -316,7 +433,8 @@ Respond with JSON following this schema:
         {{
             "source": "entity name",
             "target": "entity name",
-            "type": "INTERACTS_WITH|APPEARS_WITH|CONTAINS|CAUSES",
+            "type": "INTERACTS_WITH|CONTAINS|CAUSES|RELATES_TO|SIMILAR_TO",
+            "strength": 1-10,
             "description": "relationship description"
         }}
     ],
@@ -327,7 +445,7 @@ Respond with JSON following this schema:
         messages = [
             {
                 "role": "system",
-                "content": "You are an expert at extracting structured information from text descriptions of video frames.",
+                "content": ENTITY_EXTRACTION_SYSTEM_PROMPT,
             },
             {"role": "user", "content": prompt},
         ]
@@ -361,7 +479,7 @@ Respond with JSON following this schema:
         for e in data.get("entities", []):
             try:
                 entity = ExtractedEntity(
-                    entity_type=EntityType(e.get("entity_type", "object")),
+                    entity_type=_normalize_entity_type(e.get("entity_type", "object")),
                     name=e.get("name", "unknown"),
                     confidence=float(e.get("confidence", 0.5)),
                     attributes=e.get("attributes", {}),
@@ -372,12 +490,71 @@ Respond with JSON following this schema:
                 logger.warning(f"Could not parse entity: {err}")
                 continue
 
+        relations = data.get("relations", [])
+
+        # --- Gleaning passes ---
+        for gleaning_pass in range(max_gleanings):
+            gleaning_messages = [
+                messages[0],  # system message
+                messages[1],  # original user message
+                {"role": "assistant", "content": response_text},
+                {"role": "user", "content": GLEANING_PROMPT},
+            ]
+
+            try:
+                gleaning_response = self.client.chat.completions.create(
+                    model=self.deployment,
+                    messages=gleaning_messages,
+                    max_completion_tokens=1000,
+                    temperature=1,
+                    response_format={"type": "json_object"},
+                )
+                gleaning_text = gleaning_response.choices[0].message.content
+                gleaning_data = json.loads(gleaning_text)
+
+                new_entities: list[ExtractedEntity] = []
+                for e in gleaning_data.get("entities", []):
+                    try:
+                        entity = ExtractedEntity(
+                            entity_type=_normalize_entity_type(e.get("entity_type", "object")),
+                            name=e.get("name", "unknown"),
+                            confidence=float(e.get("confidence", 0.5)),
+                            attributes=e.get("attributes", {}),
+                            description=e.get("description"),
+                        )
+                        new_entities.append(entity)
+                    except (ValueError, KeyError, TypeError) as err:
+                        logger.warning(f"Could not parse gleaned entity: {err}")
+
+                if not new_entities:
+                    break  # No more entities found, stop gleaning
+
+                # Deduplicate by normalized name
+                existing_names = {e.name.lower().strip() for e in entities}
+                for ent in new_entities:
+                    if ent.name.lower().strip() not in existing_names:
+                        entities.append(ent)
+                        existing_names.add(ent.name.lower().strip())
+
+                # Also merge new relations
+                new_relations = gleaning_data.get("relations", [])
+                relations.extend(new_relations)
+
+                logger.info(
+                    f"Gleaning pass {gleaning_pass + 1}: found {len(new_entities)} additional entities"
+                )
+            except Exception as e:
+                logger.debug(f"Gleaning pass {gleaning_pass + 1} failed: {e}")
+                break
+
+        analysis_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
+
         return FrameAnalysisResult(
             frame_id=str(uuid4()),
             timestamp=timestamp,
             description=description,
             entities=entities,
-            relations=data.get("relations", []),
+            relations=relations,
             topics=data.get("topics", []),
             actions=data.get("actions", []),
             model_used=self.deployment,
@@ -418,6 +595,49 @@ Respond with JSON following this schema:
             nodes.append(node)
 
         return nodes
+
+    def convert_relations_for_graph(
+        self,
+        analysis: FrameAnalysisResult,
+        video_id: str,
+        frame_id: str,
+    ) -> list[dict]:
+        """Convert extracted relations to graph-ready semantic edge data.
+
+        Maps entity names to normalised names and relation types to valid
+        RelationType values so they can be stored as typed Neo4j edges.
+
+        Args:
+            analysis: Frame analysis result containing relations.
+            video_id: Video ID.
+            frame_id: Frame node ID for scoping entity lookup.
+
+        Returns:
+            List of dicts ready for ``create_semantic_relations_batch``.
+        """
+        if not analysis.relations:
+            return []
+
+        edges: list[dict] = []
+        for rel in analysis.relations:
+            source = rel.get("source", "").strip()
+            target = rel.get("target", "").strip()
+            if not source or not target:
+                continue
+
+            edges.append(
+                {
+                    "source_name": source.lower().replace(" ", "_"),
+                    "target_name": target.lower().replace(" ", "_"),
+                    "relation_type": _normalize_relation_type(rel.get("type", "RELATES_TO")),
+                    "description": rel.get("description", ""),
+                    "weight": min(1.0, max(0.1, float(rel.get("strength", 5)) / 10.0)),
+                    "frame_id": frame_id,
+                    "timestamp": analysis.timestamp,
+                }
+            )
+
+        return edges
 
     def batch_extract(
         self,

@@ -766,7 +766,7 @@ def index_transcription_to_graph(
             try:
                 self.retry(countdown=5, exc=e)
             except Exception:
-                pass  # Max retries reached
+                logger.debug("Max retries reached for transcript indexing")
 
         return {"indexed": 0, "success": False, "error": str(e)}
 
@@ -1055,7 +1055,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 try:
                     graph.delete_video_graph(video_id)
                 except Exception:
-                    pass
+                    logger.debug("Could not delete existing video graph for %s", video_id)
 
                 title = video_id
                 file_size_bytes = 0
@@ -1066,7 +1066,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             title = existing.original_filename or title
                             file_size_bytes = int(existing.file_size or 0)
                     except Exception:
-                        pass
+                        logger.debug("Could not fetch existing media metadata for %s", video_id)
 
                 # resolution comes as "{w}x{h}"
                 w, h = 0, 0
@@ -1075,7 +1075,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     w_str, h_str = res.split("x")
                     w, h = int(w_str), int(h_str)
                 except Exception:
-                    pass
+                    logger.debug("Could not parse video resolution for %s", video_id)
 
                 from pathlib import Path
 
@@ -1129,6 +1129,82 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
                 except Exception as e:
                     logger.warning(f"Scene detection/indexing skipped: {e}")
+
+                # 7c. Group scenes into chapters
+                chapter_nodes = []
+                if scene_nodes and len(scene_nodes) >= 2:
+                    try:
+                        from models.graph_models import ChapterNode
+
+                        # Group scenes into chapters (adaptive: 3-5 scenes per chapter)
+                        scenes_per_chapter = max(2, min(5, len(scene_nodes) // 3 or 2))
+                        chapter_groups = [
+                            scene_nodes[i : i + scenes_per_chapter]
+                            for i in range(0, len(scene_nodes), scenes_per_chapter)
+                        ]
+
+                        client = None
+                        try:
+                            from core.config import create_azure_openai_client
+
+                            client = create_azure_openai_client()
+                        except Exception:
+                            logger.debug("Azure OpenAI client unavailable for chapter generation")
+
+                        for idx, group in enumerate(chapter_groups):
+                            ch_start = min(s.start_time for s in group)
+                            ch_end = max(s.end_time for s in group)
+                            scene_descs = [
+                                f"[{s.start_time:.1f}s-{s.end_time:.1f}s] {s.description or 'No description'}"
+                                for s in group
+                            ]
+
+                            # Generate chapter title + summary via LLM
+                            title = f"Chapter {idx + 1}"
+                            summary = ""
+                            topics: list[str] = []
+
+                            if client:
+                                try:
+                                    import json as _json
+
+                                    from core.config import settings as _ch_settings
+
+                                    ch_prompt = (
+                                        "Given these consecutive video scenes, generate a concise chapter title and summary.\n\n"
+                                        "Scenes:\n" + "\n".join(scene_descs) + "\n\n"
+                                        'Respond with JSON: {"title": "3-6 word title", "summary": "1-2 sentence summary", "topics": ["topic1", "topic2"]}'
+                                    )
+                                    ch_response = client.chat.completions.create(
+                                        model=_ch_settings.azure.openai_deployment_gpt,
+                                        messages=[{"role": "user", "content": ch_prompt}],
+                                        max_tokens=200,
+                                        temperature=0.3,
+                                        response_format={"type": "json_object"},
+                                    )
+                                    ch_data = _json.loads(ch_response.choices[0].message.content)
+                                    title = ch_data.get("title", title)
+                                    summary = ch_data.get("summary", "")
+                                    topics = ch_data.get("topics", [])
+                                except Exception as ch_err:
+                                    logger.debug(f"Chapter summary generation failed: {ch_err}")
+
+                            chapter = ChapterNode(
+                                video_id=video_id,
+                                start_time=ch_start,
+                                end_time=ch_end,
+                                chapter_index=idx,
+                                title=title,
+                                summary=summary,
+                                topics=topics,
+                                detection_method="auto",
+                            )
+                            graph.create_chapter_node(chapter)
+                            chapter_nodes.append(chapter)
+
+                        logger.info(f"Created {len(chapter_nodes)} chapters for video {video_id}")
+                    except Exception as e:
+                        logger.warning(f"Chapter creation skipped: {e}")
 
                 # Create frames + store embeddings in the node
                 frame_nodes_with_embeddings: list[tuple[FrameNode, list[float] | None]] = []
@@ -1302,6 +1378,28 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 logger.info(
                     f"Updated Video node with summary ({len(video_summary or '')} chars) and {len(key_topics)} topics"
                 )
+
+                # Create Topic graph nodes
+                if key_topics:
+                    from uuid import uuid4 as _uuid4
+
+                    from models.graph_models import TopicNode
+
+                    topic_nodes = [
+                        TopicNode(
+                            id=str(_uuid4()),
+                            name=topic_name,
+                            normalized_name=topic_name.lower().strip().replace(" ", "_"),
+                            keywords=[topic_name],
+                            relevance_score=1.0 - (i * 0.05),  # decreasing relevance
+                        )
+                        for i, topic_name in enumerate(key_topics)
+                    ]
+                    try:
+                        graph.create_topic_nodes_batch(topic_nodes, video_id)
+                        logger.info(f"Created {len(topic_nodes)} topic nodes for video {video_id}")
+                    except Exception as topic_err:
+                        logger.debug(f"Topic node creation failed: {topic_err}")
             except Exception as e:
                 logger.warning(f"Failed to update Video node with summary: {e}")
 
@@ -1343,6 +1441,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     "entity_extraction",
                     "Extracting entities from frames...",
                 )
+                from core.config import settings as _settings
                 from services.entity_extractor import get_entity_extractor
                 from services.knowledge_graph import get_knowledge_graph_service
 
@@ -1350,6 +1449,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 graph = get_knowledge_graph_service()
 
                 entity_batch: list[tuple] = []
+                relation_batch: list[dict] = []
                 frame_ids_with_entities: list[str] = []
 
                 for frame_node in frames_to_create:
@@ -1359,12 +1459,18 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         analysis = extractor.extract_from_description(
                             description=frame_node.description,
                             timestamp=frame_node.timestamp,
+                            max_gleanings=_settings.processing.max_gleanings,
                         )
                         entity_nodes = extractor.convert_to_entity_nodes(analysis, video_id)
                         for entity_node in entity_nodes:
                             entity_batch.append((entity_node, frame_node.id))
                         if entity_nodes:
                             frame_ids_with_entities.append(frame_node.id)
+                            # Collect semantic relations for this frame
+                            frame_relations = extractor.convert_relations_for_graph(
+                                analysis, video_id, frame_node.id
+                            )
+                            relation_batch.extend(frame_relations)
                     except Exception as frame_err:
                         logger.debug(
                             f"Entity extraction failed for frame {frame_node.id}: {frame_err}"
@@ -1383,6 +1489,35 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             logger.debug(
                                 f"Co-occurrence creation failed for frame {fid}: {cooc_err}"
                             )
+
+                    # Store LLM-extracted semantic relations
+                    if relation_batch:
+                        try:
+                            sem_created = graph.create_semantic_relations_batch(relation_batch)
+                            logger.info(
+                                f"Created {sem_created} semantic relations for video {video_id}"
+                            )
+                        except Exception as sem_err:
+                            logger.warning(f"Semantic relation creation failed: {sem_err}")
+
+                    # Link entities to topics
+                    try:
+                        linked = graph.link_entities_to_topics(video_id)
+                        if linked:
+                            logger.info(f"Linked {linked} entity-topic pairs for video {video_id}")
+                    except Exception as link_err:
+                        logger.debug(f"Entity-topic linking failed: {link_err}")
+
+                    # Cross-video entity resolution
+                    try:
+                        cross_linked = graph.resolve_cross_video_entities(video_id)
+                        if cross_linked:
+                            logger.info(
+                                f"Resolved {cross_linked} cross-video entity matches "
+                                f"for video {video_id}"
+                            )
+                    except Exception as cross_err:
+                        logger.debug(f"Cross-video entity resolution failed: {cross_err}")
                 else:
                     logger.info(f"No entities extracted for video {video_id}")
             except Exception as e:

@@ -12,12 +12,14 @@ from collections.abc import Callable
 
 from models.graph_models import (
     AudioSegmentNode,
+    ChapterNode,
     CommunityNode,
     EntityNode,
     EntityType,
     FrameNode,
     RelationType,
     SceneNode,
+    TopicNode,
     VideoNode,
 )
 
@@ -186,6 +188,47 @@ class GraphNodeRepository:
             record = result.single()
             return record["id"]
 
+    def create_chapter_node(self, chapter: ChapterNode) -> str:
+        """Create a Chapter node and connect it to its Video and contained Scenes."""
+        query = """
+        MATCH (v:Video {video_id: $video_id})
+        CREATE (ch:Chapter {
+            id: $id,
+            video_id: $video_id,
+            start_time: $start_time,
+            end_time: $end_time,
+            chapter_index: $chapter_index,
+            title: $title,
+            summary: $summary,
+            topics: $topics,
+            detection_method: $detection_method,
+            created_at: datetime($created_at)
+        })
+        CREATE (v)-[:CONTAINS]->(ch)
+        WITH ch
+        MATCH (s:Scene {video_id: $video_id})
+        WHERE s.start_time >= $start_time AND s.end_time <= $end_time
+        CREATE (ch)-[:CONTAINS]->(s)
+        RETURN ch.id as id
+        """
+
+        with self._get_session() as session:
+            result = session.run(
+                query,
+                id=chapter.id,
+                video_id=chapter.video_id,
+                start_time=chapter.start_time,
+                end_time=chapter.end_time,
+                chapter_index=chapter.chapter_index,
+                title=chapter.title,
+                summary=chapter.summary,
+                topics=chapter.topics,
+                detection_method=chapter.detection_method,
+                created_at=chapter.created_at.isoformat(),
+            )
+            record = result.single()
+            return record["id"]
+
     def get_video_scenes(self, video_id: str) -> list[dict]:
         """Retrieve all scenes for a video, ordered by start time."""
         query = """
@@ -340,6 +383,7 @@ class GraphNodeRepository:
             e.name = $name,
             e.video_id = f.video_id,
             e.description = $description,
+            e.description_list = CASE WHEN $description IS NOT NULL THEN [$description] ELSE [] END,
             e.attributes = $attributes,
             e.confidence = $confidence,
             e.occurrence_count = 1,
@@ -349,7 +393,16 @@ class GraphNodeRepository:
         ON MATCH SET
             e.occurrence_count = e.occurrence_count + 1,
             e.last_seen_time = f.timestamp,
-            e.confidence = CASE WHEN $confidence > e.confidence THEN $confidence ELSE e.confidence END
+            e.confidence = CASE WHEN $confidence > e.confidence THEN $confidence ELSE e.confidence END,
+            e.description = CASE
+                WHEN $description IS NOT NULL AND size($description) > size(coalesce(e.description, ''))
+                THEN $description ELSE e.description END,
+            e.description_list = CASE
+                WHEN $description IS NOT NULL
+                    AND NOT $description IN coalesce(e.description_list, [])
+                    AND size(coalesce(e.description_list, [])) < 5
+                THEN coalesce(e.description_list, []) + $description
+                ELSE coalesce(e.description_list, []) END
         CREATE (f)-[:CONTAINS {confidence: $confidence, bounding_box: $bounding_box}]->(e)
         RETURN e.id as id
         """
@@ -387,13 +440,23 @@ class GraphNodeRepository:
             e.name = entity.name,
             e.video_id = f.video_id,
             e.description = entity.description,
+            e.description_list = CASE WHEN entity.description IS NOT NULL THEN [entity.description] ELSE [] END,
             e.confidence = entity.confidence,
             e.occurrence_count = 1,
             e.first_seen_time = f.timestamp,
             e.created_at = datetime(entity.created_at)
         ON MATCH SET
             e.occurrence_count = e.occurrence_count + 1,
-            e.last_seen_time = f.timestamp
+            e.last_seen_time = f.timestamp,
+            e.description = CASE
+                WHEN entity.description IS NOT NULL AND size(entity.description) > size(coalesce(e.description, ''))
+                THEN entity.description ELSE e.description END,
+            e.description_list = CASE
+                WHEN entity.description IS NOT NULL
+                    AND NOT entity.description IN coalesce(e.description_list, [])
+                    AND size(coalesce(e.description_list, [])) < 5
+                THEN coalesce(e.description_list, []) + entity.description
+                ELSE coalesce(e.description_list, []) END
         CREATE (f)-[:CONTAINS {confidence: entity.confidence}]->(e)
         RETURN count(e) as created
         """
@@ -750,6 +813,116 @@ class GraphNodeRepository:
             record = result.single()
             return record["relations_created"]
 
+    def create_semantic_relations_batch(self, relations: list[dict]) -> int:
+        """Create semantic relations between entities extracted by the LLM.
+
+        Each dict must contain: source_name, target_name, relation_type, frame_id.
+        Optional: description, timestamp.
+
+        Entities are matched via the Frame they both belong to (CONTAINS edge)
+        to avoid cross-video ambiguity.  Uses MERGE to deduplicate edges and
+        increments ``evidence_count`` on repeated observations.
+        """
+        if not relations:
+            return 0
+
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for rel in relations:
+            grouped[rel["relation_type"]].append(rel)
+
+        total_created = 0
+        for rel_type, rels in grouped.items():
+            batch_data = [
+                {
+                    "source_name": r["source_name"],
+                    "target_name": r["target_name"],
+                    "frame_id": r["frame_id"],
+                    "description": r.get("description", ""),
+                    "timestamp": r.get("timestamp", 0.0),
+                    "weight": r.get("weight", 0.5),
+                }
+                for r in rels
+            ]
+
+            query = f"""
+            UNWIND $batch AS rel
+            MATCH (f:Frame {{id: rel.frame_id}})-[:CONTAINS]->(src:Entity)
+            WHERE src.normalized_name = rel.source_name
+            MATCH (f)-[:CONTAINS]->(tgt:Entity)
+            WHERE tgt.normalized_name = rel.target_name AND tgt.id <> src.id
+            MERGE (src)-[r:{rel_type}]->(tgt)
+            ON CREATE SET
+                r.description = rel.description,
+                r.weight = rel.weight,
+                r.evidence_count = 1,
+                r.first_seen = rel.timestamp
+            ON MATCH SET
+                r.evidence_count = r.evidence_count + 1,
+                r.weight = CASE WHEN rel.weight > r.weight THEN rel.weight ELSE r.weight END,
+                r.last_seen = rel.timestamp
+            RETURN count(r) as created
+            """
+
+            try:
+                with self._get_session() as session:
+                    result = session.run(query, batch=batch_data)
+                    record = result.single()
+                    total_created += record["created"] if record else 0
+            except Exception as e:
+                logger.error(f"Semantic relation creation failed for type {rel_type}: {e}")
+
+        return total_created
+
+    def resolve_cross_video_entities(self, video_id: str) -> int:
+        """Find and link entities that likely represent the same real-world entity
+        across different videos using name similarity.
+
+        Creates SAME_ENTITY edges between entity pairs from different videos
+        that share the same entity_type and have matching or overlapping
+        normalized_names. Uses conservative matching to avoid false positives.
+
+        Only compares entities from the given video_id against entities from
+        other videos, so this is called once per newly processed video.
+        """
+        query = """
+        MATCH (e1:Entity)
+        WHERE e1.video_id = $video_id
+        MATCH (e2:Entity)
+        WHERE e2.video_id <> $video_id
+          AND e1.entity_type = e2.entity_type
+          AND e1.id <> e2.id
+          AND (
+            e1.normalized_name = e2.normalized_name
+            OR (size(e1.normalized_name) > 3 AND size(e2.normalized_name) > 3
+                AND (e1.normalized_name CONTAINS e2.normalized_name
+                     OR e2.normalized_name CONTAINS e1.normalized_name))
+          )
+        WITH e1, e2,
+             CASE
+               WHEN e1.normalized_name = e2.normalized_name THEN 1.0
+               ELSE 0.7
+             END AS similarity
+        MERGE (e1)-[r:SAME_ENTITY]-(e2)
+        ON CREATE SET
+            r.similarity_score = similarity,
+            r.source_video_id = e1.video_id,
+            r.target_video_id = e2.video_id,
+            r.created_at = datetime()
+        ON MATCH SET
+            r.similarity_score = CASE
+                WHEN similarity > r.similarity_score
+                THEN similarity ELSE r.similarity_score END
+        RETURN count(r) as linked
+        """
+
+        with self._get_session() as session:
+            result = session.run(query, video_id=video_id)
+            record = result.single()
+            count = record["linked"] if record else 0
+            if count > 0:
+                logger.info(f"Resolved {count} cross-video entity matches for video {video_id}")
+            return count
+
     # =====================================================================
     # Dense Temporal Chain Operations
     # =====================================================================
@@ -1009,3 +1182,82 @@ class GraphNodeRepository:
             deleted = record["deleted"] if record else 0
             logger.info(f"Deleted {deleted} community nodes for video {video_id}")
             return deleted
+
+    # =====================================================================
+    # Topic Node Operations
+    # =====================================================================
+
+    def create_topic_nodes_batch(self, topics: list[TopicNode], video_id: str) -> int:
+        """Create Topic nodes and link them to the Video.
+
+        Uses MERGE on normalized_name to avoid duplicates across videos.
+        Links each topic to the Video via an ABOUT relationship.
+        """
+        if not topics:
+            return 0
+
+        topics_data = [
+            {
+                "id": t.id,
+                "name": t.name,
+                "normalized_name": t.normalized_name,
+                "description": t.description,
+                "keywords": t.keywords,
+                "relevance_score": t.relevance_score,
+                "created_at": t.created_at.isoformat(),
+            }
+            for t in topics
+        ]
+
+        query = """
+        UNWIND $topics AS topic
+        MERGE (t:Topic {normalized_name: topic.normalized_name})
+        ON CREATE SET
+            t.id = topic.id,
+            t.name = topic.name,
+            t.description = topic.description,
+            t.keywords = topic.keywords,
+            t.relevance_score = topic.relevance_score,
+            t.created_at = datetime(topic.created_at)
+        ON MATCH SET
+            t.relevance_score = CASE
+                WHEN topic.relevance_score > t.relevance_score
+                THEN topic.relevance_score ELSE t.relevance_score END
+        WITH t, topic
+        MATCH (v:Video {video_id: $video_id})
+        MERGE (v)-[:ABOUT]->(t)
+        RETURN count(t) as created
+        """
+
+        with self._get_session() as session:
+            result = session.run(query, topics=topics_data, video_id=video_id)
+            record = result.single()
+            count = record["created"] if record else 0
+            logger.info(f"Created {count} Topic nodes for video {video_id}")
+            return count
+
+    def link_entities_to_topics(self, video_id: str) -> int:
+        """Link entities to topics based on matching keywords and names.
+
+        Creates ABOUT edges from Entity → Topic when the entity name or
+        description matches topic keywords or name.
+        """
+        query = """
+        MATCH (v:Video {video_id: $video_id})-[:ABOUT]->(t:Topic)
+        MATCH (e:Entity)
+        WHERE e.video_id = $video_id
+          AND (
+            e.normalized_name CONTAINS t.normalized_name
+            OR t.normalized_name CONTAINS e.normalized_name
+            OR ANY(kw IN coalesce(t.keywords, []) WHERE e.normalized_name CONTAINS toLower(kw))
+          )
+        MERGE (e)-[:ABOUT]->(t)
+        RETURN count(*) as linked
+        """
+
+        with self._get_session() as session:
+            result = session.run(query, video_id=video_id)
+            record = result.single()
+            count = record["linked"] if record else 0
+            logger.info(f"Linked {count} entity-topic pairs for video {video_id}")
+            return count

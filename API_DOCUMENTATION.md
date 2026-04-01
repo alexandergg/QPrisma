@@ -344,10 +344,15 @@ The pipeline is fully async and processes frames and audio in parallel for maxim
 4. **Submit Batch API** job for vision analysis (structured JSON output)
 5. **Process audio** with Azure Whisper (default) or faster-whisper (optional INT8/Silero VAD backend) during batch wait (overlapping async I/O)
 6. **Wait for batch completion** (exponential backoff: 10s → 120s cap, `asyncio.sleep`)
-7. **Generate embeddings** (text-embedding-3-large, 3072 dimensions, async `AsyncAzureOpenAI`)
-8. **Index** results into Knowledge Graph (Neo4j) and PostgreSQL
-9. **Build temporal chains** — NEXT_FRAME / NEXT_SEGMENT / NEXT_SCENE relationships for graph-native time walking
-10. **Detect communities** — Louvain clustering on entity co-occurrence graph with LLM-generated thematic summaries
+7. **Generate hierarchical summaries** — Scene → Chapter → Video summaries via LLM
+8. **Generate embeddings** (text-embedding-3-large, 3072 dimensions, async `AsyncAzureOpenAI`)
+9. **Index** results into Knowledge Graph (Neo4j) and PostgreSQL
+10. **Create chapters** — Groups of 2-5 consecutive scenes with LLM-generated titles and summaries. Video → Chapter → Scene hierarchy
+11. **Build temporal chains** — NEXT_FRAME / NEXT_SEGMENT / NEXT_SCENE relationships for graph-native time walking
+12. **Extract entities** — GPT-4o extracts structured entities from frame descriptions with type normalization (30+ LLM hallucinations → 8 valid EntityType values, fallback to CONCEPT) and multi-pass gleaning (`max_gleanings` default=1) for higher recall. Semantic relations persisted with `weight` (0.1-1.0) and `evidence_count`
+13. **Create topic graph** — TopicNode entries with ABOUT edges (Video → Topic, Entity → Topic). Keyword-based entity-topic linking
+14. **Cross-video entity resolution** — SAME_ENTITY edges with `similarity_score` (1.0 exact match, 0.7 substring). Same `entity_type` required, >3 char filter
+15. **Detect communities** — Leiden clustering (`RBConfigurationVertexPartition`, hierarchical multi-resolution, `hierarchical_levels=2`) on entity co-occurrence graph with LLM-generated thematic summaries. Falls back to Louvain if `leidenalg` is unavailable
 
 > **v0.17.0 Note:** All pipeline services use `AsyncAzureOpenAI` with native `async/await`. 
 > Celery background tasks bridge to async via `asyncio.run()`. Neo4j supports both sync and 
@@ -605,6 +610,16 @@ Content-Type: application/json
       "from": "node1",
       "to": "node2",
       "type": "CONTAINS"
+    },
+    {
+      "from": "entity1",
+      "to": "entity2",
+      "type": "INTERACTS_WITH",
+      "properties": {
+        "weight": 0.8,
+        "evidence_count": 3,
+        "description": "person using object"
+      }
     }
   ]
 }
@@ -635,7 +650,7 @@ GET /graph/{video_id}/hierarchy
 
 ### Community Detection
 
-Community detection runs automatically as the final stage of video processing. It clusters co-occurring entities via Louvain and generates LLM thematic summaries stored as `Community` nodes in Neo4j.
+Community detection runs automatically as the final stage of video processing. It clusters co-occurring entities via Leiden (`RBConfigurationVertexPartition` with hierarchical multi-resolution, `hierarchical_levels=2`; Louvain fallback if `leidenalg` is unavailable) and generates LLM thematic summaries stored as `Community` nodes in Neo4j. Configuration: `algorithm="leiden"`, `resolution=1.0`, `min_community_size=3`, `max_communities_per_video=20`.
 
 Community nodes participate in hybrid search — the `COMMUNITY` node type is included in the default search scope. Each community carries an embedding of its summary, enabling semantic matching against user queries.
 
