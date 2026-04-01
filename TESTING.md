@@ -12,8 +12,9 @@ backend/
     ├── conftest.py          # Pytest fixtures and configuration
     ├── test_api.py          # API endpoint tests
     ├── test_config.py       # Settings, validators, production guards
-    ├── test_community_detection.py          # Community detection pipeline
+    ├── test_community_detection.py          # Community detection pipeline (Leiden/Louvain)
     ├── test_community_search_integration.py # Community search integration
+    ├── test_graph_composition.py            # Knowledge graph service composition and delegation
     ├── test_temporal_chains.py              # Dense temporal chains
     └── test_data/           # Test fixtures and sample data
 
@@ -41,8 +42,9 @@ frontend/
 | `test_streaming_pipeline.py` | Streaming pipeline architecture |
 | `test_audio_parallel_transcription.py` | Parallel audio transcription |
 | `test_video_perf_optimizations.py` | Frame dedup, WebP encoding, batch sizing |
-| `test_community_detection.py` | Louvain community detection pipeline |
+| `test_community_detection.py` | Leiden/Louvain community detection pipeline (graph construction, detection, summaries) |
 | `test_community_search_integration.py` | Community nodes in hybrid search |
+| `test_graph_composition.py` | KnowledgeGraphService composition, delegation (GraphNodeRepository, GraphExpander), entity resolution, topic nodes, semantic relations |
 | `test_temporal_chains.py` | NEXT_FRAME / NEXT_SEGMENT / NEXT_SCENE chains and adjacency scoring |
 | `test_config.py` | Settings classes, production validators, dev autologin guard, client factories |
 | `test_errors.py` | Standardized HTTP error helpers |

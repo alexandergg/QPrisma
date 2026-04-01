@@ -207,9 +207,14 @@ Settings (Root)
 ├── PostgresSettings      # DATABASE_URL (validated in prod)
 ├── Neo4jSettings         # URI, user, password, database
 ├── RedisSettings         # URL
+├── ProcessingSettings    # embedding batch, frame encoding, max_gleanings
+├── CommunitySettings     # algorithm (leiden/louvain), resolution, hierarchical_levels
+├── SearchSettings        # HNSW M, ef_construction
 ├── ArtifactSettings      # TTL, key prefix, blob prefix
 ├── Mem0Settings          # enabled, api_key, top_k
-└── AuthSettings          # JWT secret, algorithm, token expiry
+├── FoundrySettings       # AI Foundry project endpoint, agent name
+├── TelemetrySettings     # App Insights, OpenTelemetry
+└── AuthSettings          # Entra ID tenant/client, API scope
 ```
 
 #### Validaciones de Producción
@@ -731,11 +736,12 @@ Clustering Semántico (embeddings) ─┘
 **Servicio primario del Knowledge Graph en Neo4j.**
 
 ```
-Video → [HAS_SCENE] → Scene → [HAS_FRAME] → Frame
-  │                      │                      │
-  │── [HAS_CHAPTER] → Chapter              [CONTAINS] → Entity
-  │                                             │
-  └── [HAS_AUDIO] → AudioSegment          [INTERACTS_WITH, SIMILAR_TO, ...]
+Video → [CONTAINS] → Chapter → [CONTAINS] → Scene → [CONTAINS] → Frame
+  │                                                        │
+  │── [ABOUT] → Topic ←── [ABOUT] ── Entity          [CONTAINS] → Entity
+  │                                                        │
+  └── [HAS_TRANSCRIPT] → AudioSegment         [INTERACTS_WITH, APPEARS_WITH,
+                                                SAME_ENTITY, IN_COMMUNITY, ...]
 ```
 
 | Capacidad | Detalle |
@@ -752,6 +758,10 @@ Video → [HAS_SCENE] → Scene → [HAS_FRAME] → Frame
 
 Tipos: `PERSON`, `OBJECT`, `LOCATION`, `ACTION`, `CONCEPT`, `TEXT` (OCR), `BRAND`, `EVENT`
 
+- **Normalización de tipos**: `_normalize_entity_type()` mapea 30+ alucinaciones del LLM (e.g. `"lighting"` → `CONCEPT`, `"vehicle"` → `OBJECT`, `"logo"` → `BRAND`) al enum `EntityType` (8 valores). Fallback a `CONCEPT`
+- **Normalización de relaciones**: `_normalize_relation_type()` mapea tipos LLM inventados (`NEAR`, `HOLDS`, `WEARS`, etc.) a 8 tipos semánticos válidos: `INTERACTS_WITH`, `CONTAINS`, `CAUSES`, `CAUSED_BY`, `RELATES_TO`, `SIMILAR_TO`, `MENTIONED_IN`, `APPEARS_WITH`. Fallback a `RELATES_TO`
+- **Multi-pass gleaning** (patrón GraphRAG): Prompt de continuación tras la extracción inicial para capturar entidades omitidas. Configurable: `max_gleanings` (default=1). Deduplicación por nombre normalizado
+- **Prompt compartido**: Mismo `ENTITY_EXTRACTION_SYSTEM_PROMPT` estructurado en formato tabla para rutas de imagen y texto
 - Confidence scores y bounding boxes
 - Conversión a `EntityNode` para Neo4j
 - Batch extraction para múltiples frames
@@ -761,10 +771,10 @@ Tipos: `PERSON`, `OBJECT`, `LOCATION`, `ACTION`, `CONCEPT`, `TEXT` (OCR), `BRAND
 
 | Tipo de Relación | Método | Descripción |
 |-----------------|--------|-------------|
-| Co-ocurrencia | `build_cooccurrence_relations()` | Entidades en el mismo frame |
+| Co-ocurrencia | `build_cooccurrence_relations()` | Entidades en el mismo frame (`APPEARS_WITH` con count e historial de frames) |
 | Temporal | `build_temporal_relations()` | BEFORE/AFTER/DURING/SIMULTANEOUS |
-| Semántica | `infer_semantic_relations()` | GPT-4o infiere relaciones |
-| Cross-video | `find_cross_video_entities()` | Matching entre videos |
+| Semántica | `infer_semantic_relations()` | GPT-4o infiere relaciones con `strength` (1-10) → peso normalizado (0.1-1.0). Persistidas con `evidence_count`, `description`, `first_seen`, `last_seen`. Peso más alto se mantiene en MERGE |
+| Cross-video | `find_cross_video_entities()` | Matching entre videos: aristas `SAME_ENTITY` con `similarity_score` (1.0 exacto, 0.7 substring). Requiere mismo `entity_type` y >3 caracteres |
 
 ### 6.3 Servicios de Búsqueda
 
@@ -991,19 +1001,21 @@ Resúmenes multi-nivel: Frame → Scene → Chapter → Video con GPT-4o.
 | Enum | Valores |
 |------|---------|
 | `EntityType` | PERSON, OBJECT, LOCATION, ACTION, CONCEPT, TEXT, BRAND, EVENT |
-| `RelationType` | CONTAINS, BELONGS_TO, BEFORE, AFTER, SIMILAR_TO, INTERACTS_WITH, SAME_ENTITY, TOPIC_OVERLAP, CO_OCCURS, HAS_ATTRIBUTE, PLAYS_ROLE, PERFORMS_ACTION, TRANSITION_TO |
-| `NodeType` | VIDEO, CHAPTER, SCENE, FRAME, ENTITY, AUDIO_SEGMENT, TOPIC |
+| `RelationType` | CONTAINS, BELONGS_TO, BEFORE, AFTER, DURING, STARTS_WITH, ENDS_WITH, SIMULTANEOUS, NEXT_FRAME, NEXT_SEGMENT, NEXT_SCENE, RELATES_TO, SIMILAR_TO, CAUSES, CAUSED_BY, INTERACTS_WITH, APPEARS_WITH, MENTIONED_IN, SAME_ENTITY, TOPIC_OVERLAP, IN_COMMUNITY, SUMMARIZES, SUPPORTS |
+| `NodeType` | VIDEO, CHAPTER, SCENE, FRAME, ENTITY, AUDIO_SEGMENT, TOPIC, COMMUNITY |
 
 #### Nodos
 
 ```
-GraphNodeBase (id, node_type, embedding, metadata, created_at)
-├── VideoNode (video_id, title, description, duration, fps, resolution, topics, ai_summary)
-├── ChapterNode (video_id, start_time, end_time, chapter_index, title, summary, topics)
-├── SceneNode (video_id, chapter_id, start_time, end_time, scene_index, description)
-├── FrameNode (video_id, scene_id, timestamp, frame_number, description, perceptual_hash)
-├── AudioSegmentNode (video_id, start_time, end_time, text, language, speaker_id)
-└── EntityNode (nombre, tipo, atributos)
+GraphNodeBase (id, node_type, embedding, metadata, created_at, updated_at)
+├── VideoNode (video_id, title, description, duration, fps, resolution, topics, summary)
+├── ChapterNode (video_id, start_time, end_time, chapter_index, title, summary, topics, detection_method)
+├── SceneNode (video_id, chapter_id, start_time, end_time, scene_index, description, dominant_colors, scene_type, transition_type, visual_change_score)
+├── FrameNode (video_id, scene_id, timestamp, frame_number, description, perceptual_hash, content_hash, blur_score, brightness)
+├── AudioSegmentNode (video_id, start_time, end_time, text, language, speaker_id, confidence)
+├── EntityNode (name, normalized_name, entity_type, description, description_list[max 5], attributes, confidence, occurrence_count, first_seen_time, last_seen_time)
+├── CommunityNode (community_id, video_id, title, summary, themes, member_entity_ids, member_count, time_span_start, time_span_end, level)
+└── TopicNode (name, normalized_name, description, keywords, relevance_score)
 ```
 
 ### 7.3 API Schemas (`api_schemas.py`)
@@ -1059,14 +1071,24 @@ Cadena de Celery tasks orquestada:
 ```
 process_video_pipeline (orchestrator)
     │
-    ├─→ download_video_task        # Descargar de Azure Blob
-    ├─→ extract_frames_task        # FFmpeg frame extraction
-    ├─→ analyze_frames_task        # GPT-4o vision (batch API)
-    ├─→ generate_embeddings_task   # text-embedding-3-large (parallel)
-    ├─→ transcribe_audio_task      # Whisper con chunking
-    ├─→ index_to_neo4j             # Indexar en Knowledge Graph
-    ├─→ index_transcription_to_graph  # Indexar transcripción
-    └─→ cleanup_task               # Limpiar archivos temporales
+    ├─→ download_video_task          # Descargar de Azure Blob
+    ├─→ extract_frames_task          # FFmpeg frame extraction (PyAV + dedup)
+    ├─→ analyze_frames_task          # GPT-4o vision (batch API, fallback individual)
+    ├─→ transcribe_audio_task        # Whisper con chunking
+    ├─→ hierarchical_summarizer      # Resúmenes Scene → Chapter → Video
+    ├─→ generate_embeddings_task     # text-embedding-3-large (parallel, Matryoshka)
+    ├─→ index_to_neo4j               # Indexar Video, Scenes, Frames en Knowledge Graph
+    ├─→ create_chapters              # Agrupar escenas en capítulos (2-5, LLM títulos)
+    ├─→ index_transcription_to_graph # Indexar transcripción + embeddings
+    ├─→ create_temporal_chains       # NEXT_FRAME, NEXT_SEGMENT, NEXT_SCENE
+    ├─→ entity_extraction            # Extraer entidades (normalización + gleaning)
+    │     ├─→ create_cooccurrence    # Aristas APPEARS_WITH
+    │     ├─→ create_semantic_rels   # Relaciones semánticas con weight
+    │     ├─→ link_entities_topics   # Aristas ABOUT Entity → Topic
+    │     └─→ cross_video_resolution # Aristas SAME_ENTITY entre videos
+    ├─→ create_topic_nodes           # TopicNode + ABOUT Video → Topic
+    ├─→ community_detection          # Leiden clustering + LLM summaries
+    └─→ cleanup_task                 # Limpiar archivos temporales
 ```
 
 - **Lazy loading** de servicios para evitar imports pesados al cargar el módulo
@@ -1110,8 +1132,11 @@ process_video_pipeline (orchestrator)
        ▼                     ▼
 ┌──────────────────────────────────────────────┐
 │           Entity Extraction (GPT-4o)          │
+│  Normalización de tipos (30+ alias → 8 enum)  │
 │  PERSON, OBJECT, LOCATION, TEXT, BRAND...     │
 │  + confidence scores + bounding boxes         │
+│  + multi-pass gleaning (default 1 pasada)     │
+│  + relaciones semánticas con strength (1-10)  │
 └──────────────────┬───────────────────────────┘
                    │
                    ▼
@@ -1125,8 +1150,14 @@ process_video_pipeline (orchestrator)
                    ▼
 ┌──────────────────────────────────────────────┐
 │       Knowledge Graph Indexing (Neo4j)        │
-│  Nodes: Video, Scene, Frame, Entity, Audio    │
+│  Nodes: Video, Chapter, Scene, Frame,         │
+│         Entity, Audio, Topic, Community        │
 │  Relations: temporal, co-occurrence, semantic  │
+│  + Chapters (2-5 escenas, LLM títulos)        │
+│  + Topic nodes con ABOUT edges                │
+│  + Cross-video entity resolution (SAME_ENTITY)│
+│  + Entity description enrichment (cap 5)      │
+│  + Edge weights normalizados (0.1-1.0)        │
 │  Vector indexes para búsqueda                 │
 └──────────────────────────────────────────────┘
 ```
@@ -1151,36 +1182,56 @@ process_video_pipeline (orchestrator)
 ```cypher
 -- Nodos
 (:Video {media_id, title, description, duration_seconds, topics, ai_summary, embedding})
-(:Chapter {video_id, chapter_index, start_time, end_time, title, summary, topics, embedding})
-(:Scene {video_id, scene_index, start_time, end_time, description, embedding})
-(:Frame {video_id, timestamp, frame_number, description, perceptual_hash, embedding})
-(:AudioSegment {video_id, start_time, end_time, text, language, speaker_id, embedding})
-(:Entity {name, type, description, attributes, embedding})
-(:Topic {name, description, embedding})
+(:Chapter {video_id, chapter_index, start_time, end_time, title, summary, topics, detection_method, embedding})
+(:Scene {video_id, scene_index, start_time, end_time, description, dominant_colors, scene_type, transition_type, visual_change_score, embedding})
+(:Frame {video_id, timestamp, frame_number, description, perceptual_hash, embedding, embedding_coarse})
+(:AudioSegment {video_id, start_time, end_time, text, language, speaker_id, confidence, embedding, embedding_coarse})
+(:Entity {name, normalized_name, entity_type, description, description_list, attributes, confidence, occurrence_count, first_seen_time, last_seen_time, embedding})
+(:Topic {name, normalized_name, description, keywords, relevance_score, embedding})
+(:Community {community_id, video_id, title, summary, themes, member_entity_ids, member_count, time_span_start, time_span_end, level, embedding})
 
 -- Relaciones jerárquicas
-(v:Video)-[:HAS_CHAPTER]->(ch:Chapter)
-(v:Video)-[:HAS_SCENE]->(s:Scene)
-(ch:Chapter)-[:CONTAINS_SCENE]->(s:Scene)
-(s:Scene)-[:HAS_FRAME]->(f:Frame)
-(v:Video)-[:HAS_AUDIO]->(a:AudioSegment)
-(f:Frame)-[:CONTAINS]->(e:Entity)
+(v:Video)-[:CONTAINS]->(ch:Chapter)
+(ch:Chapter)-[:CONTAINS]->(s:Scene)
+(s:Scene)-[:CONTAINS]->(f:Frame)
+(v:Video)-[:HAS_TRANSCRIPT]->(a:AudioSegment)
+(f:Frame)-[:CONTAINS {confidence, bounding_box}]->(e:Entity)
 
--- Relaciones temporales
-(s1:Scene)-[:BEFORE]->(s2:Scene)
-(s1:Scene)-[:AFTER]->(s2:Scene)
-(f1:Frame)-[:NEXT]->(f2:Frame)
+-- Topic graph
+(v:Video)-[:ABOUT]->(t:Topic)
+(e:Entity)-[:ABOUT]->(t:Topic)
 
--- Relaciones semánticas
-(e1:Entity)-[:SIMILAR_TO]->(e2:Entity)
-(e1:Entity)-[:INTERACTS_WITH]->(e2:Entity)
-(e1:Entity)-[:CO_OCCURS {count, frames}]->(e2:Entity)
-(e:Entity)-[:SAME_ENTITY]->(e2:Entity)  -- Cross-video
+-- Dense temporal chains
+(f1:Frame)-[:NEXT_FRAME]->(f2:Frame)
+(a1:AudioSegment)-[:NEXT_SEGMENT]->(a2:AudioSegment)
+(s1:Scene)-[:NEXT_SCENE]->(s2:Scene)
 
--- Relaciones de topic
-(v:Video)-[:HAS_TOPIC]->(t:Topic)
-(v1:Video)-[:TOPIC_OVERLAP {shared_topics}]->(v2:Video)
+-- Semantic relations (LLM-extracted)
+-- Properties: weight (0.1-1.0, normalized from LLM strength 1-10),
+--   evidence_count, description, first_seen, last_seen
+-- On MERGE: evidence_count increments, highest weight is kept
+(e1:Entity)-[:INTERACTS_WITH {weight, evidence_count, description, first_seen, last_seen}]->(e2:Entity)
+(e1:Entity)-[:CONTAINS {weight, evidence_count, description, first_seen, last_seen}]->(e2:Entity)
+(e1:Entity)-[:CAUSES {weight, evidence_count, description, first_seen, last_seen}]->(e2:Entity)
+(e1:Entity)-[:CAUSED_BY {weight, evidence_count, description, first_seen, last_seen}]->(e2:Entity)
+(e1:Entity)-[:RELATES_TO {weight, evidence_count, description, first_seen, last_seen}]->(e2:Entity)
+(e1:Entity)-[:SIMILAR_TO {weight, evidence_count, description, first_seen, last_seen}]->(e2:Entity)
+(e1:Entity)-[:MENTIONED_IN {weight, evidence_count, description, first_seen, last_seen}]->(e2:Entity)
+(e1:Entity)-[:APPEARS_WITH {count, frames}]->(e2:Entity)
+
+-- Cross-video entity resolution
+-- Exact name match: similarity_score = 1.0
+-- Substring match (>3 chars, same entity_type): similarity_score = 0.7
+(e1:Entity)-[:SAME_ENTITY {similarity_score, source_video_id, target_video_id}]->(e2:Entity)
+
+-- Community detection (Leiden algorithm, hierarchical)
+(e:Entity)-[:IN_COMMUNITY]->(c:Community)
+(c:Community)-[:SUMMARIZES]->(v:Video)
 ```
+
+**Entity Description Enrichment**: Al hacer MERGE de entidades, `description_list` acumula hasta 5 variantes únicas. La `description` canónica se actualiza solo si la nueva es más larga. `occurrence_count` se incrementa y se actualizan `first_seen_time` / `last_seen_time`.
+
+**Edge Weights**: Las relaciones semánticas extraídas por el LLM incluyen `strength` (1-10) que se normaliza a `weight` (0.1-1.0). En MERGE, se conserva el peso más alto. `evidence_count` se incrementa con cada observación repetida.
 
 ### 10.2 Indexes
 
@@ -1285,6 +1336,10 @@ Stage 2 (Fine - 3072 dims):
   Re-ranking con embeddings completos
   → Top-K resultados precisos
 ```
+
+### Pesos en Aristas del Grafo
+
+Las relaciones semánticas entre entidades ahora portan `weight` (0.1-1.0), derivado del `strength` (1-10) asignado por el LLM durante la extracción. La señal `graph` del pipeline de búsqueda puede incorporar estos pesos normalizados al calcular proximidad durante la travesía N-hop, priorizando relaciones con mayor evidencia.
 
 ---
 

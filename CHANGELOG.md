@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **AI Foundry region restored to Sweden Central** — moves AI resources back to `swedencentral` for model availability. The previous `aif-qprisma-dev` resource in West Europe was purged and will be recreated via the `deploy-ai-foundry.yml` workflow.
+- **Leiden community detection replaces Louvain as default**: Hierarchical multi-resolution community detection via `leidenalg` / `igraph` with guaranteed connected communities. Falls back to Louvain when leidenalg is unavailable. Configurable via `settings.community.algorithm` and `settings.community.hierarchical_levels`. (`services/community_detection_service.py`)
+- **Improved entity extraction prompts**: Structured table format for entity types with specific naming guidance, typed relationship extraction (INTERACTS_WITH, CONTAINS, CAUSES, RELATES_TO, SIMILAR_TO), and confidence calibration rules. (`services/entity_extractor.py`)
 
 ### Removed
 - **Editor agent (Chat-to-Edit) feature** — incomplete feature removed to simplify the repository.
@@ -18,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`docs/architecture_diagram.py`** — removed unused diagram generator.
 
 ### Added
+
+#### Knowledge Graph Architecture
+- **Entity type normalization with alias fallback**: 30+ alias mappings (e.g. "vehicle"→object, "place"→location, "organization"→brand) with CONCEPT fallback for unknown types. Prevents entity loss from LLM hallucinated types. (`services/entity_extractor.py`: `_normalize_entity_type()`, `_ENTITY_TYPE_ALIASES`)
+- **Semantic relation storage**: Typed semantic edges (INTERACTS_WITH, CONTAINS, CAUSES, CAUSED_BY, RELATES_TO, SIMILAR_TO, MENTIONED_IN, APPEARS_WITH) with `evidence_count`, `weight`, `first_seen`, and `last_seen` properties. MERGE-based deduplication increments evidence count on repeated observations. (`services/graph_node_repository.py`: `create_semantic_relations_batch()`)
+- **Entity description enrichment**: MERGE-based entity creation accumulates up to 5 distinct descriptions in `description_list`, keeping the longest as primary `description`. (`services/graph_node_repository.py`: `create_entity_node()`, `create_entities_batch()`)
+- **Multi-pass gleaning extraction**: Continuation prompt pattern (GraphRAG-inspired) to recover missed entities. Configurable `max_gleanings` parameter (default 0, recommended 1). Deduplicates by normalized name and merges relations across passes. (`services/entity_extractor.py`: `extract_from_description()`, `GLEANING_PROMPT`)
+- **Chapter nodes**: Intermediate hierarchy level grouping scenes (Video→Chapter→Scene). LLM-generated titles and summaries per chapter. Configurable via `max_scenes_per_chapter`. (`models/graph_models.py`: `ChapterNode`, `services/graph_node_repository.py`: `create_chapter_node()`, `services/hierarchical_context_service.py`)
+- **Topic graph nodes**: `TopicNode` with `ABOUT` edges linking Topics to Videos and Entities. MERGE on `normalized_name` avoids duplicates across videos. Entity-to-topic linking via keyword/name matching. (`models/graph_models.py`: `TopicNode`, `services/graph_node_repository.py`: `create_topic_nodes_batch()`, `link_entities_to_topics()`)
+- **Cross-video entity resolution**: `SAME_ENTITY` edges between entities from different videos sharing the same type and matching/overlapping normalized names. Conservative matching with `similarity_score` (1.0 for exact, 0.7 for substring containment). (`services/graph_node_repository.py`: `resolve_cross_video_entities()`)
+- **Relationship strength weights**: LLM extracts `strength` (1–10) per relation, normalized to 0.1–1.0 `weight` on semantic edges. Stored alongside `evidence_count` for downstream ranking. (`services/entity_extractor.py`: `convert_relations_for_graph()`)
+- **Relation type normalization**: Maps LLM-generated relation types (NEAR, ON, INSIDE, PART_OF, HAS, USES, HOLDS, WEARS) to valid semantic edge labels. (`services/entity_extractor.py`: `_normalize_relation_type()`, `_RELATION_TYPE_MAP`)
 
 #### Security
 - **JWT authentication on WebSocket endpoints**: All WebSocket connections require JWT via query parameter (`?token=`) or first-message (`{"token": "..."}`).

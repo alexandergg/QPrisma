@@ -40,8 +40,9 @@ It ingests media, extracts visual/audio context, builds semantic and graph index
 
 - **Video understanding**: Frame-level analysis, scene structure, and multimodal interpretation.
 - **Conversational retrieval (RAG)**: Ask natural language questions across one or many videos.
-- **Knowledge graph enrichment**: Capture entities, relationships, and community structure for contextual search.
-- **Community detection**: Louvain-based entity clustering with LLM-generated thematic summaries, integrated into hybrid search.
+- **Knowledge graph enrichment**: Entity type normalization (30+ alias mappings with CONCEPT fallback), description enrichment (up to 5 accumulated descriptions per entity), semantic relation storage (evidence_count, weight), and multi-pass gleaning extraction for improved recall.
+- **Community detection**: Leiden-based hierarchical entity clustering (multi-resolution, leidenalg/igraph) with LLM-generated thematic summaries, integrated into hybrid search. Louvain fallback when leidenalg is unavailable.
+- **Graph hierarchy**: Chapter nodes (Video→Chapter→Scene with LLM titles/summaries), Topic graph nodes (ABOUT edges to Video and Entity), cross-video entity resolution (SAME_ENTITY edges with similarity scores), and LLM-calibrated relationship strength weights (1–10 → 0.1–1.0) on semantic edges.
 - **Dense temporal chains**: Graph-native time walking via NEXT_FRAME / NEXT_SEGMENT / NEXT_SCENE relationships with temporal adjacency scoring.
 - **Multi-video chat**: Compare findings across selected assets in one query flow.
 - **Async processing at scale**: Queue-based background processing with live status updates.
@@ -75,7 +76,7 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 | Video Decode | PyAV (C-level FFmpeg bindings), FFmpeg subprocess fallback |
 | Scene Detection | PySceneDetect (AdaptiveDetector + ContentDetector) |
 | Transcription | Azure Whisper (default), faster-whisper (optional, 4× faster, INT8/Silero VAD) |
-| Graph Intelligence | Community detection (Louvain / NetworkX), dense temporal chains |
+| Graph Intelligence | Community detection (Leiden via leidenalg/igraph, Louvain fallback), dense temporal chains, cross-video entity resolution, entity normalization |
 | Data | PostgreSQL, Neo4j, Redis |
 | Storage | Azure Blob Storage |
 | Infrastructure | Bicep, GitHub Actions, Azure Container Apps |
