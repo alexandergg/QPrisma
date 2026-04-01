@@ -1350,6 +1350,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 graph = get_knowledge_graph_service()
 
                 entity_batch: list[tuple] = []
+                relation_batch: list[dict] = []
                 frame_ids_with_entities: list[str] = []
 
                 for frame_node in frames_to_create:
@@ -1365,6 +1366,11 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             entity_batch.append((entity_node, frame_node.id))
                         if entity_nodes:
                             frame_ids_with_entities.append(frame_node.id)
+                            # Collect semantic relations for this frame
+                            frame_relations = extractor.convert_relations_for_graph(
+                                analysis, video_id, frame_node.id
+                            )
+                            relation_batch.extend(frame_relations)
                     except Exception as frame_err:
                         logger.debug(
                             f"Entity extraction failed for frame {frame_node.id}: {frame_err}"
@@ -1382,6 +1388,20 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         except Exception as cooc_err:
                             logger.debug(
                                 f"Co-occurrence creation failed for frame {fid}: {cooc_err}"
+                            )
+
+                    # Store LLM-extracted semantic relations
+                    if relation_batch:
+                        try:
+                            sem_created = graph.create_semantic_relations_batch(
+                                relation_batch
+                            )
+                            logger.info(
+                                f"Created {sem_created} semantic relations for video {video_id}"
+                            )
+                        except Exception as sem_err:
+                            logger.warning(
+                                f"Semantic relation creation failed: {sem_err}"
                             )
                 else:
                     logger.info(f"No entities extracted for video {video_id}")

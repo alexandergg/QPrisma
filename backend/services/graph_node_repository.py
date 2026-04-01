@@ -340,6 +340,7 @@ class GraphNodeRepository:
             e.name = $name,
             e.video_id = f.video_id,
             e.description = $description,
+            e.description_list = CASE WHEN $description IS NOT NULL THEN [$description] ELSE [] END,
             e.attributes = $attributes,
             e.confidence = $confidence,
             e.occurrence_count = 1,
@@ -349,7 +350,16 @@ class GraphNodeRepository:
         ON MATCH SET
             e.occurrence_count = e.occurrence_count + 1,
             e.last_seen_time = f.timestamp,
-            e.confidence = CASE WHEN $confidence > e.confidence THEN $confidence ELSE e.confidence END
+            e.confidence = CASE WHEN $confidence > e.confidence THEN $confidence ELSE e.confidence END,
+            e.description = CASE
+                WHEN $description IS NOT NULL AND size($description) > size(coalesce(e.description, ''))
+                THEN $description ELSE e.description END,
+            e.description_list = CASE
+                WHEN $description IS NOT NULL
+                    AND NOT $description IN coalesce(e.description_list, [])
+                    AND size(coalesce(e.description_list, [])) < 5
+                THEN coalesce(e.description_list, []) + $description
+                ELSE coalesce(e.description_list, []) END
         CREATE (f)-[:CONTAINS {confidence: $confidence, bounding_box: $bounding_box}]->(e)
         RETURN e.id as id
         """
@@ -387,13 +397,23 @@ class GraphNodeRepository:
             e.name = entity.name,
             e.video_id = f.video_id,
             e.description = entity.description,
+            e.description_list = CASE WHEN entity.description IS NOT NULL THEN [entity.description] ELSE [] END,
             e.confidence = entity.confidence,
             e.occurrence_count = 1,
             e.first_seen_time = f.timestamp,
             e.created_at = datetime(entity.created_at)
         ON MATCH SET
             e.occurrence_count = e.occurrence_count + 1,
-            e.last_seen_time = f.timestamp
+            e.last_seen_time = f.timestamp,
+            e.description = CASE
+                WHEN entity.description IS NOT NULL AND size(entity.description) > size(coalesce(e.description, ''))
+                THEN entity.description ELSE e.description END,
+            e.description_list = CASE
+                WHEN entity.description IS NOT NULL
+                    AND NOT entity.description IN coalesce(e.description_list, [])
+                    AND size(coalesce(e.description_list, [])) < 5
+                THEN coalesce(e.description_list, []) + entity.description
+                ELSE coalesce(e.description_list, []) END
         CREATE (f)-[:CONTAINS {confidence: entity.confidence}]->(e)
         RETURN count(e) as created
         """
@@ -749,6 +769,63 @@ class GraphNodeRepository:
             result = session.run(query, frame_id=frame_id)
             record = result.single()
             return record["relations_created"]
+
+    def create_semantic_relations_batch(self, relations: list[dict]) -> int:
+        """Create semantic relations between entities extracted by the LLM.
+
+        Each dict must contain: source_name, target_name, relation_type, frame_id.
+        Optional: description, timestamp.
+
+        Entities are matched via the Frame they both belong to (CONTAINS edge)
+        to avoid cross-video ambiguity.  Uses MERGE to deduplicate edges and
+        increments ``evidence_count`` on repeated observations.
+        """
+        if not relations:
+            return 0
+
+        grouped: dict[str, list[dict]] = defaultdict(list)
+        for rel in relations:
+            grouped[rel["relation_type"]].append(rel)
+
+        total_created = 0
+        for rel_type, rels in grouped.items():
+            batch_data = [
+                {
+                    "source_name": r["source_name"],
+                    "target_name": r["target_name"],
+                    "frame_id": r["frame_id"],
+                    "description": r.get("description", ""),
+                    "timestamp": r.get("timestamp", 0.0),
+                }
+                for r in rels
+            ]
+
+            query = f"""
+            UNWIND $batch AS rel
+            MATCH (f:Frame {{id: rel.frame_id}})-[:CONTAINS]->(src:Entity)
+            WHERE src.normalized_name = rel.source_name
+            MATCH (f)-[:CONTAINS]->(tgt:Entity)
+            WHERE tgt.normalized_name = rel.target_name AND tgt.id <> src.id
+            MERGE (src)-[r:{rel_type}]->(tgt)
+            ON CREATE SET
+                r.description = rel.description,
+                r.evidence_count = 1,
+                r.first_seen = rel.timestamp
+            ON MATCH SET
+                r.evidence_count = r.evidence_count + 1,
+                r.last_seen = rel.timestamp
+            RETURN count(r) as created
+            """
+
+            try:
+                with self._get_session() as session:
+                    result = session.run(query, batch=batch_data)
+                    record = result.single()
+                    total_created += record["created"] if record else 0
+            except Exception as e:
+                logger.error(f"Semantic relation creation failed for type {rel_type}: {e}")
+
+        return total_created
 
     # =====================================================================
     # Dense Temporal Chain Operations

@@ -26,6 +26,92 @@ from models.graph_models import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Entity-type normalisation helpers
+# ---------------------------------------------------------------------------
+
+_ENTITY_TYPE_ALIASES: dict[str, str] = {
+    # Common LLM hallucinations → closest valid EntityType value
+    "lighting": "concept",
+    "animal": "object",
+    "vehicle": "object",
+    "place": "location",
+    "activity": "action",
+    "thing": "object",
+    "organization": "brand",
+    "product": "object",
+    "scene": "location",
+    "setting": "location",
+    "emotion": "concept",
+    "weather": "concept",
+    "time": "concept",
+    "color": "concept",
+    "sound": "concept",
+    "music": "concept",
+    "food": "object",
+    "clothing": "object",
+    "furniture": "object",
+    "technology": "object",
+    "nature": "location",
+    "abstract": "concept",
+    "gesture": "action",
+    "movement": "action",
+    "expression": "concept",
+    "symbol": "concept",
+    "logo": "brand",
+    "company": "brand",
+    "group": "person",
+    "crowd": "person",
+}
+
+
+def _normalize_entity_type(raw_type: str) -> EntityType:
+    """Normalize a raw entity type string to a valid EntityType.
+
+    Tries direct enum lookup, then alias mapping, then falls back to CONCEPT
+    so that the entity is never silently dropped.
+    """
+    normalized = raw_type.lower().strip()
+    try:
+        return EntityType(normalized)
+    except ValueError:
+        pass
+    mapped = _ENTITY_TYPE_ALIASES.get(normalized)
+    if mapped is not None:
+        return EntityType(mapped)
+    logger.warning(f"Unknown entity type '{raw_type}' normalized to 'concept'")
+    return EntityType.CONCEPT
+
+
+# ---------------------------------------------------------------------------
+# Relation-type normalisation helpers
+# ---------------------------------------------------------------------------
+
+_VALID_SEMANTIC_RELATION_TYPES = frozenset({
+    "INTERACTS_WITH", "CONTAINS", "CAUSES", "CAUSED_BY",
+    "RELATES_TO", "SIMILAR_TO", "MENTIONED_IN", "APPEARS_WITH",
+})
+
+_RELATION_TYPE_MAP: dict[str, str] = {
+    "NEAR": "RELATES_TO",
+    "ON": "RELATES_TO",
+    "INSIDE": "CONTAINS",
+    "PART_OF": "CONTAINS",
+    "HAS": "CONTAINS",
+    "USES": "INTERACTS_WITH",
+    "HOLDS": "INTERACTS_WITH",
+    "WEARS": "INTERACTS_WITH",
+}
+
+
+def _normalize_relation_type(raw_type: str) -> str:
+    """Normalize a relation type to a valid semantic edge label."""
+    upper = raw_type.upper().strip()
+    if upper in _VALID_SEMANTIC_RELATION_TYPES:
+        return upper
+    return _RELATION_TYPE_MAP.get(upper, "RELATES_TO")
+
+
 # System prompt for entity extraction
 ENTITY_EXTRACTION_SYSTEM_PROMPT = """You are an expert visual analyst for a video understanding system. Your task is to analyze video frames and extract structured information about entities, relationships, and context.
 
@@ -39,6 +125,7 @@ For each frame, you must identify and extract:
    - TEXT: Any visible text (signs, labels, screens)
    - BRAND: Recognizable brands or logos
    - CONCEPT: Abstract concepts represented visually
+   - EVENT: Notable events, incidents, or occurrences depicted in the scene
 
 2. **RELATIONSHIPS** between entities:
    - Who is interacting with whom/what
@@ -69,7 +156,7 @@ Respond with a JSON object following this exact schema:
     "description": "Overall description of what's happening in the frame",
     "entities": [
         {{
-            "entity_type": "person|object|location|action|text|brand|concept",
+            "entity_type": "person|object|location|action|text|brand|concept|event",
             "name": "descriptive name for the entity",
             "confidence": 0.0-1.0,
             "bounding_box": {{"x": 0-100, "y": 0-100, "width": 0-100, "height": 0-100}} or null,
@@ -81,7 +168,7 @@ Respond with a JSON object following this exact schema:
         {{
             "source": "entity name",
             "target": "entity name",
-            "type": "INTERACTS_WITH|APPEARS_WITH|CONTAINS|CAUSES|NEAR|ON|INSIDE",
+            "type": "INTERACTS_WITH|CONTAINS|CAUSES|RELATES_TO|SIMILAR_TO",
             "description": "brief description of relationship"
         }}
     ],
@@ -249,7 +336,7 @@ class EntityExtractor:
         for e in data.get("entities", []):
             try:
                 entity = ExtractedEntity(
-                    entity_type=EntityType(e.get("entity_type", "object")),
+                    entity_type=_normalize_entity_type(e.get("entity_type", "object")),
                     name=e.get("name", "unknown"),
                     confidence=float(e.get("confidence", 0.5)),
                     bounding_box=e.get("bounding_box"),
@@ -305,7 +392,7 @@ Respond with JSON following this schema:
 {{
     "entities": [
         {{
-            "entity_type": "person|object|location|action|text|brand|concept",
+            "entity_type": "person|object|location|action|text|brand|concept|event",
             "name": "entity name",
             "confidence": 0.0-1.0,
             "attributes": {{}},
@@ -316,7 +403,7 @@ Respond with JSON following this schema:
         {{
             "source": "entity name",
             "target": "entity name",
-            "type": "INTERACTS_WITH|APPEARS_WITH|CONTAINS|CAUSES",
+            "type": "INTERACTS_WITH|CONTAINS|CAUSES|RELATES_TO|SIMILAR_TO",
             "description": "relationship description"
         }}
     ],
@@ -361,7 +448,7 @@ Respond with JSON following this schema:
         for e in data.get("entities", []):
             try:
                 entity = ExtractedEntity(
-                    entity_type=EntityType(e.get("entity_type", "object")),
+                    entity_type=_normalize_entity_type(e.get("entity_type", "object")),
                     name=e.get("name", "unknown"),
                     confidence=float(e.get("confidence", 0.5)),
                     attributes=e.get("attributes", {}),
@@ -418,6 +505,48 @@ Respond with JSON following this schema:
             nodes.append(node)
 
         return nodes
+
+    def convert_relations_for_graph(
+        self,
+        analysis: FrameAnalysisResult,
+        video_id: str,
+        frame_id: str,
+    ) -> list[dict]:
+        """Convert extracted relations to graph-ready semantic edge data.
+
+        Maps entity names to normalised names and relation types to valid
+        RelationType values so they can be stored as typed Neo4j edges.
+
+        Args:
+            analysis: Frame analysis result containing relations.
+            video_id: Video ID.
+            frame_id: Frame node ID for scoping entity lookup.
+
+        Returns:
+            List of dicts ready for ``create_semantic_relations_batch``.
+        """
+        if not analysis.relations:
+            return []
+
+        edges: list[dict] = []
+        for rel in analysis.relations:
+            source = rel.get("source", "").strip()
+            target = rel.get("target", "").strip()
+            if not source or not target:
+                continue
+
+            edges.append({
+                "source_name": source.lower().replace(" ", "_"),
+                "target_name": target.lower().replace(" ", "_"),
+                "relation_type": _normalize_relation_type(
+                    rel.get("type", "RELATES_TO")
+                ),
+                "description": rel.get("description", ""),
+                "frame_id": frame_id,
+                "timestamp": analysis.timestamp,
+            })
+
+        return edges
 
     def batch_extract(
         self,

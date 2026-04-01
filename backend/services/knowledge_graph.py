@@ -504,6 +504,10 @@ class KnowledgeGraphService:
         """Create APPEARS_WITH relations between entities in the same frame."""
         return self.nodes.create_entity_cooccurrence(frame_id)
 
+    def create_semantic_relations_batch(self, relations: list[dict]) -> int:
+        """Create LLM-extracted semantic relations between entities."""
+        return self.nodes.create_semantic_relations_batch(relations)
+
     # =========================================================================
     # Search Operations
     # =========================================================================
