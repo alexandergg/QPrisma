@@ -6,10 +6,12 @@ Nodes for the LangGraph-based video agent.
 Uses shared base implementation with video-specific configuration.
 """
 
+import json
 import logging
+import re
 from typing import Literal
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from agent.nodes.base import (
@@ -58,6 +60,37 @@ def _resolve_video_titles(media_ids: list[str]) -> dict[str, str]:
     return titles
 
 
+# Regex for QPRISMA_CONTEXT prefix (same as state_converter but kept local for
+# defense-in-depth — this fallback runs even if the converter didn't strip it).
+_CONTEXT_RE = re.compile(r"^\[QPRISMA_CONTEXT:(.*?)\]\n?", re.DOTALL)
+
+
+def _parse_qprisma_context_from_messages(
+    messages: list,
+) -> tuple[dict, list | None]:
+    """Extract ``[QPRISMA_CONTEXT:{...}]`` from the last HumanMessage.
+
+    Returns:
+        (metadata_dict, updated_messages) — if a prefix was found and stripped.
+        ({}, None) — if no prefix found (messages unchanged).
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        msg = messages[i]
+        if isinstance(msg, HumanMessage) and isinstance(msg.content, str):
+            match = _CONTEXT_RE.match(msg.content)
+            if match:
+                try:
+                    metadata = json.loads(match.group(1))
+                except (json.JSONDecodeError, TypeError):
+                    return {}, None
+                cleaned = msg.content[match.end():]
+                new_messages = list(messages)
+                new_messages[i] = HumanMessage(content=cleaned)
+                return metadata, new_messages
+            break  # only check the last HumanMessage
+    return {}, None
+
+
 def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     """
     Restore media_id from RunnableConfig on every graph invocation,
@@ -65,7 +98,8 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
 
     Priority order for resolving media_id:
     1. ``config.configurable["media_id"]`` — fresh value from the current request
-    2. ``state["media_id"]`` — preserved from a previous invocation via checkpoint
+    2. ``state["media_id"]`` — set by QPrismaStateConverter or checkpoint
+    3. ``[QPRISMA_CONTEXT:...]`` parsed from messages — defense-in-depth fallback
 
     When ``create_agent_state()`` omits the ``media_id`` key (because the
     frontend didn't send one), LangGraph preserves the checkpointed value
@@ -108,17 +142,45 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     state_media_id = state.get("media_id")
     state_media_ids = state.get("media_ids")
 
-    # Resolve effective media_id: config wins, then checkpoint state
-    effective_media_id = config_media_id or state_media_id
-    effective_media_ids = config_media_ids or state_media_ids
-
+    # --- Defense-in-depth: parse QPRISMA_CONTEXT from messages ----------
+    # QPrismaStateConverter normally handles this, but if the converter
+    # didn't run (e.g. direct graph invocation) or the prefix wasn't
+    # stripped, we catch it here.
+    msg_media_id = None
+    msg_media_ids = None
     updates: dict = {}
 
+    if not config_media_id and not state_media_id:
+        messages = state.get("messages", [])
+        msg_ctx, cleaned_messages = _parse_qprisma_context_from_messages(messages)
+        if msg_ctx:
+            msg_media_id = msg_ctx.get("media_id")
+            msg_media_ids = msg_ctx.get("media_ids")
+            msg_user_id = msg_ctx.get("user_id")
+            if msg_user_id and not user_id:
+                updates["user_id"] = msg_user_id
+            if cleaned_messages is not None:
+                updates["messages"] = cleaned_messages
+            logger.info(
+                "restore_media_context: extracted QPRISMA_CONTEXT from messages — "
+                "media_id=%s, media_ids=%s",
+                msg_media_id,
+                msg_media_ids,
+            )
+
+    # Resolve effective media_id: config > state (converter/checkpoint) > message
+    effective_media_id = config_media_id or state_media_id or msg_media_id
+    effective_media_ids = config_media_ids or state_media_ids or msg_media_ids
+
     if effective_media_id and effective_media_id != state_media_id:
+        source = (
+            "config" if config_media_id
+            else "state" if state_media_id
+            else "message"
+        )
         logger.info(
             f"restore_media_context: overriding state media_id "
-            f"'{state_media_id}' → '{effective_media_id}' "
-            f"(source={'config' if config_media_id else 'checkpoint'})"
+            f"'{state_media_id}' → '{effective_media_id}' (source={source})"
         )
         updates["media_id"] = effective_media_id
         updates["video_context"] = VideoContext(media_id=effective_media_id)
