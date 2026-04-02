@@ -1,6 +1,6 @@
 name: Deploy Neo4j AuraDB
 
-run-name: Provision Neo4j AuraDB instance
+run-name: "Neo4j AuraDB: ${{ inputs.action }} (${{ inputs.instance_type }})"
 
 on:
   workflow_dispatch:
@@ -11,25 +11,44 @@ on:
         default: 'dev'
         type: choice
         options: [dev]
+      instance_type:
+        description: 'AuraDB instance type'
+        required: true
+        default: 'professional-db'
+        type: choice
+        options:
+          - professional-db
+          - free-db
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'provision'
+        type: choice
+        options:
+          - provision
+          - pause
+          - resume
 
 permissions:
   contents: read
 
 jobs:
-  provision:
+  manage:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v6
 
-      - name: Provision AuraDB instance
+      - name: "${{ inputs.action }} AuraDB instance"
         id: aura
         env:
           AURA_CLIENT_ID: ${{ secrets.AURA_CLIENT_ID }}
           AURA_CLIENT_SECRET: ${{ secrets.AURA_CLIENT_SECRET }}
           AURA_TENANT_ID: ${{ secrets.AURA_TENANT_ID }}
           ENVIRONMENT: ${{ inputs.environment }}
+          AURA_INSTANCE_TYPE: ${{ inputs.instance_type }}
+          AURA_ACTION: ${{ inputs.action }}
         run: python scripts/deploy_neo4j_aura.py
 
       - name: Mask sensitive outputs
@@ -38,17 +57,23 @@ jobs:
 
       - name: Deployment summary
         run: |
-          echo "## Neo4j AuraDB Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "## Neo4j AuraDB — ${{ inputs.action }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Instance | qprisma-graph-${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Created | ${{ steps.aura.outputs.instance_created }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Type | ${{ inputs.instance_type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Action | ${{ inputs.action }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Created | ${{ steps.aura.outputs.instance_created || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Instance ID | ${{ steps.aura.outputs.neo4j_instance_id }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| URI | ${{ steps.aura.outputs.neo4j_uri }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| URI | ${{ steps.aura.outputs.neo4j_uri || 'N/A (paused)' }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.aura.outputs.instance_created }}" = "true" ]; then
             echo "> **Action required:** Set the following GitHub secrets:" >> $GITHUB_STEP_SUMMARY
             echo "> - \`NEO4J_URI\` = \`${{ steps.aura.outputs.neo4j_uri }}\`" >> $GITHUB_STEP_SUMMARY
             echo "> - \`NEO4J_PASSWORD\` = (check workflow logs for masked password)" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ "${{ inputs.action }}" = "pause" ]; then
+            echo "> Instance paused. Compute billing stopped (~80% savings)." >> $GITHUB_STEP_SUMMARY
+            echo "> Data and backups are retained. Resume when needed." >> $GITHUB_STEP_SUMMARY
           fi

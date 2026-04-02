@@ -309,11 +309,12 @@ jobs:
           CONTAINER_IMAGE: ${{ env.FULL_IMAGE }}
           ENVIRONMENT: hosted
           APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ steps.appinsights.outputs.connection_string }}
+          OTEL_SERVICE_NAME: qprisma-hosted-agent
           # Neo4j Knowledge Graph
           NEO4J_URI: ${{ secrets.NEO4J_URI }}
           NEO4J_USER: neo4j
           NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
-          NEO4J_DATABASE: qprisma
+          NEO4J_DATABASE: neo4j
           # PostgreSQL (built conditionally in resolver step — empty if PG not found)
           DATABASE_URL: ${{ steps.services.outputs.database_url }}
           # Redis

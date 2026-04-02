@@ -163,6 +163,7 @@ def main() -> None:
         # --- Telemetry ---
         **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING"),
         **_optional_env("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"),
+        **_optional_env("OTEL_SERVICE_NAME"),
         # --- Neo4j Knowledge Graph ---
         **_optional_env("NEO4J_URI"),
         **_optional_env("NEO4J_USER"),
