@@ -165,24 +165,7 @@ These should be specific to the video content you just analyzed (e.g., "Tell me 
 Remember: Your value is in unlocking the rich content within videos. Every response should make users feel they understand their video better."""
 
 
-PLANNING_PROMPT = """Based on the user's question, decide what tools to use.
-
-User question: {question}
-
-Video context: {video_context}
-
-Available tools:
-{tools_description}
-
-Think step by step:
-1. What information does the user need?
-2. Which tools would help gather that information?
-3. In what order should I use them?
-
-Make tool calls to gather the necessary information."""
-
-
-NO_VIDEO_CONTEXT_PROMPT = """You are QPrisma, a video analysis assistant.
+NO_VIDEO_CONTEXT_PROMPT= """You are QPrisma, a video analysis assistant.
 
 Currently, there is no video loaded in this conversation. I can't use my video analysis tools without a video selected.
 
@@ -205,22 +188,6 @@ With **multiple videos selected**, I can also:
 - 📊 **Cross-reference** entities, topics, and themes
 
 What video would you like to analyze?"""
-
-
-SUMMARIZE_RESULTS_PROMPT = """Based on the tool results, provide a helpful response to the user.
-
-User question: {question}
-
-Tool results:
-{tool_results}
-
-Guidelines:
-- Synthesize the information clearly and naturally
-- Include relevant timestamps in [MM:SS] format
-- Be concise but complete
-- Quote relevant speech/text directly
-- If results are empty or not relevant, acknowledge that clearly
-- Suggest follow-up actions if appropriate"""
 
 
 # =============================================================================

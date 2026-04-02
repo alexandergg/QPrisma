@@ -143,7 +143,7 @@ class AgentState(TypedDict, total=False):
     last_error: str | None
     partial_results: list[dict]  # Results gathered before errors
     memory_context: list[str]  # Compact memory snippets from tool outputs
-    artifact_refs: list["ToolArtifactRef"]  # References to full tool outputs stored externally
+    artifact_refs: list[dict]  # References to full tool outputs stored externally
 
     # Metadata
     user_id: str | None
@@ -184,43 +184,6 @@ class AgentOutputState(TypedDict, total=False):
     sources: list[dict]
     # Expose these for user context but not internal tracking
     video_context: VideoContext | None
-
-
-class SourceMetadata(TypedDict, total=False):
-    """Structured metadata for a source reference."""
-
-    timestamp: float
-    timestamp_formatted: str
-    type: str  # 'visual', 'audio', 'entity', 'comparison', 'timeline'
-    description: str
-    score: float
-
-
-class NavigationAction(TypedDict, total=False):
-    """A navigation action the user can take."""
-
-    action: str  # 'jump_to', 'create_clip', etc.
-    label: str
-    timestamp: float
-    end_timestamp: float | None
-    parameters: dict
-
-
-class EntityMention(TypedDict, total=False):
-    """An entity mentioned in the conversation."""
-
-    name: str
-    type: str
-    relevance: float
-
-
-class ToolArtifactRef(TypedDict, total=False):
-    """Reference to a full tool output persisted in artifact storage."""
-
-    artifact_id: str
-    tool_call_id: str | None
-    tool_name: str
-    summary: str
 
 
 def create_agent_state(

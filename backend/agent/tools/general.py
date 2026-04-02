@@ -13,8 +13,6 @@ This module re-exports every public symbol so that existing
 ``from agent.tools.general import …`` statements continue to work.
 """
 
-# --- Search tools ---
-# --- Analysis tools ---
 from agent.tools.analysis_tools import (  # noqa: F401
     compare_moments,
     get_entity_timeline,

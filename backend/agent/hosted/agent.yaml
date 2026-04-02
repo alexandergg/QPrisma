@@ -41,10 +41,12 @@ template:
     # --- Neo4j Knowledge Graph ---
     - name: NEO4J_URI
       value: ${NEO4J_URI}
-    - name: NEO4J_USERNAME
-      value: ${NEO4J_USERNAME}
+    - name: NEO4J_USER
+      value: ${NEO4J_USER}
     - name: NEO4J_PASSWORD
       secretKeyVaultUri: ${NEO4J_PASSWORD_KV_URI}
+    - name: NEO4J_DATABASE
+      value: ${NEO4J_DATABASE}
 
     # --- Redis ---
     - name: REDIS_URL

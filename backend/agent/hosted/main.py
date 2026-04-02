@@ -19,6 +19,7 @@ Protocols supported:
 
 import logging
 import os
+import re
 import sys
 
 # Ensure the backend directory is on the Python path so that
@@ -112,6 +113,57 @@ def _setup_telemetry() -> None:
         logger.warning("Application Insights: failed to initialize (%s)", e)
 
 
+def _mask_uri(uri: str) -> str:
+    """Mask credentials in a connection URI for safe logging."""
+    return re.sub(r"://[^@]*@", "://***:***@", uri)
+
+
+def _check_service_health() -> None:
+    """Log connectivity status for backend services at startup.
+
+    Non-blocking — logs warnings but never prevents the agent from starting.
+    """
+    from core.config import settings
+
+    # --- Neo4j ---
+    try:
+        neo4j_uri = settings.neo4j.uri
+        logger.info("Neo4j: configured uri=%s, user=%s", neo4j_uri, settings.neo4j.user)
+        from services.knowledge_graph import get_knowledge_graph_service
+
+        kg = get_knowledge_graph_service()
+        if not kg.is_connected:
+            kg.connect()
+        if kg.is_connected:
+            logger.info("Neo4j: connected ✓")
+        else:
+            logger.warning("Neo4j: connection FAILED at %s", neo4j_uri)
+    except Exception as e:
+        logger.warning("Neo4j: health check error — %s", e)
+
+    # --- PostgreSQL ---
+    try:
+        pg_url = settings.postgres.database_url
+        logger.info("PostgreSQL: configured url=%s", _mask_uri(pg_url))
+        from services.database_service import get_database_service
+
+        db = get_database_service()
+        health = db.health_check()
+        if health.get("status") == "healthy":
+            logger.info("PostgreSQL: connected ✓")
+        else:
+            logger.warning("PostgreSQL: connection FAILED — %s", health.get("error", "unknown"))
+    except Exception as e:
+        logger.warning("PostgreSQL: health check error — %s", e)
+
+    # --- Redis ---
+    try:
+        redis_url = settings.redis.url
+        logger.info("Redis: configured url=%s", _mask_uri(redis_url))
+    except Exception as e:
+        logger.warning("Redis: config check error — %s", e)
+
+
 def main():
     """Start the Foundry hosted agent server."""
     logger.info("Starting QPrisma Video Agent (Foundry Hosted Mode)")
@@ -119,6 +171,9 @@ def main():
 
     # Initialize tracing before the graph/adapter so spans are captured
     _setup_telemetry()
+
+    # Log backend service connectivity (non-blocking)
+    _check_service_health()
 
     app = create_hosted_app()
 
