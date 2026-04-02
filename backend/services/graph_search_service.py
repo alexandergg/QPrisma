@@ -134,7 +134,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         with self.graph_service.get_session() as session:
             for index_name, label, prop, dims in index_configs:
                 try:
-                    session.run(f"""
+                    session.run(
+                        f"""
                         CREATE VECTOR INDEX {index_name} IF NOT EXISTS
                         FOR (n:{label})
                         ON n.{prop}
@@ -146,7 +147,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                                 `vector.hnsw.ef_construction`: {search_cfg.hnsw_ef_construction}
                             }}
                         }}
-                        """)
+                        """
+                    )
                     logger.info(
                         f"Created vector index {index_name} ({dims}d, M={search_cfg.hnsw_m}, ef={search_cfg.hnsw_ef_construction})"
                     )

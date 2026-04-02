@@ -32,18 +32,12 @@ Usage::
 import asyncio
 import json
 import logging
-import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from core.config import settings
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_log(value: object, max_len: int = 200) -> str:
-    """Strip control characters and truncate for safe logging."""
-    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(value))[:max_len]
 
 
 class FoundryAgentClient:
@@ -175,11 +169,7 @@ class FoundryAgentClient:
 
         except Exception as e:
             if conversation_id and self._is_retriable(e):
-                safe_cid = _sanitize_log(conversation_id)
-                logger.warning(
-                    "Retrying without conversation (was '%s')",
-                    safe_cid,
-                )
+                logger.warning("Retrying send_message without stale conversation")
                 kwargs.pop("conversation", None)
                 response = await asyncio.to_thread(
                     openai.responses.create,
