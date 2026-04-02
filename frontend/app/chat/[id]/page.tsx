@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, use, useCallback } from 'react';
+import React, { useState, useEffect, use, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar, VideoPanel } from '@/components/layout';
+import type { CitationMarker } from '@/components/layout/VideoPanel';
 import { ChatContainer, type ChatMessageData } from '@/components/chat';
+import type { ChatMessageSource } from '@/components/chat/MessageBubble';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient } from '@/lib/api';
 import {
@@ -111,6 +113,23 @@ export default function ChatPage({ params }: ChatPageProps) {
   const handleTimestampClick = (timestamp: number) => {
     setCurrentTime(timestamp);
   };
+
+  // Collect citation markers from all assistant messages for the video progress bar
+  const citationMarkers: CitationMarker[] = useMemo(() => {
+    const markers: CitationMarker[] = [];
+    const seen = new Set<number>();
+    for (const msg of chatMessages) {
+      if (msg.role === 'assistant' && msg.sources) {
+        for (const src of msg.sources as ChatMessageSource[]) {
+          if (!seen.has(src.timestamp)) {
+            seen.add(src.timestamp);
+            markers.push({ timestamp: src.timestamp, type: src.type });
+          }
+        }
+      }
+    }
+    return markers;
+  }, [chatMessages]);
 
   useEffect(() => {
     if (chatMessages.length === 0) {
@@ -240,6 +259,7 @@ export default function ChatPage({ params }: ChatPageProps) {
                 onTimeUpdate={setCurrentTime}
                 onSeek={setCurrentTime}
                 isVisible={true}
+                citationMarkers={citationMarkers}
               />
             </div>
           )}

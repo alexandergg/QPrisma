@@ -4,6 +4,7 @@ import React, { memo, useMemo } from 'react';
 import { Sparkles, Film, Loader2, CheckCircle2, XCircle, Wrench, Terminal, ArrowRightCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import TimestampBadge from './TimestampBadge';
+import CitationSection from './CitationSection';
 import { ReasoningPanel } from './ReasoningPanel';
 import type { ToolDetail } from '@/hooks/useChatState';
 
@@ -83,16 +84,6 @@ export interface ChatMessageData {
   isError?: boolean;
 }
 
-function confidenceLabel(sources: ChatMessageSource[]): string {
-  const scored = sources.filter((source) => typeof source.score === 'number');
-  if (scored.length === 0) return 'Evidence available';
-
-  const average = scored.reduce((sum, source) => sum + (source.score || 0), 0) / scored.length;
-  if (average >= 0.8) return 'High confidence';
-  if (average >= 0.5) return 'Medium confidence';
-  return 'Low confidence';
-}
-
 export function ToolProgress({ tools }: { tools: ToolStatus[] }) {
   if (!tools || tools.length === 0) return null;
 
@@ -163,17 +154,6 @@ export const MessageBubble = memo(function MessageBubble({
   onRetryLast?: () => void;
 }) {
   const isUser = message.role === 'user';
-  const groupedSources = (message.sources || [])
-    .slice()
-    .sort((a, b) => (b.score || 0) - (a.score || 0))
-    .reduce<Record<string, ChatMessageSource[]>>((acc, source) => {
-      const key = source.videoTitle || source.videoId || 'Current video';
-      if (!acc[key]) {
-        acc[key] = [];
-      }
-      acc[key].push(source);
-      return acc;
-    }, {});
   
   // Parse content for suggestions
   let displayContent = message.content;
@@ -308,36 +288,12 @@ export const MessageBubble = memo(function MessageBubble({
                 </div>
               )}
 
-              {/* Sources / Timestamps */}
+              {/* Sources / Citation Cards */}
               {!isUser && message.sources && message.sources.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <p className="text-xs text-gray-500 mb-2">
-                    Referenced moments • {confidenceLabel(message.sources)}
-                  </p>
-                  <div className="space-y-2">
-                    {Object.entries(groupedSources).slice(0, 3).map(([groupLabel, groupSources]) => (
-                      <div key={groupLabel}>
-                        <p className="text-[11px] text-gray-400 mb-1">{groupLabel}</p>
-                        <div className="flex flex-wrap gap-2">
-                          {groupSources.slice(0, 3).map((source, index) => (
-                            <TimestampBadge
-                              key={`${groupLabel}-${index}-${source.timestamp}`}
-                              timestamp={source.timestamp}
-                              type={source.type}
-                              label={source.description ? source.description.slice(0, 40) : undefined}
-                              onClick={() => onTimestampClick?.(source.timestamp)}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    {message.sources.length > 9 && (
-                      <span className="text-xs text-gray-400 self-center block">
-                        +{message.sources.length - 9} more references
-                      </span>
-                    )}
-                  </div>
-                </div>
+                <CitationSection
+                  sources={message.sources}
+                  onTimestampClick={onTimestampClick}
+                />
               )}
 
               {!isUser && message.isError && onRetryLast && (
