@@ -135,8 +135,6 @@ ignore = [
     "S101",   # assert usage expected in tests
     "S105",   # possible hardcoded password (test fixtures)
     "S106",   # possible hardcoded password in function arg (test fixtures)
-    "S108",   # /tmp paths OK in tests (mock data, not real file operations)
-    "S113",   # requests without timeout OK in tests (mocked calls)
     "S311",   # pseudo-random generators OK in tests
 ]
 

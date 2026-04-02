@@ -165,7 +165,7 @@ async def lifespan(app: FastAPI):
 
             if _pubsub_manager:
                 await _pubsub_manager.disconnect()
-        except Exception:  # noqa: S110
+        except Exception:
             pass
 
 
@@ -319,7 +319,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",  # noqa: S104
+        host="0.0.0.0",
         port=settings.app.port,
         reload=False,
     )

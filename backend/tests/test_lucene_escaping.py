@@ -10,13 +10,14 @@ Covers:
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from services.graph_search_queries import sanitize_fulltext_query
+
 
 # ---------------------------------------------------------------------------
 # sanitize_fulltext_query — pure function tests
@@ -39,7 +40,7 @@ class TestSanitizeFulltextQuery:
             ("{set}", r"\{set\}"),
             ("[range]", r"\[range\]"),
             ("score^2", r"score\^2"),
-            ('"quoted"', r"\"quoted\""),
+            ('"quoted"', r'\"quoted\"'),
             ("wild~", r"wild\~"),
             ("star*", r"star\*"),
             ("question?", r"question\?"),
@@ -47,10 +48,7 @@ class TestSanitizeFulltextQuery:
             ("back\\slash", r"back\\slash"),
             ("path/to", r"path\/to"),
             # Compound: the exact pattern that was crashing evaluation
-            (
-                "Answer with just the letter (A/B/C/D).",
-                r"Answer with just the letter \(A\/B\/C\/D\).",
-            ),
+            ("Answer with just the letter (A/B/C/D).", r"Answer with just the letter \(A\/B\/C\/D\)."),
             # Multiple specials in sequence
             ("a+b-c*d?e:f", r"a\+b\-c\*d\?e\:f"),
         ],

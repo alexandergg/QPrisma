@@ -24,7 +24,7 @@ def sanitize_for_json(obj):
     try:
         import neo4j.time as nt
 
-        if isinstance(obj, nt.DateTime | nt.Date | nt.Time):
+        if isinstance(obj, (nt.DateTime, nt.Date, nt.Time)):
             return obj.iso_format()
         if isinstance(obj, nt.Duration):
             return str(obj)
@@ -32,7 +32,7 @@ def sanitize_for_json(obj):
         pass
 
     # Standard-library temporal types
-    if isinstance(obj, datetime | date | time):
+    if isinstance(obj, (datetime, date, time)):
         return obj.isoformat()
     if isinstance(obj, timedelta):
         return str(obj)
