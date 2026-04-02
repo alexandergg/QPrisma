@@ -79,7 +79,8 @@ class AzureSettings(BaseSettings):
     )
     faster_whisper_model: str = Field(
         default="large-v3",
-        description="faster-whisper model size (e.g., 'tiny', 'base', 'small', 'medium', 'large-v3')",
+        description="faster-whisper model size "
+        "(e.g., 'tiny', 'base', 'small', 'medium', 'large-v3')",
     )
     faster_whisper_device: str = Field(
         default="auto",
@@ -239,7 +240,8 @@ class ProcessingSettings(BaseSettings):
     # Entity extraction gleaning (GraphRAG multi-pass)
     max_gleanings: int = Field(
         default=1,
-        description="Number of gleaning passes for entity extraction (0 = disabled, 1 = recommended).",
+        description="Number of gleaning passes for entity extraction "
+        "(0 = disabled, 1 = recommended).",
         ge=0,
         le=3,
     )
@@ -276,7 +278,8 @@ class CommunitySettings(BaseSettings):
     )
     algorithm: str = Field(
         default="leiden",
-        description="Community detection algorithm: 'leiden', 'louvain', or 'connected_components'.",
+        description="Community detection algorithm: "
+        "'leiden', 'louvain', or 'connected_components'.",
     )
     resolution: float = Field(
         default=1.0,
@@ -285,7 +288,8 @@ class CommunitySettings(BaseSettings):
     )
     hierarchical_levels: int = Field(
         default=2,
-        description="Number of hierarchical levels for Leiden community detection (1 = flat, 2+ = hierarchical).",
+        description="Number of hierarchical levels for Leiden "
+        "community detection (1 = flat, 2+ = hierarchical).",
         ge=1,
         le=5,
     )
@@ -352,13 +356,15 @@ class SearchSettings(BaseSettings):
 
     hnsw_m: int = Field(
         default=16,
-        description="HNSW M parameter (max connections per node). Higher = better recall, more memory.",
+        description="HNSW M parameter (max connections per node). "
+        "Higher = better recall, more memory.",
         ge=4,
         le=64,
     )
     hnsw_ef_construction: int = Field(
         default=256,
-        description="HNSW ef_construction (build-time search width). Higher = better recall, slower build.",
+        description="HNSW ef_construction (build-time search width). "
+        "Higher = better recall, slower build.",
         ge=64,
         le=1024,
     )

@@ -48,17 +48,25 @@ def _optional_env(key: str) -> dict[str, str]:
 
 
 def _run_az(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["az", *args], capture_output=True, text=True)
+    return subprocess.run(  # noqa: S603
+        ["az", *args], capture_output=True, text=True  # noqa: S607
+    )
 
 
 def start_agent(version: str) -> bool:
     """Start the agent deployment using az cli."""
     cmd = [
-        "cognitiveservices", "agent", "start",
-        "--account-name", ACCOUNT_NAME,
-        "--project-name", PROJECT_NAME,
-        "--name", AGENT_NAME,
-        "--agent-version", str(version),
+        "cognitiveservices",
+        "agent",
+        "start",
+        "--account-name",
+        ACCOUNT_NAME,
+        "--project-name",
+        PROJECT_NAME,
+        "--name",
+        AGENT_NAME,
+        "--agent-version",
+        str(version),
     ]
     print(f"Starting agent with: az {' '.join(cmd)}")
     result = _run_az(*cmd)
@@ -75,11 +83,17 @@ def start_agent(version: str) -> bool:
 def get_agent_status() -> str | None:
     """Get the current agent deployment status via az cli."""
     result = _run_az(
-        "cognitiveservices", "agent", "show",
-        "--account-name", ACCOUNT_NAME,
-        "--project-name", PROJECT_NAME,
-        "--name", AGENT_NAME,
-        "--output", "json",
+        "cognitiveservices",
+        "agent",
+        "show",
+        "--account-name",
+        ACCOUNT_NAME,
+        "--project-name",
+        PROJECT_NAME,
+        "--name",
+        AGENT_NAME,
+        "--output",
+        "json",
     )
     if result.returncode != 0:
         return None
@@ -169,9 +183,14 @@ def main() -> None:
     _CRITICAL_VARS = ["NEO4J_URI", "NEO4J_PASSWORD", "DATABASE_URL", "REDIS_URL"]
     missing = [v for v in _CRITICAL_VARS if v not in environment_variables]
     if missing:
-        print(f"WARNING: Missing critical env vars for backend services: {missing}")
-        print("  The hosted agent will fall back to localhost defaults and fail to connect.")
-        print("  Ensure the deploy workflow resolves these from Azure infrastructure.")
+        print(f"WARNING: Missing critical env vars " f"for backend services: {missing}")
+        print(
+            "  The hosted agent will fall back to "
+            "localhost defaults and fail to connect."
+        )
+        print(
+            "  Ensure the deploy workflow resolves " "these from Azure infrastructure."
+        )
 
     definition = ImageBasedHostedAgentDefinition(
         container_protocol_versions=[
@@ -191,13 +210,19 @@ def main() -> None:
             agent = client.agents.create_version(
                 agent_name=AGENT_NAME,
                 description=(
-                    "QPrisma Video Agent — intelligent video analysis powered by LangGraph. "
-                    "Searches visual content, audio transcriptions, and knowledge graphs "
-                    "to answer questions with timestamped citations."
+                    "QPrisma Video Agent — intelligent video "
+                    "analysis powered by LangGraph. "
+                    "Searches visual content, audio "
+                    "transcriptions, and knowledge graphs "
+                    "to answer questions with "
+                    "timestamped citations."
                 ),
                 definition=definition,
             )
-            print(f"Agent registered: {agent.name} (id: {agent.id}, version: {agent.version})")
+            print(
+                f"Agent registered: {agent.name} "
+                f"(id: {agent.id}, version: {agent.version})"
+            )
             break
         except HttpResponseError as e:
             last_error = e
@@ -220,7 +245,10 @@ def main() -> None:
     # Auto-start the agent deployment
     started = start_agent(agent.version)
     if not started:
-        print("WARNING: Agent registered but auto-start failed. Start manually in Foundry portal.")
+        print(
+            "WARNING: Agent registered but auto-start failed. "
+            "Start manually in Foundry portal."
+        )
         sys.exit(1)
 
     # Poll until the agent reaches Running state
@@ -235,8 +263,9 @@ def main() -> None:
             f.write(f"agent_running={'true' if running else 'false'}\n")
 
     if not running:
-        print("WARNING: Agent may still be provisioning — check Foundry portal.")
-        # Exit 0 to not fail the pipeline — provisioning is async and may exceed our timeout
+        print("WARNING: Agent may still be provisioning " "— check Foundry portal.")
+        # Exit 0 to not fail the pipeline
+        # — provisioning is async and may exceed our timeout
         sys.exit(0)
 
 

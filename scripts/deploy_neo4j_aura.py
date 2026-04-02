@@ -83,13 +83,22 @@ def _api_request(
     Returns ``(status_code, parsed_json_body)``.  On non-retryable failures
     the function raises or returns the error status for the caller to handle.
     """
+    # Validate URL against known-safe API endpoints to prevent SSRF
+    _ALLOWED_PREFIXES = (AURA_AUTH_URL, AURA_API_BASE)
+    if not any(
+        url == prefix or url.startswith(prefix + "/") for prefix in _ALLOWED_PREFIXES
+    ):
+        raise ValueError(f"URL not in allowed API endpoints: {url}")
+
     headers = headers or {}
     last_exc: Exception | None = None
 
     for attempt in range(1, MAX_RETRIES + 1):
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        req = urllib.request.Request(  # noqa: S310
+            url, data=data, headers=headers, method=method
+        )
         try:
-            resp: HTTPResponse = urllib.request.urlopen(req)
+            resp: HTTPResponse = urllib.request.urlopen(req)  # noqa: S310
             body = resp.read().decode("utf-8")
             parsed = json.loads(body) if body else {}
             return resp.status, parsed
@@ -141,11 +150,13 @@ def authenticate(client_id: str, client_secret: str) -> str:
     """
     print("Authenticating with Neo4j Aura API...")
 
-    payload = urllib.parse.urlencode({
-        "grant_type": "client_credentials",
-        "client_id": client_id,
-        "client_secret": client_secret,
-    }).encode("utf-8")
+    payload = urllib.parse.urlencode(
+        {
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+    ).encode("utf-8")
 
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
@@ -227,15 +238,17 @@ def create_instance(
     Returns ``(instance_data, initial_password)``.  The password is **only**
     available in the creation response.
     """
-    payload = json.dumps({
-        "version": "5",
-        "region": "westeurope",
-        "memory": "1GB",
-        "name": name,
-        "type": "free-db",
-        "tenant_id": tenant_id,
-        "cloud_provider": "azure",
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "version": "5",
+            "region": "westeurope",
+            "memory": "1GB",
+            "name": name,
+            "type": "free-db",
+            "tenant_id": tenant_id,
+            "cloud_provider": "azure",
+        }
+    ).encode("utf-8")
 
     print(f"Creating AuraDB Free instance '{name}'...")
     status, body = _api_request(
@@ -360,7 +373,10 @@ def main() -> None:
     if existing is not None:
         instance_id: str = existing["id"]
         status = existing.get("status", "unknown")
-        print(f"  Instance '{instance_name}' already exists (id={instance_id}, status={status}).")
+        print(
+            f"  Instance '{instance_name}' already exists "
+            f"(id={instance_id}, status={status})."
+        )
 
         if status == "paused":
             resume_instance(token, instance_id)
@@ -370,12 +386,14 @@ def main() -> None:
             data = get_instance(token, instance_id)
             connection_url: str = data.get("connection_url", "")
 
-            write_github_output({
-                "neo4j_uri": connection_url,
-                "neo4j_password": "",
-                "neo4j_instance_id": instance_id,
-                "instance_created": "false",
-            })
+            write_github_output(
+                {
+                    "neo4j_uri": connection_url,
+                    "neo4j_password": "",
+                    "neo4j_instance_id": instance_id,
+                    "instance_created": "false",
+                }
+            )
 
             print("\nDone. Instance was already running.")
             print(f"  URI: {connection_url}")
@@ -398,12 +416,14 @@ def main() -> None:
     connection_url = data.get("connection_url", "")
 
     # ---- Write outputs ----
-    write_github_output({
-        "neo4j_uri": connection_url,
-        "neo4j_password": initial_password,
-        "neo4j_instance_id": instance_id,
-        "instance_created": "true" if instance_created else "false",
-    })
+    write_github_output(
+        {
+            "neo4j_uri": connection_url,
+            "neo4j_password": initial_password,
+            "neo4j_instance_id": instance_id,
+            "instance_created": "true" if instance_created else "false",
+        }
+    )
 
     # ---- Summary ----
     print("\nProvisioning complete.")
