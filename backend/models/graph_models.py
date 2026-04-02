@@ -220,10 +220,6 @@ class FrameNode(GraphNodeBase):
     perceptual_hash: str | None = None
     content_hash: str | None = None
 
-    # URLs
-    image_url: str | None = None
-    thumbnail_url: str | None = None
-
     # Quality
     blur_score: float = 0.0
     brightness: float = 0.0

@@ -301,15 +301,11 @@ class KnowledgeGraphService:
                 except Exception as e:
                     logger.debug(f"Index may already exist: {e}")
 
-            # Migrate existing nodes: ensure scene_type and image_url properties exist
+            # Migrate existing nodes: ensure scene_type property exists
             migrations = [
                 (
                     "MATCH (s:Scene) WHERE s.scene_type IS NULL SET s.scene_type = 'general'",
                     "Scene.scene_type",
-                ),
-                (
-                    "MATCH (f:Frame) WHERE f.image_url IS NULL SET f.image_url = ''",
-                    "Frame.image_url",
                 ),
             ]
             for migration_query, prop_name in migrations:

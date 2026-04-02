@@ -604,7 +604,7 @@ async def search_in_video(
                 "timestamp": float(c.get("timestamp", 0.0) or 0.0),
                 "content": c.get("description") or "",
                 "score": float(r.combined_score or r.vector_score or 0.0),
-                "blob_name": c.get("image_url") or "",
+                "blob_name": "",
                 "transcript_text": c.get("transcript_text"),
                 "visual_description": c.get("visual_description"),
                 "detected_objects": c.get("detected_objects"),

@@ -266,8 +266,7 @@ async def compare_moments(
                         """
                         MATCH (f:Frame)
                         WHERE f.video_id = $media_id
-                        RETURN f.timestamp as timestamp, f.description as description,
-                               f.image_url as thumbnail
+                        RETURN f.timestamp as timestamp, f.description as description
                         ORDER BY abs(f.timestamp - $timestamp)
                         LIMIT 1
                         """,
@@ -280,7 +279,6 @@ async def compare_moments(
                     moment_data["visual"] = {
                         "actual_timestamp": frame.get("timestamp"),
                         "description": frame.get("description", "")[:500],
-                        "thumbnail_url": frame.get("thumbnail"),
                     }
 
             # Get audio content

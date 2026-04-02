@@ -1,11 +1,58 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { Sparkles, Film, Loader2, CheckCircle2, XCircle, Wrench, Terminal, ArrowRightCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import TimestampBadge from './TimestampBadge';
 import { ReasoningPanel } from './ReasoningPanel';
 import type { ToolDetail } from '@/hooks/useChatState';
+
+/** Match [HH:MM:SS], [MM:SS], or bare HH:MM:SS / MM:SS patterns in text. */
+const TIMESTAMP_RE = /\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?/g;
+
+function parseTimestampToSeconds(ts: string): number {
+  const parts = ts.split(':').map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return parts[0] * 60 + parts[1];
+}
+
+/**
+ * Split a text node into segments of plain text and clickable timestamp badges.
+ * Returns an array of React nodes.
+ */
+function renderTextWithTimestamps(
+  text: string,
+  onClick?: (seconds: number) => void,
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(TIMESTAMP_RE)) {
+    const full = match[0];
+    const core = match[1]; // the HH:MM:SS or MM:SS part
+    const start = match.index!;
+
+    // Push preceding plain text
+    if (start > lastIndex) nodes.push(text.slice(lastIndex, start));
+
+    const seconds = parseTimestampToSeconds(core);
+    nodes.push(
+      <TimestampBadge
+        key={`ts-${start}-${core}`}
+        timestamp={seconds}
+        type="visual"
+        size="sm"
+        onClick={onClick ? () => onClick(seconds) : undefined}
+      />,
+    );
+
+    lastIndex = start + full.length;
+  }
+
+  // Push remaining text
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
 
 export interface ToolStatus {
   name: string;
@@ -159,6 +206,37 @@ export const MessageBubble = memo(function MessageBubble({
     }
   }
 
+  // Memoize custom ReactMarkdown components to render inline timestamp links
+  const markdownComponents = useMemo(() => ({
+    p: ({ children }: { children?: React.ReactNode }) => {
+      const processed = React.Children.map(children, (child) => {
+        if (typeof child === 'string' && TIMESTAMP_RE.test(child)) {
+          return <>{renderTextWithTimestamps(child, onTimestampClick)}</>;
+        }
+        return child;
+      });
+      return <p>{processed}</p>;
+    },
+    li: ({ children }: { children?: React.ReactNode }) => {
+      const processed = React.Children.map(children, (child) => {
+        if (typeof child === 'string' && TIMESTAMP_RE.test(child)) {
+          return <>{renderTextWithTimestamps(child, onTimestampClick)}</>;
+        }
+        return child;
+      });
+      return <li>{processed}</li>;
+    },
+    strong: ({ children }: { children?: React.ReactNode }) => {
+      const processed = React.Children.map(children, (child) => {
+        if (typeof child === 'string' && TIMESTAMP_RE.test(child)) {
+          return <strong>{renderTextWithTimestamps(child, onTimestampClick)}</strong>;
+        }
+        return child;
+      });
+      return <>{processed}</>;
+    },
+  }), [onTimestampClick]);
+
   return (
     <div
       className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}
@@ -202,7 +280,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
               ) : (
                 <div className="text-sm leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-gray-900 prose-code:text-indigo-600 prose-code:bg-indigo-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
-                  <ReactMarkdown>{displayContent}</ReactMarkdown>
+                  <ReactMarkdown components={markdownComponents}>{displayContent}</ReactMarkdown>
                 </div>
               )}
 
@@ -246,7 +324,7 @@ export const MessageBubble = memo(function MessageBubble({
                               key={`${groupLabel}-${index}-${source.timestamp}`}
                               timestamp={source.timestamp}
                               type={source.type}
-                              label={undefined}
+                              label={source.description ? source.description.slice(0, 40) : undefined}
                               onClick={() => onTimestampClick?.(source.timestamp)}
                             />
                           ))}
