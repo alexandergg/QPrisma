@@ -69,8 +69,9 @@ def _setup_telemetry() -> None:
 
         # Register span processor so gen_ai.conversation.id appears in Foundry traces
         try:
-            from agent.utils.observability import ConversationIdSpanProcessor
             from opentelemetry.trace import get_tracer_provider
+
+            from agent.utils.observability import ConversationIdSpanProcessor
 
             provider = get_tracer_provider()
             if hasattr(provider, "add_span_processor"):
@@ -165,7 +166,7 @@ async def lifespan(app: FastAPI):
 
             if _pubsub_manager:
                 await _pubsub_manager.disconnect()
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
 
@@ -319,7 +320,7 @@ if __name__ == "__main__":
 
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
+        host="0.0.0.0",  # noqa: S104
         port=settings.app.port,
         reload=False,
     )

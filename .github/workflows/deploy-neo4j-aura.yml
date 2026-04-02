@@ -32,6 +32,10 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
         run: python scripts/deploy_neo4j_aura.py
 
+      - name: Mask sensitive outputs
+        if: steps.aura.outputs.neo4j_password
+        run: echo "::add-mask::${{ steps.aura.outputs.neo4j_password }}"
+
       - name: Deployment summary
         run: |
           echo "## Neo4j AuraDB Deployment" >> $GITHUB_STEP_SUMMARY

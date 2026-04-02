@@ -13,7 +13,6 @@ from agent.a2a import (
     A2AAgentExecutor,
     get_video_a2a_executor,
 )
-
 from core.config import settings
 from models.a2a_models import (
     AgentCapabilities,

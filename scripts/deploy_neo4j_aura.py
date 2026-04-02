@@ -333,20 +333,6 @@ def write_github_output(outputs: dict[str, str]) -> None:
     print(f"  Wrote {len(outputs)} output(s) to GITHUB_OUTPUT.")
 
 
-def _write_secret_output(key: str, value: str) -> None:
-    """Write a single sensitive value to ``$GITHUB_OUTPUT`` with masking.
-
-    Uses ``::add-mask::`` to ensure the value is redacted in all subsequent
-    workflow log output.
-    """
-    github_output = os.environ.get("GITHUB_OUTPUT")
-    if not github_output:
-        return
-    if value:
-        os.write(sys.stdout.fileno(), f"::add-mask::{value}\n".encode())
-    with open(github_output, "a") as f:
-        f.write(f"{key}={value}\n")
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -395,11 +381,11 @@ def main() -> None:
             write_github_output(
                 {
                     "neo4j_uri": connection_url,
+                    "neo4j_password": "",
                     "neo4j_instance_id": instance_id,
                     "instance_created": "false",
                 }
             )
-            _write_secret_output("neo4j_password", "")
 
             print("\nDone. Instance was already running.")
             print(f"  URI: {connection_url}")
@@ -425,11 +411,11 @@ def main() -> None:
     write_github_output(
         {
             "neo4j_uri": connection_url,
+            "neo4j_password": initial_password,
             "neo4j_instance_id": instance_id,
             "instance_created": "true" if instance_created else "false",
         }
     )
-    _write_secret_output("neo4j_password", initial_password)
 
     # ---- Summary ----
     print("\nProvisioning complete.")
