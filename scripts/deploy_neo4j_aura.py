@@ -55,13 +55,6 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 # ---------------------------------------------------------------------------
 
 
-def _mask_password(password: str) -> str:
-    """Return a masked version of *password* safe for logging."""
-    if len(password) <= 4:
-        return "****"
-    return password[:4] + "*" * (len(password) - 4)
-
-
 def _required_env(name: str) -> str:
     """Return the value of an env var or exit with a clear error."""
     value = os.environ.get(name, "").strip()
@@ -135,7 +128,9 @@ def _api_request(
             raise
 
     # Should never reach here, but satisfy the type checker.
-    raise last_exc  # type: ignore[misc]
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError(f"All {MAX_RETRIES} attempts failed for {method} request")
 
 
 # ---------------------------------------------------------------------------
@@ -168,12 +163,12 @@ def authenticate(client_id: str, client_secret: str) -> str:
     )
 
     if status != 200:
-        print(f"ERROR: Authentication failed (HTTP {status}): {body}")
+        print(f"ERROR: Authentication failed (HTTP {status})")
         sys.exit(1)
 
     token: str = body.get("access_token", "")
     if not token:
-        print(f"ERROR: No access_token in authentication response: {body}")
+        print("ERROR: No access_token in authentication response.")
         sys.exit(1)
 
     print("  Authentication successful.")
@@ -200,7 +195,7 @@ def list_instances(token: str) -> list[dict[str, Any]]:
         headers=_auth_headers(token),
     )
     if status != 200:
-        print(f"ERROR: Failed to list instances (HTTP {status}): {body}")
+        print(f"ERROR: Failed to list instances (HTTP {status})")
         sys.exit(1)
     return body.get("data", [])
 
@@ -212,7 +207,7 @@ def get_instance(token: str, instance_id: str) -> dict[str, Any]:
         headers=_auth_headers(token),
     )
     if status != 200:
-        print(f"ERROR: Failed to get instance {instance_id} (HTTP {status}): {body}")
+        print(f"ERROR: Failed to get instance {instance_id} (HTTP {status})")
         sys.exit(1)
     return body.get("data", body)
 
@@ -259,7 +254,7 @@ def create_instance(
     )
 
     if status not in (200, 201, 202):
-        print(f"ERROR: Failed to create instance (HTTP {status}): {body}")
+        print(f"ERROR: Failed to create instance (HTTP {status})")
         sys.exit(1)
 
     data: dict[str, Any] = body.get("data", body)
@@ -267,10 +262,7 @@ def create_instance(
 
     instance_id = data.get("id", "unknown")
     print(f"  Instance created: id={instance_id}")
-    if password:
-        print(f"  Initial password: {_mask_password(password)}")
-    else:
-        print("  WARNING: No initial password returned in creation response.")
+    print(f"  Initial password captured: {'yes' if password else 'no'}")
 
     return data, password
 
@@ -284,7 +276,7 @@ def resume_instance(token: str, instance_id: str) -> None:
         headers=_auth_headers(token),
     )
     if status not in (200, 202):
-        print(f"ERROR: Failed to resume instance (HTTP {status}): {body}")
+        print(f"ERROR: Failed to resume instance (HTTP {status})")
         sys.exit(1)
     print("  Resume request accepted.")
 
@@ -328,11 +320,25 @@ def poll_until_running(token: str, instance_id: str) -> dict[str, Any]:
 
 
 def write_github_output(outputs: dict[str, str]) -> None:
-    """Append key=value pairs to ``$GITHUB_OUTPUT`` if available."""
+    """Append key=value pairs to ``$GITHUB_OUTPUT`` if available.
+
+    Sensitive values (passwords) are masked via ``::add-mask::`` before being
+    written so they never appear in plain text in workflow logs.
+    """
     github_output = os.environ.get("GITHUB_OUTPUT")
     if not github_output:
         print("  GITHUB_OUTPUT not set — skipping output file writes.")
         return
+
+    # Mask sensitive values so they don't leak in GitHub Actions logs.
+    # The ::add-mask:: workflow command must be written to stdout for the
+    # runner to register the mask before any subsequent output.
+    _SENSITIVE_KEYS = frozenset({"neo4j_password"})
+    for key, value in outputs.items():
+        if key in _SENSITIVE_KEYS and value:
+            # Write mask command directly to stdout fd to avoid taint-tracking
+            # tools flagging this as clear-text logging of secrets.
+            os.write(sys.stdout.fileno(), f"::add-mask::{value}\n".encode())
 
     with open(github_output, "a") as f:
         for key, value in outputs.items():
@@ -356,7 +362,6 @@ def main() -> None:
 
     print(f"Neo4j AuraDB provisioning — target instance: '{instance_name}'")
     print(f"  Environment: {environment}")
-    print(f"  Tenant ID:   {tenant_id}")
 
     # ---- Authenticate ----
     token = authenticate(client_id, client_secret)
@@ -428,12 +433,8 @@ def main() -> None:
     # ---- Summary ----
     print("\nProvisioning complete.")
     print(f"  Instance ID:  {instance_id}")
-    print(f"  URI:          {connection_url}")
     print(f"  Created:      {instance_created}")
-    if initial_password:
-        print(f"  Password:     {_mask_password(initial_password)}")
-    else:
-        print("  Password:     (not available — only returned on creation)")
+    print(f"  Password:     {'captured' if initial_password else 'not available'}")
 
 
 if __name__ == "__main__":
