@@ -252,6 +252,8 @@ jobs:
 
       - name: Resolve backend service endpoints
         id: services
+        env:
+          DB_ADMIN_PASSWORD: ${{ secrets.DB_ADMIN_PASSWORD }}
         run: |
           RG="${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}"
 
@@ -264,26 +266,25 @@ jobs:
             --query "fullyQualifiedDomainName" -o tsv 2>/dev/null || echo "")
           if [ -n "$PG_FQDN" ]; then
             echo "pg_fqdn=${PG_FQDN}" >> $GITHUB_OUTPUT
+            echo "database_url=postgresql://qprismaadmin:${DB_ADMIN_PASSWORD}@${PG_FQDN}:5432/qprisma?sslmode=require" >> $GITHUB_OUTPUT
             echo "PostgreSQL FQDN: ${PG_FQDN}"
           else
             echo "::warning::PostgreSQL Flexible Server not found — DATABASE_URL will be missing"
           fi
 
-          # Azure Managed Redis — host includes port for Enterprise tier
-          REDIS_HOST=$(az redis show \
+          # Azure Managed Redis Enterprise (Microsoft.Cache/redisEnterprise)
+          REDIS_HOST=$(az redisenterprise show \
             --name redis-qprisma-dev --resource-group "$RG" \
             --query "hostName" -o tsv 2>/dev/null || echo "")
-          REDIS_PORT=$(az redis show \
-            --name redis-qprisma-dev --resource-group "$RG" \
-            --query "sslPort" -o tsv 2>/dev/null || echo "6380")
-          REDIS_KEY=$(az redis list-keys \
-            --name redis-qprisma-dev --resource-group "$RG" \
+          REDIS_PORT="${REDIS_PORT:-10000}"
+          REDIS_KEY=$(az redisenterprise database list-keys \
+            --cluster-name redis-qprisma-dev --name default --resource-group "$RG" \
             --query "primaryKey" -o tsv 2>/dev/null || echo "")
           if [ -n "$REDIS_HOST" ] && [ -n "$REDIS_KEY" ]; then
             echo "redis_url=rediss://:${REDIS_KEY}@${REDIS_HOST}:${REDIS_PORT}/0" >> $GITHUB_OUTPUT
             echo "Redis host: ${REDIS_HOST}:${REDIS_PORT}"
           else
-            echo "::warning::Redis not found — REDIS_URL will be missing"
+            echo "::warning::Redis Enterprise not found or keys unavailable — REDIS_URL will be missing"
           fi
 
           # Azure Storage Account
@@ -309,8 +310,8 @@ jobs:
           NEO4J_USER: neo4j
           NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
           NEO4J_DATABASE: qprisma
-          # PostgreSQL
-          DATABASE_URL: postgresql://qprismaadmin:${{ secrets.DB_ADMIN_PASSWORD }}@${{ steps.services.outputs.pg_fqdn }}:5432/qprisma?sslmode=require
+          # PostgreSQL (built conditionally in resolver step — empty if PG not found)
+          DATABASE_URL: ${{ steps.services.outputs.database_url }}
           # Redis
           REDIS_URL: ${{ steps.services.outputs.redis_url }}
           # Azure Blob Storage
