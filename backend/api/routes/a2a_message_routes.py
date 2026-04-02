@@ -8,10 +8,10 @@ Send and streaming message endpoints for the Video agent.
 import logging
 from typing import Annotated
 
+from agent.utils.observability import set_conversation_id, set_otel_user_id
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
-from agent.utils.observability import set_conversation_id, set_otel_user_id
 from api.dependencies import get_current_user_optional
 from api.rate_limit import limiter
 from api.routes.a2a_agent_cards import get_executor
@@ -129,7 +129,7 @@ async def send_streaming_message(
                 data = response.model_dump_json(exclude_none=True)
                 yield f"data: {data}\n\n"
         except Exception as e:
-            logger.error(f"SSE streaming error: {e}")
+            logger.error("SSE streaming error: %s", e)
             error_response = StreamResponse(
                 statusUpdate=TaskStatusUpdateEvent(
                     taskId="error",

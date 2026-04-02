@@ -547,7 +547,7 @@ async def _rehydrate_artifact_context(
         artifact_service = await get_tool_artifact_service()
     except (TypeError, ValueError, RuntimeError, ImportError) as exc:
         Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ERRORS, metric_labels)
-        logger.warning(f"Failed to initialize artifact service for rehydration: {exc}")
+        logger.warning("Failed to initialize artifact service for rehydration: %s", exc)
         return []
 
     snippets: list[str] = []
@@ -564,7 +564,7 @@ async def _rehydrate_artifact_context(
             artifact = await artifact_service.get_artifact(artifact_id)
         except (TypeError, ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
             Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ERRORS, metric_labels)
-            logger.warning(f"Failed to fetch tool artifact {artifact_id}: {exc}")
+            logger.warning("Failed to fetch tool artifact %s: %s", artifact_id, exc)
             continue
 
         if not isinstance(artifact, dict):
@@ -850,7 +850,7 @@ def base_should_continue(
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         # Check iteration limit
         if tool_calls_count >= max_iterations:
-            logger.warning(f"Reached max tool iterations ({max_iterations}), forcing end")
+            logger.warning("Reached max tool iterations (%d), forcing end", max_iterations)
             return END
 
         # Check error threshold - route to error handler if we have partial results
@@ -1012,7 +1012,7 @@ async def update_context_node(state: AgentState, config: RunnableConfig) -> dict
                     memory_context = memory_context[-20:]
                     artifact_refs = artifact_refs[-50:]
             except (json.JSONDecodeError, TypeError, ValueError, OSError) as exc:
-                logger.warning(f"Failed to update tool memory context: {exc}")
+                logger.warning("Failed to update tool memory context: %s", exc)
 
     return {
         "conversation_context": updated_context,

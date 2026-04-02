@@ -82,7 +82,7 @@ class FoundryAgentClient:
             )
             raise
         except Exception as e:
-            logger.error(f"Failed to create OpenAI client: {e}")
+            logger.error("Failed to create OpenAI client: %s", e)
             raise
 
     def _agent_ref(self) -> dict[str, str]:
@@ -100,10 +100,10 @@ class FoundryAgentClient:
         try:
             conversation = await asyncio.to_thread(openai.conversations.create)
             conv_id = conversation.id
-            logger.info(f"Created Foundry conversation: {conv_id}")
+            logger.info("Created Foundry conversation: %s", conv_id)
             return conv_id
         except Exception as e:
-            logger.error(f"Failed to create Foundry conversation: {e}")
+            logger.error("Failed to create Foundry conversation: %s", e)
             raise
 
     async def send_message(
@@ -183,7 +183,8 @@ class FoundryAgentClient:
                     "metadata": metadata,
                 }
             logger.error(
-                f"Foundry agent call failed: {e}",
+                "Foundry agent call failed: %s",
+                e,
                 extra={"agent_name": self._agent_name, "media_id": media_id},
             )
             raise
@@ -350,7 +351,8 @@ class FoundryAgentClient:
 
         except Exception as e:
             logger.error(
-                f"Foundry streaming failed: {e}",
+                "Foundry streaming failed: %s",
+                e,
                 extra={"agent_name": self._agent_name, "media_id": media_id},
             )
             yield {"type": "error", "content": str(e)}
@@ -444,6 +446,6 @@ def get_foundry_agent_client() -> FoundryAgentClient:
             project_endpoint=endpoint,
             agent_name=agent_name,
         )
-        logger.info(f"Foundry agent client initialized: {agent_name} @ {endpoint}")
+        logger.info("Foundry agent client initialized: %s @ %s", agent_name, endpoint)
 
     return _foundry_client
