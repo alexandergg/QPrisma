@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI/CD permission scoping**: Workflow permissions follow least-privilege principle.
 - **CodeQL, Dependabot, and Trivy scanning**: Static analysis, dependency vulnerability alerts, and container image scanning added to CI. (#25)
 - **CodeQL alert triage documentation**: Documented process for managing and resolving code scanning alerts. (#64)
-- **Pillow upgrade to 11.3.0**.
+- **Pillow dependency updated to `pillow>=12.1.1,<13.0.0`**.
 
 #### Video Pipeline
 - **PyAV integration**: C-level FFmpeg bindings as primary video decoder — zero subprocess overhead. (`services/pyav_extractor.py`)
