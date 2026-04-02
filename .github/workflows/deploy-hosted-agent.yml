@@ -250,6 +250,61 @@ jobs:
             echo "App Insights connection string resolved"
           fi
 
+      - name: Resolve backend service endpoints
+        id: services
+        run: |
+          RG="${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}"
+
+          # Neo4j Container App — internal FQDN within the Container Apps Environment
+          NEO4J_FQDN=$(az containerapp show \
+            --name ca-qprisma-neo4j-dev --resource-group "$RG" \
+            --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || echo "")
+          if [ -n "$NEO4J_FQDN" ]; then
+            echo "neo4j_uri=bolt://${NEO4J_FQDN}:7687" >> $GITHUB_OUTPUT
+            echo "Neo4j URI: bolt://${NEO4J_FQDN}:7687"
+          else
+            echo "::warning::Neo4j Container App not found — NEO4J_URI will be missing"
+          fi
+
+          # PostgreSQL Flexible Server
+          PG_FQDN=$(az postgres flexible-server show \
+            --name psql-qprisma-dev --resource-group "$RG" \
+            --query "fullyQualifiedDomainName" -o tsv 2>/dev/null || echo "")
+          if [ -n "$PG_FQDN" ]; then
+            echo "pg_fqdn=${PG_FQDN}" >> $GITHUB_OUTPUT
+            echo "PostgreSQL FQDN: ${PG_FQDN}"
+          else
+            echo "::warning::PostgreSQL Flexible Server not found — DATABASE_URL will be missing"
+          fi
+
+          # Azure Managed Redis — host includes port for Enterprise tier
+          REDIS_HOST=$(az redis show \
+            --name redis-qprisma-dev --resource-group "$RG" \
+            --query "hostName" -o tsv 2>/dev/null || echo "")
+          REDIS_PORT=$(az redis show \
+            --name redis-qprisma-dev --resource-group "$RG" \
+            --query "sslPort" -o tsv 2>/dev/null || echo "6380")
+          REDIS_KEY=$(az redis list-keys \
+            --name redis-qprisma-dev --resource-group "$RG" \
+            --query "primaryKey" -o tsv 2>/dev/null || echo "")
+          if [ -n "$REDIS_HOST" ] && [ -n "$REDIS_KEY" ]; then
+            echo "redis_url=rediss://:${REDIS_KEY}@${REDIS_HOST}:${REDIS_PORT}/0" >> $GITHUB_OUTPUT
+            echo "Redis host: ${REDIS_HOST}:${REDIS_PORT}"
+          else
+            echo "::warning::Redis not found — REDIS_URL will be missing"
+          fi
+
+          # Azure Storage Account
+          STORAGE_CONN=$(az storage account show-connection-string \
+            --name stqprismadev --resource-group "$RG" \
+            --query "connectionString" -o tsv 2>/dev/null || echo "")
+          if [ -n "$STORAGE_CONN" ]; then
+            echo "storage_connection_string=${STORAGE_CONN}" >> $GITHUB_OUTPUT
+            echo "Storage connection string resolved"
+          else
+            echo "::warning::Storage account not found — AZURE_STORAGE_CONNECTION_STRING will be missing"
+          fi
+
       - name: Register and start agent in Foundry
         id: register
         env:
@@ -257,6 +312,17 @@ jobs:
           CONTAINER_IMAGE: ${{ env.FULL_IMAGE }}
           ENVIRONMENT: hosted
           APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ steps.appinsights.outputs.connection_string }}
+          # Neo4j Knowledge Graph
+          NEO4J_URI: ${{ steps.services.outputs.neo4j_uri }}
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+          NEO4J_DATABASE: qprisma
+          # PostgreSQL
+          DATABASE_URL: postgresql://qprismaadmin:${{ secrets.DB_ADMIN_PASSWORD }}@${{ steps.services.outputs.pg_fqdn }}:5432/qprisma?sslmode=require
+          # Redis
+          REDIS_URL: ${{ steps.services.outputs.redis_url }}
+          # Azure Blob Storage
+          AZURE_STORAGE_CONNECTION_STRING: ${{ steps.services.outputs.storage_connection_string }}
         run: python scripts/deploy_agent.py
 
       - name: Deployment summary

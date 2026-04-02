@@ -34,14 +34,17 @@ class TestGraphState:
         assert state["session_id"] == "session-789"
 
     def test_create_agent_state_without_video(self):
-        """Test state creation without video context — media keys are omitted."""
+        """Test state creation without video context — InjectedState keys are present but None/empty."""
         from agent.state.agent_state import create_agent_state
 
         messages = [HumanMessage(content="Hello")]
         state = create_agent_state(messages=messages)
 
         assert "video_context" not in state
-        assert "media_id" not in state
+        assert state["media_id"] is None
+        assert state["media_ids"] == []
+        assert state["user_id"] is None
+        assert state["session_id"] is None
         assert state["sources"] == []
 
     def test_truncate_tool_message_content(self):

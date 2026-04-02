@@ -138,6 +138,41 @@ def main() -> None:
         credential=DefaultAzureCredential(),
     )
 
+    environment_variables = {
+        # --- Core ---
+        "ENVIRONMENT": os.environ.get("ENVIRONMENT", "hosted"),
+        "LOG_LEVEL": os.environ.get("LOG_LEVEL", "INFO"),
+        # --- Azure OpenAI ---
+        "AZURE_OPENAI_ENDPOINT": f"https://{ACCOUNT_NAME}.openai.azure.com/",
+        "AZURE_OPENAI_API_VERSION": "2024-08-01-preview",
+        "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
+        # --- Telemetry ---
+        **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING"),
+        **_optional_env("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"),
+        # --- Neo4j Knowledge Graph ---
+        **_optional_env("NEO4J_URI"),
+        **_optional_env("NEO4J_USER"),
+        **_optional_env("NEO4J_PASSWORD"),
+        **_optional_env("NEO4J_DATABASE"),
+        # --- PostgreSQL ---
+        **_optional_env("DATABASE_URL"),
+        # --- Redis ---
+        **_optional_env("REDIS_URL"),
+        # --- Azure Blob Storage ---
+        **_optional_env("AZURE_STORAGE_CONNECTION_STRING"),
+        # --- Mem0 (optional) ---
+        **_optional_env("MEM0_ENABLED"),
+        **_optional_env("MEM0_API_KEY"),
+    }
+
+    # Warn if critical backend service vars are missing
+    _CRITICAL_VARS = ["NEO4J_URI", "NEO4J_PASSWORD", "DATABASE_URL", "REDIS_URL"]
+    missing = [v for v in _CRITICAL_VARS if v not in environment_variables]
+    if missing:
+        print(f"WARNING: Missing critical env vars for backend services: {missing}")
+        print("  The hosted agent will fall back to localhost defaults and fail to connect.")
+        print("  Ensure the deploy workflow resolves these from Azure infrastructure.")
+
     definition = ImageBasedHostedAgentDefinition(
         container_protocol_versions=[
             ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="v1"),
@@ -146,15 +181,7 @@ def main() -> None:
         cpu="3.5",
         memory="7Gi",
         image=container_image,
-        environment_variables={
-            "ENVIRONMENT": os.environ.get("ENVIRONMENT", "hosted"),
-            "LOG_LEVEL": "INFO",
-            "AZURE_OPENAI_ENDPOINT": f"https://{ACCOUNT_NAME}.openai.azure.com/",
-            "AZURE_OPENAI_API_VERSION": "2024-08-01-preview",
-            "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
-            **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING"),
-            **_optional_env("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"),
-        },
+        environment_variables=environment_variables,
     )
 
     last_error = None

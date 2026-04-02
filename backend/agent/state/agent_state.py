@@ -231,10 +231,10 @@ def create_agent_state(
         f"media_ids={effective_ids}, session_id='{session_id}'"
     )
 
-    # Build the state dict, omitting None media keys so that LangGraph's
-    # checkpointer preserves previously-stored values when the current
-    # request doesn't include a media_id (total=False on AgentInputState
-    # means absent keys keep their checkpointed values).
+    # Build the state dict.  InjectedState fields (media_id, media_ids,
+    # user_id, session_id) MUST always be present — even as None / [] —
+    # because LangGraph's ToolNode does state["field"] (not .get()),
+    # raising KeyError when the key is absent.
     state: dict = {
         "messages": messages,
         "sources": [],
@@ -245,19 +245,16 @@ def create_agent_state(
         "partial_results": [],
         "memory_context": [],
         "artifact_refs": [],
+        # InjectedState targets — always present to avoid KeyError
+        "media_id": primary_media_id,
+        "media_ids": effective_ids or [],
+        "video_titles": video_titles or {},
+        "user_id": user_id,
+        "session_id": session_id,
     }
 
     if primary_media_id:
-        state["media_id"] = primary_media_id
         state["video_context"] = VideoContext(media_id=primary_media_id)
-    if effective_ids:
-        state["media_ids"] = effective_ids
-    if video_titles:
-        state["video_titles"] = video_titles
-    if user_id:
-        state["user_id"] = user_id
-    if session_id:
-        state["session_id"] = session_id
 
     return state  # type: ignore[return-value]
 
