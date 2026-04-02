@@ -3,13 +3,14 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
+
 from agent.nodes.base import (
     _rehydrate_artifact_context,
     update_context_node,
 )
 from agent.utils.observability import Metrics
-from langchain_core.messages import HumanMessage, ToolMessage
-from langchain_core.runnables import RunnableConfig
 
 
 @pytest.mark.unit
