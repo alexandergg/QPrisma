@@ -324,12 +324,6 @@ class TestPublicAPICoverage:
         "disconnect",
         "is_connected",
         "get_session",
-        # Async connection
-        "async_connect",
-        "async_disconnect",
-        "is_async_connected",
-        "get_async_session",
-        "async_execute_query",
         # Schema
         "initialize_schema",
         # CRUD (delegated to nodes)

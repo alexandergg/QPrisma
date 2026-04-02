@@ -12,9 +12,9 @@ Internally delegates to:
 """
 
 import logging
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import contextmanager
 
-from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncSession, Driver, GraphDatabase, Session
+from neo4j import Driver, GraphDatabase, Session
 from neo4j.exceptions import AuthError, ServiceUnavailable
 
 from core.config import settings
@@ -74,9 +74,7 @@ class KnowledgeGraphService:
         self.database = database or settings.neo4j.database
 
         self._driver: Driver | None = None
-        self._async_driver: AsyncDriver | None = None
         self._connected = False
-        self._async_connected = False
         self._schema_initialized = False
 
         # Composed services – wired to own _execute_query / get_session so
@@ -133,10 +131,6 @@ class KnowledgeGraphService:
             self._connected = False
             self._schema_initialized = False
             logger.info("Disconnected from Neo4j")
-        if self._async_driver:
-            # For sync disconnect of async driver, caller should use async_disconnect
-            self._async_driver = None
-            self._async_connected = False
 
     @property
     def is_connected(self) -> bool:
@@ -187,94 +181,6 @@ class KnowledgeGraphService:
                 return dict(record)
 
             records = list(result)
-            if unpack_key:
-                return [dict(r[unpack_key]) for r in records]
-            return [dict(r) for r in records]
-
-    # =========================================================================
-    # Async Connection Management
-    # =========================================================================
-
-    async def async_connect(self) -> bool:
-        """Establish an async connection to Neo4j."""
-        try:
-            self._async_driver = AsyncGraphDatabase.driver(
-                self.uri,
-                auth=(self.user, self.password),
-                max_connection_lifetime=3600,
-                max_connection_pool_size=50,
-                connection_acquisition_timeout=60,
-            )
-            await self._async_driver.verify_connectivity()
-            self._async_connected = True
-            logger.info(f"Async connected to Neo4j at {self.uri}")
-            return True
-        except (AuthError, ServiceUnavailable) as e:
-            logger.error(f"Neo4j async connection failed: {e}")
-            self._async_connected = False
-            return False
-        except Exception as e:
-            logger.error(f"Failed async connect to Neo4j: {e}")
-            self._async_connected = False
-            return False
-
-    async def async_disconnect(self):
-        """Close the async connection to Neo4j."""
-        if self._async_driver:
-            await self._async_driver.close()
-            self._async_driver = None
-            self._async_connected = False
-            logger.info("Async disconnected from Neo4j")
-
-    @property
-    def is_async_connected(self) -> bool:
-        """Check whether an active async connection exists."""
-        return self._async_connected and self._async_driver is not None
-
-    @asynccontextmanager
-    async def get_async_session(self) -> AsyncSession:
-        """Async context manager for obtaining a Neo4j session."""
-        if not self.is_async_connected:
-            await self.async_connect()
-
-        session = self._async_driver.session(database=self.database)
-        try:
-            yield session
-        finally:
-            await session.close()
-
-    async def async_execute_query(
-        self,
-        query: str,
-        params: dict | None = None,
-        single: bool = False,
-        unpack_key: str | None = None,
-    ) -> list[dict] | dict | None:
-        """
-        Execute a Neo4j query asynchronously.
-
-        Args:
-            query: Cypher query string
-            params: Query parameters (optional)
-            single: If True, return single record; otherwise return list
-            unpack_key: If provided, extract this key from each record
-
-        Returns:
-            Single dict, list of dicts, or None depending on params
-        """
-        params = params or {}
-        async with self.get_async_session() as session:
-            result = await session.run(query, **params)
-
-            if single:
-                record = await result.single()
-                if record is None:
-                    return None
-                if unpack_key:
-                    return dict(record[unpack_key])
-                return dict(record)
-
-            records = [record async for record in result]
             if unpack_key:
                 return [dict(r[unpack_key]) for r in records]
             return [dict(r) for r in records]

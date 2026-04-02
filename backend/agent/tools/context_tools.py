@@ -41,6 +41,7 @@ async def list_chapters(
             kg.connect()
 
         if not kg.is_connected:
+            logger.warning("list_chapters: Neo4j unavailable at %s", kg.uri)
             return {"error": "Knowledge graph not available.", "chapters": []}
 
         with kg.get_session() as session:
@@ -167,6 +168,7 @@ async def get_summary(
             kg.connect()
 
         if not kg.is_connected:
+            logger.warning("get_summary: Neo4j unavailable at %s", kg.uri)
             return {"error": "Knowledge graph not available.", "summary": ""}
 
         with kg.get_session() as session:
