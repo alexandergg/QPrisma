@@ -382,6 +382,7 @@ class EntityExtractor:
             topics=data.get("topics", []),
             actions=data.get("actions", []),
             detected_text=data.get("detected_text", []),
+            scene_type=data.get("scene_type"),
             model_used=self.deployment,
             analysis_time_ms=analysis_time,
         )

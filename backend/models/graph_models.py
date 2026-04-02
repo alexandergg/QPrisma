@@ -522,6 +522,9 @@ class FrameAnalysisResult(BaseModel):
     # Detected text (OCR)
     detected_text: list[str] = Field(default_factory=list)
 
+    # Scene classification
+    scene_type: str | None = None  # indoor, outdoor, mixed (from LLM)
+
     # Analysis metadata
     model_used: str = "gpt-4o"
     analysis_time_ms: float = 0.0

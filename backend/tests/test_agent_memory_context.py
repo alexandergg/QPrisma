@@ -34,7 +34,6 @@ class TestAgentMemoryContext:
             "session_id": "session-1",
             "user_id": "user-1",
             "media_id": "media-1",
-            "project_id": None,
             "project_context": None,
         }
         config = RunnableConfig(configurable={"thread_id": "session-1"})
@@ -69,7 +68,6 @@ class TestAgentMemoryContext:
             "session_id": "session-2",
             "user_id": "user-2",
             "media_id": "media-2",
-            "project_id": None,
             "project_context": None,
         }
         config = RunnableConfig(configurable={"thread_id": "session-2"})
@@ -112,7 +110,6 @@ class TestAgentMemoryContext:
             "session_id": "session-3",
             "user_id": "user-3",
             "media_id": "media-3",
-            "project_id": None,
             "project_context": None,
         }
         config = RunnableConfig(configurable={"thread_id": "session-3"})
@@ -146,7 +143,6 @@ class TestAgentMemoryContext:
             "session_id": "session-4",
             "user_id": "user-4",
             "media_id": "media-4",
-            "project_id": None,
             "project_context": None,
         }
         config = RunnableConfig(configurable={"thread_id": "session-4"})
@@ -273,7 +269,6 @@ class TestAgentMemoryContext:
             "session_id": "session-h1",
             "user_id": "user-h1",
             "media_id": "media-h1",
-            "project_id": None,
             "project_context": None,
         }
         config = RunnableConfig(configurable={"thread_id": "session-h1"})

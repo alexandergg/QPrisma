@@ -1038,6 +1038,45 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             generate_embeddings_batch_task(analysis_texts, job_id) if analysis_texts else []
         )
 
+        # 6b. Upload frame images to blob storage for graph thumbnails
+        if _blob_service and frames:
+            update_job_status(
+                job_id, "processing", 75, "upload_frames",
+                f"Uploading {len(frames)} frame thumbnails to blob storage...",
+            )
+            from azure.storage.blob import ContentSettings as _FrameContentSettings
+
+            container_name = settings.azure.storage_container_name
+            # Build lookup from frame_number → frame_analyses entry
+            analysis_by_frame = {
+                a.get("frame_number", a.get("index", i)): a
+                for i, a in enumerate(frame_analyses)
+            }
+            for frame_data in frames:
+                frame_number = frame_data.get("frame_number", frame_data.get("index", 0))
+                image_bytes = frame_data.get("image_bytes", b"")
+                if not image_bytes:
+                    continue
+                if isinstance(image_bytes, str):
+                    import base64 as _b64
+                    image_bytes = _b64.b64decode(image_bytes)
+
+                blob_name_frame = f"{video_id}/frames/frame_{frame_number}.webp"
+                try:
+                    blob_client = _blob_service.get_blob_client(
+                        container=container_name, blob=blob_name_frame,
+                    )
+                    blob_client.upload_blob(
+                        image_bytes,
+                        overwrite=True,
+                        content_settings=_FrameContentSettings(content_type="image/webp"),
+                    )
+                    # Store blob name on the matching frame analysis entry
+                    if frame_number in analysis_by_frame:
+                        analysis_by_frame[frame_number]["image_url"] = blob_name_frame
+                except Exception as upload_err:
+                    logger.debug(f"Frame {frame_number} upload skipped: {upload_err}")
+
         # 7. Index in Knowledge Graph (Neo4j) + store embeddings
         graph_indexed = False
         if config.get("index_graph", True):
@@ -1123,6 +1162,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             visual_change_score=float(getattr(s, "visual_change_score", 0.0)),
                             dominant_colors=getattr(s, "dominant_colors", None) or [],
                             transition_type=getattr(s, "transition_type", "cut"),
+                            scene_type=getattr(s, "scene_type", None) or "general",
                         )
                         graph.create_scene_node(sn)
                         scene_nodes.append(sn)
@@ -1224,6 +1264,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                         description=text,
                         blur_score=float(a.get("blur_score", 0.0)),
                         brightness=float(a.get("brightness", 0.0)),
+                        image_url=a.get("image_url"),
                     )
                     frame_nodes_with_embeddings.append((frame_node, emb))
 

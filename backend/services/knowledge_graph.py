@@ -301,6 +301,27 @@ class KnowledgeGraphService:
                 except Exception as e:
                     logger.debug(f"Index may already exist: {e}")
 
+            # Migrate existing nodes: ensure scene_type and image_url properties exist
+            migrations = [
+                (
+                    "MATCH (s:Scene) WHERE s.scene_type IS NULL SET s.scene_type = 'general'",
+                    "Scene.scene_type",
+                ),
+                (
+                    "MATCH (f:Frame) WHERE f.image_url IS NULL SET f.image_url = ''",
+                    "Frame.image_url",
+                ),
+            ]
+            for migration_query, prop_name in migrations:
+                try:
+                    result = session.run(migration_query)
+                    summary = result.consume()
+                    updated = summary.counters.properties_set
+                    if updated:
+                        logger.info(f"Schema migration: set default {prop_name} on {updated} nodes")
+                except Exception as e:
+                    logger.debug(f"Schema migration for {prop_name} skipped: {e}")
+
             logger.info("Neo4j schema initialized successfully")
 
     # =========================================================================

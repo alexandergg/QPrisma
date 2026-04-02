@@ -126,7 +126,6 @@ class ToolArtifactService:
         thread_id: str | None = None,
         user_id: str | None = None,
         media_id: str | None = None,
-        project_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Persist full tool output and return artifact metadata."""
@@ -164,7 +163,6 @@ class ToolArtifactService:
             "thread_id": thread_id,
             "user_id": user_id,
             "media_id": media_id,
-            "project_id": project_id,
             "blob_name": blob_name,
             "content_type": "application/json",
             "content_encoding": "gzip",

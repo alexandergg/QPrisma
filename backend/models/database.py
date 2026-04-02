@@ -315,7 +315,6 @@ class ToolArtifactModel(Base):
             "thread_id": self.thread_id,
             "user_id": self.user_id,
             "media_id": self.media_id,
-            "project_id": self.project_id,
             "blob_name": self.blob_name,
             "content_type": self.content_type,
             "content_encoding": self.content_encoding,
