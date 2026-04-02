@@ -131,6 +131,7 @@ class KnowledgeGraphService:
             self._connected = False
             self._schema_initialized = False
             logger.info("Disconnected from Neo4j")
+
     @property
     def is_connected(self) -> bool:
         """Check whether an active connection exists."""
