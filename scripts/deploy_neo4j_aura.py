@@ -445,10 +445,10 @@ def main() -> None:
                 print("  Instance is already running — nothing to do.")
             elif status == "paused":
                 resume_instance(token, instance_id)
-                data = poll_until_running(token, instance_id)
+                poll_until_running(token, instance_id)
             else:
                 print(f"  Instance status is '{status}' — will poll until running.")
-                data = poll_until_running(token, instance_id)
+                poll_until_running(token, instance_id)
 
             data = get_instance(token, instance_id)
             connection_url = data.get("connection_url", "")
