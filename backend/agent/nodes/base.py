@@ -39,6 +39,12 @@ from core.config import settings
 
 logger = get_logger(__name__)
 
+
+def _sanitize_log(value: object, max_len: int = 200) -> str:
+    """Strip control characters and truncate for safe logging."""
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(value))[:max_len]
+
+
 # Shared message trimmer instance
 _message_trimmer = get_message_trimmer(max_tokens=80000)
 
@@ -850,7 +856,10 @@ def base_should_continue(
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         # Check iteration limit
         if tool_calls_count >= max_iterations:
-            logger.warning("Reached max tool iterations (%d), forcing end", max_iterations)
+            logger.warning(
+                f"Reached max tool iterations ({max_iterations}),"
+                " forcing end"
+            )
             return END
 
         # Check error threshold - route to error handler if we have partial results
@@ -1012,7 +1021,10 @@ async def update_context_node(state: AgentState, config: RunnableConfig) -> dict
                     memory_context = memory_context[-20:]
                     artifact_refs = artifact_refs[-50:]
             except (json.JSONDecodeError, TypeError, ValueError, OSError) as exc:
-                logger.warning("Failed to update tool memory context: %s", exc)
+                logger.warning(
+                    f"Failed to update tool memory context:"
+                    f" {_sanitize_log(exc)}"
+                )
 
     return {
         "conversation_context": updated_context,
