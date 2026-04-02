@@ -221,11 +221,15 @@ var appSecrets = [
 // Construct frontend FQDN from naming convention + environment domain (avoids circular dependency)
 var frontendFqdn = '${frontendContainerAppName}.${containerAppsEnv.outputs.defaultDomain}'
 
+// Normalize empty strings back to defaults (empty secrets override Bicep param defaults)
+var effectiveNeo4jUser = empty(neo4jUser) ? 'neo4j' : neo4jUser
+var effectiveNeo4jDatabase = empty(neo4jDatabase) ? 'neo4j' : neo4jDatabase
+
 // Plain-value env vars (Neo4j URI from AuraDB, passed via parameter)
 var appEnvVars = [
   { name: 'NEO4J_URI', value: neo4jUri }
-  { name: 'NEO4J_USER', value: neo4jUser }
-  { name: 'NEO4J_DATABASE', value: neo4jDatabase }
+  { name: 'NEO4J_USER', value: effectiveNeo4jUser }
+  { name: 'NEO4J_DATABASE', value: effectiveNeo4jDatabase }
   { name: 'AZURE_OPENAI_ENDPOINT', value: existingAiFoundry.properties.endpoint }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_CHAT', value: 'gpt-5.2-chat' }
