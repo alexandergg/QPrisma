@@ -161,8 +161,11 @@ class SceneAnalyzer:
                 "-",
             ]
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=300  # 5 minute timeout
+            result = subprocess.run(  # noqa: S603
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout
             )
 
             # Parse the output for scene change timestamps
@@ -341,9 +344,7 @@ class SceneAnalyzer:
 
                     # Aggregate scene_type (most common non-null value from frames)
                     frame_scene_types = [
-                        f.get("scene_type")
-                        for f in scene_frames
-                        if f.get("scene_type")
+                        f.get("scene_type") for f in scene_frames if f.get("scene_type")
                     ]
                     if frame_scene_types:
                         from collections import Counter
