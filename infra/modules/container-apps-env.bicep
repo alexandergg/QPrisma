@@ -25,7 +25,7 @@ resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   }
 }
 
-// VNet required for TCP ingress between Container Apps (e.g., Neo4j Bolt protocol)
+// VNet required for TCP ingress between Container Apps and private endpoints
 resource vnet 'Microsoft.Network/virtualNetworks@2024-01-01' = {
   name: 'vnet-${name}'
   location: location

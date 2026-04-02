@@ -123,6 +123,21 @@ jobs:
                 entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
                 entraAuthApiScope='${{ vars.ENTRA_API_SCOPE }}'
 
+      - name: Clean up legacy Neo4j Container App
+        run: |
+          NEO4J_CA="ca-qprisma-neo4j-${{ inputs.environment || 'dev' }}"
+          if az containerapp show --name "$NEO4J_CA" \
+               --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+               --output none 2>/dev/null; then
+            echo "Deleting legacy Neo4j Container App: $NEO4J_CA"
+            az containerapp delete --name "$NEO4J_CA" \
+              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+              --yes --output none
+            echo "  Deleted."
+          else
+            echo "No legacy Neo4j Container App found — nothing to clean up."
+          fi
+
       - name: Set Key Vault secrets
         run: |
           az keyvault secret set \
