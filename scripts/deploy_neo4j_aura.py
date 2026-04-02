@@ -1,22 +1,28 @@
-"""Provision a Neo4j AuraDB Free instance via the Aura API v1.
+"""Provision and manage a Neo4j AuraDB instance via the Aura API v1.
 
 Automates the full lifecycle: authenticate, check for existing instances,
-create if needed, resume if paused, and poll until running. Outputs the
-connection details to $GITHUB_OUTPUT for downstream CI/CD steps.
+create if needed, resume if paused, pause on demand, and poll until running.
+Outputs the connection details to $GITHUB_OUTPUT for downstream CI/CD steps.
 
 Usage:
     export AURA_CLIENT_ID="..."
     export AURA_CLIENT_SECRET="..."
     export AURA_TENANT_ID="..."
-    export ENVIRONMENT="dev"          # optional, defaults to "dev"
+    export ENVIRONMENT="dev"                      # optional, defaults to "dev"
+    export AURA_INSTANCE_TYPE="professional-db"   # optional, defaults to "professional-db"
+    export AURA_ACTION="provision"                # provision | pause | resume
     python scripts/deploy_neo4j_aura.py
 
 Environment variables:
-    AURA_CLIENT_ID      OAuth2 client ID for the Neo4j Aura API
-    AURA_CLIENT_SECRET  OAuth2 client secret for the Neo4j Aura API
-    AURA_TENANT_ID      Tenant ID for instance ownership
-    ENVIRONMENT         Target environment suffix (default: "dev")
-    GITHUB_OUTPUT       Path to GitHub Actions output file (set by Actions)
+    AURA_CLIENT_ID        OAuth2 client ID for the Neo4j Aura API
+    AURA_CLIENT_SECRET    OAuth2 client secret for the Neo4j Aura API
+    AURA_TENANT_ID        Tenant ID for instance ownership
+    ENVIRONMENT           Target environment suffix (default: "dev")
+    AURA_INSTANCE_TYPE    Instance type: "professional-db" or "free-db"
+                          (default: "professional-db")
+    AURA_ACTION           Action to perform: "provision", "pause", or "resume"
+                          (default: "provision")
+    GITHUB_OUTPUT         Path to GitHub Actions output file (set by Actions)
 
 Reference:
     https://neo4j.com/docs/aura/platform/api/specification/
@@ -48,6 +54,11 @@ MAX_RETRIES = 5
 RETRY_BACKOFF_SECONDS = [2, 4, 8, 16, 32]
 
 RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+VALID_INSTANCE_TYPES = {"professional-db", "free-db"}
+DEFAULT_INSTANCE_TYPE = "professional-db"
+
+VALID_ACTIONS = {"provision", "pause", "resume"}
 
 
 # ---------------------------------------------------------------------------
@@ -223,8 +234,15 @@ def create_instance(
     *,
     name: str,
     tenant_id: str,
+    instance_type: str = DEFAULT_INSTANCE_TYPE,
 ) -> tuple[dict[str, Any], str]:
-    """Create a new AuraDB Free instance.
+    """Create a new AuraDB instance.
+
+    Args:
+        token: Bearer token for the Aura API.
+        name: Instance name.
+        tenant_id: Aura tenant ID.
+        instance_type: ``"professional-db"`` or ``"free-db"``.
 
     Returns ``(instance_data, initial_password)``.  The password is **only**
     available in the creation response.
@@ -235,13 +253,14 @@ def create_instance(
             "region": "westeurope",
             "memory": "1GB",
             "name": name,
-            "type": "free-db",
+            "type": instance_type,
             "tenant_id": tenant_id,
             "cloud_provider": "azure",
         }
     ).encode("utf-8")
 
-    print(f"Creating AuraDB Free instance '{name}'...")
+    type_label = "Professional" if instance_type == "professional-db" else "Free"
+    print(f"Creating AuraDB {type_label} instance '{name}'...")
     status, body = _api_request(
         f"{AURA_API_BASE}/instances",
         method="POST",
@@ -276,6 +295,24 @@ def resume_instance(token: str, instance_id: str) -> None:
         print(f"ERROR: Failed to resume instance (HTTP {status})")
         sys.exit(1)
     print("  Resume request accepted.")
+
+
+def pause_instance(token: str, instance_id: str) -> None:
+    """Send a pause request for a running instance.
+
+    Paused instances retain data and backups but stop billing for compute
+    (saves ~80% of running costs on AuraDB Professional).
+    """
+    print(f"Pausing instance {instance_id}...")
+    status, body = _api_request(
+        f"{AURA_API_BASE}/instances/{instance_id}/pause",
+        method="POST",
+        headers=_auth_headers(token),
+    )
+    if status not in (200, 202):
+        print(f"ERROR: Failed to pause instance (HTTP {status}): {body}")
+        sys.exit(1)
+    print("  Pause request accepted.")
 
 
 def poll_until_running(token: str, instance_id: str) -> dict[str, Any]:
@@ -345,38 +382,103 @@ def main() -> None:
     client_secret = _required_env("AURA_CLIENT_SECRET")
     tenant_id = _required_env("AURA_TENANT_ID")
     environment = os.environ.get("ENVIRONMENT", "dev").strip() or "dev"
+    instance_type = os.environ.get("AURA_INSTANCE_TYPE", DEFAULT_INSTANCE_TYPE).strip()
+    action = os.environ.get("AURA_ACTION", "provision").strip().lower()
+
+    if instance_type not in VALID_INSTANCE_TYPES:
+        print(f"ERROR: Invalid AURA_INSTANCE_TYPE '{instance_type}'. "
+              f"Valid: {VALID_INSTANCE_TYPES}")
+        sys.exit(1)
+
+    if action not in VALID_ACTIONS:
+        print(f"ERROR: Invalid AURA_ACTION '{action}'. Valid: {VALID_ACTIONS}")
+        sys.exit(1)
 
     instance_name = INSTANCE_NAME_TEMPLATE.format(environment=environment)
+    type_label = "Professional" if instance_type == "professional-db" else "Free"
 
-    print(f"Neo4j AuraDB provisioning — target instance: '{instance_name}'")
-    print(f"  Environment: {environment}")
+    print(f"Neo4j AuraDB management — target instance: '{instance_name}'")
+    print(f"  Environment:   {environment}")
+    print(f"  Instance type: {type_label} ({instance_type})")
+    print(f"  Action:        {action}")
 
     # ---- Authenticate ----
     token = authenticate(client_id, client_secret)
 
-    # ---- Check for existing instance ----
+    # ---- Find existing instance ----
     print("Checking for existing instances...")
     instances = list_instances(token)
     print(f"  Found {len(instances)} instance(s) in tenant.")
 
     existing = find_instance_by_name(instances, instance_name)
+
+    # ---- Handle pause/resume actions ----
+    if action in ("pause", "resume"):
+        if existing is None:
+            print(f"ERROR: Instance '{instance_name}' not found. "
+                  f"Cannot {action} a non-existent instance.")
+            sys.exit(1)
+
+        instance_id: str = existing["id"]
+        status = existing.get("status", "unknown")
+        print(f"  Instance '{instance_name}' (id={instance_id}, status={status})")
+
+        if action == "pause":
+            if status == "paused":
+                print("  Instance is already paused — nothing to do.")
+            elif status == "running":
+                pause_instance(token, instance_id)
+                print("\nInstance pause requested. It will stop billing for compute shortly.")
+            else:
+                print(f"  Cannot pause instance in '{status}' state.")
+                sys.exit(1)
+
+            write_github_output({
+                "neo4j_instance_id": instance_id,
+                "action": "pause",
+                "instance_status": "paused" if status == "paused" else "pausing",
+            })
+            return
+
+        if action == "resume":
+            if status == "running":
+                print("  Instance is already running — nothing to do.")
+            elif status == "paused":
+                resume_instance(token, instance_id)
+                data = poll_until_running(token, instance_id)
+            else:
+                print(f"  Instance status is '{status}' — will poll until running.")
+                data = poll_until_running(token, instance_id)
+
+            data = get_instance(token, instance_id)
+            connection_url = data.get("connection_url", "")
+            write_github_output({
+                "neo4j_uri": connection_url,
+                "neo4j_instance_id": instance_id,
+                "action": "resume",
+                "instance_status": "running",
+            })
+            print(f"\nInstance resumed. URI: {connection_url}")
+            return
+
+    # ---- Provision action ----
     instance_created = False
     initial_password = ""
 
     if existing is not None:
-        instance_id: str = existing["id"]
+        instance_id = existing["id"]
         status = existing.get("status", "unknown")
         print(
-            f"  Instance '{instance_name}' already exists " f"(id={instance_id}, status={status})."
+            f"  Instance '{instance_name}' already exists "
+            f"(id={instance_id}, status={status})."
         )
 
         if status == "paused":
             resume_instance(token, instance_id)
         elif status == "running":
             print("  Instance is already running — nothing to do.")
-            # Fetch full details for connection_url
             data = get_instance(token, instance_id)
-            connection_url: str = data.get("connection_url", "")
+            connection_url = data.get("connection_url", "")
 
             write_github_output(
                 {
@@ -399,6 +501,7 @@ def main() -> None:
             token,
             name=instance_name,
             tenant_id=tenant_id,
+            instance_type=instance_type,
         )
         instance_id = data["id"]
         instance_created = True
@@ -420,6 +523,7 @@ def main() -> None:
     # ---- Summary ----
     print("\nProvisioning complete.")
     print(f"  Instance ID:  {instance_id}")
+    print(f"  Type:         {type_label}")
     print(f"  Created:      {instance_created}")
     print(f"  Password:     {'captured' if initial_password else 'not available'}")
 
