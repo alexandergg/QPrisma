@@ -193,18 +193,19 @@ export default function VideoPanel({
                 />
               ))}
               {/* Citation markers — colored diamonds at cited timestamps */}
-              {citationMarkers.map((marker, idx) => {
+              {duration > 0 && citationMarkers.map((marker, idx) => {
                 const markerColors = {
                   visual: 'bg-indigo-400',
                   audio: 'bg-emerald-400',
                   entity: 'bg-amber-400',
                 };
+                const leftPercent = Math.min(100, Math.max(0, (marker.timestamp / duration) * 100));
                 return (
                   <div
                     key={`marker-${idx}-${marker.timestamp}`}
                     className={`absolute -top-1 w-2 h-2 rotate-45 ${markerColors[marker.type]} opacity-80 group-hover:opacity-100 transition-opacity pointer-events-none`}
                     style={{
-                      left: `${(marker.timestamp / duration) * 100}%`,
+                      left: `${leftPercent}%`,
                       marginLeft: '-4px',
                     }}
                     title={formatTime(marker.timestamp)}

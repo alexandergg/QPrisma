@@ -67,7 +67,7 @@ function CitationCard({ timestamp, type, description, score, onClick }: Citation
     <button
       onClick={onClick}
       className={`
-        w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border-l-3
+        w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border-l-[3px]
         ${config.border} ${config.bg}
         transition-all duration-200 cursor-pointer group
         hover:shadow-sm

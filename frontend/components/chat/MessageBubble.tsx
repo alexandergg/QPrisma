@@ -9,7 +9,8 @@ import { ReasoningPanel } from './ReasoningPanel';
 import type { ToolDetail } from '@/hooks/useChatState';
 
 /** Match [HH:MM:SS], [MM:SS], or bare HH:MM:SS / MM:SS patterns in text. */
-const TIMESTAMP_RE = /\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?/g;
+const TIMESTAMP_RE_PATTERN = /\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?/;
+const TIMESTAMP_RE_TEST = new RegExp(TIMESTAMP_RE_PATTERN.source);
 
 function parseTimestampToSeconds(ts: string): number {
   const parts = ts.split(':').map(Number);
@@ -27,8 +28,9 @@ function renderTextWithTimestamps(
 ): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
+  const globalRe = new RegExp(TIMESTAMP_RE_PATTERN.source, 'g');
 
-  for (const match of text.matchAll(TIMESTAMP_RE)) {
+  for (const match of text.matchAll(globalRe)) {
     const full = match[0];
     const core = match[1]; // the HH:MM:SS or MM:SS part
     const start = match.index!;
@@ -190,7 +192,7 @@ export const MessageBubble = memo(function MessageBubble({
   const markdownComponents = useMemo(() => ({
     p: ({ children }: { children?: React.ReactNode }) => {
       const processed = React.Children.map(children, (child) => {
-        if (typeof child === 'string' && TIMESTAMP_RE.test(child)) {
+        if (typeof child === 'string' && TIMESTAMP_RE_TEST.test(child)) {
           return <>{renderTextWithTimestamps(child, onTimestampClick)}</>;
         }
         return child;
@@ -199,7 +201,7 @@ export const MessageBubble = memo(function MessageBubble({
     },
     li: ({ children }: { children?: React.ReactNode }) => {
       const processed = React.Children.map(children, (child) => {
-        if (typeof child === 'string' && TIMESTAMP_RE.test(child)) {
+        if (typeof child === 'string' && TIMESTAMP_RE_TEST.test(child)) {
           return <>{renderTextWithTimestamps(child, onTimestampClick)}</>;
         }
         return child;
@@ -208,12 +210,12 @@ export const MessageBubble = memo(function MessageBubble({
     },
     strong: ({ children }: { children?: React.ReactNode }) => {
       const processed = React.Children.map(children, (child) => {
-        if (typeof child === 'string' && TIMESTAMP_RE.test(child)) {
-          return <strong>{renderTextWithTimestamps(child, onTimestampClick)}</strong>;
+        if (typeof child === 'string' && TIMESTAMP_RE_TEST.test(child)) {
+          return <>{renderTextWithTimestamps(child, onTimestampClick)}</>;
         }
         return child;
       });
-      return <>{processed}</>;
+      return <strong>{processed}</strong>;
     },
   }), [onTimestampClick]);
 
