@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Azure AI Foundry Hosted Agent
-- **Agent migrated to Azure AI Foundry hosted model**: Full lifecycle — build, register, and deploy the QPrisma agent as a Foundry-hosted container with `azure-ai-projects` Python SDK. (#8–#12, #17–#21, #61, #67–#69)
-- **CI/CD pipeline for hosted agent**: Dockerfile with `uv` best practices, ACR image build, agent registration, and auto-start container workflow. (`deploy-ai-foundry.yml`)
+- **Agent migrated to Azure AI Foundry hosted agent**: Full lifecycle — build, register, and deploy the QPrisma agent as a Foundry-hosted container with `azure-ai-projects` Python SDK. (#8–#12, #17–#21, #61, #67–#69)
+- **CI/CD pipeline for hosted agent**: Dockerfile with `uv` best practices, ACR image build, agent registration, and auto-start container workflow. (`deploy-hosted-agent.yml`)
 - **CapabilityHost Bicep resource**: Infrastructure for Foundry agent execution with Azure-managed defaults.
 - **agentserver-langgraph b17 upgrade**: `QPrismaStateConverter` updated for b17 API; Starlette dependency conflict resolved. (#67–#68)
 - **GenAI tracing toggle**: Dynamic content recording enable/disable via environment variable. (#69)
@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Relation type normalization**: Maps LLM-generated relation types (NEAR, ON, INSIDE, PART_OF, HAS, USES, HOLDS, WEARS) to valid semantic edge labels. (`services/entity_extractor.py`: `_normalize_relation_type()`, `_RELATION_TYPE_MAP`)
 
 #### Observability
-- **Agent reasoning panel with follow-up suggestions**: Chat UI surfaces agent chain-of-thought reasoning and suggested next questions. (#22)
+- **Agent reasoning panel with follow-up suggestions**: Chat UI surfaces agent tool invocations, status/progress, and structured reasoning metadata, along with suggested next questions. (#22)
 - **App Insights ↔ AI Foundry tracing**: Hosted agent telemetry flows to Application Insights via Foundry connection. (#23, #56–#58)
 
 #### Security
@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CI/CD permission scoping**: Workflow permissions follow least-privilege principle.
 - **CodeQL, Dependabot, and Trivy scanning**: Static analysis, dependency vulnerability alerts, and container image scanning added to CI. (#25)
 - **CodeQL alert triage documentation**: Documented process for managing and resolving code scanning alerts. (#64)
-- **Pillow upgrade to >=12.1.1**: Resolves CVE-2026-25990.
+- **Pillow upgrade to 11.3.0**.
 
 #### Video Pipeline
 - **PyAV integration**: C-level FFmpeg bindings as primary video decoder — zero subprocess overhead. (`services/pyav_extractor.py`)
@@ -133,7 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Editor agent (Chat-to-Edit) feature** — incomplete feature removed to simplify the repository.
 - **`CLAUDE.md` and `.claude/` directory** — removed Claude Code configuration.
 - **Orphaned scripts in `scripts/` directory** — removed unused helper scripts.
-- **Unused dependencies** (`mutmut`, `yt-dlp`, `wavesurfer.js`) — removed from project.
+- **Unused dependencies** (`mutmut`, `wavesurfer.js`) — removed from project.
 - **`docs/architecture_diagram.py`** — removed unused diagram generator.
 
 ### Fixed
@@ -145,7 +145,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Async checkpointer factory**: PostgreSQL-first cascade with proper async initialization and `MemorySaver` fallback.
 - **Empty `mem0-api-key` secret**: Container Apps validation no longer fails when the optional Mem0 secret is unset.
 - **Trivy action version**: Bumped to `v0.35.0` with correct `v` prefix to fix `build-and-push` workflow. (#45–#46)
-- **CI tooling**: `setup-uv@v7`, GitHub Actions updated to Node.js 24, lint and typecheck fixes. (#43)
+- **CI tooling**: `setup-uv@v7`, GitHub Actions configured to use Node.js 20, lint and typecheck fixes. (#43)
 - **App Insights connection string security**: `@secure()` annotation on `appInsightsConnectionString`, deployment output suppressed to prevent secret leakage, correct ARM category `AppInsights`. (#57–#58)
 - **SSO redirect URI mismatch (AADSTS50011)**: Redirect URIs merged instead of replaced; trailing slash stripped from base URI. (#47)
 
