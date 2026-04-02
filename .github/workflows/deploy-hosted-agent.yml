@@ -255,16 +255,8 @@ jobs:
         run: |
           RG="${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}"
 
-          # Neo4j Container App — internal FQDN within the Container Apps Environment
-          NEO4J_FQDN=$(az containerapp show \
-            --name ca-qprisma-neo4j-dev --resource-group "$RG" \
-            --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || echo "")
-          if [ -n "$NEO4J_FQDN" ]; then
-            echo "neo4j_uri=bolt://${NEO4J_FQDN}:7687" >> $GITHUB_OUTPUT
-            echo "Neo4j URI: bolt://${NEO4J_FQDN}:7687"
-          else
-            echo "::warning::Neo4j Container App not found — NEO4J_URI will be missing"
-          fi
+          # Neo4j AuraDB — URI from GitHub secrets (no Container App to resolve)
+          echo "Neo4j URI provided via secrets (AuraDB)"
 
           # PostgreSQL Flexible Server
           PG_FQDN=$(az postgres flexible-server show \
@@ -313,7 +305,7 @@ jobs:
           ENVIRONMENT: hosted
           APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ steps.appinsights.outputs.connection_string }}
           # Neo4j Knowledge Graph
-          NEO4J_URI: ${{ steps.services.outputs.neo4j_uri }}
+          NEO4J_URI: ${{ secrets.NEO4J_URI }}
           NEO4J_USER: neo4j
           NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
           NEO4J_DATABASE: qprisma

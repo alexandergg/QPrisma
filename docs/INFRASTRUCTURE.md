@@ -40,12 +40,14 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 │  │  │  1-2 rep    │  │  1-2 rep     │  │  1-3 rep (scaler) │  │   │
 │  │  └──────┬──────┘  └──────┬───────┘  └──────┬────────────┘  │   │
 │  │         │                │                  │               │   │
-│  │  ┌──────┴────────────────┴──────────────────┴────────┐     │   │
-│  │  │              Neo4j 5 Community (int)               │     │   │
-│  │  │              Port 7687 (Bolt/TCP)                   │     │   │
-│  │  │              Azure File Share persistence           │     │   │
-│  │  └────────────────────────────────────────────────────┘     │   │
+│  │  └──────┴────────────────┴──────────────────┴────────────┘  │   │
 │  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌────────────────────────────────────────────────────────────┐     │
+│  │  Neo4j AuraDB Free (external SaaS)                        │     │
+│  │  neo4j+s://xxxx.databases.neo4j.io (TLS)                  │     │
+│  │  200K nodes / 400K relationships                          │     │
+│  └────────────────────────────────────────────────────────────┘     │
 │                                                                     │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐     │
 │  │ PostgreSQL   │  │  Redis       │  │  Azure AI Foundry      │     │
@@ -77,10 +79,8 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 | `ca-qprisma-api-{env}` | API Server | 0.5 CPU / 1Gi | 1–2 | HTTP concurrent requests (>10) | External (HTTPS) |
 | `ca-qprisma-web-{env}` | Frontend | 0.25 CPU / 0.5Gi | 1–2 | HTTP concurrent requests (>20) | External (HTTPS) |
 | `ca-qprisma-worker-{env}` | Celery Worker | 1 CPU / 2Gi | 1–3 | KEDA Redis scaler (queue >5) | None (internal) |
-| `ca-qprisma-neo4j-{env}` | Neo4j Database | 1 CPU / 2Gi | 1 (fixed) | None | Internal TCP (7687) |
 
 **Key Design Decisions:**
-- **VNet Integration**: Required for Neo4j Bolt protocol (TCP ingress between containers)
 - **Managed Identity**: API and Worker apps use system-assigned managed identities for Key Vault access
 - **KEDA Autoscaling**: Worker scales based on Celery Redis queue depth, with 600s graceful termination
 - **Min Replicas = 1**: API and Frontend always have at least 1 replica to avoid cold start latency
@@ -92,7 +92,7 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 | PostgreSQL Flexible Server | Standard_B1ms (Burstable) | North Europe | v16, 32GB auto-grow, 7-day backup |
 | Azure Managed Redis | Balanced_B0 (Enterprise) | West Europe | TLS 1.2+, port 10000, VolatileLRU eviction |
 | Azure Blob Storage | Standard_LRS (Hot) | West Europe | `media` container, CORS, HTTPS-only |
-| Neo4j 5 Community | Container App | West Europe | Azure File Share persistence (5GB), APOC plugin |
+| Neo4j AuraDB Free | Managed SaaS | Azure (West Europe) | Public `neo4j+s://` endpoint, TLS, 200K nodes / 400K rels |
 
 ### AI Tier
 
@@ -263,7 +263,7 @@ infra/
     ├── container-app-worker.bicep    # Celery worker with KEDA scaler
     ├── container-registry.bicep   # ACR for Docker images
     ├── key-vault.bicep            # Key Vault + RBAC roles
-    ├── neo4j.bicep                # Neo4j container app + file share
+    ├── neo4j.bicep                # Neo4j container app + file share (DEPRECATED — AuraDB used in prod)
     ├── postgresql.bicep           # PostgreSQL Flexible Server
     ├── redis.bicep                # Azure Managed Redis Enterprise
     └── storage.bicep              # Storage account + blob container
@@ -274,10 +274,9 @@ infra/
 ```
 Phase 1 (Parallel):  Storage, PostgreSQL, Redis, ACR, AI Foundry
 Phase 2:             Container Apps Environment (VNet + Log Analytics)
-Phase 3:             Neo4j Container App (needs environment + storage)
-Phase 4:             API + Worker Container Apps (need all foundation services)
-Phase 5:             Frontend Container App (needs API FQDN)
-Phase 6:             Key Vault (needs managed identities from API + Worker)
+Phase 3:             API + Worker Container Apps (need all foundation services)
+Phase 4:             Frontend Container App (needs API FQDN)
+Phase 5:             Key Vault (needs managed identities from API + Worker)
 ```
 
 ### Key Parameters (`main.bicep`)
@@ -288,6 +287,7 @@ Phase 6:             Key Vault (needs managed identities from API + Worker)
 | `location` | string | `'westeurope'` | Primary region for apps |
 | `dbLocation` | string | `'northeurope'` | PostgreSQL region (service availability) |
 | `dbAdminPassword` | secureString | — | PostgreSQL admin password |
+| `neo4jUri` | string | `''` | Neo4j URI (AuraDB `neo4j+s://` connection URL) |
 | `neo4jPassword` | secureString | — | Neo4j authentication password |
 | `jwtSecretKey` | secureString | — | JWT signing secret |
 
@@ -316,7 +316,7 @@ Phase 6:             Key Vault (needs managed identities from API + Worker)
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o` | API, Worker |
 | `AZURE_OPENAI_DEPLOYMENT_GPT_BATCH` | `gpt-4o-batch` | API, Worker |
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | `text-embedding-3-large` | API, Worker |
-| `NEO4J_URI` | `bolt://<neo4j-fqdn>:7687` | API, Worker |
+| `NEO4J_URI` | `neo4j+s://<auradb-host>` (from AuraDB) | API, Worker |
 | `ENVIRONMENT` | `dev`/`staging`/`production` | API, Worker |
 | `CORS_ALLOWED_ORIGINS` | Frontend FQDN | API |
 | `NEXT_PUBLIC_API_URL` | API FQDN | Frontend |
@@ -334,6 +334,10 @@ Phase 6:             Key Vault (needs managed identities from API + Worker)
 | `AZURE_SUBSCRIPTION_ID` | Target subscription |
 | `DB_ADMIN_PASSWORD` | PostgreSQL admin password |
 | `NEO4J_PASSWORD` | Neo4j authentication |
+| `NEO4J_URI` | AuraDB connection URI (`neo4j+s://...`) |
+| `AURA_CLIENT_ID` | Neo4j Aura API OAuth2 client ID (for provisioning) |
+| `AURA_CLIENT_SECRET` | Neo4j Aura API OAuth2 client secret |
+| `AURA_TENANT_ID` | Neo4j Aura tenant ID |
 | `JWT_SECRET_KEY` | JWT token signing |
 
 ### GitHub Variables (CI/CD)
@@ -371,7 +375,7 @@ GitHub Secrets
 ### First-Time Setup
 
 1. **Create Azure Service Principal** with OIDC federation for GitHub Actions
-2. **Configure GitHub Secrets** (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, DB_ADMIN_PASSWORD, NEO4J_PASSWORD, JWT_SECRET_KEY)
+2. **Configure GitHub Secrets** (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, DB_ADMIN_PASSWORD, NEO4J_PASSWORD, NEO4J_URI, JWT_SECRET_KEY, AURA_CLIENT_ID, AURA_CLIENT_SECRET, AURA_TENANT_ID)
 3. **Configure GitHub Variables** (ACR_NAME, ACR_LOGIN_SERVER, AZURE_RESOURCE_GROUP, AZURE_LOCATION, KEY_VAULT_NAME, ENVIRONMENT, ENTRA_SPA_CLIENT_ID, ENTRA_TENANT_ID, ENTRA_API_SCOPE)
 4. **Grant OIDC SP Graph API permissions** for Entra SPA redirect URI sync (see [below](#entra-id-spa-redirect-uri-sync))
 5. **Run `deploy-infra.yml`** manually to provision all Azure resources
@@ -480,7 +484,6 @@ QPrisma deploys resources across 2 Azure regions for optimal performance and ser
 |-----|--------------|----------------|-----------------|
 | API | `GET /health` (60s timeout) | `GET /health` (90s) | `GET /health` |
 | Frontend | TCP 3000 | TCP 3000 | TCP 3000 |
-| Neo4j | TCP 7687 (60s) | TCP 7687 (90s) | — |
 | Worker | — | — | — |
 
 ### CI/CD Observability
@@ -527,9 +530,10 @@ QPrisma deploys resources across 2 Azure regions for optimal performance and ser
 - Check Redis Enterprise API version compatibility (currently using 2025-04-01)
 
 **Problem: Neo4j connection refused**
-- Verify VNet integration is enabled on the Container Apps environment
-- Check Neo4j is using `bolt://` (not `bolt+ssc://`) for internal VNet communication
-- Confirm TCP ingress is configured with `exposedPort: 7687`
+- Verify `NEO4J_URI` points to the correct AuraDB endpoint (`neo4j+s://xxxx.databases.neo4j.io`)
+- AuraDB Free instances auto-pause after 3 days of inactivity — they wake on connection but may take 30-60s
+- Ensure `NEO4J_PASSWORD` matches the initial password from provisioning
+- For local dev, use `bolt://localhost:7687` (docker-compose Neo4j service)
 
 **Problem: Celery tasks failing on Redis Enterprise**
 - Ensure Redis URL includes `ssl_cert_reqs=CERT_NONE` for Azure TLS

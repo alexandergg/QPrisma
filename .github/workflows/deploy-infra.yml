@@ -60,6 +60,7 @@ jobs:
             --parameters \
               dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
               neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
+              neo4jUri='${{ secrets.NEO4J_URI }}' \
               jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}' \
               entraAuthTenantId='${{ vars.ENTRA_TENANT_ID }}' \
               entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
@@ -74,6 +75,7 @@ jobs:
             --parameters \
               dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
               neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
+              neo4jUri='${{ secrets.NEO4J_URI }}' \
               jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}' \
               entraAuthTenantId='${{ vars.ENTRA_TENANT_ID }}' \
               entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
@@ -115,6 +117,7 @@ jobs:
               --parameters \
                 dbAdminPassword='${{ secrets.DB_ADMIN_PASSWORD }}' \
                 neo4jPassword='${{ secrets.NEO4J_PASSWORD }}' \
+                neo4jUri='${{ secrets.NEO4J_URI }}' \
                 jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}' \
                 entraAuthTenantId='${{ vars.ENTRA_TENANT_ID }}' \
                 entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
@@ -135,7 +138,7 @@ jobs:
           echo "|----------|------|" >> $GITHUB_STEP_SUMMARY
           echo "| Resource Group | ${{ vars.AZURE_RESOURCE_GROUP }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Key Vault | ${{ vars.KEY_VAULT_NAME }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Neo4j | Provisioned as Container App (internal) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Neo4j | AuraDB (external, URI from secrets) |" >> $GITHUB_STEP_SUMMARY
           echo "| AI Foundry | Referenced (deployed separately via deploy-ai-foundry.yml) |" >> $GITHUB_STEP_SUMMARY
 
   restore-containers:

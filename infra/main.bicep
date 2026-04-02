@@ -14,7 +14,10 @@ param dbAdminLogin string = 'qprismaadmin'
 @secure()
 param dbAdminPassword string
 
-@description('Neo4j admin password (for Container App Neo4j instance)')
+@description('Neo4j URI (AuraDB connection URL, e.g. neo4j+s://xxxx.databases.neo4j.io)')
+param neo4jUri string = ''
+
+@description('Neo4j admin password')
 @secure()
 param neo4jPassword string
 
@@ -80,9 +83,8 @@ var appInsightsName = 'appi-qprisma-${environment}'
 var apiContainerAppName = 'ca-qprisma-api-${environment}'
 var frontendContainerAppName = 'ca-qprisma-web-${environment}'
 var workerContainerAppName = 'ca-qprisma-worker-${environment}'
-var neo4jContainerAppName = 'ca-qprisma-neo4j-${environment}'
 
-// Compute default container images from ACR (used when image params are empty)
+// Compute defaultcontainer images from ACR (used when image params are empty)
 var acrLoginServer = '${containerRegistryName}.azurecr.io'
 var effectiveApiImage = empty(apiImageName) ? '${acrLoginServer}/qprisma-api:latest' : apiImageName
 var effectiveFrontendImage = empty(frontendImageName) ? '${acrLoginServer}/qprisma-frontend:latest' : frontendImageName
@@ -160,23 +162,6 @@ module appInsights 'modules/app-insights.bicep' = {
 }
 
 // =====================================================================
-// Neo4j (Container App — dev environment)
-// =====================================================================
-
-module neo4j 'modules/neo4j.bicep' = {
-  name: 'neo4j-deployment'
-  params: {
-    name: neo4jContainerAppName
-    location: location
-    environmentId: containerAppsEnv.outputs.id
-    neo4jPassword: neo4jPassword
-    storageAccountName: storage.outputs.name
-    storageAccountKey: storageAccountKey
-    tags: tags
-  }
-}
-
-// =====================================================================
 // Shared secrets & env vars for API and Worker
 // =====================================================================
 
@@ -232,7 +217,7 @@ var frontendFqdn = '${frontendContainerAppName}.${containerAppsEnv.outputs.defau
 
 // Plain-value env vars (Neo4j URI auto-wired from Container App internal FQDN)
 var appEnvVars = [
-  { name: 'NEO4J_URI', value: neo4j.outputs.boltUri }
+  { name: 'NEO4J_URI', value: neo4jUri }
   { name: 'NEO4J_USER', value: 'neo4j' }
   { name: 'AZURE_OPENAI_ENDPOINT', value: existingAiFoundry.properties.endpoint }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }
@@ -389,5 +374,5 @@ output keyVaultUri string = keyVault.outputs.uri
 output storageAccountName string = storage.outputs.name
 output postgresServerName string = postgres.outputs.name
 output redisHostName string = redis.outputs.hostName
-output neo4jBoltUri string = neo4j.outputs.boltUri
+output neo4jUri string = neo4jUri
 output appInsightsConnectionString string = appInsights.outputs.connectionString
