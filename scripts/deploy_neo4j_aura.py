@@ -28,6 +28,7 @@ Reference:
     https://neo4j.com/docs/aura/platform/api/specification/
 """
 
+import base64
 import json
 import os
 import sys
@@ -150,19 +151,25 @@ def _api_request(
 def authenticate(client_id: str, client_secret: str) -> str:
     """Obtain an OAuth2 bearer token via client-credentials flow.
 
+    Uses HTTP Basic Authentication as required by the Neo4j Aura API:
+    credentials are sent in the Authorization header (not the request body).
+
     Returns the access token string.
     """
     print("Authenticating with Neo4j Aura API...")
 
+    credentials = base64.b64encode(
+        f"{client_id}:{client_secret}".encode("utf-8")
+    ).decode("ascii")
+
     payload = urllib.parse.urlencode(
-        {
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-        }
+        {"grant_type": "client_credentials"}
     ).encode("utf-8")
 
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": f"Basic {credentials}",
+    }
 
     status, body = _api_request(
         AURA_AUTH_URL,
