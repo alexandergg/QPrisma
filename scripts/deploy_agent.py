@@ -147,6 +147,7 @@ def main() -> None:
             "LOG_LEVEL": "INFO",
             "AZURE_OPENAI_ENDPOINT": f"https://{ACCOUNT_NAME}.openai.azure.com/",
             "AZURE_OPENAI_API_VERSION": "2024-08-01-preview",
+            "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
             **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING"),
         },
     )

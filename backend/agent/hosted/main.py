@@ -84,6 +84,7 @@ def _setup_telemetry() -> None:
 
         os.environ.setdefault("OTEL_SERVICE_NAME", "qprisma-hosted-agent")
         os.environ.setdefault("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "false")
+        os.environ.setdefault("AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING", "true")
 
         configure_azure_monitor(connection_string=conn_str)
         OpenAIInstrumentor().instrument()
