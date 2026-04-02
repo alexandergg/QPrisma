@@ -8,7 +8,6 @@ diagnostic fields so the agent can recover gracefully.
 from unittest.mock import patch
 
 import pytest
-
 from agent.tools.multi_video_tools import (
     compare_videos,
     find_common_entities,
