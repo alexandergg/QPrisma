@@ -266,7 +266,9 @@ jobs:
             --query "fullyQualifiedDomainName" -o tsv 2>/dev/null || echo "")
           if [ -n "$PG_FQDN" ]; then
             echo "pg_fqdn=${PG_FQDN}" >> $GITHUB_OUTPUT
-            echo "database_url=postgresql://qprismaadmin:${DB_ADMIN_PASSWORD}@${PG_FQDN}:5432/qprisma?sslmode=require" >> $GITHUB_OUTPUT
+            DB_URL="postgresql://qprismaadmin:${DB_ADMIN_PASSWORD}@${PG_FQDN}:5432/qprisma?sslmode=require"
+            echo "::add-mask::${DB_URL}"
+            echo "database_url=${DB_URL}" >> $GITHUB_OUTPUT
             echo "PostgreSQL FQDN: ${PG_FQDN}"
           else
             echo "::warning::PostgreSQL Flexible Server not found — DATABASE_URL will be missing"
@@ -281,6 +283,7 @@ jobs:
             --cluster-name redis-qprisma-dev --name default --resource-group "$RG" \
             --query "primaryKey" -o tsv 2>/dev/null || echo "")
           if [ -n "$REDIS_HOST" ] && [ -n "$REDIS_KEY" ]; then
+            echo "::add-mask::${REDIS_KEY}"
             echo "redis_url=rediss://:${REDIS_KEY}@${REDIS_HOST}:${REDIS_PORT}/0" >> $GITHUB_OUTPUT
             echo "Redis host: ${REDIS_HOST}:${REDIS_PORT}"
           else
@@ -292,6 +295,7 @@ jobs:
             --name stqprismadev --resource-group "$RG" \
             --query "connectionString" -o tsv 2>/dev/null || echo "")
           if [ -n "$STORAGE_CONN" ]; then
+            echo "::add-mask::${STORAGE_CONN}"
             echo "storage_connection_string=${STORAGE_CONN}" >> $GITHUB_OUTPUT
             echo "Storage connection string resolved"
           else
