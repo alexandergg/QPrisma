@@ -79,13 +79,13 @@ class A2AAgentExecutor:
         if not context_id:
             return False
         # Foundry conversation IDs are opaque strings from the API (e.g. "conv_...")
-        # Client-generated contextIds are standard UUID v4 format
+        # Client-generated contextIds are standard UUID format
         try:
             import uuid as _uuid
 
-            val = _uuid.UUID(context_id, version=4)
-            # If it parses as UUID v4, it's client-generated
-            return str(val) != context_id
+            _uuid.UUID(context_id)
+            # Parses as a valid UUID → client-generated, not a Foundry ID
+            return False
         except (ValueError, AttributeError):
             # Not a UUID → assume it's a Foundry conversation ID
             return True
@@ -167,6 +167,9 @@ class A2AAgentExecutor:
 
         # Create or reuse Foundry conversation
         conversation_id = await self._get_or_create_conversation(client, message.contextId)
+
+        # Update task's contextId so clients receive the Foundry conversation ID
+        task.contextId = conversation_id
 
         # Set OTel context for trace correlation
         set_conversation_id(conversation_id)

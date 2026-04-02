@@ -24,6 +24,8 @@ import asyncio
 import logging
 from typing import Any
 
+from azure.core.exceptions import ResourceNotFoundError
+
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -99,7 +101,7 @@ class FoundryMemoryService:
                 store.id,
             )
             return {"name": store.name, "id": store.id, "description": store.description}
-        except Exception:
+        except ResourceNotFoundError:
             logger.debug("Memory store '%s' not found — will create", self._memory_store_name)
 
         try:

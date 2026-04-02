@@ -169,7 +169,9 @@ class FoundryAgentClient:
 
         except Exception as e:
             if conversation_id and self._is_retriable(e):
-                safe_cid = str(conversation_id).replace("\n", "").replace("\r", "")
+                import re
+
+                safe_cid = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(conversation_id))[:200]
                 logger.warning("Retrying without conversation (was '%s')", safe_cid)
                 kwargs.pop("conversation", None)
                 response = await asyncio.to_thread(
@@ -386,7 +388,7 @@ class FoundryAgentClient:
         """Return True if the exception indicates a bad conversation/response ID."""
         import openai as _openai
 
-        return isinstance(exc, _openai.BadRequestError | _openai.NotFoundError)
+        return isinstance(exc, (_openai.BadRequestError, _openai.NotFoundError))  # noqa: UP038
 
     @staticmethod
     def _build_metadata(

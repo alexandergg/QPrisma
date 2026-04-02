@@ -4,50 +4,46 @@ Esta guía define **qué guarda cada capa** y cuál es la **fuente de verdad** p
 
 ## Capas de memoria
 
-1. **Frontend Local Storage**
-   - Uso: caché de UX (lista de conversaciones, últimos mensajes renderizados, estado visual).
-   - Alcance: navegador/dispositivo del usuario.
-   - Persistencia: local al cliente.
-   - **No es fuente de verdad**.
-
-2. **LangGraph Checkpointer (Backend)**
+1. **LangGraph Checkpointer (Backend)**
    - Uso: estado operativo del grafo por conversación (`thread_id`), historial útil, reanudación tras fallos/interrupts.
    - Alcance: por hilo de conversación.
    - Persistencia: saver productivo (PostgreSQL/Redis) según disponibilidad.
    - **Fuente de verdad conversacional**.
 
-3. **Foundry Memory Store (Memoria semántica)**
+2. **Foundry Memory Store (Memoria semántica)**
    - Uso: memoria de largo plazo (preferencias, hechos resumidos, señales persistentes).
    - Alcance: cross-thread por usuario (scoped por Entra ID `{tid}_{oid}`).
    - Persistencia: Azure AI Foundry Memory Store.
    - No sustituye al checkpointer; complementa contexto.
+   - **Estado**: el servicio (`FoundryMemoryService`) está disponible como singleton pero **no se invoca automáticamente** en el grafo del agente todavía. La integración automática en nodos del grafo es trabajo futuro.
 
-4. **A2A Task Store**
+3. **A2A Task Store**
    - Uso: estado de tareas A2A (`taskId`, estado, artifacts, history de task).
    - Alcance: ciclo de vida de tareas/progreso.
    - Estado actual: en memoria de proceso (in-memory).
    - Objetivo recomendado: persistente para multi-instancia/restarts.
 
+> **Nota**: no hay persistencia de mensajes en el cliente (localStorage). La UI no almacena conversaciones localmente; todo el estado conversacional reside en el backend.
+
 ## Fuente de verdad y reconciliación
 
 - Conversación: **Backend checkpointer**.
-- Conocimiento semántico de usuario: **Foundry Memory Store**.
-- Estado visual del chat: **Local Storage**.
+- Conocimiento semántico de usuario: **Foundry Memory Store** (cuando se habilite la integración automática).
 - Si hay conflicto, prevalece backend (checkpointer/task state).
 
 ## Mapeo de IDs recomendado
 
-- `contextId` (A2A) ↔ `thread_id` (LangGraph): 1:1 para continuidad de conversación.
+- `contextId` (A2A): en la primera petición es un UUID generado por el cliente. El backend lo reemplaza por el **Foundry conversation ID** devuelto por la API de Conversations, y lo envía de vuelta al cliente en el evento SSE inicial del task. A partir de ahí, `contextId` porta el Foundry conversation ID para continuidad.
 - `taskId` (A2A): identidad de ejecución/progreso, no identidad primaria de conversación.
 
 ## Flujo por turno
 
-1. Cliente envía mensaje con `contextId`.
-2. Backend resuelve `thread_id=contextId` y carga estado desde checkpointer.
-3. Recupera memoria semántica (Foundry Memory Store) relevante para el prompt.
-4. Ejecuta grafo y stream de eventos (A2A SSE).
-5. Persiste checkpoint de super-steps.
-6. Frontend actualiza caché local para UX rápida.
+1. Cliente envía mensaje con `contextId` (UUID en el primer turno, Foundry conversation ID en turnos siguientes).
+2. Backend resuelve o crea un Foundry conversation ID a partir de `contextId`.
+3. Ejecuta la llamada al Foundry Hosted Agent (Responses API con `conversation=conv_id`).
+4. Recupera memoria semántica (Foundry Memory Store) relevante para el prompt _(futuro — servicio disponible pero no invocado automáticamente)_.
+5. Stream de eventos A2A SSE con `contextId` = Foundry conversation ID.
+6. Persiste checkpoint de super-steps.
 
 ## Latencia y calidad
 
