@@ -7,19 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- **AI Foundry region restored to Sweden Central** — moves AI resources back to `swedencentral` for model availability. The previous `aif-qprisma-dev` resource in West Europe was purged and will be recreated via the `deploy-ai-foundry.yml` workflow.
-- **Leiden community detection replaces Louvain as default**: Hierarchical multi-resolution community detection via `leidenalg` / `igraph` with guaranteed connected communities. Falls back to Louvain when leidenalg is unavailable. Configurable via `settings.community.algorithm` and `settings.community.hierarchical_levels`. (`services/community_detection_service.py`)
-- **Improved entity extraction prompts**: Structured table format for entity types with specific naming guidance, typed relationship extraction (INTERACTS_WITH, CONTAINS, CAUSES, RELATES_TO, SIMILAR_TO), and confidence calibration rules. (`services/entity_extractor.py`)
-
-### Removed
-- **Editor agent (Chat-to-Edit) feature** — incomplete feature removed to simplify the repository.
-- **`CLAUDE.md` and `.claude/` directory** — removed Claude Code configuration.
-- **Orphaned scripts in `scripts/` directory** — removed unused helper scripts.
-- **Unused dependencies** (`mutmut`, `yt-dlp`, `wavesurfer.js`) — removed from project.
-- **`docs/architecture_diagram.py`** — removed unused diagram generator.
+## [1.1.0] - 2026-04-02
 
 ### Added
+
+#### Azure AI Foundry Hosted Agent
+- **Agent migrated to Azure AI Foundry hosted model**: Full lifecycle — build, register, and deploy the QPrisma agent as a Foundry-hosted container with `azure-ai-projects` Python SDK. (#8–#12, #17–#21, #61, #67–#69)
+- **CI/CD pipeline for hosted agent**: Dockerfile with `uv` best practices, ACR image build, agent registration, and auto-start container workflow. (`deploy-ai-foundry.yml`)
+- **CapabilityHost Bicep resource**: Infrastructure for Foundry agent execution with Azure-managed defaults.
+- **agentserver-langgraph b17 upgrade**: `QPrismaStateConverter` updated for b17 API; Starlette dependency conflict resolved. (#67–#68)
+- **GenAI tracing toggle**: Dynamic content recording enable/disable via environment variable. (#69)
+
+#### Microsoft Entra ID Authentication
+- **Full auth migration from custom JWT to Microsoft Entra ID**: Backend `EntraAuthService` validates tokens against Entra with v1/v2 issuer support. (#24)
+- **MSAL v5 popup authentication flow**: Dedicated Next.js redirect page replaces static `redirect.html`; `MsalProvider` skip in popup windows; dark-background override. (#47–#51)
+- **Non-blocking SPA redirect URI sync**: Frontend build pipeline auto-syncs Entra redirect URIs without blocking deployment. (#48)
+- **Build-time Entra config validation**: Validates client ID with FQDN fallback at Docker build time. (#44)
+- **Playwright SSO end-to-end tests**: Automated Entra ID login flow validation with hardened Entra params and URL validation. (#54)
 
 #### Knowledge Graph Architecture
 - **Entity type normalization with alias fallback**: 30+ alias mappings (e.g. "vehicle"→object, "place"→location, "organization"→brand) with CONCEPT fallback for unknown types. Prevents entity loss from LLM hallucinated types. (`services/entity_extractor.py`: `_normalize_entity_type()`, `_ENTITY_TYPE_ALIASES`)
@@ -32,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Relationship strength weights**: LLM extracts `strength` (1–10) per relation, normalized to 0.1–1.0 `weight` on semantic edges. Stored alongside `evidence_count` for downstream ranking. (`services/entity_extractor.py`: `convert_relations_for_graph()`)
 - **Relation type normalization**: Maps LLM-generated relation types (NEAR, ON, INSIDE, PART_OF, HAS, USES, HOLDS, WEARS) to valid semantic edge labels. (`services/entity_extractor.py`: `_normalize_relation_type()`, `_RELATION_TYPE_MAP`)
 
+#### Observability
+- **Agent reasoning panel with follow-up suggestions**: Chat UI surfaces agent chain-of-thought reasoning and suggested next questions. (#22)
+- **App Insights ↔ AI Foundry tracing**: Hosted agent telemetry flows to Application Insights via Foundry connection. (#23, #56–#58)
+
 #### Security
 - **JWT authentication on WebSocket endpoints**: All WebSocket connections require JWT via query parameter (`?token=`) or first-message (`{"token": "..."}`).
 - **Auth on cache endpoints**: Cache mutation endpoints (`/cache/invalidate`, `/cache/metrics/reset`, etc.) now require `Depends(get_current_user)`.
@@ -43,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Credential cleanup in docker-compose**: All credentials parameterized with `${VAR:-default}` patterns.
 - **CI security scanning**: `pip-audit` (backend) and `npm audit` (frontend) added to CI pipeline.
 - **CI/CD permission scoping**: Workflow permissions follow least-privilege principle.
+- **CodeQL, Dependabot, and Trivy scanning**: Static analysis, dependency vulnerability alerts, and container image scanning added to CI. (#25)
+- **CodeQL alert triage documentation**: Documented process for managing and resolving code scanning alerts. (#64)
+- **Pillow upgrade to >=12.1.1**: Resolves CVE-2026-25990.
 
 #### Video Pipeline
 - **PyAV integration**: C-level FFmpeg bindings as primary video decoder — zero subprocess overhead. (`services/pyav_extractor.py`)
@@ -63,7 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`services/processing_metrics.py`**: Pipeline observability with `PipelineMetrics`, `StageMetrics` dataclasses and `ProcessingTimer` context manager.
 - **Test coverage**: New test files for security headers, token revocation, WebSocket auth, A2A rate limits, error sanitization, PyAV extractor, scene detection, faster-whisper, video decoder protocol, streaming pipeline, parallel transcription, retry, concurrency, processing metrics, and video performance optimizations.
 
-#### Previously Added (this release cycle)
+#### Infrastructure
+- **Data reset script**: `scripts/reset-data.sh` for wiping all storage and starting a fresh knowledge graph. (#62)
+
+#### A2A & Agent Platform
 - **Durable A2A task persistence (PostgreSQL)**:
   - Added `A2ATaskModel` (`a2a_tasks`) to persist A2A lifecycle state (`status`, `artifacts`, `history`, metadata, timestamps).
   - Added database operations in `database_service.py`: `upsert_a2a_task()`, `get_a2a_task()`, `list_a2a_tasks()`.
@@ -74,6 +88,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `docs/MEMORY_ARCHITECTURE.md` documenting layer responsibilities (LocalStorage, LangGraph checkpointer, Mem0, A2A Task Store), source-of-truth policy, ID mapping, and operational guidance.
 
 ### Changed
+
+#### Azure AI Foundry
+- **AI Foundry region finalized to Sweden Central** — evaluated West Europe for model availability, reverted to `swedencentral`. The previous `aif-qprisma-dev` resource in West Europe was purged; recreated via `deploy-ai-foundry.yml`. (#10–#12)
+- **Foundry API pattern: Threads/Messages/Runs** — replaced broken `create_response` with official `agent_reference` pattern. (#17, #20–#21)
+- **AzureChatOpenAI model parameter** — explicit `model` kwarg required for OpenTelemetry instrumentation compatibility. (#61)
+- **RBAC scoping for AI Foundry** — Azure AI Developer + Cognitive Services User roles for agent data-plane access. (#18–#19)
+- **Python SDK replaces azd** — agent deployment uses `azure-ai-projects` SDK directly instead of `azd` extensions.
+
+#### Knowledge Graph
+- **Leiden community detection replaces Louvain as default**: Hierarchical multi-resolution community detection via `leidenalg` / `igraph` with guaranteed connected communities. Falls back to Louvain when leidenalg is unavailable. Configurable via `settings.community.algorithm` and `settings.community.hierarchical_levels`. (`services/community_detection_service.py`)
+- **Improved entity extraction prompts**: Structured table format for entity types with specific naming guidance, typed relationship extraction (INTERACTS_WITH, CONTAINS, CAUSES, RELATES_TO, SIMILAR_TO), and confidence calibration rules. (`services/entity_extractor.py`)
 
 #### Code Quality
 - **File decomposition**: Split oversized modules — `tools/general.py` (1800→5 modules: `search_tools.py`, `analysis_tools.py`, `context_tools.py`, `highlight_tools.py`, `multi_video_tools.py`), `a2a_routes.py` (→3 sub-routers: `a2a_agent_cards.py`, `a2a_message_routes.py`, `a2a_task_routes.py`), `graph_search_service.py` (→2 mixins: `graph_search_queries.py`, `graph_search_scoring.py`).
@@ -86,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accessibility improvements (aria-labels, roles on interactive elements).
 - Performance patterns: `React.memo` + `useCallback` on frequently re-rendered components.
 
-#### Previously Changed (this release cycle)
+#### A2A & Chat UX
 - **README Branding**: Added QPrisma logo to README header.
 - **A2A checkpointer and execution resilience**:
   - `agent/a2a.py` now resolves a shared production checkpointer (production saver with `MemorySaver` fallback).
@@ -103,6 +128,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ChatInput` adds stop-response action; `MessageList` adds retry affordance for error responses and grouped source evidence rendering.
 - **First-message new chat stability**:
   - Fixed `/chat/new` first-turn race by avoiding immediate route replacement during initial persistence, preventing mid-stream unmount/loading interruptions.
+
+### Removed
+- **Editor agent (Chat-to-Edit) feature** — incomplete feature removed to simplify the repository.
+- **`CLAUDE.md` and `.claude/` directory** — removed Claude Code configuration.
+- **Orphaned scripts in `scripts/` directory** — removed unused helper scripts.
+- **Unused dependencies** (`mutmut`, `yt-dlp`, `wavesurfer.js`) — removed from project.
+- **`docs/architecture_diagram.py`** — removed unused diagram generator.
+
+### Fixed
+- **SSO audience mismatch**: Entra token validation now accepts Application ID URI as valid audience; supports both v1 and v2 issuer formats. (#52)
+- **ConversationIdSpanProcessor crash**: Inherits `SpanProcessor` base class to provide required `_on_ending` hook; regression test added. (#53)
+- **`@minLength` on Entra Bicep params**: Removed — conflicted with `bicepparam` empty-string fallback values. (#55)
+- **API container placeholder images**: Replaced `helloworld` images with ACR defaults; `deploy-app` now triggered after infra deployment. (#59–#60)
+- **Agent media context leakage**: `QPRISMA_CONTEXT` prefix is now always stripped from tool output to prevent LLM exposure; `media_id` injected via `QPrismaStateConverter`. (#66)
+- **Async checkpointer factory**: PostgreSQL-first cascade with proper async initialization and `MemorySaver` fallback.
+- **Empty `mem0-api-key` secret**: Container Apps validation no longer fails when the optional Mem0 secret is unset.
+- **Trivy action version**: Bumped to `v0.35.0` with correct `v` prefix to fix `build-and-push` workflow. (#45–#46)
+- **CI tooling**: `setup-uv@v7`, GitHub Actions updated to Node.js 24, lint and typecheck fixes. (#43)
+- **App Insights connection string security**: `@secure()` annotation on `appInsightsConnectionString`, deployment output suppressed to prevent secret leakage, correct ARM category `AppInsights`. (#57–#58)
+- **SSO redirect URI mismatch (AADSTS50011)**: Redirect URIs merged instead of replaced; trailing slash stripped from base URI. (#47)
 
 ## [1.0.0] - 2026-02-13
 
