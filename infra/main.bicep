@@ -17,6 +17,12 @@ param dbAdminPassword string
 @description('Neo4j URI (AuraDB connection URL, e.g. neo4j+s://xxxx.databases.neo4j.io)')
 param neo4jUri string = ''
 
+@description('Neo4j username')
+param neo4jUser string = 'neo4j'
+
+@description('Neo4j database name')
+param neo4jDatabase string = 'neo4j'
+
 @description('Neo4j admin password')
 @secure()
 param neo4jPassword string
@@ -218,7 +224,8 @@ var frontendFqdn = '${frontendContainerAppName}.${containerAppsEnv.outputs.defau
 // Plain-value env vars (Neo4j URI from AuraDB, passed via parameter)
 var appEnvVars = [
   { name: 'NEO4J_URI', value: neo4jUri }
-  { name: 'NEO4J_USER', value: 'neo4j' }
+  { name: 'NEO4J_USER', value: neo4jUser }
+  { name: 'NEO4J_DATABASE', value: neo4jDatabase }
   { name: 'AZURE_OPENAI_ENDPOINT', value: existingAiFoundry.properties.endpoint }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_CHAT', value: 'gpt-5.2-chat' }

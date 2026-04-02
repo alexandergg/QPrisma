@@ -312,9 +312,9 @@ jobs:
           OTEL_SERVICE_NAME: qprisma-hosted-agent
           # Neo4j Knowledge Graph
           NEO4J_URI: ${{ secrets.NEO4J_URI }}
-          NEO4J_USER: neo4j
+          NEO4J_USER: ${{ secrets.NEO4J_USER }}
           NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
-          NEO4J_DATABASE: neo4j
+          NEO4J_DATABASE: ${{ secrets.NEO4J_DATABASE }}
           # PostgreSQL (built conditionally in resolver step — empty if PG not found)
           DATABASE_URL: ${{ steps.services.outputs.database_url }}
           # Redis
