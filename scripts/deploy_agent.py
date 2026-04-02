@@ -118,6 +118,10 @@ def wait_for_agent_running() -> bool:
 
 
 def main() -> None:
+    # Silence the azure.ai.projects GenAI tracing warning during this script's
+    # execution (the SDK checks this env var at instantiation time).
+    os.environ.setdefault("AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING", "true")
+
     project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "")
     container_image = os.environ.get("CONTAINER_IMAGE", "")
 
@@ -149,6 +153,7 @@ def main() -> None:
             "AZURE_OPENAI_API_VERSION": "2024-08-01-preview",
             "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
             **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING"),
+            **_optional_env("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"),
         },
     )
 
