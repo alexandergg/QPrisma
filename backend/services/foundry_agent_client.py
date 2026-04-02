@@ -3,21 +3,16 @@ Foundry Agent Client
 ====================
 
 Wraps the Azure AI Projects SDK to communicate with QPrisma's
-hosted video agent via the Foundry Responses API.
+hosted video agent via the Foundry Responses API with Conversations.
 
 Hosted agents are containerized agents deployed to Azure AI Foundry
 Agent Service.  They are invoked through the OpenAI Responses API
 using an ``agent_reference`` — **not** the standard
 Threads/Messages/Runs (assistants) pattern.
 
-Official pattern (from Microsoft docs)::
-
-    project = AIProjectClient(endpoint=..., credential=...)
-    openai = project.get_openai_client()
-    response = openai.responses.create(
-        input=[{"role": "user", "content": "Hello!"}],
-        extra_body={"agent_reference": {"name": agent_name, "type": "agent_reference"}},
-    )
+Conversation continuity is achieved via the Foundry Conversations API:
+- ``conversations.create()`` to start a new conversation
+- ``conversation=conv.id`` on ``responses.create()`` to continue
 
 Usage::
 
@@ -25,10 +20,12 @@ Usage::
 
     client = get_foundry_agent_client()
     if client:
+        conv_id = await client.create_conversation()
         result = await client.send_message(
             message="What happens in the first 5 minutes?",
             media_id="abc-123",
             user_id="user-456",
+            conversation_id=conv_id,
         )
 """
 
@@ -49,7 +46,8 @@ class FoundryAgentClient:
 
     Uses ``AIProjectClient.get_openai_client()`` to obtain an OpenAI client
     configured for the Foundry project, then calls ``openai.responses.create()``
-    with an ``agent_reference`` to route to the hosted agent.
+    with an ``agent_reference`` and optional ``conversation`` to route to the
+    hosted agent with conversation history.
     """
 
     def __init__(
@@ -80,7 +78,7 @@ class FoundryAgentClient:
         except ImportError:
             logger.error(
                 "azure-ai-projects SDK not installed. "
-                "Install with: pip install 'azure-ai-projects>=1.0.0b7'"
+                "Install with: pip install 'azure-ai-projects>=2.0.0'"
             )
             raise
         except Exception as e:
@@ -91,6 +89,23 @@ class FoundryAgentClient:
         """Return the agent_reference body for Responses API calls."""
         return {"name": self._agent_name, "type": "agent_reference"}
 
+    async def create_conversation(self) -> str:
+        """
+        Create a new Foundry conversation.
+
+        Returns:
+            The Foundry conversation ID to pass to send_message/send_streaming_message.
+        """
+        openai = self._get_openai_client()
+        try:
+            conversation = await asyncio.to_thread(openai.conversations.create)
+            conv_id = conversation.id
+            logger.info(f"Created Foundry conversation: {conv_id}")
+            return conv_id
+        except Exception as e:
+            logger.error(f"Failed to create Foundry conversation: {e}")
+            raise
+
     async def send_message(
         self,
         message: str,
@@ -99,7 +114,7 @@ class FoundryAgentClient:
         media_ids: list[str] | None = None,
         user_id: str | None = None,
         session_id: str | None = None,
-        thread_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> dict[str, Any]:
         """
         Send a message to the hosted agent via the OpenAI Responses API.
@@ -110,10 +125,11 @@ class FoundryAgentClient:
             media_ids: Multiple video IDs for cross-video queries
             user_id: Authenticated user ID for multi-tenant isolation
             session_id: Conversation session ID
-            thread_id: Previous response ID for conversation continuity
+            conversation_id: Foundry conversation ID for conversation continuity
 
         Returns:
-            Dictionary with 'content' (str), 'thread_id' (str), and 'metadata' (dict)
+            Dictionary with 'content' (str), 'thread_id' (str),
+            'conversation_id' (str), and 'metadata' (dict)
         """
         openai = self._get_openai_client()
 
@@ -127,14 +143,18 @@ class FoundryAgentClient:
 
         input_messages = [{"role": "user", "content": full_message}]
         extra: dict[str, Any] = {"agent_reference": self._agent_ref()}
-        if thread_id:
-            extra["previous_response_id"] = thread_id
+
+        kwargs: dict[str, Any] = {
+            "input": input_messages,
+            "extra_body": extra,
+        }
+        if conversation_id:
+            kwargs["conversation"] = conversation_id
 
         try:
             response = await asyncio.to_thread(
                 openai.responses.create,
-                input=input_messages,
-                extra_body=extra,
+                **kwargs,
             )
 
             response_id = response.id or ""
@@ -143,22 +163,24 @@ class FoundryAgentClient:
             return {
                 "content": content,
                 "thread_id": response_id,
+                "conversation_id": conversation_id or "",
                 "metadata": metadata,
             }
 
         except Exception as e:
-            # If a stale previous_response_id caused the failure, retry without it
-            if thread_id and self._is_retriable(e):
-                logger.warning(f"Retrying without previous_response_id (was '{thread_id}')")
-                extra.pop("previous_response_id", None)
+            if conversation_id and self._is_retriable(e):
+                logger.warning(
+                    f"Retrying without conversation (was '{conversation_id}')"
+                )
+                kwargs.pop("conversation", None)
                 response = await asyncio.to_thread(
                     openai.responses.create,
-                    input=input_messages,
-                    extra_body=extra,
+                    **kwargs,
                 )
                 return {
                     "content": response.output_text or "",
                     "thread_id": response.id or "",
+                    "conversation_id": "",
                     "metadata": metadata,
                 }
             logger.error(
@@ -175,14 +197,15 @@ class FoundryAgentClient:
         media_ids: list[str] | None = None,
         user_id: str | None = None,
         session_id: str | None = None,
-        thread_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """
         Send a message and stream the response from the hosted agent.
 
         Yields dictionaries with event type and data:
         - {"type": "token", "content": "..."}
-        - {"type": "done", "content": "full response", "thread_id": "..."}
+        - {"type": "done", "content": "full response", "thread_id": "...",
+           "conversation_id": "..."}
 
         Args:
             message: The user's query text
@@ -190,7 +213,7 @@ class FoundryAgentClient:
             media_ids: Multiple video IDs
             user_id: Authenticated user ID
             session_id: Conversation session ID
-            thread_id: Previous response ID for conversation continuity
+            conversation_id: Foundry conversation ID for conversation continuity
 
         Yields:
             Event dictionaries with type and content
@@ -207,8 +230,14 @@ class FoundryAgentClient:
 
         input_messages = [{"role": "user", "content": full_message}]
         extra: dict[str, Any] = {"agent_reference": self._agent_ref()}
-        if thread_id:
-            extra["previous_response_id"] = thread_id
+
+        kwargs: dict[str, Any] = {
+            "input": input_messages,
+            "stream": True,
+            "extra_body": extra,
+        }
+        if conversation_id:
+            kwargs["conversation"] = conversation_id
 
         try:
             loop = asyncio.get_running_loop()
@@ -218,11 +247,7 @@ class FoundryAgentClient:
                 """Run the streaming call in a worker thread."""
                 stream = None
                 try:
-                    stream = openai.responses.create(
-                        input=input_messages,
-                        stream=True,
-                        extra_body=extra,
-                    )
+                    stream = openai.responses.create(**kwargs)
                     for event in stream:
                         loop.call_soon_threadsafe(
                             queue.put_nowait,
@@ -248,7 +273,6 @@ class FoundryAgentClient:
                     event_type = item["type"]
                     event = item["data"]
 
-                    # Log every event for diagnostics (helps validate hosted agent behavior)
                     if event_type != "response.output_text.delta":
                         logger.debug(
                             "Foundry stream event: %s (item_type=%s)",
@@ -263,7 +287,6 @@ class FoundryAgentClient:
                             yield {"type": "token", "content": delta}
 
                     elif event_type == "response.output_item.added":
-                        # A new output item appeared — check if it's a function call
                         output_item = getattr(event, "item", None)
                         if output_item and getattr(output_item, "type", "") == "function_call":
                             fn_name = getattr(output_item, "name", "") or "unknown"
@@ -277,7 +300,6 @@ class FoundryAgentClient:
                             }
 
                     elif event_type == "response.function_call_arguments.done":
-                        # Function call arguments are fully assembled
                         fn_name = getattr(event, "name", "") or "unknown"
                         raw_args = getattr(event, "arguments", "") or ""
                         parsed_args: dict[str, Any] = {}
@@ -285,7 +307,6 @@ class FoundryAgentClient:
                             parsed_args = json.loads(raw_args) if raw_args else {}
                         except (json.JSONDecodeError, TypeError):
                             pass
-                        # Extract a human-readable description from args
                         description = (
                             parsed_args.get("query")
                             or parsed_args.get("entity_name")
@@ -300,7 +321,6 @@ class FoundryAgentClient:
                         }
 
                     elif event_type == "response.output_item.done":
-                        # An output item finished — emit tool_end for function calls
                         output_item = getattr(event, "item", None)
                         if output_item and getattr(output_item, "type", "") == "function_call":
                             fn_name = getattr(output_item, "name", "") or "unknown"
@@ -326,6 +346,7 @@ class FoundryAgentClient:
                 "type": "done",
                 "content": accumulated_content,
                 "thread_id": response_id,
+                "conversation_id": conversation_id or "",
             }
 
         except Exception as e:
@@ -361,7 +382,7 @@ class FoundryAgentClient:
 
     @staticmethod
     def _is_retriable(exc: Exception) -> bool:
-        """Return True if the exception indicates a bad previous_response_id."""
+        """Return True if the exception indicates a bad conversation/response ID."""
         import openai as _openai
 
         return isinstance(exc, _openai.BadRequestError | _openai.NotFoundError)

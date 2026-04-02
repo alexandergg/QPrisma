@@ -9,7 +9,6 @@ import { useStreamingChat } from '@/hooks/useStreamingChat';
 
 
 interface ChatContainerProps {
-  conversationId?: string;
   videoId?: string;
   videoName?: string;
   videoIds?: string[];
@@ -26,7 +25,6 @@ interface ChatContainerProps {
 }
 
 export default function ChatContainer({
-  conversationId,
   videoId,
   videoName,
   videoIds,
@@ -44,7 +42,6 @@ export default function ChatContainer({
   const chatState = useChatState({
     initialMessages,
     initialSessionId,
-    conversationId,
     onMessagesChange,
     onSessionIdChange,
   });

@@ -11,6 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
+from agent.utils.observability import set_conversation_id, set_otel_user_id
 from api.dependencies import get_current_user_optional
 from api.rate_limit import limiter
 from api.routes.a2a_agent_cards import get_executor
@@ -32,6 +33,17 @@ message_router = APIRouter(tags=["A2A Protocol"])
 logger = logging.getLogger(__name__)
 
 
+def _set_otel_context(
+    context_id: str | None,
+    user: User | None,
+) -> None:
+    """Set OpenTelemetry context vars for trace correlation."""
+    if context_id:
+        set_conversation_id(context_id)
+    if user and user.id:
+        set_otel_user_id(user.id)
+
+
 @message_router.post("/a2a/message:send", response_model=SendMessageResponse)
 @limiter.limit("60/minute")
 async def send_message(
@@ -47,6 +59,9 @@ async def send_message(
     Returns either a Task object or a direct Message response.
     """
     executor = get_executor("video")
+
+    # Set OTel context for trace grouping
+    _set_otel_context(body.message.contextId, current_user)
 
     # Add user context to metadata
     if current_user and body.message.metadata:
@@ -79,6 +94,9 @@ async def send_streaming_message(
     - Final status update when complete
     """
     executor = get_executor("video")
+
+    # Set OTel context for trace grouping
+    _set_otel_context(body.message.contextId, current_user)
 
     # Add user context to metadata
     if current_user and body.message.metadata:

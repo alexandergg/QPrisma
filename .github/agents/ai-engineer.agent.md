@@ -1,6 +1,6 @@
 ---
 name: ai-engineer
-description: "Use when: LangGraph agent workflows, tool design, state management, memory architecture, observability, prompt engineering, context budgets, agent error handling, checkpointer, artifacts, Mem0, tool contracts, agent graph nodes."
+description: "Use when: LangGraph agent workflows, tool design, state management, memory architecture, observability, prompt engineering, context budgets, agent error handling, checkpointer, artifacts, Foundry Memory Store, tool contracts, agent graph nodes."
 tools: [read, edit, search, execute]
 argument-hint: "Describe the agent workflow change, tool issue, or context management task."
 handoffs:
@@ -21,7 +21,7 @@ You are a QPrisma AI engineer specializing in LangGraph agent workflows, tool de
 - Tools: `backend/agent/tools/` (search, analysis, context, highlight, multi-video)
 - Prompts: `backend/agent/prompts.py`
 - Observability: `backend/agent/utils/observability.py` (structured logging, metrics)
-- Memory: checkpointer for thread-scoped state, `ToolArtifactService` for full payloads, Mem0 for semantic summaries (feature-flagged)
+- Memory: checkpointer for thread-scoped state, `ToolArtifactService` for full payloads, Foundry Memory Store for semantic summaries
 
 ## Constraints
 
@@ -29,7 +29,7 @@ You are a QPrisma AI engineer specializing in LangGraph agent workflows, tool de
 - DO NOT raise exceptions from tool functions — return `{"error": str(e), "results": [], "count": 0}` error dicts.
 - DO NOT break existing StateGraph node wiring or prebuilt `ToolNode` usage.
 - DO NOT expand artifact payloads inline — use selective rehydration for detail-heavy queries.
-- Preserve the layered memory approach: checkpointer → artifact storage → optional Mem0.
+- Preserve the layered memory approach: checkpointer → artifact storage → Foundry Memory Store.
 - Keep `@lru_cache(maxsize=4)` on LLM model creation functions.
 
 ## Approach

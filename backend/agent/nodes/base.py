@@ -311,70 +311,6 @@ def _format_artifact_payload_preview(payload: dict | list | str | None) -> str:
     return str(payload)[:ARTIFACT_REHYDRATION_ITEM_CHARS]
 
 
-async def _search_external_memories(
-    state: AgentState,
-    config: RunnableConfig,
-    *,
-    limit: int = 5,
-) -> list[dict]:
-    """Retrieve raw semantic memory candidates from Mem0."""
-    from core.config import settings
-
-    retrieval_started = time.time()
-    metric_labels = {"source": "mem0", "agent": _agent_type_from_state(state)}
-
-    if not settings.mem0.enabled:
-        return []
-
-    query = _get_latest_human_query(state.get("messages", []))
-    if not query:
-        return []
-
-    try:
-        from services.mem0_memory_service import get_mem0_memory_service
-
-        service = await get_mem0_memory_service()
-        media_id = state.get("media_id")
-        memories = await service.search_memories(
-            query=query,
-            user_id=state.get("user_id"),
-            session_id=state.get("session_id") or config.get("configurable", {}).get("thread_id"),
-            media_id=media_id,
-            limit=limit,
-        )
-    except (TypeError, ValueError, RuntimeError, ImportError) as exc:
-        Metrics.inc_counter(Metrics.MEMORY_RETRIEVAL_ERRORS, metric_labels)
-        logger.warning(f"Failed to retrieve external memories: {exc}")
-        return []
-
-    normalized_memories = [memory for memory in memories if isinstance(memory, dict)]
-    duration_seconds = time.time() - retrieval_started
-    Metrics.observe_histogram(Metrics.MEMORY_RETRIEVAL_DURATION, duration_seconds, metric_labels)
-    Metrics.observe_histogram(Metrics.MEMORY_CANDIDATES, len(normalized_memories), metric_labels)
-    logger.info(
-        "External memory retrieval completed",
-        source="mem0",
-        candidate_count=len(normalized_memories),
-        duration_ms=round(duration_seconds * 1000, 2),
-        limit=limit,
-    )
-
-    return normalized_memories
-
-
-async def _retrieve_external_memories(state: AgentState, config: RunnableConfig) -> list[str]:
-    """Retrieve compact semantic memories from Mem0 for the current query."""
-    memories = await _search_external_memories(state, config, limit=5)
-
-    snippets: list[str] = []
-    for memory in memories:
-        snippet = _format_external_memory(memory)
-        if snippet:
-            snippets.append(snippet)
-
-    return snippets[:5]
-
-
 async def _retrieve_hybrid_memory_context(
     state: AgentState,
     config: RunnableConfig,
@@ -415,36 +351,6 @@ async def _retrieve_hybrid_memory_context(
                     "recency_score": recency_score,
                 }
             )
-
-    external_memories = await _search_external_memories(state, config, limit=8)
-    for memory in external_memories:
-        snippet = _format_external_memory(memory)
-        if not snippet:
-            continue
-
-        metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
-        artifact_id = (
-            metadata.get("artifact_id") if isinstance(metadata.get("artifact_id"), str) else None
-        )
-        lexical_score = _score_text_overlap(snippet, query_terms)
-        semantic_score = memory.get("score")
-        semantic_score_value = (
-            float(semantic_score) if isinstance(semantic_score, int | float) else 0.0
-        )
-        rank_score = (lexical_score * 2.5) + (semantic_score_value * 1.5) + 0.4
-        if detail_query and artifact_id:
-            rank_score += 0.6
-
-        candidates.append(
-            {
-                "text": snippet[:260],
-                "artifact_id": artifact_id,
-                "source": "mem0",
-                "lexical_score": lexical_score,
-                "rank_score": rank_score,
-                "recency_score": 0.25,
-            }
-        )
 
     artifact_refs = state.get("artifact_refs", [])
     if isinstance(artifact_refs, list):
@@ -588,40 +494,6 @@ async def _retrieve_hybrid_memory_context(
     )
 
     return snippets, prioritized
-
-
-async def _persist_external_memory_summary(
-    state: AgentState,
-    config: RunnableConfig,
-    *,
-    tool_name: str,
-    summary: str,
-    artifact_id: str | None,
-) -> None:
-    """Persist compact summary to Mem0 when enabled."""
-    from core.config import settings
-
-    if not settings.mem0.enabled:
-        return
-
-    try:
-        from services.mem0_memory_service import get_mem0_memory_service
-
-        service = await get_mem0_memory_service()
-        media_id = state.get("media_id")
-        await service.add_memory(
-            content=summary,
-            user_id=state.get("user_id"),
-            session_id=state.get("session_id") or config.get("configurable", {}).get("thread_id"),
-            media_id=media_id,
-            metadata={
-                "source": "langgraph_tool_summary",
-                "tool_name": tool_name,
-                "artifact_id": artifact_id,
-            },
-        )
-    except (TypeError, ValueError, RuntimeError, ImportError) as exc:
-        logger.warning(f"Failed to persist summary to external memory: {exc}")
 
 
 async def _rehydrate_artifact_context(
@@ -1134,13 +1006,6 @@ async def update_context_node(state: AgentState, config: RunnableConfig) -> dict
                             "summary": summary[:200],
                             "artifact_id": artifact_id,
                         }
-                    )
-                    await _persist_external_memory_summary(
-                        state,
-                        config,
-                        tool_name=tool_name,
-                        summary=summary,
-                        artifact_id=artifact_id,
                     )
                     # Keep last 10 partial results
                     partial_results = partial_results[-10:]

@@ -54,7 +54,8 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 
 - **Operational state** via LangGraph checkpointer (resume/retry continuity).
 - **Full tool payload artifacts** in Redis + Blob + PostgreSQL metadata.
-- **Semantic summaries** via optional Mem0 integration.
+- **Long-term user memory** via Azure AI Foundry Memory Store (per-user, Entra ID scoped).
+- **Server-side conversation history** via Foundry Conversations API.
 - **Prompt-time ranking** with recency and semantic/lexical signals.
 
 ## Architecture

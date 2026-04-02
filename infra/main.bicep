@@ -49,15 +49,14 @@ param frontendImageName string = ''
 @description('Worker container image (leave empty to use ACR default)')
 param workerImageName string = ''
 
-@description('Enable Mem0 semantic memory integration')
-param mem0Enabled bool = false
+@description('Foundry Memory Store name')
+param foundryMemoryStoreName string = ''
 
-@description('Mem0 retrieval top-k')
-param mem0TopK int = 5
+@description('Foundry Memory Store chat model deployment')
+param foundryMemoryChatModel string = 'gpt-4o'
 
-@description('Mem0 API key (required for Mem0 cloud mode)')
-@secure()
-param mem0ApiKey string = ''
+@description('Foundry Memory Store embedding model deployment')
+param foundryMemoryEmbeddingModel string = 'text-embedding-3-large'
 
 @description('Artifact cache TTL in seconds')
 param artifactCacheTtlSeconds int = 21600
@@ -215,7 +214,6 @@ var appSecrets = [
   { name: 'jwt-secret-key', value: jwtSecretKey }
   { name: 'database-url', value: pgConnectionString }
   { name: 'redis-url', value: redisConnectionString }
-  { name: 'mem0-api-key', value: empty(mem0ApiKey) ? 'not-configured' : mem0ApiKey }
 ]
 
 // Construct frontend FQDN from naming convention + environment domain (avoids circular dependency)
@@ -238,8 +236,9 @@ var appEnvVars = [
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_BATCH', value: 'gpt-4o-batch' }
   { name: 'ENVIRONMENT', value: environment }
   { name: 'ALLOWED_ORIGINS', value: 'https://${frontendFqdn}' }
-  { name: 'MEM0_ENABLED', value: string(mem0Enabled) }
-  { name: 'MEM0_TOP_K', value: string(mem0TopK) }
+  { name: 'FOUNDRY_MEMORY_STORE_NAME', value: foundryMemoryStoreName }
+  { name: 'FOUNDRY_MEMORY_CHAT_MODEL', value: foundryMemoryChatModel }
+  { name: 'FOUNDRY_MEMORY_EMBEDDING_MODEL', value: foundryMemoryEmbeddingModel }
   { name: 'ARTIFACT_CACHE_TTL_SECONDS', value: string(artifactCacheTtlSeconds) }
   { name: 'ARTIFACT_CACHE_KEY_PREFIX', value: artifactCacheKeyPrefix }
   { name: 'ARTIFACT_BLOB_PREFIX', value: artifactBlobPrefix }
@@ -260,7 +259,6 @@ var appSecretEnvVars = [
   { name: 'AZURE_OPENAI_API_KEY', secretRef: 'openai-api-key' }
   { name: 'AZURE_STORAGE_CONNECTION_STRING', secretRef: 'storage-connection-string' }
   { name: 'JWT_SECRET_KEY', secretRef: 'jwt-secret-key' }
-  { name: 'MEM0_API_KEY', secretRef: 'mem0-api-key' }
 ]
 
 // =====================================================================

@@ -16,10 +16,10 @@ Esta guía define **qué guarda cada capa** y cuál es la **fuente de verdad** p
    - Persistencia: saver productivo (PostgreSQL/Redis) según disponibilidad.
    - **Fuente de verdad conversacional**.
 
-3. **Mem0 (Memoria semántica)**
+3. **Foundry Memory Store (Memoria semántica)**
    - Uso: memoria de largo plazo (preferencias, hechos resumidos, señales persistentes).
-   - Alcance: cross-thread por usuario.
-   - Persistencia: servicio de memoria semántica.
+   - Alcance: cross-thread por usuario (scoped por Entra ID `{tid}_{oid}`).
+   - Persistencia: Azure AI Foundry Memory Store.
    - No sustituye al checkpointer; complementa contexto.
 
 4. **A2A Task Store**
@@ -31,7 +31,7 @@ Esta guía define **qué guarda cada capa** y cuál es la **fuente de verdad** p
 ## Fuente de verdad y reconciliación
 
 - Conversación: **Backend checkpointer**.
-- Conocimiento semántico de usuario: **Mem0**.
+- Conocimiento semántico de usuario: **Foundry Memory Store**.
 - Estado visual del chat: **Local Storage**.
 - Si hay conflicto, prevalece backend (checkpointer/task state).
 
@@ -44,7 +44,7 @@ Esta guía define **qué guarda cada capa** y cuál es la **fuente de verdad** p
 
 1. Cliente envía mensaje con `contextId`.
 2. Backend resuelve `thread_id=contextId` y carga estado desde checkpointer.
-3. Recupera memoria semántica (Mem0) relevante para el prompt.
+3. Recupera memoria semántica (Foundry Memory Store) relevante para el prompt.
 4. Ejecuta grafo y stream de eventos (A2A SSE).
 5. Persiste checkpoint de super-steps.
 6. Frontend actualiza caché local para UX rápida.

@@ -6,16 +6,6 @@ import Sidebar, { ChatMode } from './Sidebar';
 import VideoPanel from './VideoPanel';
 import { useAuth } from '@/contexts/AuthContext';
 
-interface Conversation {
-  id: string;
-  title: string;
-  videoId?: string;
-  videoName?: string;
-  lastMessage?: string;
-  updatedAt: Date;
-  mode: ChatMode;
-}
-
 interface Scene {
   scene_id: number;
   start_time: number;
@@ -49,16 +39,6 @@ interface VideoData {
   transcript?: TranscriptSegment[];
 }
 
-interface StoredConversation {
-  id: string;
-  title: string;
-  videoId?: string;
-  videoName?: string;
-  lastMessage?: string;
-  updatedAt: string;
-  mode: ChatMode;
-}
-
 interface AppLayoutProps {
   children: React.ReactNode;
   showVideoPanel?: boolean;
@@ -79,34 +59,7 @@ export default function AppLayout({
   const router = useRouter();
   useAuth();
   const [currentMode, setCurrentMode] = useState<ChatMode>('single');
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<string | undefined>();
   const [isVideoPanelVisible, setIsVideoPanelVisible] = useState(showVideoPanel);
-
-  // Load conversations from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('qprisma_conversations');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as StoredConversation[];
-        setConversations(
-          parsed.map((c) => ({
-            ...c,
-            updatedAt: new Date(c.updatedAt),
-          }))
-        );
-      } catch (e) {
-        console.error('Failed to parse conversations:', e);
-      }
-    }
-  }, []);
-
-  // Save conversations to localStorage when they change
-  useEffect(() => {
-    if (conversations.length > 0) {
-      localStorage.setItem('qprisma_conversations', JSON.stringify(conversations));
-    }
-  }, [conversations]);
 
   // Sync video panel visibility with prop
   useEffect(() => {
@@ -117,22 +70,8 @@ export default function AppLayout({
     router.push('/chat/new');
   };
 
-  const handleSelectConversation = (id: string) => {
-    setActiveConversationId(id);
-    router.push(`/chat/${id}`);
-  };
-
-  const handleDeleteConversation = (id: string) => {
-    setConversations((prev) => prev.filter((c) => c.id !== id));
-    if (activeConversationId === id) {
-      setActiveConversationId(undefined);
-      router.push('/');
-    }
-  };
-
   const handleModeChange = (mode: ChatMode) => {
     setCurrentMode(mode);
-    // If switching to library mode, might want to redirect or update UI
   };
 
   return (
@@ -147,13 +86,9 @@ export default function AppLayout({
       {/* Sidebar */}
       <div className="relative z-10 flex-shrink-0">
         <Sidebar
-          conversations={conversations}
-          activeConversationId={activeConversationId}
           currentMode={currentMode}
           onModeChange={handleModeChange}
           onNewChat={handleNewChat}
-          onSelectConversation={handleSelectConversation}
-          onDeleteConversation={handleDeleteConversation}
         />
       </div>
 
@@ -195,7 +130,6 @@ export default function AppLayout({
 export interface AppLayoutContextType {
   setShowVideoPanel: (show: boolean) => void;
   setVideoData: (data: VideoData) => void;
-  setActiveConversation: (id: string, title: string, videoId?: string, videoName?: string) => void;
   currentMode: ChatMode;
 }
 

@@ -27,7 +27,7 @@ from .hierarchy_embedding_generator import HierarchyEmbeddingGenerator
 from .hierarchy_node_factory import HierarchyNodeFactory
 from .highlight_detection_service import HighlightDetectionService, get_highlight_detection_service
 from .knowledge_graph import KnowledgeGraphService, get_knowledge_graph_service
-from .mem0_memory_service import Mem0MemoryService, get_mem0_memory_service
+from .foundry_memory_service import FoundryMemoryService, get_foundry_memory_service
 from .processing_metrics import PipelineMetrics, ProcessingTimer, StageMetrics
 from .scene_analyzer import SceneAnalyzer
 from .storage_tiering_service import StorageTieringService, get_storage_tiering_service
@@ -70,8 +70,8 @@ __all__ = [
     "get_hierarchical_context_service",
     "HierarchyEmbeddingGenerator",
     "HierarchyNodeFactory",
-    "Mem0MemoryService",
-    "get_mem0_memory_service",
+    "FoundryMemoryService",
+    "get_foundry_memory_service",
     # Processing Metrics
     "PipelineMetrics",
     "ProcessingTimer",
