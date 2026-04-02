@@ -215,7 +215,7 @@ var appSecrets = [
 // Construct frontend FQDN from naming convention + environment domain (avoids circular dependency)
 var frontendFqdn = '${frontendContainerAppName}.${containerAppsEnv.outputs.defaultDomain}'
 
-// Plain-value env vars (Neo4j URI auto-wired from Container App internal FQDN)
+// Plain-value env vars (Neo4j URI from AuraDB, passed via parameter)
 var appEnvVars = [
   { name: 'NEO4J_URI', value: neo4jUri }
   { name: 'NEO4J_USER', value: 'neo4j' }

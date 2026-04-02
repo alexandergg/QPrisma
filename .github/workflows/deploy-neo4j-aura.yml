@@ -35,13 +35,23 @@ permissions:
 jobs:
   manage:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment: ${{ inputs.environment }}
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: "${{ inputs.action }} AuraDB instance"
         id: aura
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 12
+          max_attempts: 2
+          retry_wait_seconds: 60
+          command: python scripts/deploy_neo4j_aura.py
         env:
           AURA_CLIENT_ID: ${{ secrets.AURA_CLIENT_ID }}
           AURA_CLIENT_SECRET: ${{ secrets.AURA_CLIENT_SECRET }}
@@ -49,7 +59,6 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
           AURA_INSTANCE_TYPE: ${{ inputs.instance_type }}
           AURA_ACTION: ${{ inputs.action }}
-        run: python scripts/deploy_neo4j_aura.py
 
       - name: Mask sensitive outputs
         if: steps.aura.outputs.neo4j_password

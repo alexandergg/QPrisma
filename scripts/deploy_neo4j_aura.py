@@ -172,7 +172,12 @@ def authenticate(client_id: str, client_secret: str) -> str:
     )
 
     if status != 200:
-        print(f"ERROR: Authentication failed (HTTP {status})")
+        # Log the full response so Neo4j's error reason is visible in CI logs
+        if isinstance(body, dict):
+            error_detail = json.dumps(body, sort_keys=True)
+        else:
+            error_detail = str(body)
+        print(f"ERROR: Authentication failed (HTTP {status}): {error_detail}")
         sys.exit(1)
 
     token: str = body.get("access_token", "")
