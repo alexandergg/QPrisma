@@ -1,0 +1,54 @@
+name: Deploy Neo4j AuraDB
+
+run-name: Provision Neo4j AuraDB instance
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options: [dev]
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Provision AuraDB instance
+        id: aura
+        env:
+          AURA_CLIENT_ID: ${{ secrets.AURA_CLIENT_ID }}
+          AURA_CLIENT_SECRET: ${{ secrets.AURA_CLIENT_SECRET }}
+          AURA_TENANT_ID: ${{ secrets.AURA_TENANT_ID }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: python scripts/deploy_neo4j_aura.py
+
+      - name: Mask sensitive outputs
+        if: steps.aura.outputs.neo4j_password
+        run: echo "::add-mask::${{ steps.aura.outputs.neo4j_password }}"
+
+      - name: Deployment summary
+        run: |
+          echo "## Neo4j AuraDB Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Instance | qprisma-graph-${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Created | ${{ steps.aura.outputs.instance_created }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Instance ID | ${{ steps.aura.outputs.neo4j_instance_id }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| URI | ${{ steps.aura.outputs.neo4j_uri }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.aura.outputs.instance_created }}" = "true" ]; then
+            echo "> **Action required:** Set the following GitHub secrets:" >> $GITHUB_STEP_SUMMARY
+            echo "> - \`NEO4J_URI\` = \`${{ steps.aura.outputs.neo4j_uri }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "> - \`NEO4J_PASSWORD\` = (check workflow logs for masked password)" >> $GITHUB_STEP_SUMMARY
+          fi

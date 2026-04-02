@@ -111,20 +111,18 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
         messages[last_human_idx] = HumanMessage(content=cleaned_content)
         input_data["messages"] = messages
 
-        # Inject QPrisma fields into the initial graph state
+        # Inject QPrisma fields into the initial graph state.
+        # Always set InjectedState targets (even as None / []) so that
+        # LangGraph's ToolNode._inject_tool_args doesn't KeyError.
         media_id = metadata.get("media_id")
         media_ids = metadata.get("media_ids")
         user_id = metadata.get("user_id")
         session_id = metadata.get("session_id")
 
-        if media_id:
-            input_data["media_id"] = media_id
-        if media_ids:
-            input_data["media_ids"] = media_ids
-        if user_id:
-            input_data["user_id"] = user_id
-        if session_id:
-            input_data["session_id"] = session_id
+        input_data["media_id"] = media_id
+        input_data["media_ids"] = media_ids or []
+        input_data["user_id"] = user_id
+        input_data["session_id"] = session_id
 
         logger.info(
             "QPrismaStateConverter: injected context — media_id=%s, media_ids=%s, user_id=%s",
