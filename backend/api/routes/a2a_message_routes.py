@@ -8,6 +8,7 @@ Send and streaming message endpoints for the Video agent.
 import logging
 from typing import Annotated
 
+from agent.utils.observability import set_conversation_id, set_otel_user_id
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
@@ -32,6 +33,17 @@ message_router = APIRouter(tags=["A2A Protocol"])
 logger = logging.getLogger(__name__)
 
 
+def _set_otel_context(
+    context_id: str | None,
+    user: User | None,
+) -> None:
+    """Set OpenTelemetry context vars for trace correlation."""
+    if context_id:
+        set_conversation_id(context_id)
+    if user and user.id:
+        set_otel_user_id(user.id)
+
+
 @message_router.post("/a2a/message:send", response_model=SendMessageResponse)
 @limiter.limit("60/minute")
 async def send_message(
@@ -47,6 +59,9 @@ async def send_message(
     Returns either a Task object or a direct Message response.
     """
     executor = get_executor("video")
+
+    # Set OTel context for trace grouping
+    _set_otel_context(body.message.contextId, current_user)
 
     # Add user context to metadata
     if current_user and body.message.metadata:
@@ -80,6 +95,9 @@ async def send_streaming_message(
     """
     executor = get_executor("video")
 
+    # Set OTel context for trace grouping
+    _set_otel_context(body.message.contextId, current_user)
+
     # Add user context to metadata
     if current_user and body.message.metadata:
         body.message.metadata["user_id"] = current_user.id
@@ -111,7 +129,7 @@ async def send_streaming_message(
                 data = response.model_dump_json(exclude_none=True)
                 yield f"data: {data}\n\n"
         except Exception as e:
-            logger.error(f"SSE streaming error: {e}")
+            logger.error("SSE streaming error: %s", e)
             error_response = StreamResponse(
                 statusUpdate=TaskStatusUpdateEvent(
                     taskId="error",

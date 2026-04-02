@@ -46,12 +46,10 @@ export interface ChatMessageSource {
 }
 
 export interface UseChatStateOptions {
-  /** Seed the message list (e.g. when restoring a conversation). */
+  /** Seed the message list (e.g. when starting with pre-loaded messages). */
   initialMessages?: ChatMessage[];
-  /** Seed the session id (e.g. when restoring a conversation). */
+  /** Seed the session id. */
   initialSessionId?: string;
-  /** External key used to detect conversation switches (resets state). */
-  conversationId?: string;
   /** Called whenever the messages array changes. */
   onMessagesChange?: (messages: ChatMessage[]) => void;
   /** Called whenever the session id changes. */
@@ -81,7 +79,6 @@ export function useChatState(options: UseChatStateOptions = {}): UseChatStateRet
   const {
     initialMessages = [],
     initialSessionId,
-    conversationId,
     onMessagesChange,
     onSessionIdChange,
   } = options;
@@ -92,14 +89,6 @@ export function useChatState(options: UseChatStateOptions = {}): UseChatStateRet
   const [streamingContent, setStreamingContent] = useState('');
   const [activeTools, setActiveTools] = useState<ToolStatus[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>(initialSessionId);
-
-  // Adjust state when the conversation switches (React-recommended pattern)
-  const [prevConversationId, setPrevConversationId] = useState(conversationId);
-  if (prevConversationId !== conversationId) {
-    setPrevConversationId(conversationId);
-    setMessages(initialMessages);
-    setSessionId(initialSessionId);
-  }
 
   // Notify parent about message changes
   useEffect(() => {

@@ -151,7 +151,7 @@ backend/
 │   ├── hierarchical_context_service.py  # RAG jerárquico
 │   ├── hierarchical_summarizer.py # Resúmenes multi-nivel
 │   ├── knowledge_graph.py        # CRUD Neo4j (1738 líneas)
-│   ├── mem0_memory_service.py    # Memoria semántica (Mem0)
+│   ├── foundry_memory_service.py # Memoria semántica (Foundry Memory Store)
 │   ├── relation_builder.py       # Construcción de relaciones
 │   ├── scene_analyzer.py         # Análisis de escenas
 │   ├── storage_tiering_service.py # Tiering Azure Blob
@@ -192,7 +192,7 @@ settings.postgres.database_url         # PostgreSQL
 settings.neo4j.uri                     # Neo4j bolt://
 settings.redis.url                     # Redis
 settings.auth.jwt_secret_key           # JWT secret
-settings.mem0.enabled                  # Feature flag Mem0
+settings.foundry.memory_store_name         # Foundry Memory Store name
 settings.artifacts.cache_ttl_seconds   # TTL artifacts
 settings.app.environment               # dev/prod
 ```
@@ -211,8 +211,7 @@ Settings (Root)
 ├── CommunitySettings     # algorithm (leiden/louvain), resolution, hierarchical_levels
 ├── SearchSettings        # HNSW M, ef_construction
 ├── ArtifactSettings      # TTL, key prefix, blob prefix
-├── Mem0Settings          # enabled, api_key, top_k
-├── FoundrySettings       # AI Foundry project endpoint, agent name
+├── FoundrySettings       # AI Foundry project endpoint, agent name, memory store
 ├── TelemetrySettings     # App Insights, OpenTelemetry
 └── AuthSettings          # Entra ID tenant/client, API scope
 ```
@@ -623,7 +622,7 @@ def select_tools_for_query(query: str, all_tools: list, max_tools: int = 8) -> l
 
 Antes de cada invocación del modelo, se ejecuta:
 
-1. **Recolección de candidatos híbridos**: memoria local + Mem0 + artifact refs
+1. **Recolección de candidatos híbridos**: memoria local + Foundry Memory Store + artifact refs
 2. **Re-ranking ligero**: overlap léxico + score semántico + recencia
 3. **Budget dinámico de contexto**: 1200–2200 chars según tipo de query
 4. **Rehidratación selectiva de artifacts**: solo para queries detail-heavy
@@ -848,13 +847,13 @@ Video (embedding pooled) → Chapters → Scenes → Keyframes
 - SHA-256 checksums para integridad
 - Date-partitioned blob paths: `tool-artifacts/2026/02/13/{artifact_id}.json.gz`
 
-#### Mem0MemoryService
-**Memoria semántica de largo plazo (feature-flagged).**
+#### FoundryMemoryService
+**Memoria semántica de largo plazo (Azure AI Foundry Memory Store).**
 
-- Wrapper sobre Mem0 SDK para resúmenes compactos
-- Scoping por `user_id`, `session_id`, `media_id`, `project_id`
-- Graceful degradation: retorna vacío si falla
-- Async via `asyncio.to_thread` (SDK sync)
+- Wrapper sobre Azure AI Foundry Memory Store API
+- Scoping por Entra ID user (`{tid}_{oid}`)
+- Graceful degradation: retorna vacío si no está configurado
+- Async nativo
 
 ### 6.5 Servicios de Caché
 
@@ -1353,7 +1352,7 @@ Las relaciones semánticas entre entidades ahora portan `weight` (0.1-1.0), deri
 │                                                         │
 │  1. Hybrid Candidate Collection                         │
 │     ├── Local memory (conversation_context)            │
-│     ├── Mem0 semantic memories (top_k=5)               │
+│     ├── Foundry Memory Store semantic memories       │
 │     └── Artifact refs (tool output summaries)          │
 │                                                         │
 │  2. Lightweight Reranking                               │
@@ -1384,10 +1383,10 @@ Las relaciones semánticas entre entidades ahora portan `weight` (0.1-1.0), deri
 │  ├── Azure Blob (gzipped, date-partitioned)            │
 │  └── PostgreSQL (metadata + checksums)                 │
 │                                                         │
-│  Semantic Memory (Mem0, feature-flagged)                │
+│  Semantic Memory (Foundry Memory Store)                │
 │  ├── Compact summaries                                  │
-│  ├── User/session/media scoped                         │
-│  └── Cloud or self-hosted                              │
+│  ├── User-scoped via Entra ID                          │
+│  └── Azure AI Foundry managed                          │
 └───────────────────────────────────────────────────────┘
 ```
 
@@ -1684,7 +1683,7 @@ Frame → pHash (8x8 DCT) → Hamming distance → threshold=8 → dedup
 | langchain-core | ≥1.2.8 | Tools, messages, runnables |
 | langchain-openai | ≥1.1.7 | AzureChatOpenAI wrapper |
 | openai | ≥1.55 | Azure OpenAI SDK |
-| mem0ai | ≥1.0.3 | Semantic memory |
+| azure-ai-projects | ≥2.0.0 | AI Foundry (Memory Store, Conversations) |
 
 ### Datos
 
@@ -1754,7 +1753,7 @@ Client POST /chat
 │    ├── Load system prompt (video-aware)             │
 │    ├── Retrieve hybrid memory context               │
 │    │   ├── Local conversation_context               │
-│    │   ├── Mem0 search_memories()                   │
+│    │   ├── Foundry Memory Store search           │
 │    │   └── Artifact refs (scored + ranked)          │
 │    ├── Selectively rehydrate artifacts              │
 │    ├── Trim messages (max 80k tokens)               │
@@ -1895,9 +1894,9 @@ User Query: "What does the speaker say about AI?"
 | `AZURE_OPENAI_DEPLOYMENT_EMBEDDING` | `text-embedding-3-large` | Embedding model |
 | `AZURE_OPENAI_DEPLOYMENT_WHISPER` | `whisper` | Whisper deployment |
 | `AZURE_OPENAI_DEPLOYMENT_GPT_BATCH` | - | Batch API deployment |
-| `MEM0_ENABLED` | `false` | Enable Mem0 memory |
-| `MEM0_API_KEY` | - | Mem0 Cloud API key |
-| `MEM0_TOP_K` | `5` | Memory retrieval top-k |
+| `FOUNDRY_MEMORY_STORE_NAME` | - | Foundry Memory Store name |
+| `FOUNDRY_MEMORY_CHAT_MODEL` | - | Chat model for memory extraction |
+| `FOUNDRY_MEMORY_EMBEDDING_MODEL` | - | Embedding model for memory search |
 | `ARTIFACT_CACHE_TTL_SECONDS` | `21600` | Artifact cache TTL |
 | `APP_ENV` | `dev` | Environment (dev/prod) |
 | `LOG_LEVEL` | `INFO` | Logging level |

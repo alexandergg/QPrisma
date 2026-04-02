@@ -257,16 +257,6 @@ class ArtifactSettings(BaseSettings):
     blob_prefix: str = Field(default="tool-artifacts")
 
 
-class Mem0Settings(BaseSettings):
-    """Mem0 semantic memory configuration."""
-
-    model_config = SettingsConfigDict(env_prefix="MEM0_", extra="ignore")
-
-    enabled: bool = Field(default=False)
-    api_key: str | None = Field(default=None)
-    top_k: int = Field(default=5)
-
-
 class CommunitySettings(BaseSettings):
     """Community detection & hierarchical graph summarization configuration."""
 
@@ -327,6 +317,18 @@ class FoundrySettings(BaseSettings):
     agent_name: str | None = Field(
         default=None,
         description="Name of the hosted agent in Foundry",
+    )
+    memory_store_name: str | None = Field(
+        default=None,
+        description="Name of the Foundry Memory Store for long-term user memory",
+    )
+    memory_chat_model: str | None = Field(
+        default=None,
+        description="Chat model deployment for memory extraction (e.g., gpt-4o)",
+    )
+    memory_embedding_model: str | None = Field(
+        default=None,
+        description="Embedding model deployment for memory search (e.g., text-embedding-3-large)",
     )
 
 
@@ -493,7 +495,6 @@ class Settings(BaseSettings):
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     artifacts: ArtifactSettings = Field(default_factory=ArtifactSettings)
-    mem0: Mem0Settings = Field(default_factory=Mem0Settings)
     community: CommunitySettings = Field(default_factory=CommunitySettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
     foundry: FoundrySettings = Field(default_factory=FoundrySettings)

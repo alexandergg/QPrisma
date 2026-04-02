@@ -149,7 +149,9 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                         }}
                         """
                     )
-                    logger.info(f"Created vector index {index_name} ({dims}d, M={search_cfg.hnsw_m}, ef={search_cfg.hnsw_ef_construction})")
+                    logger.info(
+                        f"Created vector index {index_name} ({dims}d, M={search_cfg.hnsw_m}, ef={search_cfg.hnsw_ef_construction})"
+                    )
                 except Exception as e:
                     logger.debug(f"Vector index {index_name} may already exist: {e}")
 
@@ -361,7 +363,9 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             vid = effective_video_id or (effective_video_ids[0] if effective_video_ids else None)
             self._merge_fulltext_scores(all_candidates, fulltext_results, node_type, vid)
 
-        vector_search_time = (datetime.now(UTC) - vector_start).total_seconds() * 1000 - fulltext_time_acc
+        vector_search_time = (
+            datetime.now(UTC) - vector_start
+        ).total_seconds() * 1000 - fulltext_time_acc
 
         # 3. Apply temporal filter if specified
         if time_range:

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Foundry Conversations API Integration
+- **Server-side conversation management**: Replaced broken `previous_response_id` chaining with Foundry Conversations API (`conversations.create()` + `conversation=conv.id`). Agent now maintains full server-side message history across turns.
+- **Automatic conversation lifecycle**: First message creates a new Foundry conversation; the conversation ID is returned to the frontend via the initial SSE task event and reused on subsequent messages.
+- **OTel trace correlation**: `gen_ai.conversation.id` and `enduser.id` span attributes are now set on every agent request, enabling conversation grouping and per-user filtering in Azure AI Foundry Traces.
+
+#### Foundry Memory Store
+- **Long-term user memory**: New `FoundryMemoryService` wraps the Foundry Memory Store API for per-user semantic memory scoped by Entra ID (`{tid}_{oid}`). Supports auto-summarisation of conversation topics and extraction of user preferences.
+- **Memory provisioning script**: `scripts/setup_memory_store.py` for one-time idempotent memory store creation.
+
+### Changed
+- Upgraded `azure-ai-projects` from `>=1.0.0b7` to `>=2.0.0` to access Conversations and Memory Store APIs.
+- `FoundryAgentClient.send_message()` / `send_streaming_message()` now accept `conversation_id` parameter instead of `thread_id`.
+- `A2AAgentExecutor` creates Foundry conversations before yielding the initial task, ensuring the frontend receives the Foundry conversation ID as `contextId`.
+
+### Removed
+- **Mem0 dependency removed**: `mem0ai` package, `Mem0MemoryService`, `Mem0Settings`, and all related configuration/tests deleted. Foundry Memory Store replaces Mem0 for long-term memory.
+- **Frontend conversation dead code**: Removed localStorage-based conversation management (`conversations.ts`, `ConversationsList.tsx`) and cleaned conversation state from 8 frontend files. Sidebar, chat pages, and hooks no longer track or persist conversations client-side.
+
 ## [1.1.0] - 2026-04-02
 
 ### Added

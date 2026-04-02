@@ -175,9 +175,10 @@ def main() -> None:
         **_optional_env("REDIS_URL"),
         # --- Azure Blob Storage ---
         **_optional_env("AZURE_STORAGE_CONNECTION_STRING"),
-        # --- Mem0 (optional) ---
-        **_optional_env("MEM0_ENABLED"),
-        **_optional_env("MEM0_API_KEY"),
+        # --- Foundry Memory Store ---
+        **_optional_env("FOUNDRY_MEMORY_STORE_NAME"),
+        **_optional_env("FOUNDRY_MEMORY_CHAT_MODEL"),
+        **_optional_env("FOUNDRY_MEMORY_EMBEDDING_MODEL"),
     }
 
     # Warn if critical backend service vars are missing

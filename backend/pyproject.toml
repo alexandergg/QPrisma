@@ -13,7 +13,7 @@ dependencies = [
     # Azure SDKs
     "azure-storage-blob>=12.24.0,<13.0.0",
     "azure-identity>=1.19.0,<2.0.0",
-    "azure-ai-projects>=1.0.0b7",
+    "azure-ai-projects>=2.0.0",
     "azure-ai-agents>=1.0.0",
     "openai>=1.55.0",
     # Database (PostgreSQL)
@@ -41,7 +41,6 @@ dependencies = [
     "langchain-openai>=1.1.7,<2.0.0",
     "langgraph-checkpoint-redis>=0.3.3,<1.0.0",
     "langgraph-checkpoint-postgres>=3.0.0",
-    "mem0ai>=1.0.3,<2.0.0",
     # A2A (Agent-to-Agent) Protocol
     "a2a-sdk[http-server]>=0.3.22,<1.0.0",
     # Async I/O

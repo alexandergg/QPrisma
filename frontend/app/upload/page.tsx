@@ -168,11 +168,9 @@ export default function UploadPage() {
       {/* Sidebar */}
       <div className="relative z-10 flex-shrink-0">
         <Sidebar
-          conversations={[]}
           currentMode={currentMode}
           onModeChange={setCurrentMode}
           onNewChat={() => router.push('/chat/new')}
-          onSelectConversation={(id) => router.push(`/chat/${id}`)}
         />
       </div>
 

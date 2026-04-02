@@ -39,6 +39,12 @@ from core.config import settings
 
 logger = get_logger(__name__)
 
+
+def _sanitize_log(value: object, max_len: int = 200) -> str:
+    """Strip control characters and truncate for safe logging."""
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(value))[:max_len]
+
+
 # Shared message trimmer instance
 _message_trimmer = get_message_trimmer(max_tokens=80000)
 
@@ -311,70 +317,6 @@ def _format_artifact_payload_preview(payload: dict | list | str | None) -> str:
     return str(payload)[:ARTIFACT_REHYDRATION_ITEM_CHARS]
 
 
-async def _search_external_memories(
-    state: AgentState,
-    config: RunnableConfig,
-    *,
-    limit: int = 5,
-) -> list[dict]:
-    """Retrieve raw semantic memory candidates from Mem0."""
-    from core.config import settings
-
-    retrieval_started = time.time()
-    metric_labels = {"source": "mem0", "agent": _agent_type_from_state(state)}
-
-    if not settings.mem0.enabled:
-        return []
-
-    query = _get_latest_human_query(state.get("messages", []))
-    if not query:
-        return []
-
-    try:
-        from services.mem0_memory_service import get_mem0_memory_service
-
-        service = await get_mem0_memory_service()
-        media_id = state.get("media_id")
-        memories = await service.search_memories(
-            query=query,
-            user_id=state.get("user_id"),
-            session_id=state.get("session_id") or config.get("configurable", {}).get("thread_id"),
-            media_id=media_id,
-            limit=limit,
-        )
-    except (TypeError, ValueError, RuntimeError, ImportError) as exc:
-        Metrics.inc_counter(Metrics.MEMORY_RETRIEVAL_ERRORS, metric_labels)
-        logger.warning(f"Failed to retrieve external memories: {exc}")
-        return []
-
-    normalized_memories = [memory for memory in memories if isinstance(memory, dict)]
-    duration_seconds = time.time() - retrieval_started
-    Metrics.observe_histogram(Metrics.MEMORY_RETRIEVAL_DURATION, duration_seconds, metric_labels)
-    Metrics.observe_histogram(Metrics.MEMORY_CANDIDATES, len(normalized_memories), metric_labels)
-    logger.info(
-        "External memory retrieval completed",
-        source="mem0",
-        candidate_count=len(normalized_memories),
-        duration_ms=round(duration_seconds * 1000, 2),
-        limit=limit,
-    )
-
-    return normalized_memories
-
-
-async def _retrieve_external_memories(state: AgentState, config: RunnableConfig) -> list[str]:
-    """Retrieve compact semantic memories from Mem0 for the current query."""
-    memories = await _search_external_memories(state, config, limit=5)
-
-    snippets: list[str] = []
-    for memory in memories:
-        snippet = _format_external_memory(memory)
-        if snippet:
-            snippets.append(snippet)
-
-    return snippets[:5]
-
-
 async def _retrieve_hybrid_memory_context(
     state: AgentState,
     config: RunnableConfig,
@@ -415,36 +357,6 @@ async def _retrieve_hybrid_memory_context(
                     "recency_score": recency_score,
                 }
             )
-
-    external_memories = await _search_external_memories(state, config, limit=8)
-    for memory in external_memories:
-        snippet = _format_external_memory(memory)
-        if not snippet:
-            continue
-
-        metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
-        artifact_id = (
-            metadata.get("artifact_id") if isinstance(metadata.get("artifact_id"), str) else None
-        )
-        lexical_score = _score_text_overlap(snippet, query_terms)
-        semantic_score = memory.get("score")
-        semantic_score_value = (
-            float(semantic_score) if isinstance(semantic_score, int | float) else 0.0
-        )
-        rank_score = (lexical_score * 2.5) + (semantic_score_value * 1.5) + 0.4
-        if detail_query and artifact_id:
-            rank_score += 0.6
-
-        candidates.append(
-            {
-                "text": snippet[:260],
-                "artifact_id": artifact_id,
-                "source": "mem0",
-                "lexical_score": lexical_score,
-                "rank_score": rank_score,
-                "recency_score": 0.25,
-            }
-        )
 
     artifact_refs = state.get("artifact_refs", [])
     if isinstance(artifact_refs, list):
@@ -590,40 +502,6 @@ async def _retrieve_hybrid_memory_context(
     return snippets, prioritized
 
 
-async def _persist_external_memory_summary(
-    state: AgentState,
-    config: RunnableConfig,
-    *,
-    tool_name: str,
-    summary: str,
-    artifact_id: str | None,
-) -> None:
-    """Persist compact summary to Mem0 when enabled."""
-    from core.config import settings
-
-    if not settings.mem0.enabled:
-        return
-
-    try:
-        from services.mem0_memory_service import get_mem0_memory_service
-
-        service = await get_mem0_memory_service()
-        media_id = state.get("media_id")
-        await service.add_memory(
-            content=summary,
-            user_id=state.get("user_id"),
-            session_id=state.get("session_id") or config.get("configurable", {}).get("thread_id"),
-            media_id=media_id,
-            metadata={
-                "source": "langgraph_tool_summary",
-                "tool_name": tool_name,
-                "artifact_id": artifact_id,
-            },
-        )
-    except (TypeError, ValueError, RuntimeError, ImportError) as exc:
-        logger.warning(f"Failed to persist summary to external memory: {exc}")
-
-
 async def _rehydrate_artifact_context(
     state: AgentState,
     config: RunnableConfig,
@@ -675,7 +553,7 @@ async def _rehydrate_artifact_context(
         artifact_service = await get_tool_artifact_service()
     except (TypeError, ValueError, RuntimeError, ImportError) as exc:
         Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ERRORS, metric_labels)
-        logger.warning(f"Failed to initialize artifact service for rehydration: {exc}")
+        logger.warning("Failed to initialize artifact service for rehydration: %s", exc)
         return []
 
     snippets: list[str] = []
@@ -692,7 +570,7 @@ async def _rehydrate_artifact_context(
             artifact = await artifact_service.get_artifact(artifact_id)
         except (TypeError, ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
             Metrics.inc_counter(Metrics.ARTIFACT_REHYDRATION_ERRORS, metric_labels)
-            logger.warning(f"Failed to fetch tool artifact {artifact_id}: {exc}")
+            logger.warning("Failed to fetch tool artifact %s: %s", artifact_id, exc)
             continue
 
         if not isinstance(artifact, dict):
@@ -978,7 +856,7 @@ def base_should_continue(
     if hasattr(last_message, "tool_calls") and last_message.tool_calls:
         # Check iteration limit
         if tool_calls_count >= max_iterations:
-            logger.warning(f"Reached max tool iterations ({max_iterations}), forcing end")
+            logger.warning(f"Reached max tool iterations ({max_iterations})," " forcing end")
             return END
 
         # Check error threshold - route to error handler if we have partial results
@@ -1135,19 +1013,12 @@ async def update_context_node(state: AgentState, config: RunnableConfig) -> dict
                             "artifact_id": artifact_id,
                         }
                     )
-                    await _persist_external_memory_summary(
-                        state,
-                        config,
-                        tool_name=tool_name,
-                        summary=summary,
-                        artifact_id=artifact_id,
-                    )
                     # Keep last 10 partial results
                     partial_results = partial_results[-10:]
                     memory_context = memory_context[-20:]
                     artifact_refs = artifact_refs[-50:]
             except (json.JSONDecodeError, TypeError, ValueError, OSError) as exc:
-                logger.warning(f"Failed to update tool memory context: {exc}")
+                logger.warning(f"Failed to update tool memory context:" f" {_sanitize_log(exc)}")
 
     return {
         "conversation_context": updated_context,

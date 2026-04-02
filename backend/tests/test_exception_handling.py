@@ -179,6 +179,3 @@ class TestGraphRouteServiceExpansionLogging:
         assert any(
             "Graph expansion failed" in m.message for m in warning_msgs
         ), "Expected a WARNING log for graph expansion failure in route service"
-
-
-

@@ -131,10 +131,10 @@ async def my_tool(media_id: str, query: str) -> dict:
 Use the current layered memory approach:
 - **Checkpointer** for thread-scoped operational state (resume/retry continuity)
 - **Artifact storage** for full tool payloads (`ToolArtifactService`: Redis + Blob + Postgres metadata)
-- **Mem0** for compact semantic summaries (optional, feature-flagged)
+- **Foundry Memory Store** for compact semantic summaries (long-term user memory)
 
 Before each model call, prefer:
-1. Hybrid candidate collection (local memory + Mem0 + artifact refs)
+1. Hybrid candidate collection (local memory + Foundry Memory Store + artifact refs)
 2. Reranking (lexical overlap + semantic signal + recency)
 3. Dynamic context budget
 4. Selective artifact rehydration only for detail-heavy queries

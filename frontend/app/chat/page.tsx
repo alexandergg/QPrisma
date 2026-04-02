@@ -6,15 +6,6 @@ import { Sidebar, VideoPanel } from '@/components/layout';
 import { ChatContainer } from '@/components/chat';
 import { useAuth } from '@/contexts/AuthContext';
 import type { ChatMessageData } from '@/components/chat';
-import {
-  type ConversationSummary,
-  getConversationPreview,
-  getConversationTitle,
-  loadConversations,
-  removeConversation,
-  saveConversationMessages,
-  upsertConversation,
-} from '@/lib/conversations';
 import RequireAuth from '@/components/RequireAuth';
 import { X } from 'lucide-react';
 import VideoSelectionBar from './new/VideoSelectionBar';
@@ -30,67 +21,24 @@ function NewChatContent() {
   // ── Video selection state (hook) ──────────────────────────────────────
   const v = useChatVideos();
 
-  // ── Conversation state ────────────────────────────────────────────────
+  // ── UI state ──────────────────────────────────────────────────────────
   const [showLibraryHelp, setShowLibraryHelp] = useState(true);
-  const [conversations, setConversations] = useState<ConversationSummary[]>(() => loadConversations());
-  const [activeConversationId, setActiveConversationId] = useState<string | undefined>();
-  const [chatMessages, setChatMessages] = useState<ChatMessageData[]>([]);
-  const [chatSessionId, setChatSessionId] = useState<string | undefined>();
-
-  const persistConversationState = useCallback(
-    (nextMessages: ChatMessageData[], nextSessionId?: string) => {
-      if (nextMessages.length === 0) return;
-
-      const conversationId = activeConversationId || crypto.randomUUID();
-      if (!activeConversationId) setActiveConversationId(conversationId);
-
-      const summary: ConversationSummary = {
-        id: conversationId,
-        title: getConversationTitle(nextMessages),
-        videoId: v.selectedVideo?.id,
-        videoIds: v.isMultiVideo ? v.selectedVideos.map((vid) => vid.id) : undefined,
-        videoName: v.selectedVideo?.title,
-        videoNames: v.isMultiVideo ? v.selectedVideos.map((vid) => vid.title || 'Video') : undefined,
-        lastMessage: getConversationPreview(nextMessages),
-        updatedAt: new Date(),
-        mode: v.isMultiVideo ? 'library' : v.currentMode,
-        sessionId: nextSessionId,
-        messageCount: nextMessages.length,
-      };
-
-      const updated = upsertConversation(summary);
-      setConversations(updated);
-      saveConversationMessages(conversationId, nextMessages);
-    },
-    [activeConversationId, v.currentMode, v.isMultiVideo, v.selectedVideo?.id, v.selectedVideo?.title, v.selectedVideos],
-  );
 
   const handleMessagesChange = useCallback(
-    (nextMessages: ChatMessageData[]) => {
-      setChatMessages(nextMessages);
-      persistConversationState(nextMessages, chatSessionId);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    (_nextMessages: ChatMessageData[]) => {
+      // No-op: conversation persistence removed; placeholder for future server-side sync
     },
-    [persistConversationState, chatSessionId],
+    [],
   );
 
   const handleSessionIdChange = useCallback(
-    (nextSessionId: string | undefined) => {
-      setChatSessionId(nextSessionId);
-      persistConversationState(chatMessages, nextSessionId);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    (_nextSessionId: string | undefined) => {
+      // No-op: conversation persistence removed; placeholder for future server-side sync
     },
-    [persistConversationState, chatMessages],
+    [],
   );
-
-  const handleDeleteConversation = (conversationId: string) => {
-    const updated = removeConversation(conversationId);
-    setConversations(updated);
-    if (conversationId === activeConversationId) {
-      setActiveConversationId(undefined);
-      setChatMessages([]);
-      setChatSessionId(undefined);
-      router.push('/chat/new');
-    }
-  };
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 overflow-hidden">
@@ -103,19 +51,12 @@ function NewChatContent() {
       {/* Sidebar */}
       <div className="relative z-10 flex-shrink-0">
         <Sidebar
-          conversations={conversations}
-          activeConversationId={activeConversationId}
           currentMode={v.currentMode}
           onModeChange={v.setCurrentMode}
           onNewChat={() => {
             v.clearSelection();
-            setActiveConversationId(undefined);
-            setChatMessages([]);
-            setChatSessionId(undefined);
             router.push('/chat/new');
           }}
-          onSelectConversation={(id) => router.push(`/chat/${id}`)}
-          onDeleteConversation={handleDeleteConversation}
         />
       </div>
 
@@ -160,7 +101,6 @@ function NewChatContent() {
           )}
 
           <ChatContainer
-            conversationId={activeConversationId}
             videoId={v.selectedVideo?.id}
             videoName={v.selectedVideo?.title}
             videoIds={v.isMultiVideo ? v.selectedVideos.map((vid) => vid.id) : undefined}
@@ -170,8 +110,6 @@ function NewChatContent() {
             onUploadVideo={() => v.setShowUploader(true)}
             onBrowseLibrary={() => v.setShowVideoSelector(true)}
             userName={user?.full_name || user?.email}
-            initialMessages={chatMessages}
-            initialSessionId={chatSessionId}
             onMessagesChange={handleMessagesChange}
             onSessionIdChange={handleSessionIdChange}
           />

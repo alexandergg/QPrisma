@@ -1008,9 +1008,7 @@ async def get_shared_checkpointer() -> Any:
             if materialized is None:
                 raise RuntimeError("Checkpointer factory returned None after materialization")
             _shared_checkpointer = materialized
-            logger.info(
-                "Production checkpointer ready: %s", type(_shared_checkpointer).__name__
-            )
+            logger.info("Production checkpointer ready: %s", type(_shared_checkpointer).__name__)
         except Exception as exc:
             logger.warning("Checkpointer init failed, falling back to MemorySaver: %s", exc)
             _shared_checkpointer = MemorySaver()

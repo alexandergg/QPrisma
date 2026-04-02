@@ -13,28 +13,19 @@ import {
   Upload,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { ConversationsList, type Conversation } from './ConversationsList';
 
 export type ChatMode = 'single' | 'library';
 
 interface SidebarProps {
-  conversations: Conversation[];
-  activeConversationId?: string;
   currentMode: ChatMode;
   onModeChange: (mode: ChatMode) => void;
   onNewChat: () => void;
-  onSelectConversation: (id: string) => void;
-  onDeleteConversation?: (id: string) => void;
 }
 
 export default function Sidebar({
-  conversations,
-  activeConversationId,
   currentMode,
   onModeChange,
   onNewChat,
-  onSelectConversation,
-  onDeleteConversation,
 }: SidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -150,18 +141,8 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* Conversations List */}
-        <div className="flex-1 overflow-y-auto -mx-2 px-2">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 px-1">
-            Recent Conversations
-          </p>
-          <ConversationsList
-            conversations={conversations}
-            activeConversationId={activeConversationId}
-            onSelectConversation={onSelectConversation}
-            onDeleteConversation={onDeleteConversation}
-          />
-        </div>
+        {/* Spacer */}
+        <div className="flex-1" />
 
         {/* User Section */}
         <div className="mt-auto pt-4 border-t border-gray-200/50">

@@ -60,11 +60,13 @@ template:
     - name: AZURE_STORAGE_CONNECTION_STRING
       secretKeyVaultUri: ${STORAGE_CONNECTION_KV_URI}
 
-    # --- Mem0 (optional) ---
-    - name: MEM0_ENABLED
-      value: "${MEM0_ENABLED}"
-    - name: MEM0_API_KEY
-      secretKeyVaultUri: ${MEM0_API_KEY_KV_URI}
+    # --- Foundry Memory Store ---
+    - name: FOUNDRY_MEMORY_STORE_NAME
+      value: "${FOUNDRY_MEMORY_STORE_NAME}"
+    - name: FOUNDRY_MEMORY_CHAT_MODEL
+      value: "${FOUNDRY_MEMORY_CHAT_MODEL}"
+    - name: FOUNDRY_MEMORY_EMBEDDING_MODEL
+      value: "${FOUNDRY_MEMORY_EMBEDDING_MODEL}"
 
     # --- Application ---
     - name: ENVIRONMENT
