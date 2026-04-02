@@ -1123,6 +1123,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                             visual_change_score=float(getattr(s, "visual_change_score", 0.0)),
                             dominant_colors=getattr(s, "dominant_colors", None) or [],
                             transition_type=getattr(s, "transition_type", "cut"),
+                            scene_type=getattr(s, "scene_type", None) or "general",
                         )
                         graph.create_scene_node(sn)
                         scene_nodes.append(sn)

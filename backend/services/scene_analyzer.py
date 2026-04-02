@@ -65,6 +65,7 @@ class Scene:
     dominant_colors: list[str] = None
     visual_change_score: float = 0.0  # Confidence score from scene detection
     transition_type: str = "cut"  # cut, fade, dissolve
+    scene_type: str | None = None  # indoor, outdoor, mixed (aggregated from frames)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -160,8 +161,11 @@ class SceneAnalyzer:
                 "-",
             ]
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=300  # 5 minute timeout
+            result = subprocess.run(  # noqa: S603
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout
             )
 
             # Parse the output for scene change timestamps
@@ -318,6 +322,7 @@ class SceneAnalyzer:
             # Aggregate frame analyses for this scene
             visual_desc = None
             detected_objects = []
+            scene_type = None
 
             if frame_analyses:
                 scene_frames = [
@@ -336,6 +341,15 @@ class SceneAnalyzer:
                     for f in scene_frames:
                         detected_objects.extend(f.get("detected_objects", []))
                     detected_objects = list(set(detected_objects))[:10]  # Unique, max 10
+
+                    # Aggregate scene_type (most common non-null value from frames)
+                    frame_scene_types = [
+                        f.get("scene_type") for f in scene_frames if f.get("scene_type")
+                    ]
+                    if frame_scene_types:
+                        from collections import Counter
+
+                        scene_type = Counter(frame_scene_types).most_common(1)[0][0]
 
             # Get transcript segment for this time range
             transcript_text = None
@@ -362,6 +376,7 @@ class SceneAnalyzer:
                 frame_count=frame_count,
                 visual_change_score=boundary.confidence,  # From scene detection confidence
                 transition_type=boundary.transition_type,  # cut, fade, or dissolve
+                scene_type=scene_type,
             )
 
             scenes.append(scene)

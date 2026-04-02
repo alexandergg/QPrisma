@@ -277,7 +277,6 @@ class GraphNodeRepository:
                 description: $description,
                 perceptual_hash: $perceptual_hash,
                 content_hash: $content_hash,
-                image_url: $image_url,
                 blur_score: $blur_score,
                 brightness: $brightness,
                 is_keyframe: $is_keyframe,
@@ -297,7 +296,6 @@ class GraphNodeRepository:
                 description: $description,
                 perceptual_hash: $perceptual_hash,
                 content_hash: $content_hash,
-                image_url: $image_url,
                 blur_score: $blur_score,
                 brightness: $brightness,
                 is_keyframe: $is_keyframe,
@@ -318,7 +316,6 @@ class GraphNodeRepository:
                 description=frame.description,
                 perceptual_hash=frame.perceptual_hash,
                 content_hash=frame.content_hash,
-                image_url=frame.image_url,
                 blur_score=frame.blur_score,
                 brightness=frame.brightness,
                 is_keyframe=frame.is_keyframe,
@@ -339,7 +336,6 @@ class GraphNodeRepository:
             frame_number: frame.frame_number,
             description: frame.description,
             perceptual_hash: frame.perceptual_hash,
-            image_url: frame.image_url,
             is_keyframe: frame.is_keyframe,
             created_at: datetime(frame.created_at)
         })
@@ -355,7 +351,6 @@ class GraphNodeRepository:
                 "frame_number": f.frame_number,
                 "description": f.description,
                 "perceptual_hash": f.perceptual_hash,
-                "image_url": f.image_url,
                 "is_keyframe": f.is_keyframe,
                 "created_at": f.created_at.isoformat(),
             }

@@ -39,6 +39,11 @@ interface TranscriptSegment {
   text: string;
 }
 
+export interface CitationMarker {
+  timestamp: number;
+  type: 'visual' | 'audio' | 'entity';
+}
+
 interface VideoPanelProps {
   videoId?: string;
   videoUrl?: string;
@@ -52,6 +57,7 @@ interface VideoPanelProps {
   onSeek?: (time: number) => void;
   isVisible?: boolean;
   onClose?: () => void;
+  citationMarkers?: CitationMarker[];
 }
 
 export default function VideoPanel({
@@ -67,6 +73,7 @@ export default function VideoPanel({
   onSeek,
   isVisible = true,
   onClose,
+  citationMarkers = [],
 }: VideoPanelProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -185,6 +192,26 @@ export default function VideoPanel({
                   }}
                 />
               ))}
+              {/* Citation markers — colored diamonds at cited timestamps */}
+              {duration > 0 && citationMarkers.map((marker, idx) => {
+                const markerColors = {
+                  visual: 'bg-indigo-400',
+                  audio: 'bg-emerald-400',
+                  entity: 'bg-amber-400',
+                };
+                const leftPercent = Math.min(100, Math.max(0, (marker.timestamp / duration) * 100));
+                return (
+                  <div
+                    key={`marker-${idx}-${marker.timestamp}`}
+                    className={`absolute -top-1 w-2 h-2 rotate-45 ${markerColors[marker.type]} opacity-80 group-hover:opacity-100 transition-opacity pointer-events-none`}
+                    style={{
+                      left: `${leftPercent}%`,
+                      marginLeft: '-4px',
+                    }}
+                    title={formatTime(marker.timestamp)}
+                  />
+                );
+              })}
               <div
                 className="absolute top-0 h-full bg-white rounded-full"
                 style={{ width: `${(localCurrentTime / duration) * 100}%` }}

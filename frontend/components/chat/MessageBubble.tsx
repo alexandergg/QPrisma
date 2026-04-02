@@ -1,11 +1,61 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { Sparkles, Film, Loader2, CheckCircle2, XCircle, Wrench, Terminal, ArrowRightCircle } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import TimestampBadge from './TimestampBadge';
+import CitationSection from './CitationSection';
 import { ReasoningPanel } from './ReasoningPanel';
 import type { ToolDetail } from '@/hooks/useChatState';
+
+/** Match [HH:MM:SS], [MM:SS], or bare HH:MM:SS / MM:SS patterns in text. */
+const TIMESTAMP_RE_PATTERN = /\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?/;
+const TIMESTAMP_RE_TEST = new RegExp(TIMESTAMP_RE_PATTERN.source);
+
+function parseTimestampToSeconds(ts: string): number {
+  const parts = ts.split(':').map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return parts[0] * 60 + parts[1];
+}
+
+/**
+ * Split a text node into segments of plain text and clickable timestamp badges.
+ * Returns an array of React nodes.
+ */
+function renderTextWithTimestamps(
+  text: string,
+  onClick?: (seconds: number) => void,
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  const globalRe = new RegExp(TIMESTAMP_RE_PATTERN.source, 'g');
+
+  for (const match of text.matchAll(globalRe)) {
+    const full = match[0];
+    const core = match[1]; // the HH:MM:SS or MM:SS part
+    const start = match.index!;
+
+    // Push preceding plain text
+    if (start > lastIndex) nodes.push(text.slice(lastIndex, start));
+
+    const seconds = parseTimestampToSeconds(core);
+    nodes.push(
+      <TimestampBadge
+        key={`ts-${start}-${core}`}
+        timestamp={seconds}
+        type="visual"
+        size="sm"
+        onClick={onClick ? () => onClick(seconds) : undefined}
+      />,
+    );
+
+    lastIndex = start + full.length;
+  }
+
+  // Push remaining text
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
 
 export interface ToolStatus {
   name: string;
@@ -34,16 +84,6 @@ export interface ChatMessageData {
   toolCalls?: number;
   toolDetails?: ToolDetail[];
   isError?: boolean;
-}
-
-function confidenceLabel(sources: ChatMessageSource[]): string {
-  const scored = sources.filter((source) => typeof source.score === 'number');
-  if (scored.length === 0) return 'Evidence available';
-
-  const average = scored.reduce((sum, source) => sum + (source.score || 0), 0) / scored.length;
-  if (average >= 0.8) return 'High confidence';
-  if (average >= 0.5) return 'Medium confidence';
-  return 'Low confidence';
 }
 
 export function ToolProgress({ tools }: { tools: ToolStatus[] }) {
@@ -116,17 +156,6 @@ export const MessageBubble = memo(function MessageBubble({
   onRetryLast?: () => void;
 }) {
   const isUser = message.role === 'user';
-  const groupedSources = (message.sources || [])
-    .slice()
-    .sort((a, b) => (b.score || 0) - (a.score || 0))
-    .reduce<Record<string, ChatMessageSource[]>>((acc, source) => {
-      const key = source.videoTitle || source.videoId || 'Current video';
-      if (!acc[key]) {
-        acc[key] = [];
-      }
-      acc[key].push(source);
-      return acc;
-    }, {});
   
   // Parse content for suggestions
   let displayContent = message.content;
@@ -158,6 +187,37 @@ export const MessageBubble = memo(function MessageBubble({
       }
     }
   }
+
+  // Memoize custom ReactMarkdown components to render inline timestamp links
+  const markdownComponents = useMemo(() => ({
+    p: ({ children }: { children?: React.ReactNode }) => {
+      const processed = React.Children.map(children, (child) => {
+        if (typeof child === 'string' && TIMESTAMP_RE_TEST.test(child)) {
+          return <>{renderTextWithTimestamps(child, onTimestampClick)}</>;
+        }
+        return child;
+      });
+      return <p>{processed}</p>;
+    },
+    li: ({ children }: { children?: React.ReactNode }) => {
+      const processed = React.Children.map(children, (child) => {
+        if (typeof child === 'string' && TIMESTAMP_RE_TEST.test(child)) {
+          return <>{renderTextWithTimestamps(child, onTimestampClick)}</>;
+        }
+        return child;
+      });
+      return <li>{processed}</li>;
+    },
+    strong: ({ children }: { children?: React.ReactNode }) => {
+      const processed = React.Children.map(children, (child) => {
+        if (typeof child === 'string' && TIMESTAMP_RE_TEST.test(child)) {
+          return <>{renderTextWithTimestamps(child, onTimestampClick)}</>;
+        }
+        return child;
+      });
+      return <strong>{processed}</strong>;
+    },
+  }), [onTimestampClick]);
 
   return (
     <div
@@ -202,7 +262,7 @@ export const MessageBubble = memo(function MessageBubble({
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
               ) : (
                 <div className="text-sm leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-gray-900 prose-code:text-indigo-600 prose-code:bg-indigo-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
-                  <ReactMarkdown>{displayContent}</ReactMarkdown>
+                  <ReactMarkdown components={markdownComponents}>{displayContent}</ReactMarkdown>
                 </div>
               )}
 
@@ -230,36 +290,12 @@ export const MessageBubble = memo(function MessageBubble({
                 </div>
               )}
 
-              {/* Sources / Timestamps */}
+              {/* Sources / Citation Cards */}
               {!isUser && message.sources && message.sources.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <p className="text-xs text-gray-500 mb-2">
-                    Referenced moments • {confidenceLabel(message.sources)}
-                  </p>
-                  <div className="space-y-2">
-                    {Object.entries(groupedSources).slice(0, 3).map(([groupLabel, groupSources]) => (
-                      <div key={groupLabel}>
-                        <p className="text-[11px] text-gray-400 mb-1">{groupLabel}</p>
-                        <div className="flex flex-wrap gap-2">
-                          {groupSources.slice(0, 3).map((source, index) => (
-                            <TimestampBadge
-                              key={`${groupLabel}-${index}-${source.timestamp}`}
-                              timestamp={source.timestamp}
-                              type={source.type}
-                              label={undefined}
-                              onClick={() => onTimestampClick?.(source.timestamp)}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                    {message.sources.length > 9 && (
-                      <span className="text-xs text-gray-400 self-center block">
-                        +{message.sources.length - 9} more references
-                      </span>
-                    )}
-                  </div>
-                </div>
+                <CitationSection
+                  sources={message.sources}
+                  onTimestampClick={onTimestampClick}
+                />
               )}
 
               {!isUser && message.isError && onRetryLast && (

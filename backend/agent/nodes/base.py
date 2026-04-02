@@ -43,8 +43,8 @@ logger = get_logger(__name__)
 _message_trimmer = get_message_trimmer(max_tokens=80000)
 
 # Iteration limits
-DEFAULT_MAX_TOOL_ITERATIONS = 5
-DEFAULT_WARN_TOOL_ITERATIONS = 3
+DEFAULT_MAX_TOOL_ITERATIONS = 10
+DEFAULT_WARN_TOOL_ITERATIONS = 7
 
 # Error thresholds for graceful degradation
 MAX_CONSECUTIVE_ERRORS = 3
