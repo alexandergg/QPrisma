@@ -82,6 +82,7 @@ class A2AAgentExecutor:
         # Client-generated contextIds are standard UUID v4 format
         try:
             import uuid as _uuid
+
             val = _uuid.UUID(context_id, version=4)
             # If it parses as UUID v4, it's client-generated
             return str(val) != context_id
@@ -165,9 +166,7 @@ class A2AAgentExecutor:
         text_content = self._extract_text(message)
 
         # Create or reuse Foundry conversation
-        conversation_id = await self._get_or_create_conversation(
-            client, message.contextId
-        )
+        conversation_id = await self._get_or_create_conversation(client, message.contextId)
 
         # Set OTel context for trace correlation
         set_conversation_id(conversation_id)
@@ -300,9 +299,7 @@ class A2AAgentExecutor:
 
         # Create or reuse Foundry conversation — must happen BEFORE initial task yield
         # so the frontend receives the Foundry conversation ID as contextId
-        conversation_id = await self._get_or_create_conversation(
-            client, message.contextId
-        )
+        conversation_id = await self._get_or_create_conversation(client, message.contextId)
 
         # Set OTel context for trace correlation
         set_conversation_id(conversation_id)

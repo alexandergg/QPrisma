@@ -100,7 +100,7 @@ class FoundryMemoryService:
             )
             return {"name": store.name, "id": store.id, "description": store.description}
         except Exception:
-            pass  # Not found — create below
+            logger.debug("Memory store '%s' not found — will create", self._memory_store_name)
 
         try:
             from azure.ai.projects.models import (

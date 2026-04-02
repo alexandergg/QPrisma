@@ -15,6 +15,7 @@ from .enhanced_search import EnhancedSearchService
 from .entity_extractor import EntityExtractor, get_entity_extractor
 from .entra_auth_service import EntraAuthService, get_entra_auth_service
 from .ffmpeg_processor import FFmpegVideoProcessor
+from .foundry_memory_service import FoundryMemoryService, get_foundry_memory_service
 from .graph_expander import GraphExpander
 from .graph_node_repository import GraphNodeRepository
 from .graph_search_service import GraphSearchService, get_graph_search_service
@@ -27,7 +28,6 @@ from .hierarchy_embedding_generator import HierarchyEmbeddingGenerator
 from .hierarchy_node_factory import HierarchyNodeFactory
 from .highlight_detection_service import HighlightDetectionService, get_highlight_detection_service
 from .knowledge_graph import KnowledgeGraphService, get_knowledge_graph_service
-from .foundry_memory_service import FoundryMemoryService, get_foundry_memory_service
 from .processing_metrics import PipelineMetrics, ProcessingTimer, StageMetrics
 from .scene_analyzer import SceneAnalyzer
 from .storage_tiering_service import StorageTieringService, get_storage_tiering_service

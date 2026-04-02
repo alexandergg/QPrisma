@@ -169,9 +169,8 @@ class FoundryAgentClient:
 
         except Exception as e:
             if conversation_id and self._is_retriable(e):
-                logger.warning(
-                    f"Retrying without conversation (was '{conversation_id}')"
-                )
+                safe_cid = str(conversation_id).replace("\n", "").replace("\r", "")
+                logger.warning("Retrying without conversation (was '%s')", safe_cid)
                 kwargs.pop("conversation", None)
                 response = await asyncio.to_thread(
                     openai.responses.create,
