@@ -121,14 +121,14 @@ def _mask_uri(uri: str) -> str:
 def _check_service_health() -> None:
     """Log connectivity status for backend services at startup.
 
-    Non-blocking — logs warnings but never prevents the agent from starting.
+    May block briefly on network checks — logs warnings but never prevents the agent from starting.
     """
     from core.config import settings
 
     # --- Neo4j ---
     try:
         neo4j_uri = settings.neo4j.uri
-        logger.info("Neo4j: configured uri=%s, user=%s", neo4j_uri, settings.neo4j.user)
+        logger.info("Neo4j: configured uri=%s, user=%s", _mask_uri(neo4j_uri), settings.neo4j.user)
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
@@ -137,7 +137,7 @@ def _check_service_health() -> None:
         if kg.is_connected:
             logger.info("Neo4j: connected ✓")
         else:
-            logger.warning("Neo4j: connection FAILED at %s", neo4j_uri)
+            logger.warning("Neo4j: connection FAILED at %s", _mask_uri(neo4j_uri))
     except Exception as e:
         logger.warning("Neo4j: health check error — %s", e)
 
