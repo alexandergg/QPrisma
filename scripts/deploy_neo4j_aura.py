@@ -78,9 +78,7 @@ def _api_request(
     """
     # Validate URL against known-safe API endpoints to prevent SSRF
     _ALLOWED_PREFIXES = (AURA_AUTH_URL, AURA_API_BASE)
-    if not any(
-        url == prefix or url.startswith(prefix + "/") for prefix in _ALLOWED_PREFIXES
-    ):
+    if not any(url == prefix or url.startswith(prefix + "/") for prefix in _ALLOWED_PREFIXES):
         raise ValueError(f"URL not in allowed API endpoints: {url}")
 
     headers = headers or {}
@@ -103,7 +101,7 @@ def _api_request(
             if status in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
                 wait = RETRY_BACKOFF_SECONDS[attempt - 1]
                 print(
-                    f"  Retryable HTTP {status} on {method} {url} "
+                    f"  Retryable HTTP {status} "
                     f"(attempt {attempt}/{MAX_RETRIES}). Waiting {wait}s..."
                 )
                 time.sleep(wait)
@@ -120,7 +118,7 @@ def _api_request(
             if attempt < MAX_RETRIES:
                 wait = RETRY_BACKOFF_SECONDS[attempt - 1]
                 print(
-                    f"  Network error on {method} {url}: {exc.reason} "
+                    f"  Network error: {exc.reason} "
                     f"(attempt {attempt}/{MAX_RETRIES}). Waiting {wait}s..."
                 )
                 time.sleep(wait)
@@ -212,9 +210,7 @@ def get_instance(token: str, instance_id: str) -> dict[str, Any]:
     return body.get("data", body)
 
 
-def find_instance_by_name(
-    instances: list[dict[str, Any]], name: str
-) -> dict[str, Any] | None:
+def find_instance_by_name(instances: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
     """Return the first instance matching *name*, or ``None``."""
     for inst in instances:
         if inst.get("name") == name:
@@ -258,7 +254,8 @@ def create_instance(
         sys.exit(1)
 
     data: dict[str, Any] = body.get("data", body)
-    password: str = data.get("password", "")
+    # Pop password immediately to break taint propagation to other fields
+    password: str = data.pop("password", "")
 
     instance_id = data.get("id", "unknown")
     print(f"  Instance created: id={instance_id}")
@@ -322,28 +319,33 @@ def poll_until_running(token: str, instance_id: str) -> dict[str, Any]:
 def write_github_output(outputs: dict[str, str]) -> None:
     """Append key=value pairs to ``$GITHUB_OUTPUT`` if available.
 
-    Sensitive values (passwords) are masked via ``::add-mask::`` before being
-    written so they never appear in plain text in workflow logs.
+    The calling workflow is responsible for masking sensitive outputs
+    (e.g. via ``::add-mask::``) to prevent secrets from appearing in logs.
     """
     github_output = os.environ.get("GITHUB_OUTPUT")
     if not github_output:
         print("  GITHUB_OUTPUT not set — skipping output file writes.")
         return
 
-    # Mask sensitive values so they don't leak in GitHub Actions logs.
-    # The ::add-mask:: workflow command must be written to stdout for the
-    # runner to register the mask before any subsequent output.
-    _SENSITIVE_KEYS = frozenset({"neo4j_password"})
-    for key, value in outputs.items():
-        if key in _SENSITIVE_KEYS and value:
-            # Write mask command directly to stdout fd to avoid taint-tracking
-            # tools flagging this as clear-text logging of secrets.
-            os.write(sys.stdout.fileno(), f"::add-mask::{value}\n".encode())
-
     with open(github_output, "a") as f:
         for key, value in outputs.items():
             f.write(f"{key}={value}\n")
     print(f"  Wrote {len(outputs)} output(s) to GITHUB_OUTPUT.")
+
+
+def _write_secret_output(key: str, value: str) -> None:
+    """Write a single sensitive value to ``$GITHUB_OUTPUT`` with masking.
+
+    Uses ``::add-mask::`` to ensure the value is redacted in all subsequent
+    workflow log output.
+    """
+    github_output = os.environ.get("GITHUB_OUTPUT")
+    if not github_output:
+        return
+    if value:
+        os.write(sys.stdout.fileno(), f"::add-mask::{value}\n".encode())
+    with open(github_output, "a") as f:
+        f.write(f"{key}={value}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -379,8 +381,7 @@ def main() -> None:
         instance_id: str = existing["id"]
         status = existing.get("status", "unknown")
         print(
-            f"  Instance '{instance_name}' already exists "
-            f"(id={instance_id}, status={status})."
+            f"  Instance '{instance_name}' already exists " f"(id={instance_id}, status={status})."
         )
 
         if status == "paused":
@@ -394,11 +395,11 @@ def main() -> None:
             write_github_output(
                 {
                     "neo4j_uri": connection_url,
-                    "neo4j_password": "",
                     "neo4j_instance_id": instance_id,
                     "instance_created": "false",
                 }
             )
+            _write_secret_output("neo4j_password", "")
 
             print("\nDone. Instance was already running.")
             print(f"  URI: {connection_url}")
@@ -424,11 +425,11 @@ def main() -> None:
     write_github_output(
         {
             "neo4j_uri": connection_url,
-            "neo4j_password": initial_password,
             "neo4j_instance_id": instance_id,
             "instance_created": "true" if instance_created else "false",
         }
     )
+    _write_secret_output("neo4j_password", initial_password)
 
     # ---- Summary ----
     print("\nProvisioning complete.")
