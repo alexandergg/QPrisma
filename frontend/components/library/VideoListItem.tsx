@@ -29,17 +29,17 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
     <div
       onClick={onSelect}
       className={`
-        flex items-center gap-4 p-4 bg-white rounded-xl cursor-pointer
-        border-2 transition-all hover:shadow-md
+        flex items-center gap-4 p-4 bg-[var(--surface)] rounded-xl cursor-pointer
+        border-2 transition-all hover:shadow-[var(--shadow-md)]
         ${
           isSelected
-            ? 'border-indigo-500 bg-indigo-50/50'
-            : 'border-transparent hover:border-indigo-200'
+            ? 'border-[var(--amber-6)] bg-[var(--amber-1)]'
+            : 'border-[var(--border)] hover:border-[var(--amber-5)]'
         }
       `}
     >
       {/* Thumbnail */}
-      <div className="w-20 h-12 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+      <div className="w-20 h-12 bg-[var(--surface-elevated)] rounded-lg overflow-hidden flex-shrink-0">
         {video.thumbnail_url ? (
           <Image
             src={video.thumbnail_url}
@@ -50,15 +50,15 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <Film className="w-5 h-5 text-gray-300" />
+            <Film className="w-5 h-5 text-[var(--text-tertiary)]" />
           </div>
         )}
       </div>
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-gray-900 truncate">{video.original_filename}</p>
-        <p className="text-sm text-gray-500">
+        <p className="font-medium text-[var(--foreground)] truncate">{video.original_filename}</p>
+        <p className="text-sm text-[var(--text-secondary)]">
           {video.duration ? formatTime(video.duration) : ''} •{' '}
           {formatFileSize(video.file_size || 0)}
         </p>
@@ -67,9 +67,9 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
       {/* Status */}
       <div className="flex-shrink-0">
         {video.processed ? (
-          <span className="text-green-600 text-sm font-medium">Ready</span>
+          <span className="text-[var(--sage-8)] text-sm font-medium">Ready</span>
         ) : (
-          <span className="text-indigo-600 text-sm font-medium">Processing</span>
+          <span className="text-[var(--amber-8)] text-sm font-medium">Processing</span>
         )}
       </div>
     </div>
