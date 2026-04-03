@@ -27,7 +27,7 @@ export default function MessageList({ messages, isLoading, onTimestampClick, onS
   }, [messages, isLoading, streamingContent, activeTools]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-6">
+    <div className="flex-1 overflow-y-auto min-h-0 px-4 py-6">
       <div className="max-w-3xl mx-auto space-y-6">
         {messages.map((message) => (
           <MessageBubble
