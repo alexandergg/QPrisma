@@ -19,6 +19,8 @@ prepends a ``[QPRISMA_CONTEXT:{...}]`` JSON envelope to the user message
 4. Injects them into the initial graph state so downstream nodes
    (``restore_media_context``, ``call_model``) have immediate access.
 5. Strips the prefix so the LLM never sees the internal envelope.
+6. Injects the ``AzureAIOpenTelemetryTracer`` callback into the
+   graph config so Foundry emits Conversation-level traces.
 
 Usage::
 
@@ -79,6 +81,22 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
         """Convert incoming request to LangGraph input with QPrisma context."""
         result = await super().convert_request(context)
         input_data = result["input"]
+
+        # --- Inject AzureAIOpenTelemetryTracer callback for Conversation traces ---
+        try:
+            from agent.hosted.telemetry import get_azure_ai_tracer
+
+            tracer = get_azure_ai_tracer()
+            if tracer is not None:
+                config = result.get("config") or {}
+                callbacks = list(config.get("callbacks") or [])
+                if tracer not in callbacks:
+                    callbacks.append(tracer)
+                config["callbacks"] = callbacks
+                result["config"] = config
+                logger.debug("QPrismaStateConverter: injected AzureAIOpenTelemetryTracer callback")
+        except Exception as e:
+            logger.debug("QPrismaStateConverter: tracer injection skipped (%s)", e)
 
         if not isinstance(input_data, dict):
             return result
