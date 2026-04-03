@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef } from 'react';
+import { motion } from 'framer-motion';
 import { CloudUpload, Film, X } from 'lucide-react';
 
 interface UploadZoneProps {
@@ -123,7 +124,12 @@ export default function UploadZone({
 
   return (
     <div className="w-full">
-      <div
+      <motion.div
+        animate={isDragging
+          ? { scale: 1.02, borderColor: 'var(--amber-6)' }
+          : { scale: 1, borderColor: 'var(--border)' }
+        }
+        transition={{ type: 'spring', damping: 20, stiffness: 300 }}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -131,16 +137,16 @@ export default function UploadZone({
         onClick={handleClick}
         className={`
           relative group cursor-pointer
-          bg-[var(--surface)] rounded-2xl p-12
+          bg-white rounded-2xl p-12
           border-2 border-dashed
-          transition-all duration-300 ease-out
+          transition-colors duration-300 ease-out
           flex flex-col items-center justify-center text-center
-          shadow-[var(--shadow-xl)]
+          shadow-xl shadow-gray-200/50
           ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}
           ${
             isDragging
-              ? 'border-[var(--amber-6)] bg-[var(--amber-1)] scale-[1.02]'
-              : 'border-[var(--border)] hover:border-[var(--amber-6)] hover:bg-[var(--surface-elevated)]'
+              ? 'border-amber-500 bg-amber-50 shadow-amber-200/50'
+              : 'border-gray-200 hover:border-amber-300 hover:bg-gray-50'
           }
         `}
       >
@@ -159,34 +165,34 @@ export default function UploadZone({
             w-20 h-20 rounded-2xl flex items-center justify-center mb-6 transition-all duration-300
             ${
               isDragging
-                ? 'bg-gradient-to-br from-[var(--amber-7)] to-[var(--amber-9)] text-white shadow-lg scale-110'
-                : 'bg-[var(--surface-elevated)] text-[var(--text-tertiary)] group-hover:bg-[var(--amber-2)] group-hover:text-[var(--amber-8)]'
+                ? 'bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/30 scale-110'
+                : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-400 group-hover:from-amber-100 group-hover:to-orange-100 group-hover:text-amber-600'
             }
           `}
         >
           <CloudUpload className="w-10 h-10" />
         </div>
 
-        <h3 className="text-xl font-bold text-[var(--foreground)] mb-2">
+        <h3 className="text-xl font-bold text-gray-900 mb-2">
           {isDragging ? 'Drop your videos here' : 'Drop videos here'}
         </h3>
-        <p className="text-[var(--text-secondary)]">
-          or <span className="text-[var(--amber-8)] font-medium">click to browse</span> files
+        <p className="text-gray-500">
+          or <span className="text-amber-600 font-medium">click to browse</span> files
         </p>
 
-        <div className="flex items-center gap-2 mt-6 text-xs text-[var(--text-tertiary)]">
+        <div className="flex items-center gap-2 mt-6 text-xs text-gray-400">
           <Film className="w-4 h-4" />
           <span>MP4, MOV, AVI, WebM • Max {formatSize(maxSize)}</span>
         </div>
-      </div>
+      </motion.div>
 
       {/* Error Message */}
       {error && (
-        <div className="mt-4 bg-[var(--rose-3)]/30 border border-[var(--rose-7)]/20 rounded-xl p-4 flex items-start gap-3">
-          <X className="w-5 h-5 text-[var(--rose-8)] flex-shrink-0 mt-0.5" />
+        <div className="mt-4 bg-red-50 border border-red-100 rounded-xl p-4 flex items-start gap-3">
+          <X className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm text-[var(--rose-8)] font-medium">Upload Error</p>
-            <p className="text-sm text-[var(--rose-8)] mt-1">{error}</p>
+            <p className="text-sm text-red-600 font-medium">Upload Error</p>
+            <p className="text-sm text-red-500 mt-1">{error}</p>
           </div>
         </div>
       )}
