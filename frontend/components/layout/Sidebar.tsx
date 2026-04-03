@@ -11,6 +11,7 @@ import {
   LogOut,
   ChevronRight,
   Upload,
+  GitCompare,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import ThemeToggle from '@/components/ui/ThemeToggle';
@@ -119,6 +120,26 @@ export default function Sidebar({
               <p className="text-sm font-medium">My Library</p>
             </div>
             <ChevronRight className="w-4 h-4 text-[var(--text-tertiary)]" />
+          </button>
+          <button
+            onClick={() => router.push('/compare')}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
+              pathname === '/compare'
+                ? 'bg-indigo-50 border border-indigo-200 text-indigo-700'
+                : 'hover:bg-gray-50 text-gray-600'
+            }`}
+          >
+            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+              pathname === '/compare'
+                ? 'bg-indigo-500 text-white'
+                : 'bg-gray-100'
+            }`}>
+              <GitCompare className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-sm font-medium">Compare</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
           </button>
           <button
             onClick={() => router.push('/upload')}
