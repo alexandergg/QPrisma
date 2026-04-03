@@ -117,6 +117,17 @@ export function useChatVideos() {
     if (videoData) setSelectedVideo(videoData);
   };
 
+  const handleSelectVideoById = useCallback(
+    async (videoId: string) => {
+      const videoData = await loadVideo(videoId);
+      if (videoData) {
+        setSelectedVideo(videoData);
+        setSelectedVideos([videoData]);
+      }
+    },
+    [loadVideo],
+  );
+
   const clearSelection = () => {
     setSelectedVideo(null);
     setSelectedVideos([]);
@@ -154,6 +165,7 @@ export function useChatVideos() {
     handleConfirmMultiSelect,
     handleRemoveVideo,
     handleUploadComplete,
+    handleSelectVideoById,
     clearSelection,
   };
 }

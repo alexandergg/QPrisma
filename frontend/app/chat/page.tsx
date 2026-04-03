@@ -82,18 +82,18 @@ function NewChatContent() {
 
           {/* Library Mode Help */}
           {v.isMultiVideo && showLibraryHelp && (
-            <div className="flex items-start gap-3 mx-4 mt-2 px-4 py-3 bg-purple-50/80 border border-purple-100 rounded-xl text-sm text-purple-800">
+            <div className="flex items-start gap-3 mx-4 mt-2 px-4 py-3 bg-purple-50/80 dark:bg-purple-500/10 border border-purple-100 dark:border-purple-500/20 rounded-xl text-sm text-purple-800 dark:text-purple-300">
               <span className="text-purple-500 mt-0.5">💡</span>
               <div className="flex-1">
                 <p className="font-medium">Library Mode</p>
-                <p className="text-purple-600 mt-0.5">
+                <p className="text-purple-600 dark:text-purple-400 mt-0.5">
                   Ask questions across all selected videos. Try &quot;Compare the topics in these videos&quot;,
                   &quot;What do these videos have in common?&quot;, or &quot;Search for [topic] across all videos&quot;.
                 </p>
               </div>
               <button
                 onClick={() => setShowLibraryHelp(false)}
-                className="p-1 hover:bg-purple-100 rounded-lg text-purple-400 hover:text-purple-600 flex-shrink-0"
+                className="p-1 hover:bg-purple-100 dark:hover:bg-purple-500/20 rounded-lg text-purple-400 hover:text-purple-600 dark:hover:text-purple-300 flex-shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -109,6 +109,7 @@ function NewChatContent() {
             onTimestampClick={(timestamp: number) => v.setCurrentTime(timestamp)}
             onUploadVideo={() => v.setShowUploader(true)}
             onBrowseLibrary={() => v.setShowVideoSelector(true)}
+            onSelectVideoById={v.handleSelectVideoById}
             userName={user?.full_name || user?.email}
             onMessagesChange={handleMessagesChange}
             onSessionIdChange={handleSessionIdChange}
