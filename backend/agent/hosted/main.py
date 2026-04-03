@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import sys
+from typing import Any
 
 # Ensure the backend directory is on the Python path so that
 # all QPrisma modules (agent, services, core, models) are importable.
@@ -32,6 +33,14 @@ from core.logging_config import setup_logging  # noqa: E402
 
 setup_logging()
 logger = logging.getLogger(__name__)
+
+# Module-level singleton for the Azure AI tracer (set by _setup_telemetry)
+_azure_ai_tracer: Any | None = None
+
+
+def get_azure_ai_tracer() -> Any | None:
+    """Return the module-level AzureAIOpenTelemetryTracer, if configured."""
+    return _azure_ai_tracer
 
 
 def create_hosted_app():
@@ -71,7 +80,18 @@ def create_hosted_app():
 
 
 def _setup_telemetry() -> None:
-    """Configure Azure Monitor tracing for the hosted agent container."""
+    """Configure Azure Monitor tracing for the hosted agent container.
+
+    Sets up three layers of instrumentation:
+    1. ``configure_azure_monitor()`` — base OTel pipeline to Application Insights
+    2. ``OpenAIInstrumentor`` — auto-instruments raw OpenAI API calls (Response traces)
+    3. ``AzureAIOpenTelemetryTracer`` — LangGraph callback handler that emits
+       agent-level spans (invoke_agent, execute_tool, graph transitions) needed
+       for the **Conversation** view in the Foundry portal
+    4. ``ConversationIdSpanProcessor`` — belt-and-suspenders stamping of
+       ``gen_ai.conversation.id`` on every span
+    """
+    global _azure_ai_tracer
     import os
 
     conn_str = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
@@ -102,6 +122,35 @@ def _setup_telemetry() -> None:
                 logger.info("ConversationIdSpanProcessor: registered")
         except Exception as e:
             logger.warning("ConversationIdSpanProcessor: failed to register (%s)", e)
+
+        # Set up AzureAIOpenTelemetryTracer for LangGraph conversation-level traces.
+        # This creates the agent span hierarchy (invoke_agent, execute_tool, etc.)
+        # that the Foundry Conversation view requires.
+        try:
+            from langchain_azure_ai.callbacks.tracers import AzureAIOpenTelemetryTracer
+
+            content_recording = os.environ.get(
+                "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "false"
+            ).lower() in ("true", "1", "yes")
+
+            _azure_ai_tracer = AzureAIOpenTelemetryTracer(
+                connection_string=conn_str,
+                enable_content_recording=content_recording,
+                name="QPrisma Video Agent",
+                agent_id="qprisma-video-agent",
+                auto_configure_azure_monitor=False,
+            )
+            logger.info(
+                "AzureAIOpenTelemetryTracer: enabled (content_recording=%s)",
+                content_recording,
+            )
+        except ImportError:
+            logger.warning(
+                "AzureAIOpenTelemetryTracer: langchain-azure-ai not installed "
+                "(pip install 'langchain-azure-ai[opentelemetry]')"
+            )
+        except Exception as e:
+            logger.warning("AzureAIOpenTelemetryTracer: failed to initialize (%s)", e)
 
         logger.info("Application Insights: enabled (service=qprisma-hosted-agent)")
     except ImportError:
