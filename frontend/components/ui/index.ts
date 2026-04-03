@@ -19,3 +19,5 @@ export type { SpinnerProps, SpinnerSize } from './Spinner';
 
 export { EmptyState } from './EmptyState';
 export type { EmptyStateProps } from './EmptyState';
+
+export { default as ThemeToggle } from './ThemeToggle';

@@ -139,14 +139,14 @@ export default function VideoPanel({
   if (!isVisible) return null;
 
   return (
-    <div className="w-full h-full flex flex-col bg-white border-l border-gray-200">
+    <div className="w-full h-full flex flex-col bg-[var(--surface)] border-l border-[var(--border)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <h3 className="font-semibold text-gray-900 truncate">{videoTitle || 'Video'}</h3>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)]">
+        <h3 className="font-semibold text-[var(--foreground)] truncate">{videoTitle || 'Video'}</h3>
         {onClose && (
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+            className="p-1.5 hover:bg-[var(--surface-elevated)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -165,7 +165,7 @@ export default function VideoPanel({
             onPause={() => setIsPlaying(false)}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-500">
+          <div className="w-full h-full flex items-center justify-center text-[var(--text-secondary)]">
             <p>No video selected</p>
           </div>
         )}
@@ -254,9 +254,9 @@ export default function VideoPanel({
 
       {/* Scene Timeline */}
       {scenes.length > 0 && (
-        <div className="px-4 py-3 border-b border-gray-100">
+        <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase">Scene Timeline</span>
+            <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase">Scene Timeline</span>
             {currentScene && (
               <span className="text-xs text-indigo-600 font-medium">
                 {currentScene.title || `Scene ${currentScene.scene_id + 1}`}

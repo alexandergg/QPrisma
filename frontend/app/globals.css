@@ -2,15 +2,119 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #000000;
-  --foreground: #ffffff;
-  --uber-blue: #276EF1;
+  /* ── Warm neutral base ──────────────────────────────────────────── */
+  --background: #FAFAF8;
+  --foreground: #1C1B18;
+  --surface: #FFFFFF;
+  --surface-elevated: #F5F5F0;
+  --text-secondary: #6B6960;
+  --text-tertiary: #9C9A90;
+  --border: #E8E6DE;
+  --border-subtle: #F0EFE8;
+
+  /* ── Amber scale ────────────────────────────────────────────────── */
+  --amber-1: #FFFDF5;
+  --amber-2: #FFF9E5;
+  --amber-3: #FFF3CC;
+  --amber-4: #FFE999;
+  --amber-5: #FFDD66;
+  --amber-6: #FFD133;
+  --amber-7: #FFC500;
+  --amber-8: #D4A535;
+  --amber-9: #B8942E;
+  --amber-10: #9C7E28;
+  --amber-11: #806821;
+  --amber-12: #4D3E14;
+
+  /* ── Sage scale ─────────────────────────────────────────────────── */
+  --sage-2: #F0F4F0;
+  --sage-3: #DCE6DC;
+
+  /* ── Rose scale ─────────────────────────────────────────────────── */
+  --rose-3: #FFE0E0;
+
+  /* ── Blue scale ─────────────────────────────────────────────────── */
+  --blue-3: #D6E4FF;
+
+  /* ── Accent (warm amber) ────────────────────────────────────────── */
+  --accent: #D4A535;
+  --accent-hover: #C49830;
+  --accent-subtle: #FFF3CC;
+
+  /* ── Shadows ────────────────────────────────────────────────────── */
+  --shadow-xs: 0 1px 2px rgba(28, 27, 24, 0.04);
+  --shadow-sm: 0 1px 3px rgba(28, 27, 24, 0.06), 0 1px 2px rgba(28, 27, 24, 0.04);
+  --shadow-md: 0 4px 6px rgba(28, 27, 24, 0.05), 0 2px 4px rgba(28, 27, 24, 0.04);
+  --shadow-lg: 0 10px 15px rgba(28, 27, 24, 0.06), 0 4px 6px rgba(28, 27, 24, 0.04);
+  --shadow-xl: 0 20px 25px rgba(28, 27, 24, 0.08), 0 8px 10px rgba(28, 27, 24, 0.04);
+
+  /* ── Animation ──────────────────────────────────────────────────── */
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ── Radii ──────────────────────────────────────────────────────── */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+}
+
+/* ── Warm dark mode ─────────────────────────────────────────────────── */
+.dark {
+  --background: #0C0C0A;
+  --foreground: #F5F4F0;
+  --surface: #1A1918;
+  --surface-elevated: #242320;
+  --text-secondary: #A0A098;
+  --text-tertiary: #6B6960;
+  --border: #2E2D28;
+  --border-subtle: #1F1E1A;
+
+  /* Dark mode amber adjustments — slightly brighter for contrast */
+  --amber-1: #1A1710;
+  --amber-2: #221D12;
+  --amber-3: #332A16;
+  --amber-8: #D4A535;
+  --amber-9: #E5BD56;
+
+  /* Dark mode sage */
+  --sage-2: #141E14;
+  --sage-3: #1A2E1A;
+
+  /* Dark mode rose */
+  --rose-3: #2E1414;
+
+  /* Dark mode blue */
+  --blue-3: #14192E;
+
+  /* Accent stays warm */
+  --accent: #E5BD56;
+  --accent-hover: #D4A535;
+  --accent-subtle: #332A16;
+
+  /* Shadows — more subtle in dark mode */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3), 0 4px 6px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.35), 0 8px 10px rgba(0, 0, 0, 0.2);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-uber-blue: var(--uber-blue);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -22,18 +126,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom Scrollbar for Dark Theme */
+/* Custom Scrollbar — adapts to theme */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #000000; 
+  background: var(--surface);
 }
 ::-webkit-scrollbar-thumb {
-  background: #333333; 
+  background: var(--border);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #555555; 
+  background: var(--text-tertiary);
 }
