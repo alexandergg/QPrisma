@@ -70,8 +70,8 @@ export default function ComparePage() {
           <header className="sticky top-0 z-10 bg-[var(--surface)]/80 backdrop-blur-xl border-b border-[var(--border)] px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-[var(--radius-lg)] bg-[var(--amber-2)] flex items-center justify-center">
-                  <GitCompare className="w-5 h-5 text-[var(--amber-8)]" />
+                <div className="w-10 h-10 rounded-[var(--radius-lg)] bg-[var(--violet-2)] flex items-center justify-center">
+                  <GitCompare className="w-5 h-5 text-[var(--violet-8)]" />
                 </div>
                 <div>
                   <h1 className="text-xl font-bold text-[var(--foreground)]">
@@ -85,7 +85,7 @@ export default function ComparePage() {
 
               <div className="flex items-center gap-3">
                 {selectedIds.length > 0 && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-full)] bg-[var(--amber-2)] text-[var(--amber-8)] border border-[var(--amber-4)]">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-[var(--radius-full)] bg-[var(--violet-2)] text-[var(--violet-8)] border border-[var(--violet-4)]">
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     {selectedIds.length} selected
                   </span>
@@ -103,7 +103,7 @@ export default function ComparePage() {
                   <button
                     onClick={() => setComparing(true)}
                     disabled={selectedIds.length < 2}
-                    className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-[var(--radius-lg)] bg-[var(--amber-8)] text-white hover:bg-[var(--amber-9)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-[var(--shadow-sm)]"
+                    className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-[var(--radius-lg)] bg-[var(--violet-8)] text-white hover:bg-[var(--violet-9)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-[var(--shadow-sm)]"
                   >
                     <GitCompare className="w-4 h-4" />
                     Compare

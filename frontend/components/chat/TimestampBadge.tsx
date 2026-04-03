@@ -39,15 +39,15 @@ function TimestampBadge({
       icon: 'text-[var(--sage-7)]',
     },
     entity: {
-      bg: 'bg-[var(--amber-2)] hover:bg-[var(--amber-3)]',
-      text: 'text-[var(--amber-8)]',
-      icon: 'text-[var(--amber-7)]',
+      bg: 'bg-[var(--violet-2)] hover:bg-[var(--violet-3)]',
+      text: 'text-[var(--violet-8)]',
+      icon: 'text-[var(--violet-7)]',
     },
   };
 
   const confidenceRing = score !== undefined
     ? score >= 0.8 ? 'ring-1 ring-[var(--sage-7)]/30'
-    : score >= 0.5 ? 'ring-1 ring-[var(--amber-6)]/30'
+    : score >= 0.5 ? 'ring-1 ring-[var(--violet-6)]/30'
     : 'ring-1 ring-[var(--rose-7)]/30'
     : '';
 

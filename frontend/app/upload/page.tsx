@@ -161,8 +161,8 @@ export default function UploadPage() {
     <div className="flex h-screen bg-[var(--background)] overflow-hidden">
       {/* Decorative Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-[var(--amber-3)]/40 to-[var(--amber-4)]/20 rounded-full blur-3xl"></div>
-        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-[var(--amber-2)]/30 to-[var(--sage-2)]/30 rounded-full blur-3xl"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-[var(--violet-3)]/40 to-[var(--violet-4)]/20 rounded-full blur-3xl"></div>
+        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-[var(--violet-2)]/30 to-[var(--sage-2)]/30 rounded-full blur-3xl"></div>
       </div>
 
       {/* Sidebar */}
@@ -188,7 +188,7 @@ export default function UploadPage() {
             </button>
 
             <div className="flex items-center gap-3 mb-2">
-              <div className="px-3 py-1.5 bg-[var(--amber-2)] text-[var(--amber-8)] rounded-full text-xs font-semibold flex items-center gap-1.5">
+              <div className="px-3 py-1.5 bg-[var(--violet-2)] text-[var(--violet-8)] rounded-full text-xs font-semibold flex items-center gap-1.5">
                 <Sparkles className="w-3 h-3" />
                 AI-Powered Analysis
               </div>

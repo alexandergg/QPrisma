@@ -48,7 +48,7 @@ export function NodeDetailPanel({ selectedNode, onSeek }: NodeDetailPanelProps) 
       {onSeek && selectedNode.properties.timestamp != null && (
         <button
           onClick={() => onSeek(Number(selectedNode.properties.timestamp))}
-          className="mt-2 w-full text-center text-[var(--amber-8)] hover:text-[var(--amber-9)] font-medium"
+          className="mt-2 w-full text-center text-[var(--violet-8)] hover:text-[var(--violet-9)] font-medium"
         >
           Seek to timestamp →
         </button>
@@ -56,7 +56,7 @@ export function NodeDetailPanel({ selectedNode, onSeek }: NodeDetailPanelProps) 
       {onSeek && selectedNode.properties.start_time != null && !selectedNode.properties.timestamp && (
         <button
           onClick={() => onSeek(Number(selectedNode.properties.start_time))}
-          className="mt-2 w-full text-center text-[var(--amber-8)] hover:text-[var(--amber-9)] font-medium"
+          className="mt-2 w-full text-center text-[var(--violet-8)] hover:text-[var(--violet-9)] font-medium"
         >
           Seek to start →
         </button>

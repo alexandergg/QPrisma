@@ -21,6 +21,7 @@ interface ChatInputProps {
   isDisabled?: boolean;
   placeholder?: string;
   mode?: 'single' | 'library';
+  variant?: 'centered' | 'bottom';
 }
 
 export default function ChatInput({
@@ -35,6 +36,7 @@ export default function ChatInput({
   isDisabled = false,
   placeholder,
   mode = 'single',
+  variant = 'bottom',
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -67,15 +69,15 @@ export default function ChatInput({
     : 'Press Enter to send • Shift+Enter for new line';
 
   return (
-    <div className="flex-shrink-0 border-t border-gray-100 bg-white/80 backdrop-blur-xl">
-      <div className="max-w-3xl mx-auto p-4">
+    <div className={variant === 'bottom' ? 'border-t border-gray-100 bg-white/80 backdrop-blur-xl' : ''}>
+      <div className={variant === 'bottom' ? 'max-w-3xl mx-auto p-4' : ''}>
         {/* Attached Videos Bar */}
         {attachedVideos.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3">
             {attachedVideos.map((video) => (
               <div
                 key={video.id}
-                className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full text-sm"
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-violet-50 text-violet-700 rounded-full text-sm"
               >
                 <Film className="w-3 h-3" />
                 <span className="max-w-[150px] truncate">{video.name}</span>
@@ -94,10 +96,12 @@ export default function ChatInput({
         )}
 
         {/* Input Container */}
-        <div className="relative bg-white rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/50 focus-within:border-amber-300 focus-within:ring-4 focus-within:ring-amber-100 transition-all">
+        <div className={`relative bg-white rounded-2xl border border-gray-200 focus-within:border-violet-300 focus-within:ring-4 focus-within:ring-violet-100 transition-all ${
+          variant === 'centered' ? 'shadow-xl shadow-gray-300/40' : 'shadow-lg shadow-gray-200/50'
+        }`}>
           <div className="flex items-end gap-2 p-3">
             {/* Attach Video Button */}
-            {onAttachVideo && mode === 'single' && (
+            {variant === 'bottom' && onAttachVideo && mode === 'single' && (
               <button
                 onClick={onAttachVideo}
                 disabled={isDisabled}
@@ -131,7 +135,7 @@ export default function ChatInput({
               aria-label={isLoading ? 'Sending message' : 'Send message'}
               className={`p-3 rounded-xl transition-all ${
                 value.trim() && !isDisabled && !isLoading
-                  ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/30'
+                  ? 'bg-gradient-to-r from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white shadow-lg shadow-violet-500/30'
                   : 'bg-gray-100 text-gray-400'
               }`}
             >
@@ -156,7 +160,9 @@ export default function ChatInput({
         </div>
 
         {/* Hint */}
-        <p className="text-xs text-gray-400 text-center mt-2">{hintText}</p>
+        {variant === 'bottom' && (
+          <p className="text-xs text-gray-400 text-center mt-2">{hintText}</p>
+        )}
       </div>
     </div>
   );

@@ -103,7 +103,7 @@ export default function VideoGrid({
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <Spinner size="lg" className="text-[var(--amber-9)] mx-auto mb-3" />
+          <Spinner size="lg" className="text-[var(--violet-9)] mx-auto mb-3" />
           <p className="text-gray-500">Loading videos...</p>
         </div>
       </div>
@@ -136,7 +136,7 @@ export default function VideoGrid({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search videos..."
-            className="w-full pl-10 pr-4 py-2.5 bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-xl)] text-sm focus:outline-none focus:ring-2 focus:ring-amber-4 focus:border-amber-6"
+            className="w-full pl-10 pr-4 py-2.5 bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-xl)] text-sm focus:outline-none focus:ring-2 focus:ring-violet-4 focus:border-violet-6"
           />
         </div>
 
@@ -144,7 +144,7 @@ export default function VideoGrid({
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortOption)}
-          className="hidden sm:block px-4 py-2.5 bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-xl)] text-sm focus:outline-none focus:ring-2 focus:ring-amber-4 focus:border-amber-6"
+          className="hidden sm:block px-4 py-2.5 bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-xl)] text-sm focus:outline-none focus:ring-2 focus:ring-violet-4 focus:border-violet-6"
         >
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>

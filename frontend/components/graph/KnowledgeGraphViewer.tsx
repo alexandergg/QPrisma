@@ -148,7 +148,7 @@ export default function KnowledgeGraphViewer({
   if (isLoading) {
     return (
       <div className={`flex flex-col items-center justify-center h-full ${className}`}>
-        <Loader2 className="w-8 h-8 text-[var(--amber-8)] animate-spin mb-3" />
+        <Loader2 className="w-8 h-8 text-[var(--violet-8)] animate-spin mb-3" />
         <p className="text-[var(--text-secondary)] text-sm">Loading Knowledge Graph...</p>
       </div>
     );
@@ -176,7 +176,7 @@ export default function KnowledgeGraphViewer({
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div className="flex items-center gap-2">
-          <Share2 className="w-4 h-4 text-[var(--amber-8)]" />
+          <Share2 className="w-4 h-4 text-[var(--violet-8)]" />
           <span className="font-semibold text-[var(--foreground)] text-sm">Knowledge Graph</span>
           <span className="text-xs text-[var(--text-tertiary)]">
             {nvlNodes.length} nodes · {nvlRels.length} rels

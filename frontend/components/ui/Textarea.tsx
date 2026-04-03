@@ -60,7 +60,7 @@ const Textarea = memo(
           ref={handleRef}
           id={inputId}
           onInput={handleInput}
-          className={`w-full rounded-[var(--radius-md)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-sm transition-colors placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${autoResize ? 'resize-none overflow-hidden' : ''} ${hasError ? 'border-[var(--rose-7)] focus:ring-[var(--rose-7)]' : 'focus:ring-[var(--amber-6)]'} ${className}`}
+          className={`w-full rounded-[var(--radius-md)] bg-[var(--surface)] border border-[var(--border)] px-3 py-2 text-sm transition-colors placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${autoResize ? 'resize-none overflow-hidden' : ''} ${hasError ? 'border-[var(--rose-7)] focus:ring-[var(--rose-7)]' : 'focus:ring-[var(--violet-6)]'} ${className}`}
           aria-invalid={hasError || undefined}
           aria-describedby={
             error ? `${inputId}-error` : helperText ? `${inputId}-helper` : undefined

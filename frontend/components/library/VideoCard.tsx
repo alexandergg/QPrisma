@@ -43,8 +43,8 @@ function VideoCard({
       className={`
         group relative bg-white rounded-2xl overflow-hidden cursor-pointer
         border-2 transition-[border-color,box-shadow] duration-200
-        shadow-lg shadow-gray-200/50 hover:shadow-xl hover:shadow-amber-200/30
-        ${isSelected ? 'border-amber-500 ring-4 ring-amber-100' : 'border-transparent hover:border-amber-200'}
+        shadow-lg shadow-gray-200/50 hover:shadow-xl hover:shadow-violet-200/30
+        ${isSelected ? 'border-violet-500 ring-4 ring-violet-100' : 'border-transparent hover:border-violet-200'}
       `}
     >
       {/* Thumbnail */}
@@ -60,7 +60,7 @@ function VideoCard({
         {/* Overlay on hover */}
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
           <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-            <Play className="w-6 h-6 text-amber-600 fill-amber-600 ml-1" />
+            <Play className="w-6 h-6 text-violet-600 fill-violet-600 ml-1" />
           </div>
         </div>
 
@@ -75,7 +75,7 @@ function VideoCard({
         {isProcessing && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
             <div className="bg-white rounded-xl px-4 py-2 flex items-center gap-2 shadow-lg">
-              <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+              <Loader2 className="w-4 h-4 text-violet-600 animate-spin" />
               <span className="text-sm font-medium text-gray-700">Processing...</span>
             </div>
           </div>
@@ -83,7 +83,7 @@ function VideoCard({
 
         {/* Selected indicator */}
         {isSelected && (
-          <div className="absolute top-2 left-2 bg-amber-500 text-white p-1.5 rounded-lg shadow-lg">
+          <div className="absolute top-2 left-2 bg-violet-500 text-white p-1.5 rounded-lg shadow-lg">
             <CheckCircle className="w-4 h-4" />
           </div>
         )}
@@ -93,7 +93,7 @@ function VideoCard({
       <div className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-gray-900 truncate group-hover:text-amber-600 transition-colors">
+            <h3 className="font-semibold text-gray-900 truncate group-hover:text-violet-600 transition-colors">
               {name}
             </h3>
             <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
@@ -158,7 +158,7 @@ function VideoCard({
               {framesAnalyzed && <span className="text-green-600">• {framesAnalyzed} frames</span>}
             </span>
           ) : isProcessing ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-medium rounded-full">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-50 text-violet-700 text-xs font-medium rounded-full">
               <Loader2 className="w-3 h-3 animate-spin" />
               Processing
             </span>
