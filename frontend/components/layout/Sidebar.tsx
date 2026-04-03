@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import { motion } from 'framer-motion';
 import {
   Zap,
   Plus,
@@ -13,6 +14,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { staggerContainer, staggerItem } from '@/lib/animations';
 
 export type ChatMode = 'single' | 'library';
 
@@ -41,7 +43,7 @@ export default function Sidebar({
       <div className="p-5 flex flex-col h-full">
         {/* Logo */}
         <div className="flex items-center gap-3 mb-6">
-          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
+          <div className="bg-gradient-to-br from-amber-500 to-orange-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/30">
             <Zap className="w-5 h-5 text-white" />
           </div>
           <span className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
@@ -50,13 +52,15 @@ export default function Sidebar({
         </div>
 
         {/* New Chat Button */}
-        <button
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          transition={{ duration: 0.1 }}
           onClick={onNewChat}
-          className="w-full px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl transition-all font-semibold flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/30 mb-6"
+          className="w-full px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-xl transition-colors font-semibold flex items-center justify-center gap-2 shadow-lg shadow-amber-500/30 mb-6"
         >
           <Plus className="w-5 h-5" />
           New Chat
-        </button>
+        </motion.button>
 
         {/* Mode Selector */}
         <div className="mb-4">
@@ -95,21 +99,27 @@ export default function Sidebar({
         </div>
 
         {/* Quick Links */}
-        <div className="mb-4 space-y-1">
+        <motion.div
+          variants={staggerContainer}
+          initial="initial"
+          animate="animate"
+          className="mb-4 space-y-1"
+        >
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">
             Quick Links
           </p>
-          <button
+          <motion.button
+            variants={staggerItem}
             onClick={() => router.push('/library')}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
               pathname === '/library'
-                ? 'bg-indigo-50 border border-indigo-200 text-indigo-700'
+                ? 'bg-amber-50 border border-amber-200 text-amber-700'
                 : 'hover:bg-gray-50 text-gray-600'
             }`}
           >
             <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
               pathname === '/library'
-                ? 'bg-indigo-500 text-white'
+                ? 'bg-amber-500 text-white'
                 : 'bg-gray-100'
             }`}>
               <Library className="w-3.5 h-3.5" />
@@ -118,18 +128,19 @@ export default function Sidebar({
               <p className="text-sm font-medium">My Library</p>
             </div>
             <ChevronRight className="w-4 h-4 text-gray-400" />
-          </button>
-          <button
+          </motion.button>
+          <motion.button
+            variants={staggerItem}
             onClick={() => router.push('/upload')}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
               pathname === '/upload'
-                ? 'bg-indigo-50 border border-indigo-200 text-indigo-700'
+                ? 'bg-amber-50 border border-amber-200 text-amber-700'
                 : 'hover:bg-gray-50 text-gray-600'
             }`}
           >
             <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
               pathname === '/upload'
-                ? 'bg-indigo-500 text-white'
+                ? 'bg-amber-500 text-white'
                 : 'bg-gray-100'
             }`}>
               <Upload className="w-3.5 h-3.5" />
@@ -138,8 +149,8 @@ export default function Sidebar({
               <p className="text-sm font-medium">Upload Video</p>
             </div>
             <ChevronRight className="w-4 h-4 text-gray-400" />
-          </button>
-        </div>
+          </motion.button>
+        </motion.div>
 
         {/* Spacer */}
         <div className="flex-1" />
@@ -147,7 +158,7 @@ export default function Sidebar({
         {/* User Section */}
         <div className="mt-auto pt-4 border-t border-gray-200/50">
           <div className="flex items-center gap-3 px-2 mb-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold text-white shadow-lg shadow-indigo-500/30">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-sm font-bold text-white shadow-lg shadow-amber-500/30">
               {user?.email?.substring(0, 2).toUpperCase() || 'U'}
             </div>
             <div className="flex-1 min-w-0">

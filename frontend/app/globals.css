@@ -2,15 +2,53 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #000000;
-  --foreground: #ffffff;
-  --uber-blue: #276EF1;
+  /* Warm neutral palette */
+  --background: #FAFAF8;
+  --foreground: #1C1917;
+  --muted: #F5F5F0;
+  --muted-foreground: #78716C;
+  --border: #E7E5E4;
+
+  /* Amber scale (primary) */
+  --amber-1: #FFFBEB;
+  --amber-2: #FEF3C7;
+  --amber-3: #FDE68A;
+  --amber-4: #FCD34D;
+  --amber-5: #FBBF24;
+  --amber-6: #F59E0B;
+  --amber-7: #D97706;
+  --amber-8: #B45309;
+  --amber-9: #92400E;
+
+  /* Sage scale (success) */
+  --sage-1: #F0FDF4;
+  --sage-2: #DCFCE7;
+  --sage-5: #22C55E;
+  --sage-7: #15803D;
+
+  /* Rose scale (error) */
+  --rose-1: #FFF1F2;
+  --rose-2: #FFE4E6;
+  --rose-5: #F43F5E;
+  --rose-7: #BE123C;
+
+  /* Blue scale (info) */
+  --blue-1: #EFF6FF;
+  --blue-2: #DBEAFE;
+  --blue-5: #3B82F6;
+  --blue-7: #1D4ED8;
+
+  /* Animation tokens */
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+  --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-uber-blue: var(--uber-blue);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -22,18 +60,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom Scrollbar for Dark Theme */
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #000000; 
+  background: var(--muted);
 }
 ::-webkit-scrollbar-thumb {
-  background: #333333; 
+  background: var(--border);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #555555; 
+  background: var(--muted-foreground);
 }

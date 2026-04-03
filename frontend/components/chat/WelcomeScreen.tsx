@@ -1,7 +1,9 @@
 'use client';
 
 import React, { memo } from 'react';
+import { motion } from 'framer-motion';
 import { Sparkles, Upload, Library, MessageSquare, ArrowRight } from 'lucide-react';
+import { fadeIn, staggerContainer, staggerItem } from '@/lib/animations';
 
 interface QuickSuggestion {
   text: string;
@@ -44,27 +46,44 @@ function WelcomeScreen({
     <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto">
       <div className="max-w-2xl w-full text-center">
         {/* Logo/Icon */}
-        <div className="w-20 h-20 mx-auto mb-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-indigo-500/30">
+        <motion.div
+          variants={fadeIn}
+          initial="initial"
+          animate="animate"
+          className="w-20 h-20 mx-auto mb-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-amber-500/30"
+        >
           <Sparkles className="w-10 h-10 text-white" />
-        </div>
+        </motion.div>
 
         {/* Greeting */}
-        <h1 className="text-4xl font-bold text-gray-900 mb-3">{greeting}</h1>
-        <p className="text-lg text-gray-500 mb-10">
+        <motion.h1
+          variants={fadeIn}
+          initial="initial"
+          animate="animate"
+          className="text-4xl font-bold text-gray-900 mb-3"
+        >
+          {greeting}
+        </motion.h1>
+        <motion.p
+          variants={fadeIn}
+          initial="initial"
+          animate="animate"
+          className="text-lg text-gray-500 mb-10"
+        >
           {mode === 'single'
             ? 'Unlock intelligent insights from your videos'
             : 'Search and analyze across your entire video library'}
-        </p>
+        </motion.p>
 
         {/* Action Cards */}
         <div className="grid grid-cols-2 gap-4 mb-10">
           {/* Upload Video Card */}
           <button
             onClick={onUploadVideo}
-            className="group bg-white rounded-2xl p-6 border-2 border-dashed border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-all text-left"
+            className="group bg-white rounded-2xl p-6 border-2 border-dashed border-gray-200 hover:border-amber-300 hover:bg-amber-50/50 transition-all text-left"
           >
-            <div className="w-12 h-12 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-xl flex items-center justify-center mb-4 group-hover:from-indigo-200 group-hover:to-purple-200 transition-colors">
-              <Upload className="w-6 h-6 text-indigo-600" />
+            <div className="w-12 h-12 bg-gradient-to-br from-amber-100 to-orange-100 rounded-xl flex items-center justify-center mb-4 group-hover:from-amber-200 group-hover:to-orange-200 transition-colors">
+              <Upload className="w-6 h-6 text-amber-600" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-1">Upload Video</h3>
             <p className="text-sm text-gray-500">
@@ -95,21 +114,28 @@ function WelcomeScreen({
         </div>
 
         {/* Quick Suggestions */}
-        <div className="grid grid-cols-2 gap-3">
+        <motion.div
+          variants={staggerContainer}
+          initial="initial"
+          animate="animate"
+          className="grid grid-cols-2 gap-3"
+        >
           {suggestions.map((suggestion, index) => (
-            <button
+            <motion.button
               key={index}
+              variants={staggerItem}
               onClick={() => onQuickSuggestion?.(suggestion.text)}
-              className="group flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 transition-all text-left"
+              whileHover={{ y: -2, transition: { duration: 0.2 } }}
+              className="group flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-100 hover:border-amber-200 hover:bg-amber-50/50 transition-colors text-left"
             >
-              <MessageSquare className="w-5 h-5 text-gray-400 group-hover:text-indigo-500 flex-shrink-0" />
+              <MessageSquare className="w-5 h-5 text-gray-400 group-hover:text-amber-600 flex-shrink-0" />
               <span className="text-sm text-gray-600 group-hover:text-gray-900 flex-1">
                 {suggestion.text}
               </span>
-              <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-all" />
-            </button>
+              <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-all" />
+            </motion.button>
           ))}
-        </div>
+        </motion.div>
 
         {/* Footer hint */}
         <p className="text-xs text-gray-400 mt-8">
