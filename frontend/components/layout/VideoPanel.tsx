@@ -185,7 +185,7 @@ export default function VideoPanel({
               {scenes.map((scene) => (
                 <div
                   key={scene.scene_id}
-                  className="absolute top-0 h-full bg-[var(--amber-6)]/40"
+                  className="absolute top-0 h-full bg-indigo-400/50"
                   style={{
                     left: `${(scene.start_time / duration) * 100}%`,
                     width: `${((scene.end_time - scene.start_time) / duration) * 100}%`,
@@ -195,9 +195,9 @@ export default function VideoPanel({
               {/* Citation markers — colored diamonds at cited timestamps */}
               {duration > 0 && citationMarkers.map((marker, idx) => {
                 const markerColors = {
-                  visual: 'bg-[var(--amber-7)]',
-                  audio: 'bg-[var(--sage-7)]',
-                  entity: 'bg-[var(--blue-7)]',
+                  visual: 'bg-indigo-400',
+                  audio: 'bg-emerald-400',
+                  entity: 'bg-amber-400',
                 };
                 const leftPercent = Math.min(100, Math.max(0, (marker.timestamp / duration) * 100));
                 return (
@@ -256,9 +256,9 @@ export default function VideoPanel({
       {scenes.length > 0 && (
         <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-[var(--text-tertiary)] uppercase">Scene Timeline</span>
+            <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase">Scene Timeline</span>
             {currentScene && (
-              <span className="text-xs text-[var(--amber-8)] font-medium">
+              <span className="text-xs text-indigo-600 font-medium">
                 {currentScene.title || `Scene ${currentScene.scene_id + 1}`}
               </span>
             )}
@@ -267,14 +267,14 @@ export default function VideoPanel({
             {scenes.map((scene, idx) => {
               const width = ((scene.end_time - scene.start_time) / duration) * 100;
               const isActive = currentScene?.scene_id === scene.scene_id;
-              const colors = ['bg-[var(--amber-6)]', 'bg-[var(--amber-8)]', 'bg-[var(--blue-7)]', 'bg-[var(--sage-7)]', 'bg-[var(--amber-5)]'];
+              const colors = ['bg-indigo-400', 'bg-purple-400', 'bg-blue-400', 'bg-cyan-400', 'bg-teal-400'];
 
               return (
                 <div
                   key={scene.scene_id}
                   className={`h-full rounded-full cursor-pointer transition-all ${
                     colors[idx % colors.length]
-                  } ${isActive ? 'ring-2 ring-[var(--surface)] ring-offset-1' : 'opacity-60 hover:opacity-100'}`}
+                  } ${isActive ? 'ring-2 ring-white ring-offset-1' : 'opacity-60 hover:opacity-100'}`}
                   style={{ width: `${Math.max(width, 2)}%` }}
                   onClick={() => handleSeek(scene.start_time)}
                   title={scene.title || `Scene ${scene.scene_id + 1}`}

@@ -44,5 +44,7 @@ export type { TabsProps, Tab } from './Tabs';
 export { Textarea } from './Textarea';
 export type { TextareaProps } from './Textarea';
 
+export { default as ThemeToggle } from './ThemeToggle';
+
 export { Tooltip } from './Tooltip';
 export type { TooltipProps, TooltipSide } from './Tooltip';

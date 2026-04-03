@@ -144,3 +144,44 @@ body {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
 }
+
+/* Dark mode overrides */
+.dark {
+  --background: #0C0C0A;
+  --foreground: #F5F4F0;
+  --surface: #1A1918;
+  --surface-elevated: #242320;
+  --text-secondary: #A0A098;
+  --text-tertiary: #6B6960;
+  --border: #2E2D28;
+  --border-subtle: #1F1E1A;
+
+  /* Dark mode amber adjustments ΓÇö slightly brighter for contrast */
+  --amber-1: #1A1710;
+  --amber-2: #221D12;
+  --amber-3: #332A16;
+  --amber-8: #D4A535;
+  --amber-9: #E5BD56;
+
+  /* Dark mode sage */
+  --sage-2: #141E14;
+  --sage-3: #1A2E1A;
+
+  /* Dark mode rose */
+  --rose-3: #2E1414;
+
+  /* Dark mode blue */
+  --blue-3: #14192E;
+
+  /* Accent stays warm */
+  --accent: #E5BD56;
+  --accent-hover: #D4A535;
+  --accent-subtle: #332A16;
+
+  /* Shadows ΓÇö more subtle in dark mode */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3), 0 4px 6px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.35), 0 8px 10px rgba(0, 0, 0, 0.2);
+}

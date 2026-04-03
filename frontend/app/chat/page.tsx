@@ -44,8 +44,8 @@ function NewChatContent() {
     <div className="flex h-screen bg-[var(--background)] overflow-hidden">
       {/* Decorative Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-[var(--amber-3)] rounded-full blur-3xl opacity-30"></div>
-        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-[var(--amber-2)] rounded-full blur-3xl opacity-30"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-indigo-200/40 to-purple-200/40 rounded-full blur-3xl dark:from-indigo-900/20 dark:to-purple-900/20"></div>
+        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-blue-200/30 to-cyan-200/30 rounded-full blur-3xl dark:from-blue-900/15 dark:to-cyan-900/15"></div>
       </div>
 
       {/* Sidebar */}
@@ -82,18 +82,18 @@ function NewChatContent() {
 
           {/* Library Mode Help */}
           {v.isMultiVideo && showLibraryHelp && (
-            <div className="flex items-start gap-3 mx-4 mt-2 px-4 py-3 bg-[var(--amber-2)] border border-[var(--amber-3)] rounded-xl text-sm text-[var(--amber-12)]">
-              <span className="text-[var(--amber-7)] mt-0.5">💡</span>
+            <div className="flex items-start gap-3 mx-4 mt-2 px-4 py-3 bg-purple-50/80 border border-purple-100 rounded-xl text-sm text-purple-800">
+              <span className="text-purple-500 mt-0.5">💡</span>
               <div className="flex-1">
                 <p className="font-medium">Library Mode</p>
-                <p className="text-[var(--amber-10)] mt-0.5">
+                <p className="text-purple-600 mt-0.5">
                   Ask questions across all selected videos. Try &quot;Compare the topics in these videos&quot;,
                   &quot;What do these videos have in common?&quot;, or &quot;Search for [topic] across all videos&quot;.
                 </p>
               </div>
               <button
                 onClick={() => setShowLibraryHelp(false)}
-                className="p-1 hover:bg-[var(--amber-3)] rounded-lg text-[var(--amber-6)] hover:text-[var(--amber-8)] flex-shrink-0"
+                className="p-1 hover:bg-purple-100 rounded-lg text-purple-400 hover:text-purple-600 flex-shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -188,7 +188,7 @@ export default function NewChatPage() {
   return (
     <RequireAuth>
       <Suspense fallback={
-        <div className="flex items-center justify-center h-screen bg-[var(--background)]">
+        <div className="flex items-center justify-center h-screen">
           <div className="text-[var(--text-secondary)]">Loading...</div>
         </div>
       }>
