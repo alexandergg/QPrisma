@@ -105,7 +105,7 @@ export default function AppLayout({
 
         {/* Video Panel (conditionally rendered) */}
         {isVideoPanelVisible && (
-          <div className="w-[40%] min-w-[400px] max-w-[600px] flex-shrink-0 h-screen border-l border-[var(--border)] bg-[var(--surface)]">
+          <div className="w-full md:w-[40%] md:min-w-[400px] md:max-w-[600px] flex-shrink-0 h-[40vh] md:h-screen border-t md:border-t-0 md:border-l border-[var(--border)] bg-[var(--surface)]">
             <VideoPanel
               videoUrl={videoData?.url}
               videoTitle={videoData?.title}

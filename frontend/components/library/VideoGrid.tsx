@@ -103,8 +103,8 @@ export default function VideoGrid({
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <Spinner size="lg" className="text-[var(--amber-8)] mx-auto mb-3" />
-          <p className="text-[var(--text-secondary)]">Loading videos...</p>
+          <Spinner size="lg" className="text-amber-9 mx-auto mb-3" />
+          <p className="text-gray-500">Loading videos...</p>
         </div>
       </div>
     );
@@ -114,7 +114,7 @@ export default function VideoGrid({
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <p className="text-[var(--rose-7)] mb-3">{error}</p>
+          <p className="text-red-500 mb-3">{error}</p>
           <Button onClick={loadVideos} variant="primary" size="md" className="mx-auto">
             <RefreshCw className="w-4 h-4" />
             Retry
@@ -125,18 +125,18 @@ export default function VideoGrid({
   }
 
   return (
-    <div className="h-full flex flex-col bg-[var(--background)]">
+    <div className="h-full flex flex-col">
       {/* Toolbar */}
-      <div className="flex items-center gap-4 p-4 border-b border-[var(--border)] bg-[var(--surface)]/50 backdrop-blur-sm">
+      <div className="flex flex-wrap items-center gap-3 md:gap-4 p-3 md:p-4 border-b border-[var(--sage-3)] bg-[var(--surface)]/50 backdrop-blur-sm">
         {/* Search */}
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search videos..."
-            className="w-full pl-10 pr-4 py-2.5 bg-[var(--surface)] border border-[var(--border)] rounded-xl text-sm text-[var(--foreground)] placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-[var(--amber-3)] focus:border-[var(--amber-6)]"
+            className="w-full pl-10 pr-4 py-2.5 bg-[var(--surface)] border border-[var(--sage-4)] rounded-[var(--radius-xl)] text-sm focus:outline-none focus:ring-2 focus:ring-amber-4 focus:border-amber-6"
           />
         </div>
 
@@ -144,7 +144,7 @@ export default function VideoGrid({
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortOption)}
-          className="px-4 py-2.5 bg-[var(--surface)] border border-[var(--border)] rounded-xl text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--amber-3)] focus:border-[var(--amber-6)]"
+          className="hidden sm:block px-4 py-2.5 bg-[var(--surface)] border border-[var(--sage-4)] rounded-[var(--radius-xl)] text-sm focus:outline-none focus:ring-2 focus:ring-amber-4 focus:border-amber-6"
         >
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
@@ -153,14 +153,14 @@ export default function VideoGrid({
         </select>
 
         {/* View mode toggle */}
-        <div className="flex bg-[var(--surface-elevated)] rounded-xl p-1">
+        <div className="hidden sm:flex bg-[var(--sage-3)] rounded-[var(--radius-xl)] p-1">
           <button
             onClick={() => setViewMode('grid')}
             aria-label="Grid view"
             className={`p-2 rounded-lg transition-colors ${
               viewMode === 'grid'
-                ? 'bg-[var(--surface)] text-[var(--foreground)] shadow-[var(--shadow-xs)]'
-                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             <Grid className="w-4 h-4" />
@@ -170,8 +170,8 @@ export default function VideoGrid({
             aria-label="List view"
             className={`p-2 rounded-lg transition-colors ${
               viewMode === 'list'
-                ? 'bg-[var(--surface)] text-[var(--foreground)] shadow-[var(--shadow-xs)]'
-                : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
             }`}
           >
             <List className="w-4 h-4" />
@@ -182,19 +182,19 @@ export default function VideoGrid({
         <button
           onClick={loadVideos}
           aria-label="Refresh videos"
-          className="p-2.5 hover:bg-[var(--surface-elevated)] rounded-xl text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+          className="p-2.5 hover:bg-gray-100 rounded-xl text-gray-500 hover:text-gray-700 transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
 
       {/* Videos */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-3 md:p-4">
         {filteredVideos.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
-            <Film className="w-12 h-12 text-[var(--text-tertiary)] mb-3" />
-            <p className="text-[var(--text-secondary)] font-medium">No videos found</p>
-            <p className="text-[var(--text-tertiary)] text-sm mt-1">
+            <Film className="w-12 h-12 text-[var(--sage-6)] mb-3" />
+            <p className="text-[var(--sage-8)] font-medium">No videos found</p>
+            <p className="text-[var(--sage-7)] text-sm mt-1">
               {searchQuery ? 'Try a different search term' : 'Upload a video to get started'}
             </p>
           </div>
@@ -241,7 +241,7 @@ export default function VideoGrid({
       </div>
 
       {/* Footer stats */}
-      <div className="px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--surface)]/50 backdrop-blur-sm text-sm text-[var(--text-secondary)]">
+      <div className="px-3 md:px-4 py-2 md:py-3 border-t border-[var(--sage-3)] bg-[var(--surface)]/50 backdrop-blur-sm text-sm text-[var(--sage-8)]">
         {filteredVideos.length} video{filteredVideos.length !== 1 ? 's' : ''}
         {searchQuery && ` matching "${searchQuery}"`}
       </div>
