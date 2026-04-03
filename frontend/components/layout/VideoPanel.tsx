@@ -10,6 +10,7 @@ import {
   SkipBack,
   SkipForward,
   X,
+  ChevronsRight,
 } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
 import { VideoPanelTabs } from './VideoPanelTabs';
@@ -57,6 +58,7 @@ interface VideoPanelProps {
   onSeek?: (time: number) => void;
   isVisible?: boolean;
   onClose?: () => void;
+  onCollapse?: () => void;
   citationMarkers?: CitationMarker[];
 }
 
@@ -73,6 +75,7 @@ export default function VideoPanel({
   onSeek,
   isVisible = true,
   onClose,
+  onCollapse,
   citationMarkers = [],
 }: VideoPanelProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -143,14 +146,26 @@ export default function VideoPanel({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)]">
         <h3 className="font-semibold text-[var(--foreground)] truncate">{videoTitle || 'Video'}</h3>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-[var(--surface-elevated)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              className="p-1.5 hover:bg-[var(--surface-elevated)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+              title="Collapse panel"
+            >
+              <ChevronsRight className="w-4 h-4" />
+            </button>
+          )}
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1.5 hover:bg-[var(--surface-elevated)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
+              title="Close panel"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Video Player */}
