@@ -1,12 +1,28 @@
 'use client';
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Sparkles, MessageSquare, ArrowRight } from 'lucide-react';
 import WelcomeScreen from './WelcomeScreen';
 import MessageList, { ChatMessageData } from './MessageList';
 import ChatInput from './ChatInput';
 import { useChatState } from '@/hooks/useChatState';
 import { useStreamingChat } from '@/hooks/useStreamingChat';
+import { staggerContainer, staggerItem } from '@/lib/animations';
 
+const SINGLE_SUGGESTIONS = [
+  'Summarize this video',
+  'What are the key topics?',
+  'Find important moments',
+  'Generate a timeline',
+];
+
+const LIBRARY_SUGGESTIONS = [
+  'Which videos discuss AI?',
+  'Compare my videos',
+  'Find tutorials',
+  'Most discussed topics',
+];
 
 interface ChatContainerProps {
   videoId?: string;
@@ -56,9 +72,11 @@ export default function ChatContainer({
     mode,
   });
 
-  const hasMessages = messages.length > 0;
+  const hasMessages = messages.length > 0 || !!streamingContent;
   const isMultiVideo = videoIds && videoIds.length > 1;
   const hasVideo = isMultiVideo || !!videoId;
+  const showCenteredInput = hasVideo && !hasMessages;
+  const suggestions = mode === 'single' ? SINGLE_SUGGESTIONS : LIBRARY_SUGGESTIONS;
 
   const handleQuickSuggestion = useCallback((suggestion: string) => {
     if (isLoading) return;
@@ -78,60 +96,134 @@ export default function ChatContainer({
     setInputValue(lastSubmittedPrompt);
   }, [lastSubmittedPrompt, isLoading, setInputValue]);
 
-  // Show welcome screen if no messages and appropriate context
   const showWelcome = !hasMessages && !hasVideo;
 
+  const subtitleText = useMemo(() => {
+    if (!hasVideo) return 'Select a video to start chatting';
+    if (isMultiVideo) return `Ask anything about your ${videoIds?.length} videos`;
+    if (videoName) return `Ask anything about "${videoName}"`;
+    return 'Ask anything about your video';
+  }, [hasVideo, isMultiVideo, videoIds?.length, videoName]);
+
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {showWelcome ? (
-        <WelcomeScreen
-          onUploadVideo={onUploadVideo}
-          onBrowseLibrary={onBrowseLibrary}
-          onQuickSuggestion={handleQuickSuggestion}
-          mode={mode}
-          userName={userName}
-        />
-      ) : (
-        <>
-          {/* Messages */}
-          <MessageList
-            messages={messages}
-            isLoading={isLoading}
-            onTimestampClick={onTimestampClick}
-            streamingContent={streamingContent}
-            activeTools={activeTools}
-            onSuggestionClick={handleQuickSuggestion}
-            onRetryLast={lastSubmittedPrompt ? handleRetryLast : undefined}
-          />
+    <div className="flex flex-col h-full">
+      <AnimatePresence mode="wait">
+        {showWelcome ? (
+          <motion.div
+            key="welcome"
+            className="flex-1 flex flex-col"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+          >
+            <WelcomeScreen
+              onUploadVideo={onUploadVideo}
+              onBrowseLibrary={onBrowseLibrary}
+              onQuickSuggestion={handleQuickSuggestion}
+              mode={mode}
+              userName={userName}
+            />
+          </motion.div>
+        ) : showCenteredInput ? (
+          <motion.div
+            key="centered"
+            className="flex-1 flex flex-col items-center justify-center px-4"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              transition: { duration: 0.4, ease: [0.4, 0, 0.2, 1] },
+            }}
+            exit={{ opacity: 0, y: -20, transition: { duration: 0.2 } }}
+          >
+            <Sparkles className="w-8 h-8 text-violet-500 mb-4" />
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+              What would you like to know?
+            </h2>
+            <p className="text-sm text-gray-500 mb-8">{subtitleText}</p>
 
-          {!hasVideo && (
-            <div className="px-6 pb-2">
-              <div className="max-w-3xl mx-auto rounded-xl border border-[var(--violet-3)] bg-[var(--violet-1)] px-4 py-2 text-sm text-[var(--violet-11)]">
-                Select or upload at least one video to start chatting.
-              </div>
+            <div className="w-full max-w-2xl">
+              <ChatInput
+                variant="centered"
+                value={inputValue}
+                onChange={setInputValue}
+                onSend={handleSendFromInput}
+                onCancel={handleCancel}
+                isLoading={isLoading}
+                isDisabled={!hasVideo}
+                mode={mode}
+              />
             </div>
-          )}
 
-          {/* Input */}
-          <ChatInput
-            value={inputValue}
-            onChange={setInputValue}
-            onSend={handleSendFromInput}
-            onCancel={handleCancel}
-            isLoading={isLoading}
-            isDisabled={!hasVideo}
-            mode={mode}
-            onAttachVideo={mode === 'single' ? onUploadVideo : onBrowseLibrary}
-            attachedVideos={
-              isMultiVideo && videoIds && videoNames
-                ? videoIds.map((id, i) => ({ id, name: videoNames?.[i] || 'Video' }))
-                : mode === 'single' && videoId && videoName
-                  ? [{ id: videoId, name: videoName }]
-                  : []
-            }
-          />
-        </>
-      )}
+            <motion.div
+              variants={staggerContainer}
+              initial="initial"
+              animate="animate"
+              className="grid grid-cols-2 gap-2 mt-4 max-w-2xl w-full"
+            >
+              {suggestions.map((suggestion) => (
+                <motion.button
+                  key={suggestion}
+                  variants={staggerItem}
+                  onClick={() => handleQuickSuggestion(suggestion)}
+                  whileHover={{ y: -1, transition: { duration: 0.15 } }}
+                  className="group flex items-center gap-3 text-left text-sm p-3 rounded-xl border border-gray-200 hover:border-violet-200 hover:bg-violet-50/50 transition-colors"
+                >
+                  <MessageSquare className="w-4 h-4 text-gray-400 group-hover:text-violet-600 flex-shrink-0" />
+                  <span className="text-gray-600 group-hover:text-gray-900 flex-1">
+                    {suggestion}
+                  </span>
+                  <ArrowRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-violet-500 opacity-0 group-hover:opacity-100 transition-all" />
+                </motion.button>
+              ))}
+            </motion.div>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="conversation"
+            className="flex flex-col flex-1 min-h-0"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { duration: 0.2 } }}
+          >
+            <MessageList
+              messages={messages}
+              isLoading={isLoading}
+              onTimestampClick={onTimestampClick}
+              streamingContent={streamingContent}
+              activeTools={activeTools}
+              onSuggestionClick={handleQuickSuggestion}
+              onRetryLast={lastSubmittedPrompt ? handleRetryLast : undefined}
+            />
+
+            {!hasVideo && (
+              <div className="px-6 pb-2">
+                <div className="max-w-3xl mx-auto rounded-xl border border-[var(--violet-3)] bg-[var(--violet-1)] px-4 py-2 text-sm text-[var(--violet-11)]">
+                  Select or upload at least one video to start chatting.
+                </div>
+              </div>
+            )}
+
+            <ChatInput
+              variant="bottom"
+              value={inputValue}
+              onChange={setInputValue}
+              onSend={handleSendFromInput}
+              onCancel={handleCancel}
+              isLoading={isLoading}
+              isDisabled={!hasVideo}
+              mode={mode}
+              onAttachVideo={mode === 'single' ? onUploadVideo : onBrowseLibrary}
+              attachedVideos={
+                isMultiVideo && videoIds && videoNames
+                  ? videoIds.map((id, i) => ({ id, name: videoNames?.[i] || 'Video' }))
+                  : mode === 'single' && videoId && videoName
+                    ? [{ id: videoId, name: videoName }]
+                    : []
+              }
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
