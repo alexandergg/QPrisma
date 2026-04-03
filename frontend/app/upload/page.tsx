@@ -158,11 +158,11 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 overflow-hidden">
+    <div className="flex h-screen bg-[var(--background)] overflow-hidden">
       {/* Decorative Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-indigo-200/40 to-purple-200/40 rounded-full blur-3xl"></div>
-        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-blue-200/30 to-cyan-200/30 rounded-full blur-3xl"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-[var(--amber-3)]/40 to-[var(--amber-4)]/20 rounded-full blur-3xl"></div>
+        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-[var(--amber-2)]/30 to-[var(--sage-2)]/30 rounded-full blur-3xl"></div>
       </div>
 
       {/* Sidebar */}
@@ -181,20 +181,20 @@ export default function UploadPage() {
           <div className="mb-8">
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 text-gray-500 hover:text-gray-700 mb-4 transition-colors"
+              className="flex items-center gap-2 text-[var(--text-secondary)] hover:text-[var(--foreground)] mb-4 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" />
               Back
             </button>
 
             <div className="flex items-center gap-3 mb-2">
-              <div className="px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold flex items-center gap-1.5">
+              <div className="px-3 py-1.5 bg-[var(--amber-2)] text-[var(--amber-8)] rounded-full text-xs font-semibold flex items-center gap-1.5">
                 <Sparkles className="w-3 h-3" />
                 AI-Powered Analysis
               </div>
             </div>
-            <h1 className="text-3xl font-bold text-gray-900">Upload Videos</h1>
-            <p className="text-gray-500 mt-2">
+            <h1 className="text-3xl font-bold text-[var(--foreground)]">Upload Videos</h1>
+            <p className="text-[var(--text-secondary)] mt-2">
               Drop your videos to unlock intelligent insights with AI analysis
             </p>
           </div>
@@ -210,7 +210,7 @@ export default function UploadPage() {
           {/* Processing Queue */}
           {uploadingVideos.length > 0 && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-gray-900">Processing Queue</h2>
+              <h2 className="text-lg font-semibold text-[var(--foreground)]">Processing Queue</h2>
               {uploadingVideos.map((video) => (
                 <ProcessingCard
                   key={video.id}

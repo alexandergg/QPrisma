@@ -131,16 +131,16 @@ export default function UploadZone({
         onClick={handleClick}
         className={`
           relative group cursor-pointer
-          bg-white rounded-2xl p-12
+          bg-[var(--surface)] rounded-2xl p-12
           border-2 border-dashed
           transition-all duration-300 ease-out
           flex flex-col items-center justify-center text-center
-          shadow-xl shadow-gray-200/50
+          shadow-[var(--shadow-xl)]
           ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}
           ${
             isDragging
-              ? 'border-indigo-500 bg-indigo-50 scale-[1.02] shadow-indigo-200/50'
-              : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+              ? 'border-[var(--amber-6)] bg-[var(--amber-1)] scale-[1.02]'
+              : 'border-[var(--border)] hover:border-[var(--amber-6)] hover:bg-[var(--surface-elevated)]'
           }
         `}
       >
@@ -159,22 +159,22 @@ export default function UploadZone({
             w-20 h-20 rounded-2xl flex items-center justify-center mb-6 transition-all duration-300
             ${
               isDragging
-                ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 scale-110'
-                : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-400 group-hover:from-indigo-100 group-hover:to-purple-100 group-hover:text-indigo-500'
+                ? 'bg-gradient-to-br from-[var(--amber-7)] to-[var(--amber-9)] text-white shadow-lg scale-110'
+                : 'bg-[var(--surface-elevated)] text-[var(--text-tertiary)] group-hover:bg-[var(--amber-2)] group-hover:text-[var(--amber-8)]'
             }
           `}
         >
           <CloudUpload className="w-10 h-10" />
         </div>
 
-        <h3 className="text-xl font-bold text-gray-900 mb-2">
+        <h3 className="text-xl font-bold text-[var(--foreground)] mb-2">
           {isDragging ? 'Drop your videos here' : 'Drop videos here'}
         </h3>
-        <p className="text-gray-500">
-          or <span className="text-indigo-600 font-medium">click to browse</span> files
+        <p className="text-[var(--text-secondary)]">
+          or <span className="text-[var(--amber-8)] font-medium">click to browse</span> files
         </p>
 
-        <div className="flex items-center gap-2 mt-6 text-xs text-gray-400">
+        <div className="flex items-center gap-2 mt-6 text-xs text-[var(--text-tertiary)]">
           <Film className="w-4 h-4" />
           <span>MP4, MOV, AVI, WebM • Max {formatSize(maxSize)}</span>
         </div>
@@ -182,11 +182,11 @@ export default function UploadZone({
 
       {/* Error Message */}
       {error && (
-        <div className="mt-4 bg-red-50 border border-red-100 rounded-xl p-4 flex items-start gap-3">
-          <X className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+        <div className="mt-4 bg-[var(--rose-3)]/30 border border-[var(--rose-7)]/20 rounded-xl p-4 flex items-start gap-3">
+          <X className="w-5 h-5 text-[var(--rose-8)] flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm text-red-600 font-medium">Upload Error</p>
-            <p className="text-sm text-red-500 mt-1">{error}</p>
+            <p className="text-sm text-[var(--rose-8)] font-medium">Upload Error</p>
+            <p className="text-sm text-[var(--rose-8)] mt-1">{error}</p>
           </div>
         </div>
       )}

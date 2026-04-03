@@ -86,22 +86,22 @@ function ProcessingCard({
   const completedSteps = steps.filter((s) => s.status === 'completed').length;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/50 overflow-hidden">
+    <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] shadow-[var(--shadow-xl)] overflow-hidden">
       {/* Debug Info (temporary) */}
       {jobDebugInfo && (
-        <div className="px-4 py-2 bg-gray-100 text-xs text-gray-500 font-mono">
+        <div className="px-4 py-2 bg-[var(--surface-elevated)] text-xs text-[var(--text-tertiary)] font-mono">
           {jobDebugInfo} | Progress: {displayProgress}%
         </div>
       )}
       {/* Header */}
-      <div className="flex items-center gap-4 p-5 border-b border-gray-100">
+      <div className="flex items-center gap-4 p-5 border-b border-[var(--border-subtle)]">
         <div
           className={`w-12 h-12 rounded-xl flex items-center justify-center ${
             status === 'completed'
-              ? 'bg-green-100 text-green-600'
+              ? 'bg-[var(--sage-2)] text-[var(--sage-8)]'
               : status === 'error'
-              ? 'bg-red-100 text-red-600'
-              : 'bg-indigo-100 text-indigo-600'
+              ? 'bg-[var(--rose-3)]/50 text-[var(--rose-8)]'
+              : 'bg-[var(--amber-2)] text-[var(--amber-8)]'
           }`}
         >
           {status === 'completed' ? (
@@ -114,14 +114,14 @@ function ProcessingCard({
         </div>
 
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-gray-900 truncate">{fileName}</h3>
-          <p className="text-sm text-gray-500">{formatFileSize(fileSize)}</p>
+          <h3 className="font-semibold text-[var(--foreground)] truncate">{fileName}</h3>
+          <p className="text-sm text-[var(--text-secondary)]">{formatFileSize(fileSize)}</p>
         </div>
 
         {status === 'processing' && onCancel && (
           <button
             onClick={onCancel}
-            className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+            className="p-2 hover:bg-[var(--surface-elevated)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
             aria-label="Cancel processing"
           >
             <X className="w-5 h-5" />
@@ -131,7 +131,7 @@ function ProcessingCard({
         {status === 'completed' && onViewVideo && mediaId && (
           <button
             onClick={() => onViewVideo(mediaId)}
-            className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl font-medium flex items-center gap-2 shadow-lg shadow-indigo-500/30"
+            className="px-4 py-2 bg-gradient-to-r from-[var(--amber-7)] to-[var(--amber-9)] hover:from-[var(--amber-8)] hover:to-[var(--amber-10)] text-white rounded-xl font-medium flex items-center gap-2 shadow-lg"
           >
             <Play className="w-4 h-4 fill-white" />
             Start Chatting
@@ -140,31 +140,31 @@ function ProcessingCard({
       </div>
 
       {/* Overall Progress */}
-      <div className="px-5 py-4 bg-gray-50/50">
+      <div className="px-5 py-4 bg-[var(--surface-elevated)]/50">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-gray-700">
+          <span className="text-sm font-medium text-[var(--foreground)]">
             {status === 'completed'
               ? 'Processing complete!'
               : status === 'error'
               ? 'Processing failed'
               : `Processing... ${completedSteps}/${steps.length} steps`}
           </span>
-          <span className="text-sm font-mono text-indigo-600">{displayProgress}%</span>
+          <span className="text-sm font-mono text-[var(--amber-8)]">{displayProgress}%</span>
         </div>
-        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div className="h-2 bg-[var(--border)] rounded-full overflow-hidden">
           <div
             className={`h-full transition-all duration-500 ${
               status === 'completed'
-                ? 'bg-green-500'
+                ? 'bg-[var(--sage-7)]'
                 : status === 'error'
-                ? 'bg-red-500'
-                : 'bg-gradient-to-r from-indigo-500 to-purple-500'
+                ? 'bg-[var(--rose-7)]'
+                : 'bg-gradient-to-r from-[var(--amber-7)] to-[var(--amber-9)]'
             }`}
             style={{ width: `${displayProgress}%` }}
           />
         </div>
         {estimatedTime && status === 'processing' && (
-          <p className="text-xs text-gray-400 mt-2 flex items-center gap-1">
+          <p className="text-xs text-[var(--text-tertiary)] mt-2 flex items-center gap-1">
             <Sparkles className="w-3 h-3" />
             {estimatedTime}
           </p>
@@ -185,8 +185,8 @@ function ProcessingCard({
       {/* Error Message */}
       {status === 'error' && error && (
         <div className="px-5 pb-5">
-          <div className="bg-red-50 border border-red-100 rounded-xl p-4">
-            <p className="text-sm text-red-600">{error}</p>
+          <div className="bg-[var(--rose-3)]/30 border border-[var(--rose-7)]/20 rounded-xl p-4">
+            <p className="text-sm text-[var(--rose-8)]">{error}</p>
           </div>
         </div>
       )}
