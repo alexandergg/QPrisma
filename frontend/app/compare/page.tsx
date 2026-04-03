@@ -28,7 +28,6 @@ export default function ComparePage() {
   // Build CompareVideo objects from selected IDs
   // In a real integration the full video data would come from an API or context;
   // here we use the IDs as placeholder names until the grid callback provides full data.
-  const videoMap: Record<string, CompareVideo> = {};
 
   const handleSelectionChange= useCallback((ids: string[]) => {
     setSelectedIds(ids.slice(0, 3));
@@ -47,13 +46,12 @@ export default function ComparePage() {
   const compareVideos = useMemo<CompareVideo[]>(
     () =>
       selectedIds.map(
-        (id) =>
-          videoMap[id] ?? {
+        (id) => ({
             id,
             name: `Video ${id.slice(0, 8)}`,
-          }
+          })
       ),
-    [selectedIds, videoMap]
+    [selectedIds]
   );
 
   const handleNewChat = useCallback(() => router.push('/'), [router]);

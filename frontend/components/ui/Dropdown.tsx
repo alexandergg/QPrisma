@@ -55,9 +55,21 @@ const Dropdown = memo(function Dropdown({
 
   return (
     <div ref={containerRef} className={`relative inline-block ${className}`}>
-      <button type="button" onClick={toggle} aria-haspopup="true" aria-expanded={open}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={toggle}
+        onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggle();
+          }
+        }}
+        aria-haspopup="true"
+        aria-expanded={open}
+      >
         {trigger}
-      </button>
+      </div>
       {open && (
         <div
           role="menu"
