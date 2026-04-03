@@ -16,7 +16,7 @@ const variantStyles: Record<CardVariant, string> = {
   outlined:
     'border border-[var(--border)]',
   elevated:
-    'bg-[var(--surface)] shadow-[var(--shadow-md)] border border-[var(--border-subtle)]',
+    'bg-[var(--surface)] shadow-[var(--shadow-xl)] border border-[var(--border-subtle)]',
 };
 
 const Card = memo(function Card({
@@ -27,7 +27,7 @@ const Card = memo(function Card({
   className = '',
 }: CardProps) {
   return (
-    <div className={`rounded-[var(--radius-xl)] overflow-hidden ${variantStyles[variant]} ${className}`}>
+    <div className={`rounded-2xl overflow-hidden ${variantStyles[variant]} ${className}`}>
       {header && (
         <div className="px-6 py-4 border-b border-[var(--border-subtle)]">{header}</div>
       )}
