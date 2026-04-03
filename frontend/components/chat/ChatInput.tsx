@@ -21,6 +21,7 @@ interface ChatInputProps {
   isDisabled?: boolean;
   placeholder?: string;
   mode?: 'single' | 'library';
+  variant?: 'centered' | 'bottom';
 }
 
 export default function ChatInput({
@@ -35,6 +36,7 @@ export default function ChatInput({
   isDisabled = false,
   placeholder,
   mode = 'single',
+  variant = 'bottom',
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -67,8 +69,8 @@ export default function ChatInput({
     : 'Press Enter to send • Shift+Enter for new line';
 
   return (
-    <div className="border-t border-gray-100 bg-white/80 backdrop-blur-xl">
-      <div className="max-w-3xl mx-auto p-4">
+    <div className={variant === 'bottom' ? 'border-t border-gray-100 bg-white/80 backdrop-blur-xl' : ''}>
+      <div className={variant === 'bottom' ? 'max-w-3xl mx-auto p-4' : ''}>
         {/* Attached Videos Bar */}
         {attachedVideos.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3">
@@ -94,10 +96,12 @@ export default function ChatInput({
         )}
 
         {/* Input Container */}
-        <div className="relative bg-white rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/50 focus-within:border-amber-300 focus-within:ring-4 focus-within:ring-amber-100 transition-all">
+        <div className={`relative bg-white rounded-2xl border border-gray-200 focus-within:border-amber-300 focus-within:ring-4 focus-within:ring-amber-100 transition-all ${
+          variant === 'centered' ? 'shadow-xl shadow-gray-300/40' : 'shadow-lg shadow-gray-200/50'
+        }`}>
           <div className="flex items-end gap-2 p-3">
             {/* Attach Video Button */}
-            {onAttachVideo && mode === 'single' && (
+            {variant === 'bottom' && onAttachVideo && mode === 'single' && (
               <button
                 onClick={onAttachVideo}
                 disabled={isDisabled}
@@ -156,7 +160,9 @@ export default function ChatInput({
         </div>
 
         {/* Hint */}
-        <p className="text-xs text-gray-400 text-center mt-2">{hintText}</p>
+        {variant === 'bottom' && (
+          <p className="text-xs text-gray-400 text-center mt-2">{hintText}</p>
+        )}
       </div>
     </div>
   );
