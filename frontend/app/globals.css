@@ -2,15 +2,49 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #000000;
-  --foreground: #ffffff;
-  --uber-blue: #276EF1;
+  /* QPrisma Design System — Warm Neutral Palette */
+  --background: #FAFAF8;
+  --foreground: #1C1B18;
+  --surface: #FFFFFF;
+  --surface-elevated: #F5F5F0;
+  --text-secondary: #6B6960;
+  --text-tertiary: #9C9A90;
+  --border: #E8E6DF;
+  --border-subtle: #F0EEE8;
+  --amber-1: #FEFDFB; --amber-2: #FDF8EF; --amber-3: #FAEDC8; --amber-4: #F5DFA0;
+  --amber-5: #EFD07A; --amber-6: #E5BD56; --amber-7: #D4A535; --amber-8: #B8882A;
+  --amber-9: #A07522; --amber-10: #86611C; --amber-11: #6B4E16; --amber-12: #3D2C0D;
+  --sage-1: #FBFDFB; --sage-2: #F2F8F2; --sage-3: #DFF0DF; --sage-7: #72A872; --sage-8: #5E905E;
+  --rose-3: #FFDCDC; --rose-7: #E06868; --rose-8: #CC4E4E;
+  --blue-3: #DCE9FF; --blue-6: #7CADFF; --blue-7: #5C94F0; --blue-8: #4A7CD8;
+  --shadow-xs: 0 1px 2px rgba(28, 27, 24, 0.04);
+  --shadow-sm: 0 1px 3px rgba(28, 27, 24, 0.06), 0 1px 2px rgba(28, 27, 24, 0.04);
+  --shadow-md: 0 4px 6px rgba(28, 27, 24, 0.05), 0 2px 4px rgba(28, 27, 24, 0.04);
+  --shadow-lg: 0 10px 15px rgba(28, 27, 24, 0.06), 0 4px 6px rgba(28, 27, 24, 0.04);
+  --shadow-xl: 0 20px 25px rgba(28, 27, 24, 0.08), 0 8px 10px rgba(28, 27, 24, 0.04);
+  --duration-fast: 100ms; --duration-normal: 200ms; --duration-slow: 300ms;
+  --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --radius-sm: 4px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px; --radius-2xl: 20px; --radius-full: 9999px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-uber-blue: var(--uber-blue);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-amber-1: var(--amber-1); --color-amber-2: var(--amber-2); --color-amber-3: var(--amber-3);
+  --color-amber-4: var(--amber-4); --color-amber-5: var(--amber-5); --color-amber-6: var(--amber-6);
+  --color-amber-7: var(--amber-7); --color-amber-8: var(--amber-8); --color-amber-9: var(--amber-9);
+  --color-amber-10: var(--amber-10); --color-amber-11: var(--amber-11); --color-amber-12: var(--amber-12);
+  --color-sage-1: var(--sage-1); --color-sage-2: var(--sage-2); --color-sage-3: var(--sage-3);
+  --color-sage-7: var(--sage-7); --color-sage-8: var(--sage-8);
+  --color-rose-3: var(--rose-3); --color-rose-7: var(--rose-7); --color-rose-8: var(--rose-8);
+  --color-blue-3: var(--blue-3); --color-blue-6: var(--blue-6); --color-blue-7: var(--blue-7); --color-blue-8: var(--blue-8);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -22,18 +56,34 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom Scrollbar for Dark Theme */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--surface-elevated); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-sm); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+
+/* === QPrisma Cinematic Animations === */
+
+@keyframes mesh-gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
-::-webkit-scrollbar-track {
-  background: #000000; 
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
 }
-::-webkit-scrollbar-thumb {
-  background: #333333; 
-  border-radius: 4px;
+
+@keyframes particle-pulse {
+  0%, 100% { opacity: 0.12; }
+  50% { opacity: 0.4; }
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #555555; 
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes glow-ring {
+  0%, 100% { box-shadow: 0 0 20px rgba(212, 165, 53, 0.08); }
+  50% { box-shadow: 0 0 40px rgba(212, 165, 53, 0.18); }
 }
