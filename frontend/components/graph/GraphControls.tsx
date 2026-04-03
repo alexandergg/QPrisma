@@ -29,11 +29,11 @@ export function GraphControls({
     <div className="flex items-center gap-1">
       {/* Depth selector */}
       <div className="flex items-center gap-1 mr-1">
-        <Layers className="w-3.5 h-3.5 text-gray-400" />
+        <Layers className="w-3.5 h-3.5 text-[var(--text-tertiary)]" />
         <select
           value={depth}
           onChange={(e) => onDepthChange(Number(e.target.value))}
-          className="text-xs border border-gray-200 rounded-md px-1.5 py-1 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          className="text-xs border border-[var(--border)] rounded-md px-1.5 py-1 bg-[var(--surface)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--amber-3)]"
           title="Traversal depth"
         >
           <option value={1}>Depth 1</option>
@@ -48,8 +48,8 @@ export function GraphControls({
         onClick={() =>
           onLayoutChange(layout === 'forceDirected' ? 'd3Force' : 'forceDirected')
         }
-        className={`p-1.5 rounded-lg hover:bg-gray-100 transition-colors ${
-          layout === 'd3Force' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-500'
+        className={`p-1.5 rounded-lg hover:bg-[var(--surface-elevated)] transition-colors ${
+          layout === 'd3Force' ? 'text-[var(--amber-8)] bg-[var(--amber-2)]' : 'text-[var(--text-secondary)]'
         }`}
         title={`Layout: ${layout === 'forceDirected' ? 'Force Directed' : 'D3 Force'} — click to toggle`}
       >
@@ -59,7 +59,7 @@ export function GraphControls({
       {/* Zoom / fit reset */}
       <button
         onClick={onZoomReset}
-        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+        className="p-1.5 rounded-lg hover:bg-[var(--surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--foreground)] transition-colors"
         title="Fit graph to view"
       >
         <RotateCcw className="w-4 h-4" />

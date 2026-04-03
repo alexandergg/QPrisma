@@ -135,9 +135,9 @@ export default function KnowledgeGraphViewer({
   if (error) {
     return (
       <div className={`flex flex-col items-center justify-center h-full text-center p-6 ${className}`}>
-        <AlertCircle className="w-10 h-10 text-red-400 mb-3" />
-        <p className="text-gray-700 font-medium">Failed to load graph</p>
-        <p className="text-gray-400 text-sm mt-1">
+        <AlertCircle className="w-10 h-10 text-[var(--rose-7)] mb-3" />
+        <p className="text-[var(--foreground)] font-medium">Failed to load graph</p>
+        <p className="text-[var(--text-tertiary)] text-sm mt-1">
           {error instanceof Error ? error.message : 'The Knowledge Graph may not be available for this video'}
         </p>
       </div>
@@ -148,8 +148,8 @@ export default function KnowledgeGraphViewer({
   if (isLoading) {
     return (
       <div className={`flex flex-col items-center justify-center h-full ${className}`}>
-        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-3" />
-        <p className="text-gray-500 text-sm">Loading Knowledge Graph...</p>
+        <Loader2 className="w-8 h-8 text-[var(--amber-8)] animate-spin mb-3" />
+        <p className="text-[var(--text-secondary)] text-sm">Loading Knowledge Graph...</p>
       </div>
     );
   }
@@ -158,9 +158,9 @@ export default function KnowledgeGraphViewer({
   if (!data || nvlNodes.length === 0) {
     return (
       <div className={`flex flex-col items-center justify-center h-full text-center p-6 ${className}`}>
-        <Share2 className="w-10 h-10 text-gray-300 mb-3" />
-        <p className="text-gray-500 font-medium">No graph data</p>
-        <p className="text-gray-400 text-sm mt-1">
+        <Share2 className="w-10 h-10 text-[var(--text-tertiary)] mb-3" />
+        <p className="text-[var(--text-secondary)] font-medium">No graph data</p>
+        <p className="text-[var(--text-tertiary)] text-sm mt-1">
           Process the video to build the Knowledge Graph
         </p>
       </div>
@@ -168,17 +168,17 @@ export default function KnowledgeGraphViewer({
   }
 
   const wrapperClasses = isFullscreen
-    ? 'fixed inset-0 z-50 bg-white flex flex-col'
+    ? 'fixed inset-0 z-50 bg-[var(--surface)] flex flex-col'
     : `flex flex-col h-full ${className}`;
 
   return (
     <div className={wrapperClasses} ref={containerRef}>
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 bg-white shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--surface)] shrink-0">
         <div className="flex items-center gap-2">
-          <Share2 className="w-4 h-4 text-indigo-500" />
-          <span className="font-semibold text-gray-900 text-sm">Knowledge Graph</span>
-          <span className="text-xs text-gray-400">
+          <Share2 className="w-4 h-4 text-[var(--amber-8)]" />
+          <span className="font-semibold text-[var(--foreground)] text-sm">Knowledge Graph</span>
+          <span className="text-xs text-[var(--text-tertiary)]">
             {nvlNodes.length} nodes · {nvlRels.length} rels
           </span>
         </div>
@@ -192,7 +192,7 @@ export default function KnowledgeGraphViewer({
           />
           <button
             onClick={toggleFullscreen}
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
+            className="p-1.5 rounded-lg hover:bg-[var(--surface-elevated)] text-[var(--text-secondary)] hover:text-[var(--foreground)] transition-colors"
             title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
             {isFullscreen ? (
