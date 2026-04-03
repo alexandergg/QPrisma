@@ -139,14 +139,14 @@ export default function VideoPanel({
   if (!isVisible) return null;
 
   return (
-    <div className="w-full h-full flex flex-col bg-white border-l border-gray-200">
+    <div className="w-full h-full flex flex-col bg-[var(--surface)] border-l border-[var(--border)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <h3 className="font-semibold text-gray-900 truncate">{videoTitle || 'Video'}</h3>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)]">
+        <h3 className="font-semibold text-[var(--foreground)] truncate">{videoTitle || 'Video'}</h3>
         {onClose && (
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+            className="p-1.5 hover:bg-[var(--surface-elevated)] rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -165,7 +165,7 @@ export default function VideoPanel({
             onPause={() => setIsPlaying(false)}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-500">
+          <div className="w-full h-full flex items-center justify-center text-[var(--text-secondary)]">
             <p>No video selected</p>
           </div>
         )}
@@ -185,7 +185,7 @@ export default function VideoPanel({
               {scenes.map((scene) => (
                 <div
                   key={scene.scene_id}
-                  className="absolute top-0 h-full bg-indigo-400/50"
+                  className="absolute top-0 h-full bg-[var(--amber-6)]/40"
                   style={{
                     left: `${(scene.start_time / duration) * 100}%`,
                     width: `${((scene.end_time - scene.start_time) / duration) * 100}%`,
@@ -195,9 +195,9 @@ export default function VideoPanel({
               {/* Citation markers — colored diamonds at cited timestamps */}
               {duration > 0 && citationMarkers.map((marker, idx) => {
                 const markerColors = {
-                  visual: 'bg-indigo-400',
-                  audio: 'bg-emerald-400',
-                  entity: 'bg-amber-400',
+                  visual: 'bg-[var(--amber-7)]',
+                  audio: 'bg-[var(--sage-7)]',
+                  entity: 'bg-[var(--blue-7)]',
                 };
                 const leftPercent = Math.min(100, Math.max(0, (marker.timestamp / duration) * 100));
                 return (
@@ -254,11 +254,11 @@ export default function VideoPanel({
 
       {/* Scene Timeline */}
       {scenes.length > 0 && (
-        <div className="px-4 py-3 border-b border-gray-100">
+        <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase">Scene Timeline</span>
+            <span className="text-xs font-semibold text-[var(--text-tertiary)] uppercase">Scene Timeline</span>
             {currentScene && (
-              <span className="text-xs text-indigo-600 font-medium">
+              <span className="text-xs text-[var(--amber-8)] font-medium">
                 {currentScene.title || `Scene ${currentScene.scene_id + 1}`}
               </span>
             )}
@@ -267,14 +267,14 @@ export default function VideoPanel({
             {scenes.map((scene, idx) => {
               const width = ((scene.end_time - scene.start_time) / duration) * 100;
               const isActive = currentScene?.scene_id === scene.scene_id;
-              const colors = ['bg-indigo-400', 'bg-purple-400', 'bg-blue-400', 'bg-cyan-400', 'bg-teal-400'];
+              const colors = ['bg-[var(--amber-6)]', 'bg-[var(--amber-8)]', 'bg-[var(--blue-7)]', 'bg-[var(--sage-7)]', 'bg-[var(--amber-5)]'];
 
               return (
                 <div
                   key={scene.scene_id}
                   className={`h-full rounded-full cursor-pointer transition-all ${
                     colors[idx % colors.length]
-                  } ${isActive ? 'ring-2 ring-white ring-offset-1' : 'opacity-60 hover:opacity-100'}`}
+                  } ${isActive ? 'ring-2 ring-[var(--surface)] ring-offset-1' : 'opacity-60 hover:opacity-100'}`}
                   style={{ width: `${Math.max(width, 2)}%` }}
                   onClick={() => handleSeek(scene.start_time)}
                   title={scene.title || `Scene ${scene.scene_id + 1}`}
