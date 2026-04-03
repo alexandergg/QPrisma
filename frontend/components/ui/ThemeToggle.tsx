@@ -3,22 +3,20 @@
 import React, { memo, useEffect, useState } from 'react';
 import { Sun, Moon } from 'lucide-react';
 
+function getInitialTheme(): boolean {
+  if (typeof window === 'undefined') return false;
+  const stored = localStorage.getItem('qprisma-theme');
+  if (stored === 'dark') return true;
+  if (stored === 'light') return false;
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+}
+
 function ThemeToggle({ className = '' }: { className?: string }) {
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(getInitialTheme);
 
   useEffect(() => {
-    const stored = localStorage.getItem('qprisma-theme');
-    if (stored === 'dark') {
-      setIsDark(true);
-      document.documentElement.classList.add('dark');
-    } else if (stored === 'light') {
-      setIsDark(false);
-      document.documentElement.classList.remove('dark');
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setIsDark(true);
-      document.documentElement.classList.add('dark');
-    }
-  }, []);
+    document.documentElement.classList.toggle('dark', isDark);
+  }, [isDark]);
 
   const toggle = () => {
     const next = !isDark;

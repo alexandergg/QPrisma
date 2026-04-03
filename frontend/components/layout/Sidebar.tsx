@@ -40,6 +40,8 @@ export default function Sidebar({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
+    // Syncing with Next.js router — close mobile sidebar on navigation
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMobileOpen(false);
   }, [pathname]);
 
