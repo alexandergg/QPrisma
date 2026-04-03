@@ -57,7 +57,6 @@ dependencies = [
     # Telemetry / Tracing (Azure Monitor + OpenTelemetry)
     "azure-monitor-opentelemetry>=1.6.0,<2.0.0",
     "opentelemetry-instrumentation-openai-v2>=2.0.0,<3.0.0",
-    "langchain-azure-ai[opentelemetry]>=1.0.0",
 ]
 
 [project.optional-dependencies]

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 from opentelemetry.sdk.trace import SpanProcessor
 
+import agent.hosted.telemetry as telemetry_mod
 from agent.utils.observability import ConversationIdSpanProcessor
 
 
@@ -29,109 +30,92 @@ class TestConversationIdSpanProcessor:
 
 
 @pytest.mark.unit
-class TestAzureAITracerIntegration:
-    """Tests for the AzureAIOpenTelemetryTracer integration in the hosted agent."""
+class TestAzureAITracerTelemetryModule:
+    """Tests for the tracer singleton in agent.hosted.telemetry."""
 
-    def test_get_azure_ai_tracer_returns_none_by_default(self):
+    def test_get_azure_ai_tracer_returns_none_by_default(self, monkeypatch: pytest.MonkeyPatch):
         """Tracer singleton is None when _setup_telemetry() hasn't run."""
-        from agent.hosted.main import get_azure_ai_tracer
+        monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", None)
 
-        # In test context, _setup_telemetry() hasn't been called,
-        # so the tracer should be None
-        tracer = get_azure_ai_tracer()
-        # It may be None or an instance depending on test ordering,
-        # but the function must be callable without error
-        assert tracer is None or tracer is not None
+        assert telemetry_mod.get_azure_ai_tracer() is None
 
     def test_get_azure_ai_tracer_is_callable(self):
         """get_azure_ai_tracer() is importable and callable."""
-        from agent.hosted.main import get_azure_ai_tracer
+        assert callable(telemetry_mod.get_azure_ai_tracer)
 
-        assert callable(get_azure_ai_tracer)
+    def test_set_and_get_roundtrip(self, monkeypatch: pytest.MonkeyPatch):
+        """set_azure_ai_tracer() stores the singleton for get_azure_ai_tracer()."""
+        monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", None)
 
-    def test_get_azure_ai_tracer_returns_singleton(self):
-        """get_azure_ai_tracer() returns the module-level singleton."""
-        import agent.hosted.main as hosted_main
+        mock_tracer = MagicMock(name="mock_azure_tracer")
+        telemetry_mod.set_azure_ai_tracer(mock_tracer)
+        assert telemetry_mod.get_azure_ai_tracer() is mock_tracer
 
-        original = hosted_main._azure_ai_tracer
-        try:
-            hosted_main._azure_ai_tracer = "mock_tracer"
-            assert hosted_main.get_azure_ai_tracer() == "mock_tracer"
-        finally:
-            hosted_main._azure_ai_tracer = original
+    def test_set_none_clears_singleton(self, monkeypatch: pytest.MonkeyPatch):
+        """set_azure_ai_tracer(None) clears a previously stored tracer."""
+        monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", MagicMock())
+        telemetry_mod.set_azure_ai_tracer(None)
+        assert telemetry_mod.get_azure_ai_tracer() is None
 
 
 @pytest.mark.unit
 class TestStateConverterTracerInjection:
-    """Tests for tracer callback injection in QPrismaStateConverter."""
+    """Tests for tracer callback injection in QPrismaStateConverter.
 
-    def test_tracer_injected_when_available(self):
+    The converter's injection logic imports from ``agent.hosted.telemetry``
+    and injects the tracer into ``result["config"]["callbacks"]``.
+    These tests validate that logic by exercising the shared telemetry
+    singleton and simulating the config manipulation the converter performs.
+    """
+
+    def test_tracer_injected_when_available(self, monkeypatch: pytest.MonkeyPatch):
         """When a tracer singleton exists, it gets added to config callbacks."""
-        import agent.hosted.main as hosted_main
+        mock_tracer = MagicMock(name="mock_azure_tracer")
+        monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", mock_tracer)
 
-        original = hosted_main._azure_ai_tracer
-        try:
-            mock_tracer = MagicMock(name="mock_azure_tracer")
-            hosted_main._azure_ai_tracer = mock_tracer
+        # Simulate the injection logic from convert_request
+        result = {"input": {"messages": []}, "config": {}}
+        tracer = telemetry_mod.get_azure_ai_tracer()
+        assert tracer is not None
 
-            # Simulate the injection logic from convert_request
-            result = {"input": {"messages": []}, "config": {}}
-            tracer = hosted_main.get_azure_ai_tracer()
-            assert tracer is not None
+        config = result.get("config") or {}
+        callbacks = list(config.get("callbacks") or [])
+        if tracer not in callbacks:
+            callbacks.append(tracer)
+        config["callbacks"] = callbacks
+        result["config"] = config
 
-            config = result.get("config") or {}
-            callbacks = list(config.get("callbacks") or [])
-            if tracer not in callbacks:
-                callbacks.append(tracer)
-            config["callbacks"] = callbacks
-            result["config"] = config
+        assert mock_tracer in result["config"]["callbacks"]
 
-            assert mock_tracer in result["config"]["callbacks"]
-        finally:
-            hosted_main._azure_ai_tracer = original
-
-    def test_tracer_not_duplicated(self):
+    def test_tracer_not_duplicated(self, monkeypatch: pytest.MonkeyPatch):
         """Tracer is not added twice if already present."""
-        import agent.hosted.main as hosted_main
+        mock_tracer = MagicMock(name="mock_azure_tracer")
+        monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", mock_tracer)
 
-        original = hosted_main._azure_ai_tracer
-        try:
-            mock_tracer = MagicMock(name="mock_azure_tracer")
-            hosted_main._azure_ai_tracer = mock_tracer
+        result = {"input": {"messages": []}, "config": {"callbacks": [mock_tracer]}}
+        tracer = telemetry_mod.get_azure_ai_tracer()
 
-            result = {"input": {"messages": []}, "config": {"callbacks": [mock_tracer]}}
-            tracer = hosted_main.get_azure_ai_tracer()
+        config = result.get("config") or {}
+        callbacks = list(config.get("callbacks") or [])
+        if tracer not in callbacks:
+            callbacks.append(tracer)
+        config["callbacks"] = callbacks
+        result["config"] = config
 
+        assert result["config"]["callbacks"].count(mock_tracer) == 1
+
+    def test_no_error_when_tracer_not_configured(self, monkeypatch: pytest.MonkeyPatch):
+        """When tracer is None, injection is a no-op."""
+        monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", None)
+        tracer = telemetry_mod.get_azure_ai_tracer()
+        assert tracer is None
+
+        result = {"input": {"messages": []}, "config": {}}
+        if tracer is not None:
             config = result.get("config") or {}
             callbacks = list(config.get("callbacks") or [])
-            if tracer not in callbacks:
-                callbacks.append(tracer)
+            callbacks.append(tracer)
             config["callbacks"] = callbacks
             result["config"] = config
 
-            assert result["config"]["callbacks"].count(mock_tracer) == 1
-        finally:
-            hosted_main._azure_ai_tracer = original
-
-    def test_no_error_when_tracer_not_configured(self):
-        """When tracer is None, injection is a no-op."""
-        import agent.hosted.main as hosted_main
-
-        original = hosted_main._azure_ai_tracer
-        try:
-            hosted_main._azure_ai_tracer = None
-            tracer = hosted_main.get_azure_ai_tracer()
-            assert tracer is None
-
-            # The converter skips injection when tracer is None
-            result = {"input": {"messages": []}, "config": {}}
-            if tracer is not None:
-                config = result.get("config") or {}
-                callbacks = list(config.get("callbacks") or [])
-                callbacks.append(tracer)
-                config["callbacks"] = callbacks
-                result["config"] = config
-
-            assert "callbacks" not in result.get("config", {})
-        finally:
-            hosted_main._azure_ai_tracer = original
+        assert "callbacks" not in result.get("config", {})

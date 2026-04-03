@@ -84,7 +84,7 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
 
         # --- Inject AzureAIOpenTelemetryTracer callback for Conversation traces ---
         try:
-            from agent.hosted.main import get_azure_ai_tracer
+            from agent.hosted.telemetry import get_azure_ai_tracer
 
             tracer = get_azure_ai_tracer()
             if tracer is not None:
