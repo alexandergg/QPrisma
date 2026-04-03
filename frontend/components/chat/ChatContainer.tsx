@@ -105,8 +105,8 @@ export default function ChatContainer({
           />
 
           {!hasVideo && (
-            <div className="px-6 pb-2">
-              <div className="max-w-3xl mx-auto rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+            <div className="px-3 md:px-6 pb-2">
+              <div className="max-w-3xl mx-auto rounded-[var(--radius-xl)] border border-amber-5 bg-amber-2 px-3 md:px-4 py-2 text-sm text-amber-11">
                 Select or upload at least one video to start chatting.
               </div>
             </div>

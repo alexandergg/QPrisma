@@ -31,15 +31,15 @@ export default function LibraryPage() {
 
   return (
     <RequireAuth>
-      <div className="flex h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 overflow-hidden">
+      <div className="flex h-screen bg-gradient-to-br from-[var(--background)] via-[var(--surface)] to-amber-1 overflow-hidden">
         {/* Decorative Elements */}
         <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-          <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-indigo-200/40 to-purple-200/40 rounded-full blur-3xl"></div>
-          <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-blue-200/30 to-cyan-200/30 rounded-full blur-3xl"></div>
+          <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-amber-3/40 to-amber-4/40 rounded-full blur-3xl"></div>
+          <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-[var(--sage-3)]/30 to-[var(--sage-4)]/30 rounded-full blur-3xl"></div>
         </div>
 
         {/* Sidebar */}
-        <div className="relative z-10 flex-shrink-0">
+        <div className="relative z-10 flex-shrink-0 w-0 md:w-auto overflow-visible">
           <Sidebar
             currentMode={currentMode}
             onModeChange={setCurrentMode}
@@ -50,9 +50,9 @@ export default function LibraryPage() {
         {/* Main Content */}
         <main className="relative z-10 flex-1 flex flex-col min-w-0">
           {/* Header */}
-          <div className="px-6 py-5 border-b border-gray-100 bg-white/50 backdrop-blur-sm">
-            <h1 className="text-2xl font-bold text-gray-900">Video Library</h1>
-            <p className="text-gray-500 mt-1">
+          <div className="px-4 md:px-6 py-4 md:py-5 border-b border-[var(--sage-3)] bg-[var(--surface)]/50 backdrop-blur-sm pl-16 md:pl-6">
+            <h1 className="text-xl md:text-2xl font-bold text-[var(--foreground)]">Video Library</h1>
+            <p className="text-[var(--sage-9)] mt-1">
               Browse and manage your processed videos
             </p>
           </div>

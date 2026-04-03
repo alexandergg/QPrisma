@@ -33,11 +33,11 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen bg-gradient-to-br from-amber-1 via-[var(--surface)] to-[var(--background)] flex items-center justify-center p-4">
+      <div className="w-full max-w-md px-2 sm:px-0">
         {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl mb-4 shadow-lg">
+        <div className="text-center mb-6 md:mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 md:w-16 md:h-16 bg-gradient-to-br from-amber-9 to-amber-10 rounded-[var(--radius-2xl)] mb-4 shadow-[var(--shadow-lg)]">
             <svg
               className="w-8 h-8 text-white"
               fill="none"
@@ -52,19 +52,19 @@ export default function AuthPage() {
               />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">QPrisma</h1>
-          <p className="text-gray-600 mt-2">AI-Powered Video Analysis</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-[var(--foreground)]">QPrisma</h1>
+          <p className="text-[var(--sage-9)] mt-2">AI-Powered Video Analysis</p>
         </div>
 
         {/* Auth Card */}
-        <div className="bg-white rounded-2xl shadow-xl p-8">
+        <div className="bg-[var(--surface)] rounded-[var(--radius-2xl)] shadow-[var(--shadow-xl)] p-6 md:p-8">
           <div className="text-center mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Welcome</h2>
-            <p className="text-gray-500 mt-1">Sign in with your organization account</p>
+            <h2 className="text-xl font-semibold text-[var(--foreground)]">Welcome</h2>
+            <p className="text-[var(--sage-8)] mt-1">Sign in with your organization account</p>
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
+            <div className="bg-rose-3 border border-rose-5 text-rose-11 px-4 py-3 rounded-[var(--radius-lg)] mb-4">
               {error}
             </div>
           )}
@@ -72,7 +72,7 @@ export default function AuthPage() {
           <button
             onClick={handleLogin}
             disabled={loading}
-            className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-indigo-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg flex items-center justify-center gap-3"
+            className="w-full bg-gradient-to-r from-amber-9 to-amber-10 text-white py-3.5 md:py-3 rounded-[var(--radius-xl)] font-medium hover:from-amber-10 hover:to-amber-11 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-[var(--shadow-lg)] flex items-center justify-center gap-3 min-h-[44px]"
           >
             {loading ? (
               <span className="flex items-center justify-center">
@@ -97,7 +97,7 @@ export default function AuthPage() {
         </div>
 
         {/* Footer */}
-        <p className="text-center text-gray-600 text-sm mt-6">
+        <p className="text-center text-[var(--sage-8)] text-sm mt-6">
           Powered by Azure AI Foundry & Computer Vision
         </p>
       </div>

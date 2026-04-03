@@ -66,22 +66,22 @@ export default function ChatInput({
     : 'Press Enter to send • Shift+Enter for new line';
 
   return (
-    <div className="border-t border-gray-100 bg-white/80 backdrop-blur-xl">
-      <div className="max-w-3xl mx-auto p-4">
+    <div className="border-t border-[var(--sage-3)] bg-[var(--surface)]/80 backdrop-blur-xl">
+      <div className="max-w-3xl mx-auto p-3 md:p-4">
         {/* Attached Videos Bar */}
         {attachedVideos.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3">
             {attachedVideos.map((video) => (
               <div
                 key={video.id}
-                className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-sm"
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-2 text-amber-11 rounded-full text-sm"
               >
                 <Film className="w-3 h-3" />
                 <span className="max-w-[150px] truncate">{video.name}</span>
                 {onRemoveVideo && (
                   <button
                     onClick={() => onRemoveVideo(video.id)}
-                    className="p-0.5 hover:bg-indigo-100 rounded-full transition-colors"
+                    className="p-0.5 hover:bg-amber-2 rounded-full transition-colors"
                     aria-label={`Remove ${video.name}`}
                   >
                     <X className="w-3 h-3" />
@@ -93,14 +93,14 @@ export default function ChatInput({
         )}
 
         {/* Input Container */}
-        <div className="relative bg-white rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/50 focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-100 transition-all">
+        <div className="relative bg-[var(--surface)] rounded-[var(--radius-2xl)] border border-[var(--sage-4)] shadow-[var(--shadow-md)] focus-within:border-amber-6 focus-within:ring-4 focus-within:ring-amber-3 transition-all">
           <div className="flex items-end gap-2 p-3">
             {/* Attach Video Button */}
             {onAttachVideo && mode === 'single' && (
               <button
                 onClick={onAttachVideo}
                 disabled={isDisabled}
-                className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                className="p-2 hover:bg-[var(--sage-3)] rounded-[var(--radius-xl)] text-[var(--sage-7)] hover:text-[var(--sage-9)] transition-colors disabled:opacity-50"
                 aria-label="Attach video"
                 title="Attach video"
               >
@@ -117,7 +117,7 @@ export default function ChatInput({
               placeholder={placeholder || defaultPlaceholder}
               disabled={isDisabled || isLoading}
               rows={1}
-              className="flex-1 resize-none bg-transparent border-0 focus:ring-0 focus:outline-none text-gray-900 placeholder-gray-400 text-sm leading-6 py-2 px-1 disabled:opacity-50"
+              className="flex-1 resize-none bg-transparent border-0 focus:ring-0 focus:outline-none text-[var(--foreground)] placeholder-[var(--sage-7)] text-sm leading-6 py-2 px-1 disabled:opacity-50"
               style={{ minHeight: '24px', maxHeight: '120px' }}
             />
 
@@ -126,10 +126,10 @@ export default function ChatInput({
               onClick={onSend}
               disabled={isDisabled || isLoading || !value.trim()}
               aria-label={isLoading ? 'Sending message' : 'Send message'}
-              className={`p-3 rounded-xl transition-all ${
+              className={`p-3 rounded-[var(--radius-xl)] transition-all ${
                 value.trim() && !isDisabled && !isLoading
-                  ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-lg shadow-indigo-500/30'
-                  : 'bg-gray-100 text-gray-400'
+                  ? 'bg-gradient-to-r from-amber-9 to-amber-10 hover:from-amber-10 hover:to-amber-11 text-white shadow-[var(--shadow-md)]'
+                  : 'bg-[var(--sage-3)] text-[var(--sage-7)]'
               }`}
             >
               {isLoading ? (
@@ -142,7 +142,7 @@ export default function ChatInput({
             {isLoading && onCancel && (
               <button
                 onClick={onCancel}
-                className="p-3 rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                className="p-3 rounded-[var(--radius-xl)] bg-[var(--sage-3)] text-[var(--sage-8)] hover:bg-[var(--sage-4)] transition-colors"
                 aria-label="Stop response"
                 title="Stop response"
               >
@@ -153,7 +153,7 @@ export default function ChatInput({
         </div>
 
         {/* Hint */}
-        <p className="text-xs text-gray-400 text-center mt-2">{hintText}</p>
+        <p className="text-xs text-[var(--sage-7)] text-center mt-2 hidden sm:block">{hintText}</p>
       </div>
     </div>
   );

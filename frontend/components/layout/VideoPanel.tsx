@@ -139,14 +139,14 @@ export default function VideoPanel({
   if (!isVisible) return null;
 
   return (
-    <div className="w-full h-full flex flex-col bg-white border-l border-gray-200">
+    <div className="w-full h-full flex flex-col bg-[var(--surface)] border-l border-[var(--sage-3)]">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <h3 className="font-semibold text-gray-900 truncate">{videoTitle || 'Video'}</h3>
+      <div className="flex items-center justify-between px-3 md:px-4 py-2 md:py-3 border-b border-[var(--sage-3)]">
+        <h3 className="font-semibold text-[var(--foreground)] truncate text-sm md:text-base">{videoTitle || 'Video'}</h3>
         {onClose && (
           <button
             onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+            className="p-1.5 hover:bg-[var(--sage-3)] rounded-[var(--radius-lg)] text-[var(--sage-8)] hover:text-[var(--sage-11)] transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -185,7 +185,7 @@ export default function VideoPanel({
               {scenes.map((scene) => (
                 <div
                   key={scene.scene_id}
-                  className="absolute top-0 h-full bg-indigo-400/50"
+                  className="absolute top-0 h-full bg-amber-7/50"
                   style={{
                     left: `${(scene.start_time / duration) * 100}%`,
                     width: `${((scene.end_time - scene.start_time) / duration) * 100}%`,
@@ -254,11 +254,11 @@ export default function VideoPanel({
 
       {/* Scene Timeline */}
       {scenes.length > 0 && (
-        <div className="px-4 py-3 border-b border-gray-100">
+        <div className="px-3 md:px-4 py-2 md:py-3 border-b border-[var(--sage-3)]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase">Scene Timeline</span>
+            <span className="text-xs font-semibold text-[var(--sage-8)] uppercase">Scene Timeline</span>
             {currentScene && (
-              <span className="text-xs text-indigo-600 font-medium">
+              <span className="text-xs text-amber-10 font-medium">
                 {currentScene.title || `Scene ${currentScene.scene_id + 1}`}
               </span>
             )}
@@ -267,7 +267,7 @@ export default function VideoPanel({
             {scenes.map((scene, idx) => {
               const width = ((scene.end_time - scene.start_time) / duration) * 100;
               const isActive = currentScene?.scene_id === scene.scene_id;
-              const colors = ['bg-indigo-400', 'bg-purple-400', 'bg-blue-400', 'bg-cyan-400', 'bg-teal-400'];
+              const colors = ['bg-amber-7', 'bg-amber-9', 'bg-blue-9', 'bg-emerald-500', 'bg-rose-5'];
 
               return (
                 <div

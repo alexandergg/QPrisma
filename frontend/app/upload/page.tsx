@@ -158,15 +158,15 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 overflow-hidden">
+    <div className="flex h-screen bg-gradient-to-br from-[var(--background)] via-[var(--surface)] to-amber-1 overflow-hidden">
       {/* Decorative Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-indigo-200/40 to-purple-200/40 rounded-full blur-3xl"></div>
-        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-blue-200/30 to-cyan-200/30 rounded-full blur-3xl"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-amber-3/40 to-amber-4/40 rounded-full blur-3xl"></div>
+        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-[var(--sage-3)]/30 to-[var(--sage-4)]/30 rounded-full blur-3xl"></div>
       </div>
 
       {/* Sidebar */}
-      <div className="relative z-10 flex-shrink-0">
+      <div className="relative z-10 flex-shrink-0 w-0 md:w-auto overflow-visible">
         <Sidebar
           currentMode={currentMode}
           onModeChange={setCurrentMode}
@@ -176,7 +176,7 @@ export default function UploadPage() {
 
       {/* Main Content */}
       <main className="relative z-10 flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto p-8">
+        <div className="max-w-3xl mx-auto p-4 md:p-8 pl-16 md:pl-8">
           {/* Header */}
           <div className="mb-8">
             <button
@@ -188,13 +188,13 @@ export default function UploadPage() {
             </button>
 
             <div className="flex items-center gap-3 mb-2">
-              <div className="px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold flex items-center gap-1.5">
+              <div className="px-3 py-1.5 bg-amber-2 text-amber-11 rounded-full text-xs font-semibold flex items-center gap-1.5">
                 <Sparkles className="w-3 h-3" />
                 AI-Powered Analysis
               </div>
             </div>
-            <h1 className="text-3xl font-bold text-gray-900">Upload Videos</h1>
-            <p className="text-gray-500 mt-2">
+            <h1 className="text-2xl md:text-3xl font-bold text-[var(--foreground)]">Upload Videos</h1>
+            <p className="text-[var(--sage-9)] mt-2">
               Drop your videos to unlock intelligent insights with AI analysis
             </p>
           </div>

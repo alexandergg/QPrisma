@@ -18,9 +18,9 @@ export default function Home() {
 
   return (
     <RequireAuth>
-      <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">
+      <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[var(--background)] via-[var(--surface)] to-amber-1">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-12 h-12 border-4 border-amber-9 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-500">Loading QPrisma...</p>
         </div>
       </main>

@@ -75,12 +75,12 @@ export default function AppLayout({
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 overflow-hidden">
+    <div className="flex h-screen bg-gradient-to-br from-[var(--background)] via-[var(--surface)] to-amber-1 overflow-hidden">
       {/* Decorative Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-indigo-200/40 to-purple-200/40 rounded-full blur-3xl"></div>
-        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-blue-200/30 to-cyan-200/30 rounded-full blur-3xl"></div>
-        <div className="absolute -bottom-40 right-1/3 w-80 h-80 bg-gradient-to-br from-purple-200/30 to-pink-200/30 rounded-full blur-3xl"></div>
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-amber-3/40 to-amber-4/40 rounded-full blur-3xl"></div>
+        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-gradient-to-br from-[var(--sage-3)]/30 to-[var(--sage-4)]/30 rounded-full blur-3xl"></div>
+        <div className="absolute -bottom-40 right-1/3 w-80 h-80 bg-gradient-to-br from-amber-2/30 to-[var(--sage-3)]/30 rounded-full blur-3xl"></div>
       </div>
 
       {/* Sidebar */}
@@ -105,7 +105,7 @@ export default function AppLayout({
 
         {/* Video Panel (conditionally rendered) */}
         {isVideoPanelVisible && (
-          <div className="w-[40%] min-w-[400px] max-w-[600px] flex-shrink-0 h-screen border-l border-gray-200 bg-white">
+          <div className="w-full md:w-[40%] md:min-w-[400px] md:max-w-[600px] flex-shrink-0 h-[40vh] md:h-screen border-t md:border-t-0 md:border-l border-[var(--sage-3)] bg-[var(--surface)]">
             <VideoPanel
               videoUrl={videoData?.url}
               videoTitle={videoData?.title}

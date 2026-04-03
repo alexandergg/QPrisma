@@ -68,13 +68,13 @@ export function VideoPanelTabs({
   return (
     <>
       {/* Tab Buttons */}
-      <div className="flex border-b border-gray-100">
+      <div className="flex overflow-x-auto border-b border-[var(--sage-3)] scrollbar-none">
         <button
           onClick={() => onTabChange('chapters')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+          className={`flex-1 flex items-center justify-center gap-2 px-3 md:px-4 py-2.5 md:py-3 text-sm font-medium transition-colors whitespace-nowrap ${
             activeTab === 'chapters'
-              ? 'text-indigo-600 border-b-2 border-indigo-600'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'text-amber-10 border-b-2 border-amber-9'
+              : 'text-[var(--sage-8)] hover:text-[var(--sage-11)]'
           }`}
         >
           <Layers className="w-4 h-4" />
@@ -82,10 +82,10 @@ export function VideoPanelTabs({
         </button>
         <button
           onClick={() => onTabChange('transcript')}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+          className={`flex-1 flex items-center justify-center gap-2 px-3 md:px-4 py-2.5 md:py-3 text-sm font-medium transition-colors whitespace-nowrap ${
             activeTab === 'transcript'
-              ? 'text-indigo-600 border-b-2 border-indigo-600'
-              : 'text-gray-500 hover:text-gray-700'
+              ? 'text-amber-10 border-b-2 border-amber-9'
+              : 'text-[var(--sage-8)] hover:text-[var(--sage-11)]'
           }`}
         >
           <Mic className="w-4 h-4" />
@@ -94,10 +94,10 @@ export function VideoPanelTabs({
         {videoId && (
           <button
             onClick={() => onTabChange('graph')}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+            className={`flex-1 flex items-center justify-center gap-2 px-3 md:px-4 py-2.5 md:py-3 text-sm font-medium transition-colors whitespace-nowrap ${
               activeTab === 'graph'
-                ? 'text-indigo-600 border-b-2 border-indigo-600'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'text-amber-10 border-b-2 border-amber-9'
+                : 'text-[var(--sage-8)] hover:text-[var(--sage-11)]'
             }`}
           >
             <Share2 className="w-4 h-4" />
@@ -164,8 +164,8 @@ function ChaptersContent({
     return (
       <div className="p-3">
         <div className="text-center py-8">
-          <Layers className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">No chapters available</p>
+          <Layers className="w-8 h-8 text-[var(--sage-6)] mx-auto mb-2" />
+          <p className="text-sm text-[var(--sage-8)]">No chapters available</p>
         </div>
       </div>
     );
@@ -181,21 +181,21 @@ function ChaptersContent({
               key={scene.scene_id}
               onClick={() => onSeek(scene.start_time)}
               className={`w-full text-left p-3 rounded-xl transition-all flex items-center gap-3 ${
-                isActive ? 'bg-indigo-50 border-l-4 border-indigo-500' : 'hover:bg-gray-50'
+                isActive ? 'bg-amber-2 border-l-4 border-amber-9' : 'hover:bg-[var(--sage-2)]'
               }`}
             >
               <div
                 className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  isActive ? 'bg-indigo-500 text-white' : 'bg-gray-100 text-gray-500'
+                  isActive ? 'bg-amber-9 text-white' : 'bg-[var(--sage-3)] text-[var(--sage-8)]'
                 }`}
               >
                 <Play className="w-3 h-3 fill-current" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className={`text-sm truncate ${isActive ? 'font-semibold text-indigo-700' : 'text-gray-700'}`}>
+                <p className={`text-sm truncate ${isActive ? 'font-semibold text-amber-11' : 'text-[var(--sage-11)]'}`}>
                   {scene.title || `Scene ${scene.scene_id + 1}`}
                 </p>
-                <p className="text-xs text-gray-400">{formatTime(scene.start_time)}</p>
+                <p className="text-xs text-[var(--sage-7)]">{formatTime(scene.start_time)}</p>
               </div>
             </button>
           );
@@ -212,23 +212,23 @@ function ChaptersContent({
         const isActive = chapterScenes.some((s) => currentScene?.scene_id === s.scene_id);
 
         return (
-          <div key={chapter.chapter_id} className="rounded-xl overflow-hidden bg-gray-50">
+          <div key={chapter.chapter_id} className="rounded-xl overflow-hidden bg-[var(--sage-2)]">
             <button
               onClick={() => onExpandChapter(isExpanded ? null : chapter.chapter_id)}
               className={`w-full text-left p-3 flex items-center gap-3 transition-all ${
-                isActive ? 'bg-indigo-50' : 'hover:bg-gray-100'
+                isActive ? 'bg-amber-2' : 'hover:bg-[var(--sage-3)]'
               }`}
             >
               {isExpanded ? (
-                <ChevronDown className="w-4 h-4 text-gray-400" />
+                <ChevronDown className="w-4 h-4 text-[var(--sage-7)]" />
               ) : (
-                <ChevronRight className="w-4 h-4 text-gray-400" />
+                <ChevronRight className="w-4 h-4 text-[var(--sage-7)]" />
               )}
               <div className="flex-1 min-w-0">
-                <p className={`text-sm font-medium ${isActive ? 'text-indigo-700' : 'text-gray-700'}`}>
+                <p className={`text-sm font-medium ${isActive ? 'text-amber-11' : 'text-[var(--sage-11)]'}`}>
                   {chapter.title}
                 </p>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-[var(--sage-7)]">
                   {formatTime(chapter.start_time)} • {chapterScenes.length} scenes
                 </p>
               </div>
@@ -237,7 +237,7 @@ function ChaptersContent({
                   e.stopPropagation();
                   onSeek(chapter.start_time);
                 }}
-                className="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-500"
+                className="p-1.5 hover:bg-amber-2 rounded-lg text-amber-9"
               >
                 <Play className="w-3 h-3 fill-current" />
               </button>
@@ -253,11 +253,11 @@ function ChaptersContent({
                       onClick={() => onSeek(scene.start_time)}
                       className={`w-full text-left pl-8 pr-3 py-2 rounded-lg transition-all text-sm ${
                         isSceneActive
-                          ? 'bg-indigo-100 text-indigo-700 font-medium'
-                          : 'text-gray-600 hover:bg-white'
+                          ? 'bg-amber-2 text-amber-11 font-medium'
+                          : 'text-[var(--sage-9)] hover:bg-white'
                       }`}
                     >
-                      <span className="text-gray-400 mr-2">{formatTime(scene.start_time)}</span>
+                      <span className="text-[var(--sage-7)] mr-2">{formatTime(scene.start_time)}</span>
                       {scene.title || `Scene ${scene.scene_id + 1}`}
                     </button>
                   );
@@ -288,8 +288,8 @@ function TranscriptContent({
     return (
       <div className="p-3">
         <div className="text-center py-8">
-          <Mic className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">No transcript available</p>
+          <Mic className="w-8 h-8 text-[var(--sage-6)] mx-auto mb-2" />
+          <p className="text-sm text-[var(--sage-8)]">No transcript available</p>
         </div>
       </div>
     );
@@ -304,13 +304,13 @@ function TranscriptContent({
             key={segment.id}
             onClick={() => onSeek(segment.start)}
             className={`w-full text-left p-3 rounded-xl transition-all ${
-              isActive ? 'bg-indigo-50 border-l-4 border-indigo-500' : 'hover:bg-gray-50'
+              isActive ? 'bg-amber-2 border-l-4 border-amber-9' : 'hover:bg-[var(--sage-2)]'
             }`}
           >
-            <span className="text-xs text-indigo-500 font-medium">
+            <span className="text-xs text-amber-9 font-medium">
               {formatTime(segment.start)}
             </span>
-            <p className={`text-sm mt-1 ${isActive ? 'text-indigo-700 font-medium' : 'text-gray-700'}`}>
+            <p className={`text-sm mt-1 ${isActive ? 'text-amber-11 font-medium' : 'text-[var(--sage-11)]'}`}>
               {segment.text}
             </p>
           </button>

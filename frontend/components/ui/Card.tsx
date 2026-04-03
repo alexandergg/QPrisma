@@ -12,11 +12,11 @@ interface CardProps {
 
 const variantStyles: Record<CardVariant, string> = {
   default:
-    'bg-white shadow-sm border border-gray-200 dark:bg-gray-900 dark:border-gray-700',
+    'bg-[var(--surface)] shadow-[var(--shadow-sm)] border border-[var(--sage-3)]',
   outlined:
-    'border border-gray-200 dark:border-gray-700',
+    'border border-[var(--sage-4)]',
   elevated:
-    'bg-white shadow-xl border border-gray-100 dark:bg-gray-900 dark:border-gray-700',
+    'bg-[var(--surface)] shadow-[var(--shadow-xl)] border border-[var(--sage-2)]',
 };
 
 const Card = memo(function Card({
@@ -29,11 +29,11 @@ const Card = memo(function Card({
   return (
     <div className={`rounded-2xl overflow-hidden ${variantStyles[variant]} ${className}`}>
       {header && (
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">{header}</div>
+        <div className="px-6 py-4 border-b border-[var(--sage-3)]">{header}</div>
       )}
       <div className="px-6 py-4">{children}</div>
       {footer && (
-        <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700">{footer}</div>
+        <div className="px-6 py-4 border-t border-[var(--sage-3)]">{footer}</div>
       )}
     </div>
   );
