@@ -295,3 +295,4 @@ export { useChatState } from './useChatState';
 export type { ChatMessage, ChatMessageSource, UseChatStateOptions, UseChatStateReturn } from './useChatState';
 export { useStreamingChat } from './useStreamingChat';
 export type { UseStreamingChatOptions, UseStreamingChatReturn } from './useStreamingChat';
+export { useUserVideos } from './useUserVideos';

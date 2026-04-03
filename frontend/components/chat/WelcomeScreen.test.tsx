@@ -2,99 +2,154 @@
  * Tests for components/chat/WelcomeScreen.tsx
  *
  * Covers:
- * - Rendering greeting text
- * - Mode-dependent suggestions (single vs library)
+ * - New-user view (no videos) with upload CTA and feature cards
+ * - Returning-user view (has videos) with recent videos and quick actions
+ * - Loading state
  * - Action button callbacks
- * - Quick suggestion callbacks
  */
 
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import WelcomeScreen from './WelcomeScreen';
 
+// Mock next/navigation
+const mockPush = jest.fn();
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
+// Mock useUserVideos hook
+const mockUseUserVideos = jest.fn();
+jest.mock('@/hooks/useUserVideos', () => ({
+  useUserVideos: () => mockUseUserVideos(),
+}));
+
+const noVideos = {
+  videos: [],
+  hasVideos: false,
+  videoCount: 0,
+  recentVideos: [],
+  isLoading: false,
+  error: undefined,
+};
+
+const withVideos = {
+  videos: [
+    { id: 'v1', original_filename: 'intro.mp4', duration: 135 },
+    { id: 'v2', original_filename: 'demo.mp4', duration: 330 },
+  ],
+  hasVideos: true,
+  videoCount: 2,
+  recentVideos: [
+    { id: 'v1', original_filename: 'intro.mp4', duration: 135 },
+    { id: 'v2', original_filename: 'demo.mp4', duration: 330 },
+  ],
+  isLoading: false,
+  error: undefined,
+};
+
 describe('WelcomeScreen', () => {
-  it('renders default greeting when no userName', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockUseUserVideos.mockReturnValue(noVideos);
+  });
+
+  // ---- Loading state ----
+
+  it('renders loading skeleton while fetching', () => {
+    mockUseUserVideos.mockReturnValue({ ...noVideos, isLoading: true });
+    const { container } = render(<WelcomeScreen />);
+    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
+  });
+
+  // ---- New-user view ----
+
+  it('renders "Welcome to QPrisma" for new users', () => {
     render(<WelcomeScreen />);
     expect(screen.getByText('Welcome to QPrisma')).toBeInTheDocument();
   });
 
-  it('renders personalised greeting with userName', () => {
+  it('renders upload CTA and feature cards for new users', () => {
+    render(<WelcomeScreen />);
+    expect(screen.getByText('Drop your video here or click to browse')).toBeInTheDocument();
+    expect(screen.getByText('AI Chat')).toBeInTheDocument();
+    expect(screen.getByText('Knowledge Graph')).toBeInTheDocument();
+    expect(screen.getByText('Smart Transcript')).toBeInTheDocument();
+  });
+
+  it('calls onUploadVideo when upload CTA is clicked (new user)', () => {
+    const onUpload = jest.fn();
+    render(<WelcomeScreen onUploadVideo={onUpload} />);
+    fireEvent.click(screen.getByText('Drop your video here or click to browse'));
+    expect(onUpload).toHaveBeenCalledTimes(1);
+  });
+
+  // ---- Returning-user view ----
+
+  it('renders personalised greeting for returning user', () => {
+    mockUseUserVideos.mockReturnValue(withVideos);
     render(<WelcomeScreen userName="Alice Smith" />);
     expect(screen.getByText('Welcome back, Alice!')).toBeInTheDocument();
   });
 
-  it('renders single-mode description by default', () => {
+  it('renders video count for returning user', () => {
+    mockUseUserVideos.mockReturnValue(withVideos);
     render(<WelcomeScreen />);
-    expect(
-      screen.getByText('Unlock intelligent insights from your videos'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('videos analyzed')).toBeInTheDocument();
   });
 
-  it('renders library-mode description', () => {
-    render(<WelcomeScreen mode="library" />);
-    expect(
-      screen.getByText('Search and analyze across your entire video library'),
-    ).toBeInTheDocument();
-  });
-
-  it('renders Upload Video and Video Library action cards', () => {
+  it('renders recent video cards', () => {
+    mockUseUserVideos.mockReturnValue(withVideos);
     render(<WelcomeScreen />);
-    expect(screen.getByText('Upload Video')).toBeInTheDocument();
-    expect(screen.getByText('Video Library')).toBeInTheDocument();
+    expect(screen.getByText('intro.mp4')).toBeInTheDocument();
+    expect(screen.getByText('demo.mp4')).toBeInTheDocument();
   });
 
-  it('renders single-mode suggestions', () => {
-    render(<WelcomeScreen mode="single" />);
-    expect(
-      screen.getByText('Summarize the main topics of this video'),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('What are the key takeaways?'),
-    ).toBeInTheDocument();
+  it('renders quick action buttons for returning user', () => {
+    mockUseUserVideos.mockReturnValue(withVideos);
+    render(<WelcomeScreen />);
+    expect(screen.getByText('Upload new video')).toBeInTheDocument();
+    expect(screen.getByText('Browse library')).toBeInTheDocument();
+    expect(screen.getByText('Compare videos')).toBeInTheDocument();
   });
 
-  it('renders library-mode suggestions', () => {
-    render(<WelcomeScreen mode="library" />);
-    expect(
-      screen.getByText('In which videos do I talk about AI?'),
-    ).toBeInTheDocument();
-  });
-
-  it('calls onUploadVideo when upload card is clicked', () => {
+  it('calls onUploadVideo when upload action is clicked (returning user)', () => {
+    mockUseUserVideos.mockReturnValue(withVideos);
     const onUpload = jest.fn();
     render(<WelcomeScreen onUploadVideo={onUpload} />);
-
-    fireEvent.click(screen.getByText('Upload Video'));
+    fireEvent.click(screen.getByText('Upload new video'));
     expect(onUpload).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onBrowseLibrary when library card is clicked', () => {
+  it('calls onBrowseLibrary when browse action is clicked', () => {
+    mockUseUserVideos.mockReturnValue(withVideos);
     const onBrowse = jest.fn();
     render(<WelcomeScreen onBrowseLibrary={onBrowse} />);
-
-    fireEvent.click(screen.getByText('Video Library'));
+    fireEvent.click(screen.getByText('Browse library'));
     expect(onBrowse).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onQuickSuggestion with suggestion text when clicked', () => {
-    const onSuggestion = jest.fn();
-    render(<WelcomeScreen onQuickSuggestion={onSuggestion} />);
-
-    fireEvent.click(screen.getByText('What are the key takeaways?'));
-    expect(onSuggestion).toHaveBeenCalledWith('What are the key takeaways?');
+  it('navigates to /compare when Compare videos is clicked', () => {
+    mockUseUserVideos.mockReturnValue(withVideos);
+    render(<WelcomeScreen />);
+    fireEvent.click(screen.getByText('Compare videos'));
+    expect(mockPush).toHaveBeenCalledWith('/compare');
   });
 
-  it('renders footer hint for single mode', () => {
-    render(<WelcomeScreen mode="single" />);
-    expect(
-      screen.getByText('Select a video to start chatting about its content'),
-    ).toBeInTheDocument();
+  it('navigates to chat when a video card is clicked', () => {
+    mockUseUserVideos.mockReturnValue(withVideos);
+    render(<WelcomeScreen />);
+    fireEvent.click(screen.getByText('intro.mp4'));
+    expect(mockPush).toHaveBeenCalledWith('/chat/new?videoId=v1');
   });
 
-  it('renders footer hint for library mode', () => {
-    render(<WelcomeScreen mode="library" />);
-    expect(
-      screen.getByText('Your questions will search across all your processed videos'),
-    ).toBeInTheDocument();
+  it('calls onSelectVideo instead of navigating when provided', () => {
+    mockUseUserVideos.mockReturnValue(withVideos);
+    const onSelect = jest.fn();
+    render(<WelcomeScreen onSelectVideo={onSelect} />);
+    fireEvent.click(screen.getByText('demo.mp4'));
+    expect(onSelect).toHaveBeenCalledWith('v2');
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });
