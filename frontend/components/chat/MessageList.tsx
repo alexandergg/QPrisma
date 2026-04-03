@@ -20,10 +20,27 @@ interface MessageListProps {
 
 export default function MessageList({ messages, isLoading, onTimestampClick, onSuggestionClick, streamingContent, activeTools = [], onRetryLast }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const isStreamingRef = useRef(false);
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    isStreamingRef.current = !!streamingContent;
+  }, [streamingContent]);
+
+  // Scroll to bottom — throttled during streaming to prevent jitter
+  useEffect(() => {
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+
+    const delay = isStreamingRef.current ? 150 : 0;
+    const behavior: ScrollBehavior = isStreamingRef.current ? 'auto' : 'smooth';
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    }, delay);
+
+    return () => {
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    };
   }, [messages, isLoading, streamingContent, activeTools]);
 
   return (
