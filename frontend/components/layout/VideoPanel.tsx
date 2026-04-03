@@ -197,7 +197,7 @@ export default function VideoPanel({
                 const markerColors = {
                   visual: 'bg-indigo-400',
                   audio: 'bg-emerald-400',
-                  entity: 'bg-amber-400',
+                  entity: 'bg-violet-400',
                 };
                 const leftPercent = Math.min(100, Math.max(0, (marker.timestamp / duration) * 100));
                 return (

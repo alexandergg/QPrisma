@@ -36,12 +36,12 @@ const typeConfig = {
   entity: {
     icon: Tag,
     label: 'Entity',
-    border: 'border-l-amber-400',
-    bg: 'bg-amber-50/60 hover:bg-amber-50',
-    iconColor: 'text-amber-500',
-    labelColor: 'text-amber-600',
-    dotFilled: 'bg-amber-400',
-    dotEmpty: 'bg-amber-200',
+    border: 'border-l-violet-400',
+    bg: 'bg-violet-50/60 hover:bg-violet-50',
+    iconColor: 'text-violet-500',
+    labelColor: 'text-violet-600',
+    dotFilled: 'bg-violet-400',
+    dotEmpty: 'bg-violet-200',
   },
 };
 

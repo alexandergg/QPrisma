@@ -48,8 +48,8 @@ function CompareView({ videos, onRemoveVideo, onSelectVideo }: CompareViewProps)
   if (videos.length < 2) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="w-16 h-16 rounded-[var(--radius-2xl)] bg-[var(--amber-2)] flex items-center justify-center mb-4">
-          <Users className="w-8 h-8 text-[var(--amber-8)]" />
+        <div className="w-16 h-16 rounded-[var(--radius-2xl)] bg-[var(--violet-2)] flex items-center justify-center mb-4">
+          <Users className="w-8 h-8 text-[var(--violet-8)]" />
         </div>
         <h3 className="text-lg font-semibold text-[var(--foreground)] mb-1">
           Select at least 2 videos
@@ -69,8 +69,8 @@ function CompareView({ videos, onRemoveVideo, onSelectVideo }: CompareViewProps)
     <div className="bg-[var(--background)] space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-[var(--radius-lg)] bg-[var(--amber-2)] flex items-center justify-center">
-          <Users className="w-[18px] h-[18px] text-[var(--amber-8)]" />
+        <div className="w-9 h-9 rounded-[var(--radius-lg)] bg-[var(--violet-2)] flex items-center justify-center">
+          <Users className="w-[18px] h-[18px] text-[var(--violet-8)]" />
         </div>
         <div>
           <h2 className="text-lg font-semibold text-[var(--foreground)]">
@@ -128,7 +128,7 @@ function CompareView({ videos, onRemoveVideo, onSelectVideo }: CompareViewProps)
             <div className="p-4 space-y-3">
               <div>
                 <h3
-                  className="font-semibold text-[var(--foreground)] truncate cursor-pointer hover:text-[var(--amber-9)] transition-colors"
+                  className="font-semibold text-[var(--foreground)] truncate cursor-pointer hover:text-[var(--violet-9)] transition-colors"
                   onClick={() => onSelectVideo?.(video.id)}
                   title={video.name}
                 >
@@ -200,9 +200,9 @@ function CompareView({ videos, onRemoveVideo, onSelectVideo }: CompareViewProps)
 
       {/* Shared entities */}
       {shared.length > 0 && (
-        <div className="bg-[var(--amber-2)] border border-[var(--amber-5)] rounded-[var(--radius-xl)] p-5">
+        <div className="bg-[var(--violet-2)] border border-[var(--violet-5)] rounded-[var(--radius-xl)] p-5">
           <div className="flex items-center gap-2 mb-3">
-            <Sparkles className="w-4 h-4 text-[var(--amber-8)]" />
+            <Sparkles className="w-4 h-4 text-[var(--violet-8)]" />
             <h3 className="text-sm font-semibold text-[var(--foreground)]">
               Shared Entities ({shared.length})
             </h3>

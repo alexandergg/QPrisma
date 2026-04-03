@@ -77,7 +77,7 @@ const Input = memo(
           <input
             ref={ref}
             id={inputId}
-            className={`w-full rounded-[var(--radius-md)] transition-colors placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${variantStyles[variant]} ${sizeStyles[size]} ${leftIcon ? iconSizeStyles[size] : ''} ${rightIcon ? rightIconSizeStyles[size] : ''} ${hasError ? 'border-[var(--rose-7)] focus:ring-[var(--rose-7)]' : 'focus:ring-[var(--amber-6)]'} ${className}`}
+            className={`w-full rounded-[var(--radius-md)] transition-colors placeholder:text-[var(--text-tertiary)] focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed ${variantStyles[variant]} ${sizeStyles[size]} ${leftIcon ? iconSizeStyles[size] : ''} ${rightIcon ? rightIconSizeStyles[size] : ''} ${hasError ? 'border-[var(--rose-7)] focus:ring-[var(--rose-7)]' : 'focus:ring-[var(--violet-6)]'} ${className}`}
             aria-invalid={hasError || undefined}
             aria-describedby={
               error ? `${inputId}-error` : helperText ? `${inputId}-helper` : undefined
