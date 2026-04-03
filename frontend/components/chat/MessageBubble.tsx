@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo, useMemo } from 'react';
-import { Sparkles, Film, Loader2, CheckCircle2, XCircle, Wrench, Terminal, ArrowRightCircle } from 'lucide-react';
+import { Sparkles, Film, Loader2, CheckCircle2, XCircle, Wrench, Terminal, ArrowRightCircle, Copy, ThumbsUp, ThumbsDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import TimestampBadge from './TimestampBadge';
 import CitationSection from './CitationSection';
@@ -91,7 +91,7 @@ export function ToolProgress({ tools }: { tools: ToolStatus[] }) {
 
   return (
     <div className="flex flex-col gap-2 mb-4 w-full">
-      <div className="flex items-center gap-2 text-xs font-medium text-gray-500 uppercase tracking-wider mb-1 px-1">
+      <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider mb-1 px-1">
         <Terminal className="w-3 h-3" />
         Process Log
       </div>
@@ -101,10 +101,10 @@ export function ToolProgress({ tools }: { tools: ToolStatus[] }) {
             key={idx} 
             className={`flex items-center gap-2.5 p-3 rounded-lg border text-sm transition-all duration-300 animate-in slide-in-from-left-2 ${
               tool.status === 'running' 
-                ? 'bg-blue-50/50 border-blue-100 text-blue-700' 
+                ? 'bg-[var(--blue-3)]/50 border-[var(--blue-3)] text-[var(--blue-8)]' 
                 : tool.status === 'success'
-                ? 'bg-green-50/50 border-green-100 text-green-700'
-                : 'bg-red-50/50 border-red-100 text-red-700'
+                ? 'bg-[var(--sage-2)]/50 border-[var(--sage-3)] text-[var(--sage-8)]'
+                : 'bg-[var(--rose-3)]/50 border-[var(--rose-3)] text-[var(--rose-8)]'
             }`}
           >
             <div className={`flex-shrink-0 ${tool.status === 'running' ? 'animate-spin' : ''}`}>
@@ -137,9 +137,9 @@ export function ToolProgress({ tools }: { tools: ToolStatus[] }) {
 function TypingIndicator() {
   return (
     <div className="flex items-center gap-1">
-      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+      <div className="w-2 h-2 bg-[var(--amber-7)] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+      <div className="w-2 h-2 bg-[var(--amber-7)] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+      <div className="w-2 h-2 bg-[var(--amber-7)] rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
     </div>
   );
 }
@@ -221,16 +221,16 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
-      className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}
+      className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300 group`}
     >
       <div className={`max-w-[85%] ${isUser ? '' : ''}`}>
         {/* Assistant avatar and label */}
         {!isUser && (
           <div className="flex items-center gap-2 mb-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+            <div className="w-7 h-7 rounded-lg bg-[var(--amber-8)] flex items-center justify-center shadow-[var(--shadow-sm)]">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
-            <span className="text-sm font-medium text-gray-600">QPrisma</span>
+            <span className="text-sm font-medium text-[var(--text-secondary)]">QPrisma</span>
           </div>
         )}
 
@@ -238,14 +238,14 @@ export const MessageBubble = memo(function MessageBubble({
         <div
           className={`p-4 rounded-2xl ${
             isUser
-              ? 'bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-tr-md shadow-lg shadow-indigo-500/20'
-              : 'bg-white text-gray-800 rounded-tl-md shadow-md border border-gray-100'
+              ? 'bg-[var(--foreground)] text-[var(--surface)] rounded-tr-md shadow-[var(--shadow-md)]'
+              : 'bg-[var(--surface)] text-[var(--foreground)] rounded-tl-md shadow-[var(--shadow-xs)] border border-[var(--border-subtle)]'
           }`}
         >
           {message.isLoading ? (
             <div className="flex items-center gap-3 py-1">
               <TypingIndicator />
-              <span className="text-sm text-gray-500">Analyzing...</span>
+              <span className="text-sm text-[var(--text-secondary)]">Analyzing...</span>
             </div>
           ) : (
             <>
@@ -261,7 +261,7 @@ export const MessageBubble = memo(function MessageBubble({
               {isUser ? (
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
               ) : (
-                <div className="text-sm leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-gray-900 prose-code:text-indigo-600 prose-code:bg-indigo-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
+                <div className="text-sm leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-[var(--foreground)] prose-code:text-[var(--amber-11)] prose-code:bg-[var(--amber-2)] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
                   <ReactMarkdown components={markdownComponents}>{displayContent}</ReactMarkdown>
                 </div>
               )}
@@ -273,14 +273,14 @@ export const MessageBubble = memo(function MessageBubble({
 
               {/* Suggestions Chips */}
               {!isUser && suggestions.length > 0 && (
-                <div className="mt-4 pt-3 border-t border-gray-100 flex flex-col gap-2">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Suggested Follow-ups</p>
+                <div className="mt-4 pt-3 border-t border-[var(--border-subtle)] flex flex-col gap-2">
+                  <p className="text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wide">Suggested Follow-ups</p>
                   <div className="flex flex-wrap gap-2">
                     {suggestions.map((suggestion, idx) => (
                       <button
                         key={idx}
                         onClick={() => onSuggestionClick?.(suggestion)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 rounded-full text-sm transition-colors border border-indigo-100 text-left"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--amber-2)] text-[var(--amber-11)] hover:bg-[var(--amber-3)] rounded-full text-sm transition-colors border border-[var(--amber-3)] text-left"
                       >
                         <span className="flex-1">{suggestion}</span>
                         <ArrowRightCircle className="w-4 h-4 opacity-50" />
@@ -299,10 +299,10 @@ export const MessageBubble = memo(function MessageBubble({
               )}
 
               {!isUser && message.isError && onRetryLast && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="mt-3 pt-3 border-t border-[var(--border-subtle)]">
                   <button
                     onClick={onRetryLast}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+                    className="text-sm px-3 py-1.5 rounded-lg bg-[var(--rose-3)] text-[var(--rose-8)] hover:bg-[var(--rose-3)]/80 transition-colors"
                   >
                     Retry last prompt
                   </button>
@@ -311,6 +311,21 @@ export const MessageBubble = memo(function MessageBubble({
             </>
           )}
         </div>
+
+        {/* Message Actions Bar */}
+        {!isUser && !message.isLoading && (
+          <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button className="p-1.5 hover:bg-[var(--surface-elevated)] rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors" title="Copy">
+              <Copy className="w-3.5 h-3.5" />
+            </button>
+            <button className="p-1.5 hover:bg-[var(--surface-elevated)] rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors" title="Good response">
+              <ThumbsUp className="w-3.5 h-3.5" />
+            </button>
+            <button className="p-1.5 hover:bg-[var(--surface-elevated)] rounded-[var(--radius-sm)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors" title="Bad response">
+              <ThumbsDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
