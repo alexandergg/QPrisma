@@ -13,9 +13,9 @@ interface ProgressBarProps {
 }
 
 const fillStyles: Record<ProgressVariant, string> = {
-  default: 'bg-[var(--amber-8)]',
+  default: 'bg-[var(--violet-8)]',
   success: 'bg-[var(--sage-8)]',
-  warning: 'bg-[var(--amber-6)]',
+  warning: 'bg-[var(--violet-6)]',
   error: 'bg-[var(--rose-8)]',
 };
 

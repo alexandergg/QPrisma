@@ -49,7 +49,7 @@ const Avatar = memo(function Avatar({
 
   return (
     <div
-      className={`inline-flex items-center justify-center shrink-0 overflow-hidden bg-[var(--amber-3)] ${borderRadius} ${className}`}
+      className={`inline-flex items-center justify-center shrink-0 overflow-hidden bg-[var(--violet-3)] ${borderRadius} ${className}`}
       style={{ width: px, height: px }}
       aria-label={alt ?? fallback}
     >
@@ -62,7 +62,7 @@ const Avatar = memo(function Avatar({
         />
       ) : (
         <span
-          className={`font-semibold text-[var(--amber-11)] select-none leading-none ${textSize[size]}`}
+          className={`font-semibold text-[var(--violet-11)] select-none leading-none ${textSize[size]}`}
         >
           {initials}
         </span>

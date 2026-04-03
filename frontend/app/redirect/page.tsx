@@ -24,7 +24,7 @@ export default function RedirectPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--background)]">
       <div className="text-center">
-        <div className="w-6 h-6 border-2 border-[var(--amber-3)] border-t-[var(--amber-8)] rounded-full animate-spin mx-auto mb-3" />
+        <div className="w-6 h-6 border-2 border-[var(--violet-3)] border-t-[var(--violet-8)] rounded-full animate-spin mx-auto mb-3" />
         <p className="text-[var(--text-secondary)] text-xs">Completing sign-in…</p>
       </div>
     </div>

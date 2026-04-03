@@ -62,6 +62,6 @@ describe('TimestampBadge', () => {
   it('applies entity type styling', () => {
     const { container } = render(<TimestampBadge timestamp={30} type="entity" />);
     const button = container.querySelector('button');
-    expect(button?.className).toContain('var(--amber-');
+    expect(button?.className).toContain('var(--violet-');
   });
 });

@@ -14,7 +14,7 @@ const LEGEND_ITEMS: { label: string; color: string }[] = [
   { label: 'Frame', color: '#5C94F0' },
   { label: 'Entity', color: '#72A872' },
   { label: 'Audio', color: '#5E905E' },
-  { label: 'Topic', color: '#EFD07A' },
+  { label: 'Topic', color: '#8B5CF6' },
 ];
 
 // ============================================================================

@@ -101,7 +101,7 @@ function ProcessingCard({
               ? 'bg-[var(--sage-2)] text-[var(--sage-8)]'
               : status === 'error'
               ? 'bg-[var(--rose-3)]/50 text-[var(--rose-8)]'
-              : 'bg-[var(--amber-2)] text-[var(--amber-8)]'
+              : 'bg-[var(--violet-2)] text-[var(--violet-8)]'
           }`}
         >
           {status === 'completed' ? (
@@ -131,7 +131,7 @@ function ProcessingCard({
         {status === 'completed' && onViewVideo && mediaId && (
           <button
             onClick={() => onViewVideo(mediaId)}
-            className="px-4 py-2 bg-gradient-to-r from-[var(--amber-7)] to-[var(--amber-9)] hover:from-[var(--amber-8)] hover:to-[var(--amber-10)] text-white rounded-xl font-medium flex items-center gap-2 shadow-lg"
+            className="px-4 py-2 bg-gradient-to-r from-[var(--violet-7)] to-[var(--violet-9)] hover:from-[var(--violet-8)] hover:to-[var(--violet-10)] text-white rounded-xl font-medium flex items-center gap-2 shadow-lg"
           >
             <Play className="w-4 h-4 fill-white" />
             Start Chatting
@@ -149,7 +149,7 @@ function ProcessingCard({
               ? 'Processing failed'
               : `Processing... ${completedSteps}/${steps.length} steps`}
           </span>
-          <span className="text-sm font-mono text-[var(--amber-8)]">{displayProgress}%</span>
+          <span className="text-sm font-mono text-[var(--violet-8)]">{displayProgress}%</span>
         </div>
         <div className="h-2 bg-[var(--border)] rounded-full overflow-hidden">
           <div
@@ -158,7 +158,7 @@ function ProcessingCard({
                 ? 'bg-[var(--sage-7)]'
                 : status === 'error'
                 ? 'bg-[var(--rose-7)]'
-                : 'bg-gradient-to-r from-[var(--amber-7)] to-[var(--amber-9)]'
+                : 'bg-gradient-to-r from-[var(--violet-7)] to-[var(--violet-9)]'
             }`}
             style={{ width: `${displayProgress}%` }}
           />

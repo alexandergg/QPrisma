@@ -65,7 +65,7 @@ const Tabs = memo(function Tabs({
         })}
       </div>
       <span
-        className="absolute bottom-0 left-0 h-0.5 bg-[var(--amber-8)] transition-all duration-[var(--duration-normal)] ease-[var(--easing-default)]"
+        className="absolute bottom-0 left-0 h-0.5 bg-[var(--violet-8)] transition-all duration-[var(--duration-normal)] ease-[var(--easing-default)]"
         style={underlineStyle}
       />
     </div>

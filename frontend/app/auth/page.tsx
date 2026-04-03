@@ -63,7 +63,7 @@ function MicrosoftIcon() {
 /* ── Shared input class ────────────────────────────────────────── */
 
 const inputClass =
-  'w-full px-4 py-3 bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--foreground)] placeholder:text-[var(--text-tertiary)] focus:ring-2 focus:ring-[var(--amber-6)]/50 focus:border-[var(--amber-6)] outline-none transition-all duration-200';
+  'w-full px-4 py-3 bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--foreground)] placeholder:text-[var(--text-tertiary)] focus:ring-2 focus:ring-[var(--violet-6)]/50 focus:border-[var(--violet-6)] outline-none transition-all duration-200';
 
 /* ── Component ─────────────────────────────────────────────────── */
 
@@ -163,7 +163,7 @@ export default function AuthPage() {
               <div
                 className="w-12 h-12 rounded-[14px] flex items-center justify-center"
                 style={{
-                  background: 'linear-gradient(135deg, #EFD07A, #D4A535)',
+                  background: 'linear-gradient(135deg, #A78BFA, #8B5CF6)',
                   animation: 'glow-ring 4s ease-in-out infinite',
                 }}
               >
@@ -178,7 +178,7 @@ export default function AuthPage() {
             <h1 className="text-4xl md:text-5xl lg:text-[3.5rem] font-bold text-white leading-[1.1] tracking-tight">
               Your videos,
               <br />
-              <span className="bg-gradient-to-r from-[#EFD07A] to-[#D4A535] bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-[#A78BFA] to-[#8B5CF6] bg-clip-text text-transparent">
                 understood.
               </span>
             </h1>
@@ -196,7 +196,7 @@ export default function AuthPage() {
                 style={{ animation: `float 6s ease-in-out infinite`, animationDelay: `${i * 0.7}s` }}
               >
                 <div className="w-10 h-10 rounded-[var(--radius-lg)] bg-white/[0.07] backdrop-blur-sm flex items-center justify-center flex-shrink-0 border border-white/[0.06] transition-colors duration-300 group-hover:bg-white/[0.12]">
-                  <f.Icon className="w-[18px] h-[18px] text-[#EFD07A]" />
+                  <f.Icon className="w-[18px] h-[18px] text-[#A78BFA]" />
                 </div>
                 <div>
                   <h3 className="text-white font-semibold text-[15px] leading-snug">{f.title}</h3>
@@ -341,7 +341,7 @@ export default function AuthPage() {
                 {activeTab === 'login' && (
                   <button
                     type="button"
-                    className="text-xs text-[var(--amber-9)] hover:text-[var(--amber-10)] font-medium transition-colors"
+                    className="text-xs text-[var(--violet-9)] hover:text-[var(--violet-10)] font-medium transition-colors"
                   >
                     Forgot password?
                   </button>
@@ -394,7 +394,7 @@ export default function AuthPage() {
                 <button
                   type="button"
                   onClick={() => { setActiveTab('register'); setError(''); }}
-                  className="text-[var(--amber-9)] hover:text-[var(--amber-10)] font-semibold transition-colors"
+                  className="text-[var(--violet-9)] hover:text-[var(--violet-10)] font-semibold transition-colors"
                 >
                   Sign up
                 </button>
@@ -405,7 +405,7 @@ export default function AuthPage() {
                 <button
                   type="button"
                   onClick={() => { setActiveTab('login'); setError(''); }}
-                  className="text-[var(--amber-9)] hover:text-[var(--amber-10)] font-semibold transition-colors"
+                  className="text-[var(--violet-9)] hover:text-[var(--violet-10)] font-semibold transition-colors"
                 >
                   Sign in
                 </button>

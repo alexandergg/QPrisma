@@ -14,7 +14,7 @@
   --border: #E8E6DF;
   --border-subtle: #F0EEE8;
   
-  /* QPrisma Amber (Primary accent) */
+  /* QPrisma Amber (Legacy palette — kept for reference) */
   --amber-1: #FEFDFB;
   --amber-2: #FDF8EF;
   --amber-3: #FAEDC8;
@@ -27,6 +27,20 @@
   --amber-10: #86611C;
   --amber-11: #6B4E16;
   --amber-12: #3D2C0D;
+  
+  /* QPrisma Violet (Primary accent) */
+  --violet-1: #FDFCFE;
+  --violet-2: #F9F7FC;
+  --violet-3: #F0EBFA;
+  --violet-4: #E6DEFF;
+  --violet-5: #D9CEFA;
+  --violet-6: #C8B5F2;
+  --violet-7: #B197E8;
+  --violet-8: #8B5CF6;
+  --violet-9: #7C3AED;
+  --violet-10: #6D28D9;
+  --violet-11: #5B21B6;
+  --violet-12: #2E1065;
   
   /* QPrisma Sage (Success, graph) */
   --sage-1: #FBFDFB;
@@ -91,6 +105,19 @@
   --color-amber-10: var(--amber-10);
   --color-amber-11: var(--amber-11);
   --color-amber-12: var(--amber-12);
+  
+  --color-violet-1: var(--violet-1);
+  --color-violet-2: var(--violet-2);
+  --color-violet-3: var(--violet-3);
+  --color-violet-4: var(--violet-4);
+  --color-violet-5: var(--violet-5);
+  --color-violet-6: var(--violet-6);
+  --color-violet-7: var(--violet-7);
+  --color-violet-8: var(--violet-8);
+  --color-violet-9: var(--violet-9);
+  --color-violet-10: var(--violet-10);
+  --color-violet-11: var(--violet-11);
+  --color-violet-12: var(--violet-12);
   
   --color-sage-1: var(--sage-1);
   --color-sage-2: var(--sage-2);
@@ -168,6 +195,13 @@ body {
   --amber-8: #D4A535;
   --amber-9: #E5BD56;
 
+  /* Dark mode violet adjustments */
+  --violet-1: #14101F;
+  --violet-2: #1B1530;
+  --violet-3: #261D45;
+  --violet-8: #A78BFA;
+  --violet-9: #8B5CF6;
+
   /* Dark mode sage */
   --sage-2: #141E14;
   --sage-3: #1A2E1A;
@@ -178,10 +212,10 @@ body {
   /* Dark mode blue */
   --blue-3: #14192E;
 
-  /* Accent stays warm */
-  --accent: #E5BD56;
-  --accent-hover: #D4A535;
-  --accent-subtle: #332A16;
+  /* Accent — violet */
+  --accent: #8B5CF6;
+  --accent-hover: #7C3AED;
+  --accent-subtle: #261D45;
 
   /* Shadows — more subtle in dark mode */
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);

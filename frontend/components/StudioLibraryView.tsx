@@ -196,7 +196,7 @@ function MediaGrid({ media, onDelete }: { media: MediaItem[]; onDelete: (e: Reac
                   Ready
                 </div>
               ) : (
-                <div className="px-2.5 py-1 bg-amber-500 text-white text-xs font-bold rounded-full shadow-lg flex items-center gap-1 animate-pulse">
+                <div className="px-2.5 py-1 bg-violet-500 text-white text-xs font-bold rounded-full shadow-lg flex items-center gap-1 animate-pulse">
                   <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
                   Processing
                 </div>
@@ -289,7 +289,7 @@ function MediaList({ media, onDelete }: { media: MediaItem[]; onDelete: (e: Reac
                 Ready
               </div>
             ) : (
-              <div className="px-3 py-1.5 bg-amber-100 text-amber-700 text-xs font-bold rounded-full animate-pulse">
+              <div className="px-3 py-1.5 bg-violet-100 text-violet-700 text-xs font-bold rounded-full animate-pulse">
                 Processing
               </div>
             )}

@@ -33,8 +33,8 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
         border-2 transition-all hover:shadow-[var(--shadow-md)]
         ${
           isSelected
-            ? 'border-[var(--amber-6)] bg-[var(--amber-1)]'
-            : 'border-[var(--border)] hover:border-[var(--amber-5)]'
+            ? 'border-[var(--violet-6)] bg-[var(--violet-1)]'
+            : 'border-[var(--border)] hover:border-[var(--violet-5)]'
         }
       `}
     >
@@ -69,7 +69,7 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
         {video.processed ? (
           <span className="text-[var(--sage-8)] text-sm font-medium">Ready</span>
         ) : (
-          <span className="text-[var(--amber-8)] text-sm font-medium">Processing</span>
+          <span className="text-[var(--violet-8)] text-sm font-medium">Processing</span>
         )}
       </div>
     </div>

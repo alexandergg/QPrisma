@@ -126,7 +126,7 @@ export default function UploadZone({
     <div className="w-full">
       <motion.div
         animate={isDragging
-          ? { scale: 1.02, borderColor: 'var(--amber-6)' }
+          ? { scale: 1.02, borderColor: 'var(--violet-6)' }
           : { scale: 1, borderColor: 'var(--border)' }
         }
         transition={{ type: 'spring', damping: 20, stiffness: 300 }}
@@ -145,8 +145,8 @@ export default function UploadZone({
           ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}
           ${
             isDragging
-              ? 'border-amber-500 bg-amber-50 shadow-amber-200/50'
-              : 'border-gray-200 hover:border-amber-300 hover:bg-gray-50'
+              ? 'border-violet-500 bg-violet-50 shadow-violet-200/50'
+              : 'border-gray-200 hover:border-violet-300 hover:bg-gray-50'
           }
         `}
       >
@@ -165,8 +165,8 @@ export default function UploadZone({
             w-20 h-20 rounded-2xl flex items-center justify-center mb-6 transition-all duration-300
             ${
               isDragging
-                ? 'bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/30 scale-110'
-                : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-400 group-hover:from-amber-100 group-hover:to-orange-100 group-hover:text-amber-600'
+                ? 'bg-gradient-to-br from-violet-500 to-violet-600 text-white shadow-lg shadow-violet-500/30 scale-110'
+                : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-400 group-hover:from-violet-100 group-hover:to-violet-100 group-hover:text-violet-600'
             }
           `}
         >
@@ -177,7 +177,7 @@ export default function UploadZone({
           {isDragging ? 'Drop your videos here' : 'Drop videos here'}
         </h3>
         <p className="text-gray-500">
-          or <span className="text-amber-600 font-medium">click to browse</span> files
+          or <span className="text-violet-600 font-medium">click to browse</span> files
         </p>
 
         <div className="flex items-center gap-2 mt-6 text-xs text-gray-400">

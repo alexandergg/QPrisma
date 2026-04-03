@@ -33,7 +33,7 @@ export function GraphControls({
         <select
           value={depth}
           onChange={(e) => onDepthChange(Number(e.target.value))}
-          className="text-xs border border-[var(--border)] rounded-md px-1.5 py-1 bg-[var(--surface)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--amber-3)]"
+          className="text-xs border border-[var(--border)] rounded-md px-1.5 py-1 bg-[var(--surface)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--violet-3)]"
           title="Traversal depth"
         >
           <option value={1}>Depth 1</option>
@@ -49,7 +49,7 @@ export function GraphControls({
           onLayoutChange(layout === 'forceDirected' ? 'd3Force' : 'forceDirected')
         }
         className={`p-1.5 rounded-lg hover:bg-[var(--surface-elevated)] transition-colors ${
-          layout === 'd3Force' ? 'text-[var(--amber-8)] bg-[var(--amber-2)]' : 'text-[var(--text-secondary)]'
+          layout === 'd3Force' ? 'text-[var(--violet-8)] bg-[var(--violet-2)]' : 'text-[var(--text-secondary)]'
         }`}
         title={`Layout: ${layout === 'forceDirected' ? 'Force Directed' : 'D3 Force'} — click to toggle`}
       >

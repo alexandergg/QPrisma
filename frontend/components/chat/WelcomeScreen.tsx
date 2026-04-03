@@ -50,7 +50,7 @@ function WelcomeScreen({
           variants={fadeIn}
           initial="initial"
           animate="animate"
-          className="w-20 h-20 mx-auto mb-8 bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-amber-500/30"
+          className="w-20 h-20 mx-auto mb-8 bg-gradient-to-br from-violet-500 to-violet-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-violet-500/30"
         >
           <Sparkles className="w-10 h-10 text-white" />
         </motion.div>
@@ -80,10 +80,10 @@ function WelcomeScreen({
           {/* Upload Video Card */}
           <button
             onClick={onUploadVideo}
-            className="group bg-white rounded-2xl p-6 border-2 border-dashed border-gray-200 hover:border-amber-300 hover:bg-amber-50/50 transition-all text-left"
+            className="group bg-white rounded-2xl p-6 border-2 border-dashed border-gray-200 hover:border-violet-300 hover:bg-violet-50/50 transition-all text-left"
           >
-            <div className="w-12 h-12 bg-gradient-to-br from-amber-100 to-orange-100 rounded-xl flex items-center justify-center mb-4 group-hover:from-amber-200 group-hover:to-orange-200 transition-colors">
-              <Upload className="w-6 h-6 text-amber-600" />
+            <div className="w-12 h-12 bg-gradient-to-br from-violet-100 to-violet-100 rounded-xl flex items-center justify-center mb-4 group-hover:from-violet-200 group-hover:to-violet-200 transition-colors">
+              <Upload className="w-6 h-6 text-violet-600" />
             </div>
             <h3 className="text-lg font-semibold text-gray-900 mb-1">Upload Video</h3>
             <p className="text-sm text-gray-500">
@@ -126,13 +126,13 @@ function WelcomeScreen({
               variants={staggerItem}
               onClick={() => onQuickSuggestion?.(suggestion.text)}
               whileHover={{ y: -2, transition: { duration: 0.2 } }}
-              className="group flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-100 hover:border-amber-200 hover:bg-amber-50/50 transition-colors text-left"
+              className="group flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-100 hover:border-violet-200 hover:bg-violet-50/50 transition-colors text-left"
             >
-              <MessageSquare className="w-5 h-5 text-gray-400 group-hover:text-amber-600 flex-shrink-0" />
+              <MessageSquare className="w-5 h-5 text-gray-400 group-hover:text-violet-600 flex-shrink-0" />
               <span className="text-sm text-gray-600 group-hover:text-gray-900 flex-1">
                 {suggestion.text}
               </span>
-              <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-amber-600 opacity-0 group-hover:opacity-100 transition-all" />
+              <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-violet-600 opacity-0 group-hover:opacity-100 transition-all" />
             </motion.button>
           ))}
         </motion.div>

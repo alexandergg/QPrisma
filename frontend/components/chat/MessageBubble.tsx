@@ -234,7 +234,7 @@ export const MessageBubble = memo(function MessageBubble({
         {/* Assistant avatar and label */}
         {!isUser && (
           <div className="flex items-center gap-2 mb-2">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/30">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
             <span className="text-sm font-medium text-gray-600">QPrisma</span>
@@ -245,7 +245,7 @@ export const MessageBubble = memo(function MessageBubble({
         <div
           className={`p-4 rounded-2xl ${
             isUser
-              ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-tr-md shadow-lg shadow-amber-500/20'
+              ? 'bg-gradient-to-r from-violet-500 to-violet-600 text-white rounded-tr-md shadow-lg shadow-violet-500/20'
               : 'bg-white text-gray-800 rounded-tl-md shadow-md border border-gray-100'
           }`}
         >
@@ -268,7 +268,7 @@ export const MessageBubble = memo(function MessageBubble({
               {isUser ? (
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
               ) : (
-                <div className="text-sm leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-gray-900 prose-code:text-amber-700 prose-code:bg-amber-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
+                <div className="text-sm leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-gray-900 prose-code:text-violet-700 prose-code:bg-violet-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
                   <ReactMarkdown components={markdownComponents}>{displayContent}</ReactMarkdown>
                   {isStreaming && (
                     <span
@@ -293,7 +293,7 @@ export const MessageBubble = memo(function MessageBubble({
                       <button
                         key={idx}
                         onClick={() => onSuggestionClick?.(suggestion)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800 rounded-full text-sm transition-colors border border-amber-100 text-left"
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 hover:text-violet-800 rounded-full text-sm transition-colors border border-violet-100 text-left"
                       >
                         <span className="flex-1">{suggestion}</span>
                         <ArrowRightCircle className="w-4 h-4 opacity-50" />
