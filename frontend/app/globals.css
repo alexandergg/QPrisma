@@ -2,15 +2,111 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #000000;
-  --foreground: #ffffff;
-  --uber-blue: #276EF1;
+  /* QPrisma Design System — Warm Neutral Palette */
+  
+  /* Base surfaces */
+  --background: #FAFAF8;
+  --foreground: #1C1B18;
+  --surface: #FFFFFF;
+  --surface-elevated: #F5F5F0;
+  --text-secondary: #6B6960;
+  --text-tertiary: #9C9A90;
+  --border: #E8E6DF;
+  --border-subtle: #F0EEE8;
+  
+  /* QPrisma Amber (Primary accent) */
+  --amber-1: #FEFDFB;
+  --amber-2: #FDF8EF;
+  --amber-3: #FAEDC8;
+  --amber-4: #F5DFA0;
+  --amber-5: #EFD07A;
+  --amber-6: #E5BD56;
+  --amber-7: #D4A535;
+  --amber-8: #B8882A;
+  --amber-9: #A07522;
+  --amber-10: #86611C;
+  --amber-11: #6B4E16;
+  --amber-12: #3D2C0D;
+  
+  /* QPrisma Sage (Success, graph) */
+  --sage-1: #FBFDFB;
+  --sage-2: #F2F8F2;
+  --sage-3: #DFF0DF;
+  --sage-7: #72A872;
+  --sage-8: #5E905E;
+  
+  /* QPrisma Rose (Errors, warnings) */
+  --rose-3: #FFDCDC;
+  --rose-7: #E06868;
+  --rose-8: #CC4E4E;
+  
+  /* QPrisma Blue (Info, links, video) */
+  --blue-3: #DCE9FF;
+  --blue-6: #7CADFF;
+  --blue-7: #5C94F0;
+  --blue-8: #4A7CD8;
+  
+  /* Shadows */
+  --shadow-xs: 0 1px 2px rgba(28, 27, 24, 0.04);
+  --shadow-sm: 0 1px 3px rgba(28, 27, 24, 0.06), 0 1px 2px rgba(28, 27, 24, 0.04);
+  --shadow-md: 0 4px 6px rgba(28, 27, 24, 0.05), 0 2px 4px rgba(28, 27, 24, 0.04);
+  --shadow-lg: 0 10px 15px rgba(28, 27, 24, 0.06), 0 4px 6px rgba(28, 27, 24, 0.04);
+  --shadow-xl: 0 20px 25px rgba(28, 27, 24, 0.08), 0 8px 10px rgba(28, 27, 24, 0.04);
+  
+  /* Animation */
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+  --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-full: 9999px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-uber-blue: var(--uber-blue);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  
+  --color-amber-1: var(--amber-1);
+  --color-amber-2: var(--amber-2);
+  --color-amber-3: var(--amber-3);
+  --color-amber-4: var(--amber-4);
+  --color-amber-5: var(--amber-5);
+  --color-amber-6: var(--amber-6);
+  --color-amber-7: var(--amber-7);
+  --color-amber-8: var(--amber-8);
+  --color-amber-9: var(--amber-9);
+  --color-amber-10: var(--amber-10);
+  --color-amber-11: var(--amber-11);
+  --color-amber-12: var(--amber-12);
+  
+  --color-sage-1: var(--sage-1);
+  --color-sage-2: var(--sage-2);
+  --color-sage-3: var(--sage-3);
+  --color-sage-7: var(--sage-7);
+  --color-sage-8: var(--sage-8);
+  
+  --color-rose-3: var(--rose-3);
+  --color-rose-7: var(--rose-7);
+  --color-rose-8: var(--rose-8);
+  
+  --color-blue-3: var(--blue-3);
+  --color-blue-6: var(--blue-6);
+  --color-blue-7: var(--blue-7);
+  --color-blue-8: var(--blue-8);
+  
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -22,18 +118,96 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Custom Scrollbar for Dark Theme */
+/* Custom Scrollbar — Warm Theme */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #000000; 
+  background: var(--surface-elevated);
 }
 ::-webkit-scrollbar-thumb {
-  background: #333333; 
-  border-radius: 4px;
+  background: var(--border);
+  border-radius: var(--radius-sm);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #555555; 
+  background: var(--text-tertiary);
+}
+
+/* Animation keyframes */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Dark mode overrides */
+.dark {
+  --background: #0C0C0A;
+  --foreground: #F5F4F0;
+  --surface: #1A1918;
+  --surface-elevated: #242320;
+  --text-secondary: #A0A098;
+  --text-tertiary: #6B6960;
+  --border: #2E2D28;
+  --border-subtle: #1F1E1A;
+
+  /* Dark mode amber adjustments — slightly brighter for contrast */
+  --amber-1: #1A1710;
+  --amber-2: #221D12;
+  --amber-3: #332A16;
+  --amber-8: #D4A535;
+  --amber-9: #E5BD56;
+
+  /* Dark mode sage */
+  --sage-2: #141E14;
+  --sage-3: #1A2E1A;
+
+  /* Dark mode rose */
+  --rose-3: #2E1414;
+
+  /* Dark mode blue */
+  --blue-3: #14192E;
+
+  /* Accent stays warm */
+  --accent: #E5BD56;
+  --accent-hover: #D4A535;
+  --accent-subtle: #332A16;
+
+  /* Shadows — more subtle in dark mode */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3), 0 4px 6px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.35), 0 8px 10px rgba(0, 0, 0, 0.2);
+}
+
+/* Auth page animations */
+@keyframes mesh-gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes particle-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.2); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes glow-ring {
+  0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.6); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }

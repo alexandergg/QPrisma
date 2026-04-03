@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef } from 'react';
+import { motion } from 'framer-motion';
 import { CloudUpload, Film, X } from 'lucide-react';
 
 interface UploadZoneProps {
@@ -123,7 +124,12 @@ export default function UploadZone({
 
   return (
     <div className="w-full">
-      <div
+      <motion.div
+        animate={isDragging
+          ? { scale: 1.02, borderColor: 'var(--amber-6)' }
+          : { scale: 1, borderColor: 'var(--border)' }
+        }
+        transition={{ type: 'spring', damping: 20, stiffness: 300 }}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -133,14 +139,14 @@ export default function UploadZone({
           relative group cursor-pointer
           bg-white rounded-2xl p-12
           border-2 border-dashed
-          transition-all duration-300 ease-out
+          transition-colors duration-300 ease-out
           flex flex-col items-center justify-center text-center
           shadow-xl shadow-gray-200/50
           ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}
           ${
             isDragging
-              ? 'border-indigo-500 bg-indigo-50 scale-[1.02] shadow-indigo-200/50'
-              : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
+              ? 'border-amber-500 bg-amber-50 shadow-amber-200/50'
+              : 'border-gray-200 hover:border-amber-300 hover:bg-gray-50'
           }
         `}
       >
@@ -159,8 +165,8 @@ export default function UploadZone({
             w-20 h-20 rounded-2xl flex items-center justify-center mb-6 transition-all duration-300
             ${
               isDragging
-                ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/30 scale-110'
-                : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-400 group-hover:from-indigo-100 group-hover:to-purple-100 group-hover:text-indigo-500'
+                ? 'bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg shadow-amber-500/30 scale-110'
+                : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-400 group-hover:from-amber-100 group-hover:to-orange-100 group-hover:text-amber-600'
             }
           `}
         >
@@ -171,14 +177,14 @@ export default function UploadZone({
           {isDragging ? 'Drop your videos here' : 'Drop videos here'}
         </h3>
         <p className="text-gray-500">
-          or <span className="text-indigo-600 font-medium">click to browse</span> files
+          or <span className="text-amber-600 font-medium">click to browse</span> files
         </p>
 
         <div className="flex items-center gap-2 mt-6 text-xs text-gray-400">
           <Film className="w-4 h-4" />
           <span>MP4, MOV, AVI, WebM • Max {formatSize(maxSize)}</span>
         </div>
-      </div>
+      </motion.div>
 
       {/* Error Message */}
       {error && (

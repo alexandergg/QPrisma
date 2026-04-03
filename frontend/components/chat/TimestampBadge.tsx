@@ -10,6 +10,7 @@ interface TimestampBadgeProps {
   label?: string;
   onClick?: () => void;
   size?: 'sm' | 'md';
+  score?: number;
 }
 
 function TimestampBadge({
@@ -18,6 +19,7 @@ function TimestampBadge({
   label,
   onClick,
   size = 'sm',
+  score,
 }: TimestampBadgeProps) {
   const iconMap = {
     visual: Eye,
@@ -27,21 +29,27 @@ function TimestampBadge({
 
   const colorMap = {
     visual: {
-      bg: 'bg-indigo-50 hover:bg-indigo-100',
-      text: 'text-indigo-600',
-      icon: 'text-indigo-500',
+      bg: 'bg-[var(--blue-3)] hover:bg-[var(--blue-3)]/80',
+      text: 'text-[var(--blue-8)]',
+      icon: 'text-[var(--blue-7)]',
     },
     audio: {
-      bg: 'bg-emerald-50 hover:bg-emerald-100',
-      text: 'text-emerald-600',
-      icon: 'text-emerald-500',
+      bg: 'bg-[var(--sage-2)] hover:bg-[var(--sage-3)]',
+      text: 'text-[var(--sage-8)]',
+      icon: 'text-[var(--sage-7)]',
     },
     entity: {
-      bg: 'bg-amber-50 hover:bg-amber-100',
-      text: 'text-amber-600',
-      icon: 'text-amber-500',
+      bg: 'bg-[var(--amber-2)] hover:bg-[var(--amber-3)]',
+      text: 'text-[var(--amber-8)]',
+      icon: 'text-[var(--amber-7)]',
     },
   };
+
+  const confidenceRing = score !== undefined
+    ? score >= 0.8 ? 'ring-1 ring-[var(--sage-7)]/30'
+    : score >= 0.5 ? 'ring-1 ring-[var(--amber-6)]/30'
+    : 'ring-1 ring-[var(--rose-7)]/30'
+    : '';
 
   const Icon = iconMap[type];
   const colors = colorMap[type];
@@ -66,7 +74,7 @@ function TimestampBadge({
       onClick={onClick}
       className={`
         inline-flex items-center rounded-full font-medium transition-all
-        ${colors.bg} ${sizes.wrapper}
+        ${colors.bg} ${sizes.wrapper} ${confidenceRing}
         group cursor-pointer
       `}
     >
@@ -75,7 +83,7 @@ function TimestampBadge({
         {formatTime(timestamp)}
       </span>
       {label && (
-        <span className={`${sizes.text} text-gray-500 font-normal`}>
+        <span className={`${sizes.text} text-[var(--text-secondary)] font-normal`}>
           {label}
         </span>
       )}

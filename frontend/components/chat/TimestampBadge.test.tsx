@@ -49,16 +49,19 @@ describe('TimestampBadge', () => {
 
   it('applies visual type styling (default)', () => {
     const { container } = render(<TimestampBadge timestamp={30} type="visual" />);
-    expect(container.querySelector('.text-indigo-600')).toBeTruthy();
+    const button = container.querySelector('button');
+    expect(button?.className).toContain('var(--blue-');
   });
 
   it('applies audio type styling', () => {
     const { container } = render(<TimestampBadge timestamp={30} type="audio" />);
-    expect(container.querySelector('.text-emerald-600')).toBeTruthy();
+    const button = container.querySelector('button');
+    expect(button?.className).toContain('var(--sage-');
   });
 
   it('applies entity type styling', () => {
     const { container } = render(<TimestampBadge timestamp={30} type="entity" />);
-    expect(container.querySelector('.text-amber-600')).toBeTruthy();
+    const button = container.querySelector('button');
+    expect(button?.className).toContain('var(--amber-');
   });
 });

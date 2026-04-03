@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { Send, Plus, Loader2, Film, X, Square } from 'lucide-react';
 
 interface AttachedVideo {
@@ -74,7 +75,7 @@ export default function ChatInput({
             {attachedVideos.map((video) => (
               <div
                 key={video.id}
-                className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-sm"
+                className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-full text-sm"
               >
                 <Film className="w-3 h-3" />
                 <span className="max-w-[150px] truncate">{video.name}</span>
@@ -93,7 +94,7 @@ export default function ChatInput({
         )}
 
         {/* Input Container */}
-        <div className="relative bg-white rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/50 focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-100 transition-all">
+        <div className="relative bg-white rounded-2xl border border-gray-200 shadow-lg shadow-gray-200/50 focus-within:border-amber-300 focus-within:ring-4 focus-within:ring-amber-100 transition-all">
           <div className="flex items-end gap-2 p-3">
             {/* Attach Video Button */}
             {onAttachVideo && mode === 'single' && (
@@ -122,13 +123,15 @@ export default function ChatInput({
             />
 
             {/* Send Button */}
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              transition={{ duration: 0.1 }}
               onClick={onSend}
               disabled={isDisabled || isLoading || !value.trim()}
               aria-label={isLoading ? 'Sending message' : 'Send message'}
               className={`p-3 rounded-xl transition-all ${
                 value.trim() && !isDisabled && !isLoading
-                  ? 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-lg shadow-indigo-500/30'
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white shadow-lg shadow-amber-500/30'
                   : 'bg-gray-100 text-gray-400'
               }`}
             >
@@ -137,7 +140,7 @@ export default function ChatInput({
               ) : (
                 <Send className="w-4 h-4" />
               )}
-            </button>
+            </motion.button>
 
             {isLoading && onCancel && (
               <button

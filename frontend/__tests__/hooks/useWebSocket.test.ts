@@ -9,7 +9,7 @@
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { useJobWebSocket, type WebSocketStatus } from '@/hooks/useWebSocket';
+import { useJobWebSocket } from '@/hooks/useWebSocket';
 
 // ---------------------------------------------------------------------------
 // WebSocket mock
@@ -64,7 +64,8 @@ function simulateMessage(data: Record<string, unknown>) {
   mockWs.onmessage?.({ data: JSON.stringify(data) });
 }
 
-function simulateClose(code = 1006) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _simulateClose(code = 1006) {
   if (!mockWs) throw new Error('No WebSocket instance');
   mockWs.readyState = WebSocket.CLOSED;
   mockWs.onclose?.({ code });
