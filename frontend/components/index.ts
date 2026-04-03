@@ -18,6 +18,9 @@ export * from './library';
 // Upload components
 export * from './upload';
 
+// Compare components
+export * from './compare';
+
 // Standalone components
 export { default as ChapterNavigation } from './ChapterNavigation';
 export { default as PipelineVisualizer } from './PipelineVisualizer';

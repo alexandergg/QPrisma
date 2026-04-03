@@ -2,15 +2,99 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #000000;
-  --foreground: #ffffff;
-  --uber-blue: #276EF1;
+  /* Core palette */
+  --background: #FAFAF8;
+  --foreground: #1C1B18;
+  --surface: #FFFFFF;
+  --surface-elevated: #F5F5F0;
+  --border: #E8E5DE;
+  --border-strong: #D4D0C8;
+  --text-secondary: #6B6860;
+  --text-tertiary: #9C9889;
+
+  /* Amber scale */
+  --amber-1: #FEFDFB;
+  --amber-2: #FFF9ED;
+  --amber-3: #FFF3D0;
+  --amber-4: #FFECB3;
+  --amber-5: #FFE08A;
+  --amber-6: #FFD260;
+  --amber-7: #F5BC42;
+  --amber-8: #E5A410;
+  --amber-9: #CA8D08;
+  --amber-10: #AD7506;
+  --amber-11: #8C5E05;
+  --amber-12: #4E3200;
+
+  /* Sage scale */
+  --sage-1: #F9FAF9;
+  --sage-2: #F0F2EF;
+  --sage-3: #E2E5DF;
+  --sage-4: #D3D8D0;
+  --sage-5: #B8BFB4;
+  --sage-6: #9DA698;
+  --sage-7: #87917F;
+  --sage-8: #6B7563;
+  --sage-9: #535B4C;
+  --sage-10: #3E4539;
+  --sage-11: #2A2F26;
+  --sage-12: #1A1D17;
+
+  /* Rose scale */
+  --rose-1: #FFF5F5;
+  --rose-2: #FFE8E8;
+  --rose-3: #FDD;
+  --rose-4: #FFC7C7;
+  --rose-5: #FFAAAA;
+  --rose-6: #F28B8B;
+  --rose-7: #E06C6C;
+  --rose-8: #CC4E4E;
+  --rose-9: #B33A3A;
+  --rose-10: #992D2D;
+  --rose-11: #7A2020;
+  --rose-12: #4C1111;
+
+  /* Blue scale */
+  --blue-1: #F5F9FF;
+  --blue-2: #E8F0FF;
+  --blue-3: #D0E2FF;
+  --blue-4: #B3D1FF;
+  --blue-5: #8AB8FF;
+  --blue-6: #609CFF;
+  --blue-7: #4284F5;
+  --blue-8: #2B6DE0;
+  --blue-9: #1A58C7;
+  --blue-10: #1248A8;
+  --blue-11: #0A3580;
+  --blue-12: #051E4D;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(28, 27, 24, 0.04);
+  --shadow-md: 0 2px 8px rgba(28, 27, 24, 0.06), 0 1px 2px rgba(28, 27, 24, 0.04);
+  --shadow-lg: 0 4px 16px rgba(28, 27, 24, 0.08), 0 2px 4px rgba(28, 27, 24, 0.04);
+  --shadow-xl: 0 8px 32px rgba(28, 27, 24, 0.10), 0 2px 8px rgba(28, 27, 24, 0.04);
+
+  /* Animation */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+  --ease-default: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-uber-blue: var(--uber-blue);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -20,20 +104,21 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom Scrollbar for Dark Theme */
+/* Warm scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #000000; 
+  background: var(--surface-elevated);
 }
 ::-webkit-scrollbar-thumb {
-  background: #333333; 
-  border-radius: 4px;
+  background: var(--border-strong);
+  border-radius: var(--radius-full);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #555555; 
+  background: var(--sage-6);
 }
