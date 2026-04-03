@@ -67,7 +67,7 @@ export default function ChatInput({
     : 'Press Enter to send • Shift+Enter for new line';
 
   return (
-    <div className="border-t border-gray-100 bg-white/80 backdrop-blur-xl">
+    <div className="flex-shrink-0 border-t border-gray-100 bg-white/80 backdrop-blur-xl">
       <div className="max-w-3xl mx-auto p-4">
         {/* Attached Videos Bar */}
         {attachedVideos.length > 0 && (
