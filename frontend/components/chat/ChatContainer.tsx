@@ -33,6 +33,7 @@ interface ChatContainerProps {
   onTimestampClick?: (timestamp: number) => void;
   onUploadVideo?: () => void;
   onBrowseLibrary?: () => void;
+  onSelectVideoById?: (videoId: string) => void;
   userName?: string;
   initialMessages?: ChatMessageData[];
   initialSessionId?: string;
@@ -49,6 +50,7 @@ export default function ChatContainer({
   onTimestampClick,
   onUploadVideo,
   onBrowseLibrary,
+  onSelectVideoById,
   userName,
   initialMessages = [],
   initialSessionId,

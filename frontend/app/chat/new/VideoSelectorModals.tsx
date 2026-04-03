@@ -22,12 +22,12 @@ export function VideoSelectorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-xl font-semibold text-gray-900">Select a Video</h2>
+      <div className="bg-[var(--surface)] rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden border border-[var(--border-subtle)]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
+          <h2 className="text-xl font-semibold text-[var(--foreground)]">Select a Video</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
+            className="p-2 hover:bg-[var(--surface-elevated)] rounded-lg text-[var(--text-secondary)]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -62,17 +62,17 @@ export function MultiVideoSelectorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div className="bg-[var(--surface)] rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden border border-[var(--border-subtle)]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Select Multiple Videos</h2>
-            <p className="text-sm text-gray-500 mt-1">
+            <h2 className="text-xl font-semibold text-[var(--foreground)]">Select Multiple Videos</h2>
+            <p className="text-sm text-[var(--text-secondary)] mt-1">
               Select up to 10 videos to chat across them. {selectedVideos.length > 0 && `(${selectedVideos.length} selected)`}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
+            className="p-2 hover:bg-[var(--surface-elevated)] rounded-lg text-[var(--text-secondary)]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -84,8 +84,8 @@ export function MultiVideoSelectorModal({
             onSelectionChange={onSelectionChange}
           />
         </div>
-        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50">
-          <span className="text-sm text-gray-600">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border)] bg-[var(--surface-elevated)]">
+          <span className="text-sm text-[var(--text-secondary)]">
             {selectedVideos.length === 0
               ? 'No videos selected'
               : `${selectedVideos.length} video${selectedVideos.length !== 1 ? 's' : ''} selected`}
