@@ -2,11 +2,10 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-from opentelemetry.sdk.trace import SpanProcessor
-
 import agent.hosted.telemetry as telemetry_mod
+import pytest
 from agent.utils.observability import ConversationIdSpanProcessor
+from opentelemetry.sdk.trace import SpanProcessor
 
 
 @pytest.mark.unit
