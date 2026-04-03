@@ -27,11 +27,6 @@ function CompareView({ videos, onRemoveVideo, onSelectVideo }: CompareViewProps)
 
     const entitySets = videos.map((v) => new Set(v.entities ?? []));
     const allEntities = videos.flatMap((v) => v.entities ?? []);
-    const entityCounts = new Map<string, number>();
-    for (const entity of allEntities) {
-      entityCounts.set(entity, (entityCounts.get(entity) ?? 0) + 1);
-    }
-
     const sharedEntities = [...new Set(allEntities)].filter((e) => {
       let count = 0;
       for (const set of entitySets) {
@@ -75,7 +70,7 @@ function CompareView({ videos, onRemoveVideo, onSelectVideo }: CompareViewProps)
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-[var(--radius-lg)] bg-[var(--amber-2)] flex items-center justify-center">
-          <Users className="w-4.5 h-4.5 text-[var(--amber-8)]" />
+          <Users className="w-[18px] h-[18px] text-[var(--amber-8)]" />
         </div>
         <div>
           <h2 className="text-lg font-semibold text-[var(--foreground)]">
@@ -219,7 +214,7 @@ function CompareView({ videos, onRemoveVideo, onSelectVideo }: CompareViewProps)
             {shared.map((entity) => (
               <span
                 key={entity}
-                className="px-2.5 py-1 text-xs font-medium rounded-[var(--radius-full)] bg-[var(--sage-2)] text-[var(--sage-8)] border border-[var(--sage-4)]"
+                className="px-2.5 py-1 text-xs font-medium rounded-[var(--radius-full)] bg-[var(--sage-2)] text-[var(--sage-8)] border border-[var(--sage-3)]"
               >
                 {entity}
               </span>

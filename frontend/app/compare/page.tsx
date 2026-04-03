@@ -28,18 +28,21 @@ export default function ComparePage() {
   // Build CompareVideo objects from selected IDs
   // In a real integration the full video data would come from an API or context;
   // here we use the IDs as placeholder names until the grid callback provides full data.
-  const [videoMap, setVideoMap] = useState<Record<string, CompareVideo>>({});
+  const videoMap: Record<string, CompareVideo> = {};
 
-  const handleSelectionChange = useCallback((ids: string[]) => {
+  const handleSelectionChange= useCallback((ids: string[]) => {
     setSelectedIds(ids.slice(0, 3));
   }, []);
 
   const handleRemoveVideo = useCallback((id: string) => {
-    setSelectedIds((prev) => prev.filter((v) => v !== id));
-    if (selectedIds.length <= 2) {
-      setComparing(false);
-    }
-  }, [selectedIds.length]);
+    setSelectedIds((prev) => {
+      const next = prev.filter((v) => v !== id);
+      if (next.length < 2) {
+        setComparing(false);
+      }
+      return next;
+    });
+  }, []);
 
   const compareVideos = useMemo<CompareVideo[]>(
     () =>

@@ -156,7 +156,7 @@ body {
   --border: #2E2D28;
   --border-subtle: #1F1E1A;
 
-  /* Dark mode amber adjustments ΓÇö slightly brighter for contrast */
+  /* Dark mode amber adjustments — slightly brighter for contrast */
   --amber-1: #1A1710;
   --amber-2: #221D12;
   --amber-3: #332A16;
@@ -178,10 +178,36 @@ body {
   --accent-hover: #D4A535;
   --accent-subtle: #332A16;
 
-  /* Shadows ΓÇö more subtle in dark mode */
+  /* Shadows — more subtle in dark mode */
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3), 0 4px 6px rgba(0, 0, 0, 0.2);
   --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.35), 0 8px 10px rgba(0, 0, 0, 0.2);
+}
+
+/* Auth page animations */
+@keyframes mesh-gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes particle-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.2); }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes glow-ring {
+  0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(99, 102, 241, 0.6); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }

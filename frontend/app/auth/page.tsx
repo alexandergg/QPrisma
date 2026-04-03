@@ -84,6 +84,9 @@ export default function AuthPage() {
     }
   }, [isAuthenticated, router]);
 
+  // Authentication is handled exclusively via MSAL (Azure AD).
+  // The email/password form fields are a visual placeholder that is part of
+  // the cinematic login design — submitting the form triggers MSAL SSO.
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -233,8 +236,9 @@ export default function AuthPage() {
             </button>
             <button
               type="button"
-              disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 py-3 border border-[var(--border)] rounded-[var(--radius-lg)] hover:bg-[var(--surface-elevated)] active:scale-[0.98] transition-all duration-150 text-sm font-medium text-[var(--foreground)] disabled:opacity-50"
+              disabled
+              title="GitHub OAuth coming soon"
+              className="flex-1 flex items-center justify-center gap-2 py-3 border border-[var(--border)] rounded-[var(--radius-lg)] transition-all duration-150 text-sm font-medium text-[var(--foreground)] opacity-50 cursor-not-allowed"
             >
               <GitHubIcon />
               GitHub
@@ -377,7 +381,7 @@ export default function AuthPage() {
                   {activeTab === 'login' ? 'Signing in…' : 'Creating account…'}
                 </span>
               ) : (
-                activeTab === 'login' ? 'Sign In' : 'Create Account'
+                activeTab === 'login' ? 'Sign in with SSO' : 'Create Account with SSO'
               )}
             </button>
           </form>

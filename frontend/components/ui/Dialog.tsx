@@ -68,7 +68,7 @@ const Dialog = memo(function Dialog({
     >
       <div
         ref={panelRef}
-        className={`w-full ${sizeStyles[size]} mx-4 bg-[var(--surface)] rounded-[var(--radius-xl)] shadow-[var(--shadow-xl)] animate-[scaleIn_var(--duration-normal)_var(--easing-spring)]`}
+        className={`relative w-full ${sizeStyles[size]} mx-4 bg-[var(--surface)] rounded-[var(--radius-xl)] shadow-[var(--shadow-xl)] animate-[scaleIn_var(--duration-normal)_var(--easing-spring)]`}
       >
         {title && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)]">
