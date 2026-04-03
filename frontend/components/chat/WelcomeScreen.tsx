@@ -44,13 +44,13 @@ function WelcomeScreen({
     <div className="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto">
       <div className="max-w-2xl w-full text-center">
         {/* Logo/Icon */}
-        <div className="w-20 h-20 mx-auto mb-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-indigo-500/30">
+        <div className="w-20 h-20 mx-auto mb-8 bg-[var(--amber-8)] rounded-2xl flex items-center justify-center shadow-[var(--shadow-lg)]">
           <Sparkles className="w-10 h-10 text-white" />
         </div>
 
         {/* Greeting */}
-        <h1 className="text-4xl font-bold text-gray-900 mb-3">{greeting}</h1>
-        <p className="text-lg text-gray-500 mb-10">
+        <h1 className="text-4xl font-bold text-[var(--foreground)] mb-3">{greeting}</h1>
+        <p className="text-lg text-[var(--text-secondary)] mb-10">
           {mode === 'single'
             ? 'Unlock intelligent insights from your videos'
             : 'Search and analyze across your entire video library'}
@@ -61,13 +61,13 @@ function WelcomeScreen({
           {/* Upload Video Card */}
           <button
             onClick={onUploadVideo}
-            className="group bg-white rounded-2xl p-6 border-2 border-dashed border-gray-200 hover:border-indigo-300 hover:bg-indigo-50/50 transition-all text-left"
+            className="group bg-[var(--surface)] rounded-[var(--radius-xl)] p-6 border-2 border-dashed border-[var(--border)] hover:border-[var(--amber-6)] hover:bg-[var(--amber-1)] transition-all text-left"
           >
-            <div className="w-12 h-12 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-xl flex items-center justify-center mb-4 group-hover:from-indigo-200 group-hover:to-purple-200 transition-colors">
-              <Upload className="w-6 h-6 text-indigo-600" />
+            <div className="w-12 h-12 bg-[var(--amber-2)] rounded-xl flex items-center justify-center mb-4 transition-colors">
+              <Upload className="w-6 h-6 text-[var(--amber-8)]" />
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-1">Upload Video</h3>
-            <p className="text-sm text-gray-500">
+            <h3 className="text-lg font-semibold text-[var(--foreground)] mb-1">Upload Video</h3>
+            <p className="text-sm text-[var(--text-secondary)]">
               Drag and drop or click to upload a new video for analysis
             </p>
           </button>
@@ -75,13 +75,13 @@ function WelcomeScreen({
           {/* Browse Library Card */}
           <button
             onClick={onBrowseLibrary}
-            className="group bg-white rounded-2xl p-6 border-2 border-dashed border-gray-200 hover:border-purple-300 hover:bg-purple-50/50 transition-all text-left"
+            className="group bg-[var(--surface)] rounded-[var(--radius-xl)] p-6 border-2 border-dashed border-[var(--border)] hover:border-[var(--blue-7)] hover:bg-[var(--blue-3)]/30 transition-all text-left"
           >
-            <div className="w-12 h-12 bg-gradient-to-br from-purple-100 to-pink-100 rounded-xl flex items-center justify-center mb-4 group-hover:from-purple-200 group-hover:to-pink-200 transition-colors">
-              <Library className="w-6 h-6 text-purple-600" />
+            <div className="w-12 h-12 bg-[var(--blue-3)] rounded-xl flex items-center justify-center mb-4 transition-colors">
+              <Library className="w-6 h-6 text-[var(--blue-8)]" />
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-1">Video Library</h3>
-            <p className="text-sm text-gray-500">
+            <h3 className="text-lg font-semibold text-[var(--foreground)] mb-1">Video Library</h3>
+            <p className="text-sm text-[var(--text-secondary)]">
               Browse and select from your processed videos
             </p>
           </button>
@@ -89,9 +89,9 @@ function WelcomeScreen({
 
         {/* Divider */}
         <div className="flex items-center gap-4 mb-8">
-          <div className="flex-1 h-px bg-gray-200"></div>
-          <span className="text-sm text-gray-400 font-medium">or try a quick prompt</span>
-          <div className="flex-1 h-px bg-gray-200"></div>
+          <div className="flex-1 h-px bg-[var(--border)]"></div>
+          <span className="text-sm text-[var(--text-tertiary)] font-medium">or try a quick prompt</span>
+          <div className="flex-1 h-px bg-[var(--border)]"></div>
         </div>
 
         {/* Quick Suggestions */}
@@ -100,19 +100,19 @@ function WelcomeScreen({
             <button
               key={index}
               onClick={() => onQuickSuggestion?.(suggestion.text)}
-              className="group flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50/50 transition-all text-left"
+              className="group flex items-center gap-3 p-4 bg-[var(--surface)] rounded-[var(--radius-lg)] border border-[var(--border-subtle)] hover:border-[var(--amber-5)] hover:bg-[var(--amber-1)] transition-all text-left"
             >
-              <MessageSquare className="w-5 h-5 text-gray-400 group-hover:text-indigo-500 flex-shrink-0" />
-              <span className="text-sm text-gray-600 group-hover:text-gray-900 flex-1">
+              <MessageSquare className="w-5 h-5 text-[var(--text-tertiary)] group-hover:text-[var(--amber-8)] flex-shrink-0" />
+              <span className="text-sm text-[var(--text-secondary)] group-hover:text-[var(--foreground)] flex-1">
                 {suggestion.text}
               </span>
-              <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-all" />
+              <ArrowRight className="w-4 h-4 text-[var(--text-tertiary)] group-hover:text-[var(--amber-8)] opacity-0 group-hover:opacity-100 transition-all" />
             </button>
           ))}
         </div>
 
         {/* Footer hint */}
-        <p className="text-xs text-gray-400 mt-8">
+        <p className="text-xs text-[var(--text-tertiary)] mt-8">
           {mode === 'single'
             ? 'Select a video to start chatting about its content'
             : 'Your questions will search across all your processed videos'}
