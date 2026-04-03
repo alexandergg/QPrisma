@@ -7,7 +7,6 @@ import {
   Film,
   Sparkles,
   Tag,
-  Layers,
 } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
 
