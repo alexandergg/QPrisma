@@ -157,6 +157,7 @@ export const MessageBubble = memo(function MessageBubble({
   onSuggestionClick?: (suggestion: string) => void;
   onRetryLast?: () => void;
 }) {
+  const isStreaming = message.id === 'streaming';
   const isUser = message.role === 'user';
   
   // Parse content for suggestions
@@ -269,6 +270,12 @@ export const MessageBubble = memo(function MessageBubble({
               ) : (
                 <div className="text-sm leading-relaxed prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-strong:text-gray-900 prose-code:text-amber-700 prose-code:bg-amber-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
                   <ReactMarkdown components={markdownComponents}>{displayContent}</ReactMarkdown>
+                  {isStreaming && (
+                    <span
+                      className="inline-block w-[2px] h-[1.1em] bg-current ml-0.5 align-middle"
+                      style={{ animation: 'blink 0.8s step-end infinite' }}
+                    />
+                  )}
                 </div>
               )}
 

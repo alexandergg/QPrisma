@@ -6,7 +6,7 @@
  * through a single event loop.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ToolStatus } from '@/components/chat/MessageBubble';
 import { apiClient } from '@/lib/api';
 import type { ChatMessage, ChatMessageSource, ToolDetail } from './useChatState';
@@ -81,6 +81,17 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
 
   const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  const tokenBufferRef = useRef('');
+  const rafIdRef = useRef<number | undefined>(undefined);
+
+  // Clean up rAF on unmount
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
 
   const commitAssistantMessage = useCallback(
     (
@@ -235,7 +246,15 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
             case 'token':
               if (event.data.token) {
                 streamedResponse += event.data.token;
-                setStreamingContent((prev) => prev + event.data.token);
+                tokenBufferRef.current += event.data.token;
+                if (!rafIdRef.current) {
+                  rafIdRef.current = requestAnimationFrame(() => {
+                    const buffered = tokenBufferRef.current;
+                    tokenBufferRef.current = '';
+                    rafIdRef.current = undefined;
+                    setStreamingContent((prev) => prev + buffered);
+                  });
+                }
               }
               break;
 
@@ -329,8 +348,17 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
 
   const handleCancel = useCallback(() => {
     if (!abortControllerRef.current) return;
+    // Flush buffered tokens before aborting
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = undefined;
+    }
+    if (tokenBufferRef.current) {
+      setStreamingContent((prev) => prev + tokenBufferRef.current);
+      tokenBufferRef.current = '';
+    }
     abortControllerRef.current.abort();
-  }, []);
+  }, [setStreamingContent]);
 
   const handleRetryLast = useCallback(() => {
     if (!lastSubmittedPrompt) return;
