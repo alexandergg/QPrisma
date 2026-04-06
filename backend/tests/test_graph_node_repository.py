@@ -109,6 +109,9 @@ class TestGraphNodeRepositoryScoping:
         created = repo.create_topic_nodes_batch(topics, "video-1")
 
         query = session.run.call_args.args[0]
+        assert query.index("MATCH (v:Video {video_id: $video_id})") < query.index(
+            "UNWIND $topics AS topic"
+        )
         assert (
             "MERGE (t:Topic {normalized_name: topic.normalized_name, video_id: $video_id})" in query
         )

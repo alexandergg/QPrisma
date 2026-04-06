@@ -20,7 +20,6 @@ from api.dependencies import (
     get_hierarchical_context_service,
     get_knowledge_graph_service,
     get_media_or_404,
-    get_user_media_ids,
 )
 from core.exceptions import internal_error, not_found_error
 from models.graph_models import (
@@ -288,15 +287,13 @@ async def cross_video_search(
     try:
         get_graph_node_media_or_404(request.reference_node_id, current_user)
         search_service = get_graph_search_service()
-        allowed_video_ids = None
-        if not current_user.is_superuser:
-            allowed_video_ids = get_user_media_ids(current_user, processed_only=True)
+        scoped_user_id = None if current_user.is_superuser else current_user.id
 
         similar_nodes = search_service.find_similar_across_videos(
             reference_node_id=request.reference_node_id,
             limit=request.limit,
             min_similarity=request.min_similarity,
-            allowed_video_ids=allowed_video_ids,
+            user_id=scoped_user_id,
         )
 
         return CrossVideoSearchResponse(

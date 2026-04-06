@@ -181,17 +181,14 @@ class TestGetMediaOr404:
 @pytest.mark.unit
 class TestGetUserMediaIds:
     def test_filters_to_processed_media_when_requested(self, test_user):
-        processed_media = MagicMock(id="vid-1", processed=True)
-        pending_media = MagicMock(id="vid-2", processed=False)
-
         mock_db = MagicMock()
-        mock_db.get_media_by_user.return_value = [processed_media, pending_media]
+        mock_db.get_user_media_ids.return_value = ["vid-1"]
 
         with patch("api.dependencies.get_database_service", return_value=mock_db):
             result = get_user_media_ids(test_user, processed_only=True)
 
         assert result == ["vid-1"]
-        mock_db.get_media_by_user.assert_called_once_with(test_user.id, limit=500, offset=0)
+        mock_db.get_user_media_ids.assert_called_once_with(test_user.id, processed_only=True)
 
 
 @pytest.mark.unit

@@ -454,6 +454,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         limit: int = 10,
         min_similarity: float = 0.7,
         allowed_video_ids: list[str] | None = None,
+        user_id: str | None = None,
     ) -> list[ScoredNode]:
         """
         Find similar nodes across other videos.
@@ -462,6 +463,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             reference_node_id: Reference node ID
             limit: Maximum number of results
             min_similarity: Minimum similarity threshold
+            allowed_video_ids: Optional explicit video scope for callers that need it
+            user_id: Optional tenant scope applied directly in Neo4j
 
         Returns:
             List of similar nodes from other videos
@@ -490,6 +493,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             return []
 
         # Vector search excluding the current video
+        tenant_scope = "AND node.user_id = $user_id" if user_id else ""
         allowed_scope = (
             "AND node.video_id IN $allowed_video_ids" if allowed_video_ids is not None else ""
         )
@@ -497,6 +501,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             CALL db.index.vector.queryNodes($index_name, $limit * 2, $embedding)
             YIELD node, score
             WHERE node.video_id <> $exclude_video AND score >= $min_score
+            {tenant_scope}
             {allowed_scope}
             RETURN node, score
             ORDER BY score DESC
@@ -514,6 +519,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 "limit": limit,
                 "min_score": min_similarity,
             }
+            if user_id:
+                params["user_id"] = user_id
             if allowed_video_ids is not None:
                 params["allowed_video_ids"] = allowed_video_ids
 

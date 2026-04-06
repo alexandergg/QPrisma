@@ -192,24 +192,7 @@ class CrossVideoSearchService:
         from services.database_service import get_database_service
 
         db = get_database_service()
-        media_ids: list[str] = []
-        offset = 0
-        batch_size = 500
-
-        while True:
-            media_batch = db.get_media_by_user(user_id, limit=batch_size, offset=offset)
-            if not media_batch:
-                break
-
-            media_ids.extend(
-                media.id for media in media_batch if getattr(media, "processed", False)
-            )
-
-            if len(media_batch) < batch_size:
-                break
-            offset += batch_size
-
-        return media_ids
+        return db.get_user_media_ids(user_id, processed_only=True)
 
     # ------------------------------------------------------------------
     # Cross-video search

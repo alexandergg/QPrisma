@@ -1263,8 +1263,8 @@ class GraphNodeRepository:
         ]
 
         query = """
-        UNWIND $topics AS topic
         MATCH (v:Video {video_id: $video_id})
+        UNWIND $topics AS topic
         MERGE (t:Topic {normalized_name: topic.normalized_name, video_id: $video_id})
         ON CREATE SET
             t.id = topic.id,

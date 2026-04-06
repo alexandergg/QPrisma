@@ -232,6 +232,30 @@ def test_calculate_graph_scores_batches_expansion_and_paths():
 
 
 @pytest.mark.unit
+def test_find_similar_across_videos_adds_user_filter_without_video_id_list():
+    session = MagicMock()
+    session.run.side_effect = [
+        _iterable_result(
+            [{"embedding": [0.1] * 4, "video_id": "vid-1", "label": NodeType.ENTITY.value}]
+        ),
+        _iterable_result([]),
+    ]
+
+    svc = GraphSearchService.__new__(GraphSearchService)
+    svc.graph_service = MagicMock()
+    svc.graph_service.get_session = _session_context(session)
+
+    results = svc.find_similar_across_videos("node-1", user_id="user-1")
+
+    assert results == []
+    search_query = session.run.call_args_list[1].args[0]
+    search_params = session.run.call_args_list[1].kwargs
+    assert "node.user_id = $user_id" in search_query
+    assert "allowed_video_ids" not in search_params
+    assert search_params["user_id"] == "user-1"
+
+
+@pytest.mark.unit
 def test_knowledge_graph_search_entities_adds_user_filter():
     session = MagicMock()
     session.run.return_value = _iterable_result([])

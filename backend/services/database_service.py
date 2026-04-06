@@ -198,6 +198,34 @@ class DatabaseService:
                 session.expunge(media)
             return media_list
 
+    def get_user_media_ids(
+        self,
+        user_id: str,
+        *,
+        processed_only: bool = False,
+        batch_size: int = 500,
+    ) -> list[str]:
+        """Return media IDs for a user, optionally restricted to processed items."""
+        media_ids: list[str] = []
+        offset = 0
+
+        while True:
+            media_batch = self.get_media_by_user(user_id, limit=batch_size, offset=offset)
+            if not media_batch:
+                break
+
+            media_ids.extend(
+                media.id
+                for media in media_batch
+                if not processed_only or getattr(media, "processed", False)
+            )
+
+            if len(media_batch) < batch_size:
+                break
+            offset += batch_size
+
+        return media_ids
+
     def update_media(self, media_id: str, updates: dict[str, Any]) -> MediaModel | None:
         """Update media record."""
         with self.get_session() as session:

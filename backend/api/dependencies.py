@@ -348,26 +348,7 @@ def get_user_media_ids(
 ) -> list[str]:
     """Return the current user's media IDs, optionally restricted to processed items."""
     db = get_database_service()
-    media_ids: list[str] = []
-    offset = 0
-    batch_size = 500
-
-    while True:
-        media_batch = db.get_media_by_user(current_user.id, limit=batch_size, offset=offset)
-        if not media_batch:
-            break
-
-        media_ids.extend(
-            media.id
-            for media in media_batch
-            if not processed_only or getattr(media, "processed", False)
-        )
-
-        if len(media_batch) < batch_size:
-            break
-        offset += batch_size
-
-    return media_ids
+    return db.get_user_media_ids(current_user.id, processed_only=processed_only)
 
 
 def get_graph_node_media_or_404(

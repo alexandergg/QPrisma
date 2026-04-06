@@ -216,10 +216,7 @@ class TestSearchAcrossVideos:
         row = _make_frame_row("v2", "Other Video")
         kg = _make_mock_kg(session_results=[[]])
         mock_db = MagicMock()
-        mock_db.get_media_by_user.return_value = [
-            MagicMock(id="v2", processed=True),
-            MagicMock(id="v3", processed=False),
-        ]
+        mock_db.get_user_media_ids.return_value = ["v2"]
 
         with (
             patch("services.database_service.get_database_service", return_value=mock_db),
@@ -234,6 +231,7 @@ class TestSearchAcrossVideos:
         assert result.videos_searched == 1
         assert mock_run_query.call_args.args[2]["media_ids"] == ["v2"]
         assert mock_run_query.call_args.args[2]["user_id"] == "user-1"
+        mock_db.get_user_media_ids.assert_called_once_with("user-1", processed_only=True)
 
     def test_missing_user_context_does_not_fallback_to_global_search(self):
         kg = _make_mock_kg(session_results=[[]])

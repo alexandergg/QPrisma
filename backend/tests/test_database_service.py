@@ -211,6 +211,27 @@ class TestMediaCRUD:
         page = db_service.get_media_by_user("user_media_test", limit=2, offset=0)
         assert len(page) == 2
 
+    def test_get_user_media_ids_filters_processed_across_pages(self, db_service):
+        for i, processed in enumerate([True, False, True]):
+            db_service.create_media(
+                {
+                    "id": f"media_scope_{i}",
+                    "user_id": "user_media_test",
+                    "blob_name": f"scope_{i}.mp4",
+                    "media_type": "video",
+                    "processed": processed,
+                }
+            )
+
+        media_ids = db_service.get_user_media_ids(
+            "user_media_test",
+            processed_only=True,
+            batch_size=2,
+        )
+
+        assert set(media_ids) >= {"media_scope_0", "media_scope_2"}
+        assert "media_scope_1" not in media_ids
+
 
 # =============================================================================
 # Job Operations

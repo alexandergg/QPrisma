@@ -82,7 +82,7 @@ class TestGraphRouteSecurity:
         mock_service.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_cross_video_search_scopes_results_to_current_user_videos(self, test_user):
+    async def test_cross_video_search_scopes_results_to_current_user(self, test_user):
         request = CrossVideoSearchRequest(
             reference_node_id="node-1",
             limit=5,
@@ -105,20 +105,15 @@ class TestGraphRouteSecurity:
                 "api.routes.graph_routes.get_graph_search_service",
                 return_value=mock_search_service,
             ),
-            patch(
-                "api.routes.graph_routes.get_user_media_ids",
-                return_value=["vid-1", "vid-2"],
-            ) as mock_user_media_ids,
         ):
             response = await cross_video_search(request, current_user=test_user)
 
         mock_node_auth.assert_called_once_with("node-1", test_user)
-        mock_user_media_ids.assert_called_once_with(test_user, processed_only=True)
         mock_search_service.find_similar_across_videos.assert_called_once_with(
             reference_node_id="node-1",
             limit=5,
             min_similarity=0.8,
-            allowed_video_ids=["vid-1", "vid-2"],
+            user_id=test_user.id,
         )
         assert response.total_found == 1
 

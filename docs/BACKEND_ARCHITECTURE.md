@@ -1250,9 +1250,10 @@ CREATE FULLTEXT INDEX audio_text FOR (a:AudioSegment) ON EACH [a.text]
 CREATE FULLTEXT INDEX entity_name FOR (e:Entity) ON EACH [e.name]
 
 -- Uniqueness constraints
-CREATE CONSTRAINT video_id_unique IF NOT EXISTS FOR (v:Video) REQUIRE v.video_id IS UNIQUE
-CREATE CONSTRAINT entity_identity IF NOT EXISTS FOR (e:Entity) REQUIRE (e.video_id, e.normalized_name, e.entity_type) IS UNIQUE
-CREATE CONSTRAINT topic_identity IF NOT EXISTS FOR (t:Topic) REQUIRE (t.video_id, t.normalized_name) IS UNIQUE
+CREATE CONSTRAINT video_id IF NOT EXISTS FOR (v:Video) REQUIRE v.id IS UNIQUE
+CREATE CONSTRAINT video_video_id_unique IF NOT EXISTS FOR (v:Video) REQUIRE v.video_id IS UNIQUE
+CREATE CONSTRAINT entity_video_name_type_unique IF NOT EXISTS FOR (e:Entity) REQUIRE (e.video_id, e.normalized_name, e.entity_type) IS UNIQUE
+CREATE CONSTRAINT topic_video_name_unique IF NOT EXISTS FOR (t:Topic) REQUIRE (t.video_id, t.normalized_name) IS UNIQUE
 ```
 
 Además de los índices vectoriales/fulltext, el esquema crea índices `user_id` para `Video`, `Scene`, `Frame`, `AudioSegment`, `Entity`, `Topic` y `Community`, y las rutas `/graph` validan ownership antes de ejecutar búsquedas por `video_id` o `node_id`.
