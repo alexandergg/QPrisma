@@ -87,6 +87,7 @@ class GraphSearchQueryMixin:
         limit: int = 20,
         video_id: str | None = None,
         video_ids: list[str] | None = None,
+        user_id: str | None = None,
         min_score: float = 0.5,
     ) -> list[ScoredNode]:
         """
@@ -110,6 +111,7 @@ class GraphSearchQueryMixin:
             node_type=node_type,
             video_id=video_id,
             video_ids=video_ids,
+            user_id=user_id,
             min_score=max(min_score - 0.15, 0.1),  # Lower threshold for coarse
         )
 
@@ -125,6 +127,7 @@ class GraphSearchQueryMixin:
                 limit=limit,
                 min_score=min_score,
                 full_index=full_index,
+                user_id=user_id,
             )
 
             if reranked:
@@ -142,12 +145,19 @@ class GraphSearchQueryMixin:
             node_type=node_type,
             video_id=video_id,
             video_ids=video_ids,
+            user_id=user_id,
             min_score=min_score,
         )
 
         if not results:
             results = self._fallback_vector_search(
-                query_embedding, node_type, limit, video_id, min_score, video_ids
+                query_embedding,
+                node_type,
+                limit,
+                video_id,
+                min_score,
+                video_ids,
+                user_id,
             )
 
         return results
@@ -162,53 +172,37 @@ class GraphSearchQueryMixin:
         node_type: NodeType,
         video_id: str | None = None,
         video_ids: list[str] | None = None,
+        user_id: str | None = None,
         min_score: float = 0.5,
     ) -> list[ScoredNode]:
         """Execute a vector index query and return scored nodes."""
+        filters = ["score >= $min_score"]
+        params = {
+            "index_name": index_name,
+            "embedding": embedding,
+            "limit": limit,
+            "query_limit": limit * 2 if (video_ids or video_id or user_id) else limit,
+            "min_score": min_score,
+        }
+
         if video_ids:
-            query = """
-                CALL db.index.vector.queryNodes($index_name, $limit * 2, $embedding)
-                YIELD node, score
-                WHERE node.video_id IN $video_ids AND score >= $min_score
-                RETURN node, score
-                ORDER BY score DESC LIMIT $limit
-            """
-            params = {
-                "index_name": index_name,
-                "embedding": embedding,
-                "limit": limit,
-                "video_ids": video_ids,
-                "min_score": min_score,
-            }
+            filters.append("node.video_id IN $video_ids")
+            params["video_ids"] = video_ids
         elif video_id:
-            query = """
-                CALL db.index.vector.queryNodes($index_name, $limit * 2, $embedding)
-                YIELD node, score
-                WHERE node.video_id = $video_id AND score >= $min_score
-                RETURN node, score
-                ORDER BY score DESC LIMIT $limit
-            """
-            params = {
-                "index_name": index_name,
-                "embedding": embedding,
-                "limit": limit,
-                "video_id": video_id,
-                "min_score": min_score,
-            }
-        else:
-            query = """
-                CALL db.index.vector.queryNodes($index_name, $limit, $embedding)
-                YIELD node, score
-                WHERE score >= $min_score
-                RETURN node, score
-                ORDER BY score DESC LIMIT $limit
-            """
-            params = {
-                "index_name": index_name,
-                "embedding": embedding,
-                "limit": limit,
-                "min_score": min_score,
-            }
+            filters.append("node.video_id = $video_id")
+            params["video_id"] = video_id
+
+        if user_id:
+            filters.append("node.user_id = $user_id")
+            params["user_id"] = user_id
+
+        query = f"""
+            CALL db.index.vector.queryNodes($index_name, $query_limit, $embedding)
+            YIELD node, score
+            WHERE {' AND '.join(filters)}
+            RETURN node, score
+            ORDER BY score DESC LIMIT $limit
+        """
 
         results = []
         try:
@@ -244,12 +238,24 @@ class GraphSearchQueryMixin:
         limit: int,
         min_score: float,
         full_index: str,
+        user_id: str | None = None,
     ) -> list[ScoredNode]:
         """Re-rank coarse candidates using full 3072d embeddings."""
         label = node_type.value
+        filters = ["n.id IN $ids", "n.embedding IS NOT NULL"]
+        params = {
+            "ids": candidate_ids,
+            "embedding": query_embedding,
+            "min_score": min_score,
+            "limit": limit,
+        }
+        if user_id:
+            filters.append("n.user_id = $user_id")
+            params["user_id"] = user_id
+
         query = f"""
             MATCH (n:{label})
-            WHERE n.id IN $ids AND n.embedding IS NOT NULL
+            WHERE {' AND '.join(filters)}
             WITH n,
                  gds.similarity.cosine(n.embedding, $embedding) AS score
             WHERE score >= $min_score
@@ -263,10 +269,7 @@ class GraphSearchQueryMixin:
             with self.graph_service.get_session() as session:
                 result = session.run(
                     query,
-                    ids=candidate_ids,
-                    embedding=query_embedding,
-                    min_score=min_score,
-                    limit=limit,
+                    **params,
                 )
                 for record in result:
                     node_data = dict(record["node"])
@@ -299,6 +302,7 @@ class GraphSearchQueryMixin:
         video_id: str | None,
         min_score: float,
         video_ids: list[str] | None = None,
+        user_id: str | None = None,
     ) -> list[ScoredNode]:
         """
         Manual vector search used when the index is unavailable.
@@ -306,29 +310,27 @@ class GraphSearchQueryMixin:
         """
         label = node_type.value
 
+        filters = ["n.embedding IS NOT NULL"]
+        params: dict = {}
+
         if video_ids:
-            query = f"""
-                MATCH (n:{label})
-                WHERE n.video_id IN $video_ids
-                    AND n.embedding IS NOT NULL
-                RETURN n
-            """
-            params: dict = {"video_ids": video_ids}
+            filters.append("n.video_id IN $video_ids")
+            params["video_ids"] = video_ids
         elif video_id:
-            query = f"""
-                MATCH (n:{label})
-                WHERE n.video_id = $video_id AND n.embedding IS NOT NULL
-                RETURN n
-            """
-            params = {"video_id": video_id}
-        else:
-            query = f"""
-                MATCH (n:{label})
-                WHERE n.embedding IS NOT NULL
-                RETURN n
-                LIMIT 1000
-            """
-            params = {}
+            filters.append("n.video_id = $video_id")
+            params["video_id"] = video_id
+
+        if user_id:
+            filters.append("n.user_id = $user_id")
+            params["user_id"] = user_id
+
+        limit_clause = "LIMIT 1000" if not video_ids and not video_id else ""
+        query = f"""
+            MATCH (n:{label})
+            WHERE {' AND '.join(filters)}
+            RETURN n
+            {limit_clause}
+        """
 
         results = []
 
@@ -376,6 +378,7 @@ class GraphSearchQueryMixin:
         limit: int,
         video_id: str | None,
         video_ids: list[str] | None = None,
+        user_id: str | None = None,
     ) -> list[tuple[str, float]]:
         """Full-text search with Lucene escaping; returns [(node_id, score)]."""
         index_name = self._INDEX_BY_TYPE.get(node_type)
@@ -389,24 +392,26 @@ class GraphSearchQueryMixin:
 
         label = node_type.value
 
-        # Build optional video filter
-        video_filter = ""
+        filters = [f"node:{label}"]
         params: dict = {
             "index_name": index_name,
             "query_text": safe_query,
             "limit": limit,
         }
         if video_ids:
-            video_filter = "AND node.video_id IN $video_ids"
+            filters.append("node.video_id IN $video_ids")
             params["video_ids"] = video_ids
         elif video_id:
-            video_filter = "AND node.video_id = $video_id"
+            filters.append("node.video_id = $video_id")
             params["video_id"] = video_id
+        if user_id:
+            filters.append("node.user_id = $user_id")
+            params["user_id"] = user_id
 
         query = f"""
             CALL db.index.fulltext.queryNodes($index_name, $query_text)
             YIELD node, score
-            WHERE node:{label} {video_filter}
+            WHERE {' AND '.join(filters)}
             RETURN node.id AS id, score
             LIMIT $limit
         """
@@ -427,6 +432,8 @@ class GraphSearchQueryMixin:
         fulltext_results: list[tuple[str, float]],
         node_type: NodeType,
         video_id: str | None = None,
+        video_ids: list[str] | None = None,
+        user_id: str | None = None,
     ) -> None:
         """
         Merge full-text scores into existing candidates.
@@ -448,25 +455,84 @@ class GraphSearchQueryMixin:
                 candidate.fulltext_score = fulltext_map[candidate.node_id]
 
         # Add new candidates from fulltext that weren't in vector results
-        new_node_ids = set(fulltext_map.keys()) - existing_ids
+        new_node_ids: list[str] = []
+        for node_id, _score in fulltext_results:
+            if node_id not in existing_ids and node_id not in new_node_ids:
+                new_node_ids.append(node_id)
+
         if new_node_ids:
             # Fetch node data for new fulltext matches
-            for node_id in list(new_node_ids)[:20]:  # Limit to avoid too many queries
-                try:
-                    node_data = self._get_node_by_id(node_id, node_type)
-                    if node_data:
-                        scored = ScoredNode(
-                            node_id=node_id,
-                            node_type=node_type,
-                            content=node_data,
-                            vector_score=0.0,  # No vector match
-                            fulltext_score=fulltext_map[node_id],
-                            timestamp=node_data.get("timestamp") or node_data.get("start_time"),
-                            video_id=node_data.get("video_id"),
-                        )
-                        candidates.append(scored)
-                except Exception as e:
-                    logger.warning(f"Failed to fetch node {node_id}: {e}")
+            limited_node_ids = new_node_ids[:20]
+            node_data_by_id = self._get_nodes_by_ids(
+                limited_node_ids,
+                node_type=node_type,
+                video_id=video_id,
+                video_ids=video_ids,
+                user_id=user_id,
+            )
+            for node_id in limited_node_ids:
+                node_data = node_data_by_id.get(node_id)
+                if node_data:
+                    scored = ScoredNode(
+                        node_id=node_id,
+                        node_type=node_type,
+                        content=node_data,
+                        vector_score=0.0,  # No vector match
+                        fulltext_score=fulltext_map[node_id],
+                        timestamp=node_data.get("timestamp") or node_data.get("start_time"),
+                        video_id=node_data.get("video_id"),
+                    )
+                    candidates.append(scored)
+
+    def _get_nodes_by_ids(
+        self,
+        node_ids: list[str],
+        node_type: NodeType,
+        video_id: str | None = None,
+        video_ids: list[str] | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, dict]:
+        """Fetch multiple nodes of the same type in a single Cypher query."""
+        unique_node_ids = list(dict.fromkeys(node_ids))
+        if not unique_node_ids:
+            return {}
+
+        label = node_type.value
+        filters = []
+        params: dict = {"node_ids": unique_node_ids}
+
+        if video_ids:
+            filters.append("n.video_id IN $video_ids")
+            params["video_ids"] = video_ids
+        elif video_id:
+            filters.append("n.video_id = $video_id")
+            params["video_id"] = video_id
+
+        if user_id:
+            filters.append("n.user_id = $user_id")
+            params["user_id"] = user_id
+
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        query = f"""
+            UNWIND $node_ids AS node_id
+            MATCH (n:{label} {{id: node_id}})
+            {where_clause}
+            RETURN n
+        """
+
+        try:
+            with self.graph_service.get_session() as session:
+                result = session.run(query, **params)
+                nodes_by_id: dict[str, dict] = {}
+                for record in result:
+                    node_data = dict(record["n"])
+                    node_data.pop("embedding", None)
+                    nodes_by_id[node_data["id"]] = node_data
+                return nodes_by_id
+        except Exception as e:
+            preview_ids = ", ".join(unique_node_ids[:5])
+            logger.warning("Failed to batch fetch nodes [%s]: %s", preview_ids, e)
+            return {}
 
     # --- Fetch a single node ---
 

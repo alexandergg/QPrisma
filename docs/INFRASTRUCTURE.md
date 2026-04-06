@@ -44,9 +44,9 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 │  └──────────────────────────────────────────────────────────────┘   │
 │                                                                     │
 │  ┌────────────────────────────────────────────────────────────┐     │
-│  │  Neo4j AuraDB Free (external SaaS)                        │     │
-│  │  neo4j+s://xxxx.databases.neo4j.io (TLS)                  │     │
-│  │  200K nodes / 400K relationships                          │     │
+│  │  Neo4j Professional (external managed service)            │     │
+│  │  neo4j+s://<managed-neo4j-host> (TLS)                     │     │
+│  │  URI/user/password/database injected via secrets          │     │
 │  └────────────────────────────────────────────────────────────┘     │
 │                                                                     │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐     │
@@ -92,7 +92,7 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 | PostgreSQL Flexible Server | Standard_B1ms (Burstable) | North Europe | v16, 32GB auto-grow, 7-day backup |
 | Azure Managed Redis | Balanced_B0 (Enterprise) | West Europe | TLS 1.2+, port 10000, VolatileLRU eviction |
 | Azure Blob Storage | Standard_LRS (Hot) | West Europe | `media` container, CORS, HTTPS-only |
-| Neo4j AuraDB Free | Managed SaaS | Azure (West Europe) | Public `neo4j+s://` endpoint, TLS, 200K nodes / 400K rels |
+| Neo4j Professional | Managed external service | Azure-hosted deployment | Public `neo4j+s://` endpoint, TLS, URI/user/password/database passed from GitHub secrets |
 
 ### AI Tier
 
@@ -263,7 +263,7 @@ infra/
     ├── container-app-worker.bicep    # Celery worker with KEDA scaler
     ├── container-registry.bicep   # ACR for Docker images
     ├── key-vault.bicep            # Key Vault + RBAC roles
-    ├── neo4j.bicep                # Neo4j container app + file share (DEPRECATED — AuraDB used in prod)
+    ├── neo4j.bicep                # Legacy self-hosted Neo4j module kept only for cleanup/migration compatibility
     ├── postgresql.bicep           # PostgreSQL Flexible Server
     ├── redis.bicep                # Azure Managed Redis Enterprise
     └── storage.bicep              # Storage account + blob container
@@ -287,7 +287,7 @@ Phase 5:             Key Vault (needs managed identities from API + Worker)
 | `location` | string | `'westeurope'` | Primary region for apps |
 | `dbLocation` | string | `'northeurope'` | PostgreSQL region (service availability) |
 | `dbAdminPassword` | secureString | — | PostgreSQL admin password |
-| `neo4jUri` | string | `''` | Neo4j URI (AuraDB `neo4j+s://` connection URL) |
+| `neo4jUri` | string | `''` | Managed Neo4j URI (`neo4j+s://...`) |
 | `neo4jPassword` | secureString | — | Neo4j authentication password |
 | `jwtSecretKey` | secureString | — | JWT signing secret |
 
@@ -316,7 +316,7 @@ Phase 5:             Key Vault (needs managed identities from API + Worker)
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o` | API, Worker |
 | `AZURE_OPENAI_DEPLOYMENT_GPT_BATCH` | `gpt-4o-batch` | API, Worker |
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | `text-embedding-3-large` | API, Worker |
-| `NEO4J_URI` | `neo4j+s://<auradb-host>` (from AuraDB) | API, Worker |
+| `NEO4J_URI` | `neo4j+s://<managed-neo4j-host>` | API, Worker |
 | `ENVIRONMENT` | `dev`/`staging`/`production` | API, Worker |
 | `CORS_ALLOWED_ORIGINS` | Frontend FQDN | API |
 | `NEXT_PUBLIC_API_URL` | API FQDN | Frontend |
@@ -333,11 +333,10 @@ Phase 5:             Key Vault (needs managed identities from API + Worker)
 | `AZURE_TENANT_ID` | Azure AD tenant |
 | `AZURE_SUBSCRIPTION_ID` | Target subscription |
 | `DB_ADMIN_PASSWORD` | PostgreSQL admin password |
+| `NEO4J_USER` | Optional Neo4j username override (defaults to `neo4j`) |
+| `NEO4J_DATABASE` | Optional Neo4j database override (defaults to `neo4j`) |
 | `NEO4J_PASSWORD` | Neo4j authentication |
-| `NEO4J_URI` | AuraDB connection URI (`neo4j+s://...`) |
-| `AURA_CLIENT_ID` | Neo4j Aura API OAuth2 client ID (for provisioning) |
-| `AURA_CLIENT_SECRET` | Neo4j Aura API OAuth2 client secret |
-| `AURA_TENANT_ID` | Neo4j Aura tenant ID |
+| `NEO4J_URI` | Managed Neo4j connection URI (`neo4j+s://...`) |
 | `JWT_SECRET_KEY` | JWT token signing |
 
 ### GitHub Variables (CI/CD)
@@ -375,7 +374,7 @@ GitHub Secrets
 ### First-Time Setup
 
 1. **Create Azure Service Principal** with OIDC federation for GitHub Actions
-2. **Configure GitHub Secrets** (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, DB_ADMIN_PASSWORD, NEO4J_PASSWORD, NEO4J_URI, JWT_SECRET_KEY, AURA_CLIENT_ID, AURA_CLIENT_SECRET, AURA_TENANT_ID)
+2. **Configure GitHub Secrets** (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, DB_ADMIN_PASSWORD, NEO4J_URI, NEO4J_PASSWORD, JWT_SECRET_KEY; optionally NEO4J_USER and NEO4J_DATABASE)
 3. **Configure GitHub Variables** (ACR_NAME, ACR_LOGIN_SERVER, AZURE_RESOURCE_GROUP, AZURE_LOCATION, KEY_VAULT_NAME, ENVIRONMENT, ENTRA_SPA_CLIENT_ID, ENTRA_TENANT_ID, ENTRA_API_SCOPE)
 4. **Grant OIDC SP Graph API permissions** for Entra SPA redirect URI sync (see [below](#entra-id-spa-redirect-uri-sync))
 5. **Run `deploy-infra.yml`** manually to provision all Azure resources
@@ -530,8 +529,8 @@ QPrisma deploys resources across 2 Azure regions for optimal performance and ser
 - Check Redis Enterprise API version compatibility (currently using 2025-04-01)
 
 **Problem: Neo4j connection refused**
-- Verify `NEO4J_URI` points to the correct AuraDB endpoint (`neo4j+s://xxxx.databases.neo4j.io`)
-- AuraDB Free instances auto-pause after 3 days of inactivity — they wake on connection but may take 30-60s
+- Verify `NEO4J_URI` points to the correct managed Neo4j endpoint (`neo4j+s://...`)
+- Confirm the external Neo4j deployment is reachable from Container Apps and that TLS/Bolt is enabled
 - Ensure `NEO4J_PASSWORD` matches the initial password from provisioning
 - For local dev, use `bolt://localhost:7687` (docker-compose Neo4j service)
 

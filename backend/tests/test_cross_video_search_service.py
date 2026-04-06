@@ -202,7 +202,7 @@ class TestSearchAcrossVideos:
         kg = _make_mock_kg(session_results=[[row]])
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.search_across_videos("sunset", media_ids=["v1"])
+        result = svc.search_across_videos("sunset", media_ids=["v1"], user_id="user-1")
 
         assert isinstance(result, CrossVideoSearchResult)
         assert result.query == "sunset"
@@ -212,15 +212,49 @@ class TestSearchAcrossVideos:
         assert result.error is None
         assert result.results_by_video[0]["video_id"] == "v1"
 
-    def test_unscoped_search(self):
+    def test_user_scoped_search_when_media_ids_omitted(self):
         row = _make_frame_row("v2", "Other Video")
-        kg = _make_mock_kg(session_results=[[row]])
+        kg = _make_mock_kg(session_results=[[]])
+        mock_db = MagicMock()
+        mock_db.get_media_by_user.return_value = [
+            MagicMock(id="v2", processed=True),
+            MagicMock(id="v3", processed=False),
+        ]
 
-        svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.search_across_videos("topic", media_ids=None)
+        with (
+            patch("services.database_service.get_database_service", return_value=mock_db),
+            patch.object(CrossVideoSearchService, "_run_query", return_value=[row]) as mock_run_query,
+        ):
+            svc = CrossVideoSearchService(knowledge_graph_service=kg)
+            result = svc.search_across_videos("topic", user_id="user-1", media_ids=None)
 
         assert result.scoped_to_selection is False
         assert result.videos_searched == 1
+        assert mock_run_query.call_args.args[2]["media_ids"] == ["v2"]
+        assert mock_run_query.call_args.args[2]["user_id"] == "user-1"
+
+    def test_missing_user_context_does_not_fallback_to_global_search(self):
+        kg = _make_mock_kg(session_results=[[]])
+
+        with patch.object(CrossVideoSearchService, "_run_query") as mock_run_query:
+            svc = CrossVideoSearchService(knowledge_graph_service=kg)
+            result = svc.search_across_videos("topic", media_ids=None, user_id=None)
+
+        assert result.error == "User context required for cross-video search."
+        assert result.videos_searched == 0
+        mock_run_query.assert_not_called()
+
+    def test_empty_explicit_selection_does_not_expand_scope(self):
+        kg = _make_mock_kg(session_results=[[]])
+
+        with patch.object(CrossVideoSearchService, "_run_query") as mock_run_query:
+            svc = CrossVideoSearchService(knowledge_graph_service=kg)
+            result = svc.search_across_videos("topic", media_ids=[], user_id="user-1")
+
+        assert result.error is None
+        assert result.scoped_to_selection is True
+        assert result.videos_searched == 0
+        mock_run_query.assert_not_called()
 
     def test_fallback_to_audio_when_frames_empty(self):
         """When frame search returns empty, service falls back to audio."""
@@ -229,7 +263,7 @@ class TestSearchAcrossVideos:
         kg = _make_mock_kg(session_results=[[], [audio_row]])
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.search_across_videos("greeting", media_ids=["v1"])
+        result = svc.search_across_videos("greeting", media_ids=["v1"], user_id="user-1")
 
         assert result.total_matches == 1
         assert result.results_by_video[0]["video_title"] == "Audio Vid"
@@ -238,7 +272,7 @@ class TestSearchAcrossVideos:
         kg = _make_mock_kg(session_results=[[], []])
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.search_across_videos("nonexistent", media_ids=["v99"])
+        result = svc.search_across_videos("nonexistent", media_ids=["v99"], user_id="user-1")
 
         assert result.total_matches == 0
         assert result.videos_searched == 0
@@ -251,7 +285,7 @@ class TestSearchAcrossVideos:
         kg = _make_mock_kg(session_results=[rows])
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.search_across_videos("topic", media_ids=["v1", "v2"])
+        result = svc.search_across_videos("topic", media_ids=["v1", "v2"], user_id="user-1")
 
         assert result.videos_searched == 2
         assert result.total_matches == 4  # 2 matches per video
@@ -264,7 +298,7 @@ class TestSearchAcrossVideos:
             return_value=mock_kg,
         ):
             svc = CrossVideoSearchService()  # No kg injected
-            result = svc.search_across_videos("test", media_ids=["v1"])
+            result = svc.search_across_videos("test", media_ids=["v1"], user_id="user-1")
             assert result.error is None
 
 
@@ -318,7 +352,7 @@ class TestCompareVideos:
         )
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.compare_videos("animals", ["v1", "v2"])
+        result = svc.compare_videos("animals", ["v1", "v2"], user_id="user-1")
 
         assert isinstance(result, CompareVideosResult)
         assert result.query == "animals"
@@ -330,6 +364,15 @@ class TestCompareVideos:
         assert result.comparison[0]["relevance_score"] == 2.5
         assert result.comparison[1]["video_title"] == "Video B"
         assert result.comparison[1]["relevance_score"] == 1.8
+
+    def test_requires_user_context(self):
+        kg = _make_mock_kg(session_results=[[]])
+
+        svc = CrossVideoSearchService(knowledge_graph_service=kg)
+        result = svc.compare_videos("animals", ["v1", "v2"], user_id=None)
+
+        assert result.error == "User context required for video comparison."
+        assert result.videos_compared == 0
 
     def test_video_with_no_matches(self):
         kg = self._setup_kg_for_compare(
@@ -360,7 +403,7 @@ class TestCompareVideos:
         )
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.compare_videos("anything", ["v1", "v2"])
+        result = svc.compare_videos("anything", ["v1", "v2"], user_id="user-1")
 
         # Video with no matches has relevance 0
         silent = [c for c in result.comparison if c["video_title"] == "Silent Video"][0]
@@ -374,7 +417,7 @@ class TestCompareVideos:
         kg = _make_mock_kg(session_results=[None, [], [], None, [], []])
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.compare_videos("test", ["v1", "v2"])
+        result = svc.compare_videos("test", ["v1", "v2"], user_id="user-1")
 
         # Should not error — falls back to "Untitled" and empty fields
         entry = result.comparison[0]
@@ -396,7 +439,7 @@ class TestCompareVideos:
         kg = _make_mock_kg(session_results=session_results)
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.compare_videos("test", many_ids)
+        result = svc.compare_videos("test", many_ids, user_id="user-1")
 
         assert result.videos_compared == 10
 
@@ -421,7 +464,7 @@ class TestCompareVideos:
         )
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.compare_videos("frames", ["v1", "v2"])
+        result = svc.compare_videos("frames", ["v1", "v2"], user_id="user-1")
 
         v1_entry = [c for c in result.comparison if c["video_title"] == "V1"][0]
         assert len(v1_entry["relevant_moments"]) == 5
@@ -444,7 +487,7 @@ class TestCompareVideos:
         )
 
         svc = CrossVideoSearchService(knowledge_graph_service=kg)
-        result = svc.compare_videos("test", ["v1", "v2"])
+        result = svc.compare_videos("test", ["v1", "v2"], user_id="user-1")
 
         no_dur = [c for c in result.comparison if c["video_title"] == "NoDuration"][0]
         has_dur = [c for c in result.comparison if c["video_title"] == "HasDuration"][0]

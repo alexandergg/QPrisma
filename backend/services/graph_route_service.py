@@ -127,10 +127,37 @@ class GraphRouteService:
     # Advanced Search Orchestration
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _search_across_video_scope(
+        search_fn: Any,
+        *,
+        video_ids: list[str] | None,
+        **kwargs: Any,
+    ) -> list[dict]:
+        """Run full-text search across every requested video instead of only the first."""
+        if not video_ids:
+            return search_fn(video_id=None, **kwargs)
+
+        aggregated_results: list[dict] = []
+        seen_node_ids: set[str] = set()
+
+        for video_id in video_ids:
+            for result in search_fn(video_id=video_id, **kwargs):
+                node = result.get("entity") or result.get("frame") or {}
+                node_id = node.get("id")
+                if node_id and node_id in seen_node_ids:
+                    continue
+                if node_id:
+                    seen_node_ids.add(node_id)
+                aggregated_results.append(result)
+
+        return sorted(aggregated_results, key=lambda item: item.get("score", 0), reverse=True)
+
     def advanced_search(
         self,
         query: GraphSearchQuery,
         knowledge_graph_service: KnowledgeGraphService | None = None,
+        user_id: str | None = None,
     ) -> AdvancedSearchResult:
         """Execute advanced multi-signal search with optional graph expansion.
 
@@ -150,11 +177,17 @@ class GraphRouteService:
         base_results: list[dict] = []
 
         if not query.node_types or NodeType.ENTITY in query.node_types:
-            entity_results = service.search_entities(
-                query_text=query.query,
-                entity_types=query.entity_types,
-                video_id=query.video_ids[0] if query.video_ids else None,
-                limit=query.limit,
+            entity_search_kwargs = {
+                "query_text": query.query,
+                "entity_types": query.entity_types,
+                "video_ids": query.video_ids,
+                "limit": query.limit,
+            }
+            if user_id is not None:
+                entity_search_kwargs["user_id"] = user_id
+            entity_results = self._search_across_video_scope(
+                service.search_entities,
+                **entity_search_kwargs,
             )
             for r in entity_results:
                 base_results.append(
@@ -167,11 +200,17 @@ class GraphRouteService:
                 )
 
         if not query.node_types or NodeType.FRAME in query.node_types:
-            frame_results = service.search_frames_by_description(
-                query_text=query.query,
-                video_id=query.video_ids[0] if query.video_ids else None,
-                time_range=query.time_range,
-                limit=query.limit,
+            frame_search_kwargs = {
+                "query_text": query.query,
+                "video_ids": query.video_ids,
+                "time_range": query.time_range,
+                "limit": query.limit,
+            }
+            if user_id is not None:
+                frame_search_kwargs["user_id"] = user_id
+            frame_results = self._search_across_video_scope(
+                service.search_frames_by_description,
+                **frame_search_kwargs,
             )
             for r in frame_results:
                 base_results.append(
@@ -183,6 +222,7 @@ class GraphRouteService:
                     }
                 )
 
+        base_results.sort(key=lambda result: result.get("vector_score", 0), reverse=True)
         vector_search_time = (time.time() - start_time) * 1000
 
         # 2. Graph expansion ---------------------------------------------------
@@ -191,11 +231,14 @@ class GraphRouteService:
             expansion_start = time.time()
             for result in base_results[:10]:
                 try:
-                    expansion = service.expand_context(
-                        node_id=result["node_id"],
-                        hops=query.expansion_hops,
-                        max_nodes=20,
-                    )
+                    expansion_kwargs = {
+                        "node_id": result["node_id"],
+                        "hops": query.expansion_hops,
+                        "max_nodes": 20,
+                    }
+                    if user_id is not None:
+                        expansion_kwargs["user_id"] = user_id
+                    expansion = service.expand_context(**expansion_kwargs)
                     nodes_by_distance = expansion.get("nodes_by_distance", {})
                     result["related_nodes"] = [
                         node for nodes in nodes_by_distance.values() for node in nodes
@@ -306,11 +349,13 @@ class GraphRouteService:
         fps: float,
         duration: float | None,
         resolution: tuple[int, int],
+        user_id: str | None = None,
     ) -> dict:
         """Build the ``video_metadata`` dict expected by the hierarchy service."""
         return {
             "media_id": video_id,
             "video_id": video_id,
+            "user_id": user_id,
             "title": title or f"Video {video_id}",
             "fps": fps,
             "duration": duration or 0,

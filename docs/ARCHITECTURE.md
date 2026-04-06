@@ -90,19 +90,21 @@ Inspired by [VideoRAG](https://github.com/HKUDS/VideoRAG), QPrisma builds contex
 
 QPrisma moves beyond simple Vector RAG by implementing a **GraphRAG** approach using Neo4j. This allows capturing structured relationships that vector similarity misses.
 
+QPrisma uses **one managed Neo4j database**, not a physically separate graph per video. Isolation is logical and enforced through the data model: operational graph nodes persist `user_id`, `Entity` and `Topic` identities are scoped per video, and graph reads validate ownership plus `user_id` filters before traversing Neo4j.
+
 ### 3.1. Graph Schema
 The graph models the video structure and its semantic contents explicitly:
 
 ```cypher
 // ── Node hierarchy ──
-(:Video)-[:CONTAINS]->(:Chapter)
-(:Chapter)-[:CONTAINS]->(:Scene)
-(:Scene)-[:CONTAINS]->(:Frame)
-(:Frame)-[:CONTAINS]->(:Entity)
+(:Video {video_id, user_id})-[:CONTAINS]->(:Chapter {video_id, user_id})
+(:Chapter {video_id, user_id})-[:CONTAINS]->(:Scene {video_id, user_id})
+(:Scene {video_id, user_id})-[:CONTAINS]->(:Frame {video_id, user_id})
+(:Frame {video_id, user_id})-[:CONTAINS]->(:Entity {video_id, user_id, normalized_name, entity_type})
 
 // ── Topic graph ──
-(:Video)-[:ABOUT]->(:Topic)
-(:Entity)-[:ABOUT]->(:Topic)
+(:Video {video_id, user_id})-[:ABOUT]->(:Topic {video_id, user_id, normalized_name})
+(:Entity {video_id, user_id})-[:ABOUT]->(:Topic {video_id, user_id})
 
 // ── Entity relationships ──
 (:Entity)-[:APPEARS_WITH]->(:Entity)       // Co-occurrence in same frame
@@ -126,6 +128,12 @@ The graph models the video structure and its semantic contents explicitly:
 (:AudioSegment)-[:NEXT_SEGMENT]->(:AudioSegment)
 (:Scene)-[:NEXT_SCENE]->(:Scene)
 ```
+
+**Isolation rules**:
+- `Video`, `Scene`, `Frame`, `AudioSegment`, `Entity`, `Topic`, and `Community` nodes persist `user_id`
+- `Entity` uniqueness is enforced on `(video_id, normalized_name, entity_type)`
+- `Topic` uniqueness is enforced on `(video_id, normalized_name)`
+- Node-ID graph routes resolve `node_id -> video_id` and enforce ownership before query execution
 
 **Node types** (8): `Video`, `Chapter`, `Scene`, `Frame`, `Entity`, `AudioSegment`, `Topic`, `Community`.
 
@@ -168,11 +176,11 @@ Community nodes participate in hybrid search alongside Frame, Scene, and Entity 
 Topics extracted by `HierarchicalSummarizer` are stored as first-class `TopicNode` entries in Neo4j:
 *   `Video→ABOUT→Topic` edges link videos to their topics.
 *   `Entity→ABOUT→Topic` edges are created by keyword matching: entity names/descriptions are compared against topic keywords and normalized names.
-*   Topic nodes are merged on `normalized_name` to avoid duplicates across videos.
+*   Topic nodes are merged on `(video_id, normalized_name)` so deletion and retrieval stay scoped to the source video.
 
 ### 3.6. Cross-Video Entity Resolution
 After processing a new video, `resolve_cross_video_entities` finds entities from the new video that likely match entities in other videos:
-*   Matches are based on `normalized_name` + `entity_type` (same type required).
+*   Matches are based on `normalized_name` + `entity_type` within the same `user_id` (same type required).
 *   Exact name matches receive `similarity_score = 1.0`; substring containment matches receive `0.7`.
 *   Short names (≤3 characters) are filtered to avoid false positives.
 *   `SAME_ENTITY` edges are created between matched pairs, with `source_video_id` and `target_video_id` properties.
@@ -233,7 +241,8 @@ Three application containers run in a VNet-enabled managed environment:
 | **API** (FastAPI) | REST/WebSocket server | 1–2 replicas (HTTP concurrency) | External HTTPS |
 | **Frontend** (Next.js) | SSR web application | 1–2 replicas (HTTP concurrency) | External HTTPS |
 | **Worker** (Celery) | Background video processing | 1–3 replicas (KEDA Redis queue scaler) | Internal only |
-| **Neo4j** | Knowledge Graph database | 1 replica (fixed) | Internal TCP (Bolt 7687) |
+
+Neo4j is consumed as an **external managed Neo4j Professional deployment** referenced through `NEO4J_URI`; production no longer runs Neo4j as a Container App.
 
 ### 6.2. CI/CD Pipeline
 

@@ -39,6 +39,7 @@ class GraphSearchScoringMixin:
         self,
         candidates: list[ScoredNode],
         expansion_hops: int,
+        user_id: str | None = None,
     ) -> None:
         """
         Calculate graph scores based on connectivity and expansion.
@@ -48,36 +49,27 @@ class GraphSearchScoringMixin:
         if not candidates:
             return
 
+        candidate_ids = [candidate.node_id for candidate in candidates]
+        expansions_by_node = self._batch_expand_context(
+            candidate_ids,
+            expansion_hops=expansion_hops,
+            user_id=user_id,
+        )
+        paths_by_node = self._batch_get_paths_to_video(candidate_ids, user_id=user_id)
+
         for candidate in candidates:
-            try:
-                # Expand context
-                expansion = self.graph_service.expand_context(
-                    node_id=candidate.node_id,
-                    hops=expansion_hops,
-                    max_nodes=30,
-                )
+            expansion = expansions_by_node.get(candidate.node_id) if expansions_by_node else None
+            path_to_video = paths_by_node.get(candidate.node_id, []) if paths_by_node else []
 
-                # Graph score based on number of connections
-                total_related = expansion.get("total_nodes", 0)
-                candidate.graph_score = min(1.0, total_related / 50)  # Normalise to 50
-
-                # Store related nodes
-                nodes_by_distance = expansion.get("nodes_by_distance", {})
-                for distance, nodes in nodes_by_distance.items():
-                    for node in nodes[:5]:  # Limit per distance
-                        candidate.related_nodes.append(
-                            {
-                                "node": node,
-                                "distance": distance,
-                            }
-                        )
-
-                # Calculate path to video
-                candidate.path_to_video = self._get_path_to_video(candidate.node_id)
-
-            except Exception as e:
-                logger.warning(f"Graph expansion failed for {candidate.node_id}: {e}")
+            if expansions_by_node is None:
                 candidate.graph_score = 0.0
+                candidate.related_nodes = []
+            else:
+                total_related = expansion.get("total_related", 0) if expansion else 0
+                candidate.graph_score = min(1.0, (1 + total_related) / 50)
+                candidate.related_nodes = expansion.get("related_nodes", []) if expansion else []
+
+            candidate.path_to_video = path_to_video
 
     # --- Temporal scoring ---
 
@@ -201,17 +193,137 @@ class GraphSearchScoringMixin:
 
     # --- Path & counting helpers ---
 
-    def _get_path_to_video(self, node_id: str) -> list[str]:
+    def _batch_expand_context(
+        self,
+        node_ids: list[str],
+        expansion_hops: int,
+        user_id: str | None = None,
+        max_nodes: int = 30,
+    ) -> dict[str, dict] | None:
+        """Batch graph expansion for a set of node IDs."""
+        unique_node_ids = list(dict.fromkeys(node_ids))
+        if not unique_node_ids:
+            return {}
+
+        hops = max(1, int(expansion_hops))
+        start_filter = "WHERE start.user_id = $user_id" if user_id else ""
+        related_filters = ["related <> start"]
+        if user_id:
+            related_filters.append("related.user_id = $user_id")
+            related_filters.append(
+                "all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)"
+            )
+
+        query = f"""
+            UNWIND $node_ids AS node_id
+            MATCH (start {{id: node_id}})
+            {start_filter}
+            MATCH path = (start)-[*1..{hops}]-(related)
+            WHERE {' AND '.join(related_filters)}
+            WITH node_id, related, min(length(path)) AS distance
+            ORDER BY node_id, distance, related.id
+            WITH node_id,
+                 collect({{node: related, distance: distance}})[0..$max_nodes] AS expansions,
+                 count(related) AS total_related
+            RETURN node_id, expansions, total_related
+        """
+
+        params = {"node_ids": unique_node_ids, "max_nodes": max_nodes}
+        if user_id:
+            params["user_id"] = user_id
+
+        try:
+            with self.graph_service.get_session() as session:
+                result = session.run(query, **params)
+                expansions_by_node: dict[str, dict] = {}
+                for record in result:
+                    related_nodes: list[dict] = []
+                    nodes_per_distance: dict[int, int] = {}
+
+                    for item in record["expansions"]:
+                        distance = item["distance"]
+                        if nodes_per_distance.get(distance, 0) >= 5:
+                            continue
+                        nodes_per_distance[distance] = nodes_per_distance.get(distance, 0) + 1
+                        related_nodes.append(
+                            {
+                                "node": dict(item["node"]),
+                                "distance": distance,
+                            }
+                        )
+
+                    expansions_by_node[record["node_id"]] = {
+                        "total_related": record["total_related"],
+                        "related_nodes": related_nodes,
+                    }
+
+                return expansions_by_node
+        except Exception as e:
+            logger.warning("Batch graph expansion failed: %s", e)
+            return None
+
+    def _batch_get_paths_to_video(
+        self,
+        node_ids: list[str],
+        user_id: str | None = None,
+    ) -> dict[str, list[str]] | None:
+        """Batch fetch the shortest path from each node up to a Video node."""
+        unique_node_ids = list(dict.fromkeys(node_ids))
+        if not unique_node_ids:
+            return {}
+
+        node_filter = "WHERE n.user_id = $user_id" if user_id else ""
+        video_filter = ""
+        if user_id:
+            video_filter = """
+            WHERE v.user_id = $user_id
+              AND all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)
+            """
+
+        query = f"""
+            UNWIND $node_ids AS node_id
+            MATCH (n {{id: node_id}})
+            {node_filter}
+            MATCH path = (n)<-[:CONTAINS*]-(v:Video)
+            {video_filter}
+            WITH node_id, path
+            ORDER BY node_id, length(path)
+            WITH node_id, collect(path)[0] AS best_path
+            RETURN node_id, [node IN nodes(best_path) | node.id] AS path
+        """
+
+        params = {"node_ids": unique_node_ids}
+        if user_id:
+            params["user_id"] = user_id
+
+        try:
+            with self.graph_service.get_session() as session:
+                result = session.run(query, **params)
+                return {record["node_id"]: record["path"] for record in result}
+        except Exception as e:
+            logger.warning("Batch path lookup failed: %s", e)
+            return None
+
+    def _get_path_to_video(self, node_id: str, user_id: str | None = None) -> list[str]:
         """Return the path from a node up to the root Video node."""
         query = """
             MATCH path = (n {id: $node_id})<-[:CONTAINS*]-(v:Video)
+        """
+        params = {"node_id": node_id}
+        if user_id:
+            query += """
+            WHERE v.user_id = $user_id
+            """
+            params["user_id"] = user_id
+
+        query += """
             RETURN [node in nodes(path) | node.id] as path
             LIMIT 1
         """
 
         try:
             with self.graph_service.get_session() as session:
-                result = session.run(query, node_id=node_id)
+                result = session.run(query, **params)
                 record = result.single()
                 if record:
                     return record["path"]

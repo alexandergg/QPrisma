@@ -1059,12 +1059,14 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
                 title = video_id
                 file_size_bytes = 0
+                video_user_id = None
                 if _db_service:
                     try:
                         existing = _db_service.get_media(video_id)
                         if existing:
                             title = existing.original_filename or title
                             file_size_bytes = int(existing.file_size or 0)
+                            video_user_id = existing.user_id
                     except Exception:
                         logger.debug("Could not fetch existing media metadata for %s", video_id)
 
@@ -1084,6 +1086,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 video_node = VideoNode(
                     video_id=video_id,
                     title=title,
+                    user_id=video_user_id,
                     duration_seconds=float(metadata.get("duration", 0) or 0),
                     fps=float(metadata.get("fps", 0) or 0),
                     resolution=(w, h),

@@ -30,7 +30,8 @@ frontend/
 | Test file | Coverage area |
 |---|---|
 | `test_security_headers.py` | Security headers middleware |
-| `test_token_revocation.py` | JWT revocation via Redis JTI denylist |
+| `test_dependencies.py` | Ownership helpers and access control dependencies |
+| `test_graph_routes_security.py` | Graph route authorization and tenant-scoped node access |
 | `test_websocket_auth.py` | WebSocket JWT authentication |
 | `test_a2a_rate_limits.py` | A2A endpoint rate limiting |
 | `test_error_sanitization.py` | Error message sanitization |
@@ -414,10 +415,10 @@ describe('useVideoUpload', () => {
 ### Backend Integration Tests
 
 ```python
-# tests/test_integration/test_full_pipeline.py
+# Example backend integration test
 import pytest
 from services.video_processor import VideoProcessor
-from services.knowledge_graph import KnowledgeGraph
+from services.knowledge_graph import KnowledgeGraphService
 
 @pytest.mark.integration
 def test_complete_video_processing_pipeline():

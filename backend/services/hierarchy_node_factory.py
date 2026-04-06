@@ -39,9 +39,11 @@ class HierarchyNodeFactory:
     def create_chapter_node(self, chapter: ChapterNode) -> str:
         """Create a single chapter node in Neo4j."""
         query = """
+        MATCH (v:Video {video_id: $video_id})
         CREATE (c:Chapter {
             id: $id,
             video_id: $video_id,
+            user_id: COALESCE($user_id, v.user_id),
             start_time: $start_time,
             end_time: $end_time,
             chapter_index: $chapter_index,
@@ -58,6 +60,7 @@ class HierarchyNodeFactory:
                 query,
                 id=chapter.id,
                 video_id=chapter.video_id,
+                user_id=chapter.user_id,
                 start_time=chapter.start_time,
                 end_time=chapter.end_time,
                 chapter_index=chapter.chapter_index,
@@ -70,10 +73,12 @@ class HierarchyNodeFactory:
     def create_scene_node(self, scene: SceneNode) -> str:
         """Create a single scene node in Neo4j."""
         query = """
+        MATCH (v:Video {video_id: $video_id})
         CREATE (s:Scene {
             id: $id,
             video_id: $video_id,
             chapter_id: $chapter_id,
+            user_id: COALESCE($user_id, v.user_id),
             start_time: $start_time,
             end_time: $end_time,
             scene_index: $scene_index,
@@ -89,6 +94,7 @@ class HierarchyNodeFactory:
                 id=scene.id,
                 video_id=scene.video_id,
                 chapter_id=scene.chapter_id,
+                user_id=scene.user_id,
                 start_time=scene.start_time,
                 end_time=scene.end_time,
                 scene_index=scene.scene_index,
@@ -104,9 +110,11 @@ class HierarchyNodeFactory:
         """Create all chapter nodes in a single UNWIND transaction."""
         query = """
         UNWIND $batch AS ch
+        MATCH (v:Video {video_id: ch.video_id})
         CREATE (c:Chapter {
             id: ch.id,
             video_id: ch.video_id,
+            user_id: COALESCE(ch.user_id, v.user_id),
             start_time: ch.start_time,
             end_time: ch.end_time,
             chapter_index: ch.chapter_index,
@@ -123,10 +131,12 @@ class HierarchyNodeFactory:
         """Create all scene nodes in a single UNWIND transaction."""
         query = """
         UNWIND $batch AS sc
+        MATCH (v:Video {video_id: sc.video_id})
         CREATE (s:Scene {
             id: sc.id,
             video_id: sc.video_id,
             chapter_id: sc.chapter_id,
+            user_id: COALESCE(sc.user_id, v.user_id),
             start_time: sc.start_time,
             end_time: sc.end_time,
             scene_index: sc.scene_index,

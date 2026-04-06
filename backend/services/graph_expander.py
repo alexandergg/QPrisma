@@ -50,6 +50,7 @@ class GraphExpander:
         hops: int = 2,
         relation_types: list[RelationType] | None = None,
         max_nodes: int = 50,
+        user_id: str | None = None,
     ) -> dict:
         """Expand the context of a node for RAG.
 
@@ -67,25 +68,35 @@ class GraphExpander:
 
         cypher = f"""
         MATCH (start {{id: $node_id}})
+        {"WHERE start.user_id = $user_id" if user_id else ""}
         CALL apoc.path.expandConfig(start, {{
             maxLevel: $hops,
             relationshipFilter: '{rel_filter}',
             uniqueness: 'NODE_GLOBAL',
             limit: $max_nodes
         }}) YIELD path
-        WITH last(nodes(path)) AS node, length(path) AS distance
+        WITH path, last(nodes(path)) AS node, length(path) AS distance
         WHERE distance > 0
+        {"AND node.user_id = $user_id AND all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)" if user_id else ""}
         RETURN node, distance
         ORDER BY distance
         """
 
+        params = {"node_id": node_id, "hops": hops, "max_nodes": max_nodes}
+        if user_id:
+            params["user_id"] = user_id
+
         with self._get_session() as session:
-            result = session.run(cypher, node_id=node_id, hops=hops, max_nodes=max_nodes)
+            result = session.run(cypher, **params)
 
             nodes_by_distance: dict[int, list[dict]] = {0: []}
 
             # Get start node data
-            start_result = session.run("MATCH (n {id: $node_id}) RETURN n", node_id=node_id)
+            start_query = "MATCH (n {id: $node_id})"
+            if user_id:
+                start_query += " WHERE n.user_id = $user_id"
+            start_query += " RETURN n"
+            start_result = session.run(start_query, **params)
             start_record = start_result.single()
             if start_record:
                 nodes_by_distance[0].append(dict(start_record["n"]))
@@ -131,6 +142,7 @@ class GraphExpander:
         entity_id: str,
         relation_types: list[RelationType] | None = None,
         limit: int = 20,
+        user_id: str | None = None,
     ) -> list[dict]:
         """Retrieve entities related to a given entity."""
         if relation_types:
@@ -139,13 +151,23 @@ class GraphExpander:
         else:
             rel_filter = "[r]"
 
+        source_match = "MATCH (e:Entity {id: $entity_id})"
+        related_filter = ""
+        params = {"entity_id": entity_id, "limit": limit}
+        if user_id:
+            source_match = "MATCH (e:Entity {id: $entity_id, user_id: $user_id})"
+            related_filter = "WHERE related.user_id = $user_id"
+            params["user_id"] = user_id
+
         cypher = f"""
-        MATCH (e:Entity {{id: $entity_id}})-{rel_filter}-(related:Entity)
+        {source_match}
+        MATCH (e)-{rel_filter}-(related:Entity)
+        {related_filter}
         RETURN related, type(r) as relation,
                CASE WHEN startNode(r) = e THEN 'outgoing' ELSE 'incoming' END as direction
         LIMIT $limit
         """
-        results = self._execute_query(cypher, {"entity_id": entity_id, "limit": limit})
+        results = self._execute_query(cypher, params)
         return [
             {"entity": dict(r["related"]), "relation": r["relation"], "direction": r["direction"]}
             for r in results
@@ -160,15 +182,18 @@ class GraphExpander:
         video_ids: list[str],
         entity_type: str | None = None,
         limit: int = 20,
+        user_id: str | None = None,
     ) -> list[dict]:
         """Find entities that appear in multiple videos."""
         type_filter = ""
         if entity_type and entity_type != "any":
             type_filter = "AND e.entity_type = $entity_type"
 
+        user_filter = "AND e.user_id = $user_id" if user_id else ""
+
         cypher = f"""
         MATCH (f:Frame)-[:CONTAINS]->(e:Entity)
-        WHERE f.video_id IN $video_ids {type_filter}
+        WHERE f.video_id IN $video_ids {user_filter} {type_filter}
         WITH e.name AS name, e.entity_type AS etype,
              collect(DISTINCT f.video_id) AS videos,
              count(DISTINCT f) AS total_appearances
@@ -181,6 +206,8 @@ class GraphExpander:
         params: dict = {"video_ids": video_ids, "limit": limit}
         if entity_type and entity_type != "any":
             params["entity_type"] = entity_type
+        if user_id:
+            params["user_id"] = user_id
 
         with self._get_session() as session:
             result = session.run(cypher, **params)
@@ -197,11 +224,14 @@ class GraphExpander:
     def get_video_topics(
         self,
         video_ids: list[str],
+        user_id: str | None = None,
     ) -> list[dict]:
         """Get topics and summaries for multiple videos."""
-        cypher = """
+        user_filter = "AND v.user_id = $user_id" if user_id else ""
+        cypher = f"""
         MATCH (v:Video)
         WHERE v.video_id IN $video_ids
+        {user_filter}
         RETURN v.video_id AS video_id,
                v.title AS title,
                v.summary AS summary,
@@ -209,8 +239,11 @@ class GraphExpander:
                v.duration_seconds AS duration
         """
 
+        params = {"video_ids": video_ids}
+        if user_id:
+            params["user_id"] = user_id
         with self._get_session() as session:
-            result = session.run(cypher, video_ids=video_ids)
+            result = session.run(cypher, **params)
             return [dict(r) for r in result]
 
     # =====================================================================

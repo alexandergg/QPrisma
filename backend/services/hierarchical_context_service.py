@@ -377,6 +377,7 @@ class HierarchicalContextService:
             video_id=structure.media_id,
             title=structure.video_title or video_metadata.get("title", "Untitled"),
             description=structure.video_summary,
+            user_id=video_metadata.get("user_id"),
             duration_seconds=structure.total_duration,
             fps=video_metadata.get("fps", 30.0),
             resolution=video_metadata.get("resolution", (1920, 1080)),
@@ -410,6 +411,7 @@ class HierarchicalContextService:
         for chapter in structure.chapters:
             chapter_node = ChapterNode(
                 video_id=structure.media_id,
+                user_id=video_node.user_id,
                 start_time=chapter.get("start_time", 0),
                 end_time=chapter.get("end_time", 0),
                 chapter_index=chapter.get("chapter_id", 0),
@@ -430,6 +432,7 @@ class HierarchicalContextService:
                     "start_time": chapter_node.start_time,
                     "end_time": chapter_node.end_time,
                     "chapter_index": chapter_node.chapter_index,
+                    "user_id": chapter_node.user_id,
                     "title": chapter_node.title,
                     "summary": chapter_node.summary,
                     "topics": chapter_node.topics,
@@ -470,6 +473,7 @@ class HierarchicalContextService:
             scene_node = SceneNode(
                 video_id=structure.media_id,
                 chapter_id=chapter_id_for_scene,
+                user_id=video_node.user_id,
                 start_time=scene.start_time,
                 end_time=scene.end_time,
                 scene_index=scene.scene_id,
@@ -489,6 +493,7 @@ class HierarchicalContextService:
                     "start_time": scene_node.start_time,
                     "end_time": scene_node.end_time,
                     "scene_index": scene_node.scene_index,
+                    "user_id": scene_node.user_id,
                     "description": scene_node.description,
                 }
             )

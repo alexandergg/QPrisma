@@ -61,6 +61,7 @@ class GraphNodeRepository:
         CREATE (v:Video {
             id: $id,
             video_id: $video_id,
+            user_id: $user_id,
             title: $title,
             description: $description,
             duration_seconds: $duration_seconds,
@@ -85,6 +86,7 @@ class GraphNodeRepository:
                 query,
                 id=video.id,
                 video_id=video.video_id,
+                user_id=video.user_id,
                 title=video.title,
                 description=video.description,
                 duration_seconds=video.duration_seconds,
@@ -113,6 +115,31 @@ class GraphNodeRepository:
         RETURN v
         """
         return self._execute_query(query, {"video_id": video_id}, single=True, unpack_key="v")
+
+    def get_node_video_id(self, node_id: str) -> str | None:
+        """Resolve the owning video_id for a graph node."""
+        query = """
+        MATCH (n {id: $node_id})
+        CALL {
+            WITH n
+            WITH n WHERE n.video_id IS NOT NULL
+            RETURN n.video_id AS video_id
+            UNION
+            WITH n
+            MATCH (v:Video)-[:CONTAINS*0..5]->(n)
+            RETURN v.video_id AS video_id
+            UNION
+            WITH n
+            MATCH (v:Video)-[:ABOUT]->(n)
+            RETURN v.video_id AS video_id
+        }
+        RETURN video_id
+        LIMIT 1
+        """
+        record = self._execute_query(query, {"node_id": node_id}, single=True)
+        if not record:
+            return None
+        return record.get("video_id")
 
     def get_video_summary(self, video_id: str) -> tuple[str | None, list[str]]:
         """Get video summary and topics from the knowledge graph.
@@ -156,6 +183,7 @@ class GraphNodeRepository:
         CREATE (s:Scene {
             id: $id,
             video_id: $video_id,
+            user_id: COALESCE($user_id, v.user_id),
             start_time: $start_time,
             end_time: $end_time,
             scene_index: $scene_index,
@@ -175,6 +203,7 @@ class GraphNodeRepository:
                 query,
                 id=scene.id,
                 video_id=scene.video_id,
+                user_id=scene.user_id,
                 start_time=scene.start_time,
                 end_time=scene.end_time,
                 scene_index=scene.scene_index,
@@ -195,6 +224,7 @@ class GraphNodeRepository:
         CREATE (ch:Chapter {
             id: $id,
             video_id: $video_id,
+            user_id: COALESCE($user_id, v.user_id),
             start_time: $start_time,
             end_time: $end_time,
             chapter_index: $chapter_index,
@@ -217,6 +247,7 @@ class GraphNodeRepository:
                 query,
                 id=chapter.id,
                 video_id=chapter.video_id,
+                user_id=chapter.user_id,
                 start_time=chapter.start_time,
                 end_time=chapter.end_time,
                 chapter_index=chapter.chapter_index,
@@ -272,6 +303,7 @@ class GraphNodeRepository:
                 id: $id,
                 video_id: $video_id,
                 scene_id: $scene_id,
+                user_id: COALESCE($user_id, s.user_id),
                 timestamp: $timestamp,
                 frame_number: $frame_number,
                 description: $description,
@@ -291,6 +323,7 @@ class GraphNodeRepository:
             CREATE (f:Frame {
                 id: $id,
                 video_id: $video_id,
+                user_id: COALESCE($user_id, v.user_id),
                 timestamp: $timestamp,
                 frame_number: $frame_number,
                 description: $description,
@@ -311,6 +344,7 @@ class GraphNodeRepository:
                 id=frame.id,
                 video_id=frame.video_id,
                 scene_id=frame.scene_id,
+                user_id=frame.user_id,
                 timestamp=frame.timestamp,
                 frame_number=frame.frame_number,
                 description=frame.description,
@@ -332,6 +366,7 @@ class GraphNodeRepository:
         CREATE (f:Frame {
             id: frame.id,
             video_id: frame.video_id,
+            user_id: COALESCE(frame.user_id, v.user_id),
             timestamp: frame.timestamp,
             frame_number: frame.frame_number,
             description: frame.description,
@@ -347,6 +382,7 @@ class GraphNodeRepository:
             {
                 "id": f.id,
                 "video_id": f.video_id,
+                "user_id": f.user_id,
                 "timestamp": f.timestamp,
                 "frame_number": f.frame_number,
                 "description": f.description,
@@ -372,11 +408,16 @@ class GraphNodeRepository:
         """Create an Entity node and connect it to the Frame where it was detected."""
         query = """
         MATCH (f:Frame {id: $frame_id})
-        MERGE (e:Entity {normalized_name: $normalized_name, entity_type: $entity_type})
+        MERGE (e:Entity {
+            normalized_name: $normalized_name,
+            entity_type: $entity_type,
+            video_id: f.video_id
+        })
         ON CREATE SET
             e.id = $id,
             e.name = $name,
             e.video_id = f.video_id,
+            e.user_id = COALESCE($user_id, f.user_id),
             e.description = $description,
             e.description_list = CASE WHEN $description IS NOT NULL THEN [$description] ELSE [] END,
             e.attributes = $attributes,
@@ -410,6 +451,7 @@ class GraphNodeRepository:
                 name=entity.name,
                 normalized_name=entity.normalized_name,
                 entity_type=entity.entity_type.value,
+                user_id=entity.user_id,
                 description=entity.description,
                 attributes=str(entity.attributes),  # Neo4j does not support nested maps directly
                 confidence=entity.confidence,
@@ -429,11 +471,16 @@ class GraphNodeRepository:
         query = """
         UNWIND $entities as entity
         MATCH (f:Frame {id: entity.frame_id})
-        MERGE (e:Entity {normalized_name: entity.normalized_name, entity_type: entity.entity_type})
+        MERGE (e:Entity {
+            normalized_name: entity.normalized_name,
+            entity_type: entity.entity_type,
+            video_id: f.video_id
+        })
         ON CREATE SET
             e.id = entity.id,
             e.name = entity.name,
             e.video_id = f.video_id,
+            e.user_id = COALESCE(entity.user_id, f.user_id),
             e.description = entity.description,
             e.description_list = CASE WHEN entity.description IS NOT NULL THEN [entity.description] ELSE [] END,
             e.confidence = entity.confidence,
@@ -463,6 +510,7 @@ class GraphNodeRepository:
                 "name": e.name,
                 "normalized_name": e.normalized_name,
                 "entity_type": e.entity_type.value,
+                "user_id": e.user_id,
                 "description": e.description,
                 "confidence": e.confidence,
                 "created_at": e.created_at.isoformat(),
@@ -506,6 +554,7 @@ class GraphNodeRepository:
         CREATE (a:AudioSegment {
             id: $id,
             video_id: $video_id,
+            user_id: COALESCE($user_id, v.user_id),
             start_time: $start_time,
             end_time: $end_time,
             text: $text,
@@ -524,6 +573,7 @@ class GraphNodeRepository:
                 query,
                 id=segment.id,
                 video_id=segment.video_id,
+                user_id=segment.user_id,
                 start_time=segment.start_time,
                 end_time=segment.end_time,
                 text=segment.text,
@@ -558,16 +608,17 @@ class GraphNodeRepository:
         query = """
         UNWIND $segments as seg
         MERGE (a:AudioSegment {id: seg.id})
+        WITH a, seg
+        OPTIONAL MATCH (v:Video)
+        WHERE v.video_id = seg.video_id OR v.id = seg.video_id
         SET a.video_id = seg.video_id,
+            a.user_id = COALESCE(seg.user_id, v.user_id),
             a.start_time = seg.start_time,
             a.end_time = seg.end_time,
             a.text = seg.text,
             a.language = seg.language,
             a.confidence = seg.confidence,
             a.created_at = datetime(seg.created_at)
-        WITH a, seg
-        OPTIONAL MATCH (v:Video)
-        WHERE v.video_id = seg.video_id OR v.id = seg.video_id
         FOREACH (_ IN CASE WHEN v IS NOT NULL THEN [1] ELSE [] END |
             MERGE (v)-[:HAS_TRANSCRIPT]->(a)
         )
@@ -583,6 +634,7 @@ class GraphNodeRepository:
                 {
                     "id": s.id,
                     "video_id": s.video_id,
+                    "user_id": s.user_id,
                     "start_time": s.start_time,
                     "end_time": s.end_time,
                     "text": s.text,
@@ -880,10 +932,11 @@ class GraphNodeRepository:
         other videos, so this is called once per newly processed video.
         """
         query = """
-        MATCH (e1:Entity)
-        WHERE e1.video_id = $video_id
+        MATCH (e1:Entity {video_id: $video_id})
+        WHERE e1.user_id IS NOT NULL
         MATCH (e2:Entity)
         WHERE e2.video_id <> $video_id
+          AND e2.user_id = e1.user_id
           AND e1.entity_type = e2.entity_type
           AND e1.id <> e2.id
           AND (
@@ -1022,6 +1075,7 @@ class GraphNodeRepository:
             id: $id,
             community_id: $community_id,
             video_id: $video_id,
+            user_id: COALESCE($user_id, v.user_id),
             title: $title,
             summary: $summary,
             themes: $themes,
@@ -1043,6 +1097,7 @@ class GraphNodeRepository:
                 id=community.id,
                 community_id=community.community_id,
                 video_id=community.video_id,
+                user_id=community.user_id,
                 title=community.title,
                 summary=community.summary,
                 themes=community.themes,
@@ -1066,6 +1121,7 @@ class GraphNodeRepository:
                 "id": c.id,
                 "community_id": c.community_id,
                 "video_id": c.video_id,
+                "user_id": c.user_id,
                 "title": c.title,
                 "summary": c.summary,
                 "themes": c.themes,
@@ -1086,6 +1142,7 @@ class GraphNodeRepository:
             id: comm.id,
             community_id: comm.community_id,
             video_id: comm.video_id,
+            user_id: COALESCE(comm.user_id, v.user_id),
             title: comm.title,
             summary: comm.summary,
             themes: comm.themes,
@@ -1185,7 +1242,7 @@ class GraphNodeRepository:
     def create_topic_nodes_batch(self, topics: list[TopicNode], video_id: str) -> int:
         """Create Topic nodes and link them to the Video.
 
-        Uses MERGE on normalized_name to avoid duplicates across videos.
+        Uses MERGE on ``(video_id, normalized_name)`` so topics are unique per-video.
         Links each topic to the Video via an ABOUT relationship.
         """
         if not topics:
@@ -1199,6 +1256,7 @@ class GraphNodeRepository:
                 "description": t.description,
                 "keywords": t.keywords,
                 "relevance_score": t.relevance_score,
+                "user_id": t.user_id,
                 "created_at": t.created_at.isoformat(),
             }
             for t in topics
@@ -1206,20 +1264,21 @@ class GraphNodeRepository:
 
         query = """
         UNWIND $topics AS topic
-        MERGE (t:Topic {normalized_name: topic.normalized_name})
+        MATCH (v:Video {video_id: $video_id})
+        MERGE (t:Topic {normalized_name: topic.normalized_name, video_id: $video_id})
         ON CREATE SET
             t.id = topic.id,
             t.name = topic.name,
             t.description = topic.description,
             t.keywords = topic.keywords,
             t.relevance_score = topic.relevance_score,
+            t.user_id = COALESCE(topic.user_id, v.user_id),
             t.created_at = datetime(topic.created_at)
         ON MATCH SET
             t.relevance_score = CASE
                 WHEN topic.relevance_score > t.relevance_score
                 THEN topic.relevance_score ELSE t.relevance_score END
-        WITH t, topic
-        MATCH (v:Video {video_id: $video_id})
+        WITH v, t
         MERGE (v)-[:ABOUT]->(t)
         RETURN count(t) as created
         """
