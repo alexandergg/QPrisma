@@ -109,7 +109,9 @@ class TestGraphNodeRepositoryScoping:
         created = repo.create_topic_nodes_batch(topics, "video-1")
 
         query = session.run.call_args.args[0]
-        assert "MERGE (t:Topic {normalized_name: topic.normalized_name, video_id: $video_id})" in query
+        assert (
+            "MERGE (t:Topic {normalized_name: topic.normalized_name, video_id: $video_id})" in query
+        )
         assert session.run.call_args.kwargs["video_id"] == "video-1"
         assert created == 1
 
@@ -134,5 +136,7 @@ def test_delete_video_graph_deletes_topics_by_video_id():
     deleted = expander.delete_video_graph("video-1")
 
     queries = [call.args[0] for call in exec_fn.call_args_list]
-    assert any("MATCH (n:Topic)" in query and "WHERE n.video_id = $video_id" in query for query in queries)
+    assert any(
+        "MATCH (n:Topic)" in query and "WHERE n.video_id = $video_id" in query for query in queries
+    )
     assert deleted == 8

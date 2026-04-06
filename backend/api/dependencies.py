@@ -358,7 +358,9 @@ def get_user_media_ids(
             break
 
         media_ids.extend(
-            media.id for media in media_batch if not processed_only or getattr(media, "processed", False)
+            media.id
+            for media in media_batch
+            if not processed_only or getattr(media, "processed", False)
         )
 
         if len(media_batch) < batch_size:
@@ -380,6 +382,7 @@ def get_graph_node_media_or_404(
     if not video_id:
         raise HTTPException(status_code=404, detail="Graph node not found")
     return get_media_or_404(video_id, current_user, allow_superuser=allow_superuser)
+
 
 # =============================================================================
 # Authentication Dependency

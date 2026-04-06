@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent.utils.formatting import format_timestamp
+
 from services.graph_search_queries import sanitize_fulltext_query
 
 if TYPE_CHECKING:

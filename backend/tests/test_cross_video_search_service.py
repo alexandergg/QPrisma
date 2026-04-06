@@ -223,7 +223,9 @@ class TestSearchAcrossVideos:
 
         with (
             patch("services.database_service.get_database_service", return_value=mock_db),
-            patch.object(CrossVideoSearchService, "_run_query", return_value=[row]) as mock_run_query,
+            patch.object(
+                CrossVideoSearchService, "_run_query", return_value=[row]
+            ) as mock_run_query,
         ):
             svc = CrossVideoSearchService(knowledge_graph_service=kg)
             result = svc.search_across_videos("topic", user_id="user-1", media_ids=None)

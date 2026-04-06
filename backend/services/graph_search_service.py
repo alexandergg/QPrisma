@@ -490,7 +490,9 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             return []
 
         # Vector search excluding the current video
-        allowed_scope = "AND node.video_id IN $allowed_video_ids" if allowed_video_ids is not None else ""
+        allowed_scope = (
+            "AND node.video_id IN $allowed_video_ids" if allowed_video_ids is not None else ""
+        )
         search_query = f"""
             CALL db.index.vector.queryNodes($index_name, $limit * 2, $embedding)
             YIELD node, score
