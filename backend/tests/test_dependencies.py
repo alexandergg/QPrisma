@@ -15,10 +15,12 @@ from api.dependencies import (
     get_blob_service,
     get_current_user,
     get_current_user_optional,
+    get_graph_node_media_or_404,
     get_media_or_404,
     get_openai_client,
     get_storage_account_info,
     get_storage_container_name,
+    get_user_media_ids,
 )
 from models.user import EntraTokenData
 
@@ -174,6 +176,50 @@ class TestGetMediaOr404:
             with pytest.raises(HTTPException) as exc_info:
                 get_media_or_404("media_123", superuser, allow_superuser=False)
             assert exc_info.value.status_code == 403
+
+
+@pytest.mark.unit
+class TestGetUserMediaIds:
+    def test_filters_to_processed_media_when_requested(self, test_user):
+        mock_db = MagicMock()
+        mock_db.get_user_media_ids.return_value = ["vid-1"]
+
+        with patch("api.dependencies.get_database_service", return_value=mock_db):
+            result = get_user_media_ids(test_user, processed_only=True)
+
+        assert result == ["vid-1"]
+        mock_db.get_user_media_ids.assert_called_once_with(test_user.id, processed_only=True)
+
+
+@pytest.mark.unit
+class TestGetGraphNodeMediaOr404:
+    def test_resolves_node_to_media_and_enforces_ownership(self, test_user):
+        mock_graph = MagicMock()
+        mock_graph.get_node_video_id.return_value = "media_123"
+
+        mock_media = MagicMock()
+        mock_media.user_id = test_user.id
+
+        with (
+            patch("api.dependencies.get_knowledge_graph_service", return_value=mock_graph),
+            patch("api.dependencies.get_media_or_404", return_value=mock_media) as mock_get_media,
+        ):
+            result = get_graph_node_media_or_404("node-1", test_user)
+
+        assert result is mock_media
+        mock_get_media.assert_called_once_with("media_123", test_user, allow_superuser=True)
+
+    def test_raises_404_when_node_is_unknown(self, test_user):
+        mock_graph = MagicMock()
+        mock_graph.get_node_video_id.return_value = None
+
+        with (
+            patch("api.dependencies.get_knowledge_graph_service", return_value=mock_graph),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            get_graph_node_media_or_404("missing-node", test_user)
+
+        assert exc_info.value.status_code == 404
 
 
 # =============================================================================

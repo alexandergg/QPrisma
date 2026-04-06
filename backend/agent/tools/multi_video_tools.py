@@ -33,7 +33,7 @@ async def search_across_videos(
     Otherwise, searches all of the user's processed videos.
     Returns results grouped by video.
     """
-    if not user_id and not media_ids:
+    if not user_id:
         return {"error": "User context not available.", "results": []}
 
     try:
@@ -45,6 +45,7 @@ async def search_across_videos(
             limit_per_video=limit_per_video,
             max_videos=max_videos,
             media_ids=media_ids,
+            user_id=user_id,
         )
         return asdict(result)
     except Exception as e:
@@ -64,6 +65,7 @@ async def compare_videos(
         "What aspect to compare across the selected videos "
         "(e.g., 'revenue growth', 'main topics', 'speakers')",
     ],
+    user_id: Annotated[str | None, InjectedState("user_id")] = None,
     media_ids: Annotated[list[str] | None, InjectedState("media_ids")] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
@@ -89,11 +91,17 @@ async def compare_videos(
             ),
         }
 
+    if not user_id:
+        return {
+            "error": "User context not available.",
+            "comparison": [],
+        }
+
     try:
         from services.cross_video_search_service import get_cross_video_search_service
 
         svc = get_cross_video_search_service()
-        result = svc.compare_videos(query, effective_ids)
+        result = svc.compare_videos(query, effective_ids, user_id=user_id)
         return asdict(result)
     except Exception as e:
         return {
@@ -114,6 +122,7 @@ async def find_common_entities(
         "Type filter: 'person', 'object', 'concept', 'location', or 'any'",
     ] = "any",
     limit: Annotated[int, "Max entities to return"] = 15,
+    user_id: Annotated[str | None, InjectedState("user_id")] = None,
     media_ids: Annotated[list[str] | None, InjectedState("media_ids")] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
@@ -134,6 +143,12 @@ async def find_common_entities(
             "entities": [],
         }
 
+    if not user_id:
+        return {
+            "error": "User context not available.",
+            "entities": [],
+        }
+
     try:
         from services.knowledge_graph import get_knowledge_graph_service
 
@@ -142,6 +157,7 @@ async def find_common_entities(
             video_ids=effective_ids,
             entity_type=entity_type,
             limit=limit,
+            user_id=user_id,
         )
 
         return {
@@ -163,6 +179,7 @@ async def find_common_entities(
 
 @tool
 async def get_library_overview(
+    user_id: Annotated[str | None, InjectedState("user_id")] = None,
     media_ids: Annotated[list[str] | None, InjectedState("media_ids")] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
@@ -178,11 +195,14 @@ async def get_library_overview(
     if not effective_ids:
         return {"error": "No videos selected.", "videos": []}
 
+    if not user_id:
+        return {"error": "User context not available.", "videos": []}
+
     try:
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        videos = kg.get_video_topics(video_ids=effective_ids)
+        videos = kg.get_video_topics(video_ids=effective_ids, user_id=user_id)
 
         result = []
         for v in videos:

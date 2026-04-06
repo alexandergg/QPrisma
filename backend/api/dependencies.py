@@ -341,6 +341,30 @@ def get_media_or_404(
     return media
 
 
+def get_user_media_ids(
+    current_user: User,
+    *,
+    processed_only: bool = False,
+) -> list[str]:
+    """Return the current user's media IDs, optionally restricted to processed items."""
+    db = get_database_service()
+    return db.get_user_media_ids(current_user.id, processed_only=processed_only)
+
+
+def get_graph_node_media_or_404(
+    node_id: str,
+    current_user: User,
+    *,
+    allow_superuser: bool = True,
+):
+    """Resolve a graph node to its video and enforce media ownership."""
+    graph_service = get_knowledge_graph_service()
+    video_id = graph_service.get_node_video_id(node_id)
+    if not video_id:
+        raise HTTPException(status_code=404, detail="Graph node not found")
+    return get_media_or_404(video_id, current_user, allow_superuser=allow_superuser)
+
+
 # =============================================================================
 # Authentication Dependency
 # =============================================================================

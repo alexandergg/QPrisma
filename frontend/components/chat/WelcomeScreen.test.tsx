@@ -96,7 +96,7 @@ describe('WelcomeScreen', () => {
     mockUseUserVideos.mockReturnValue(withVideos);
     render(<WelcomeScreen />);
     expect(screen.getByText('2')).toBeInTheDocument();
-    expect(screen.getByText('videos analyzed')).toBeInTheDocument();
+    expect(screen.getByText(/You have/i)).toHaveTextContent(/2\s+videos analyzed/);
   });
 
   it('renders recent video cards', () => {

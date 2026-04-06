@@ -72,7 +72,7 @@ QPrisma es una plataforma de procesamiento multimedia inteligente que combina vi
 | **Singletons con lazy init** | Servicios y clientes Azure inicializados bajo demanda |
 | **Fail-safe en herramientas** | Las tools del agente nunca lanzan excepciones |
 | **Observabilidad estructurada** | Correlation IDs + métricas Prometheus-style |
-| **Multi-tenant** | Scoping por `user_id` en todas las operaciones |
+| **Multi-tenant** | Ownership en rutas `video_id`/`node_id` + scoping Neo4j por `user_id` |
 
 ---
 
@@ -1180,14 +1180,14 @@ process_video_pipeline (orchestrator)
 
 ```cypher
 -- Nodos
-(:Video {media_id, title, description, duration_seconds, topics, ai_summary, embedding})
-(:Chapter {video_id, chapter_index, start_time, end_time, title, summary, topics, detection_method, embedding})
-(:Scene {video_id, scene_index, start_time, end_time, description, dominant_colors, scene_type, transition_type, visual_change_score, embedding})
-(:Frame {video_id, timestamp, frame_number, description, perceptual_hash, embedding, embedding_coarse})
-(:AudioSegment {video_id, start_time, end_time, text, language, speaker_id, confidence, embedding, embedding_coarse})
-(:Entity {name, normalized_name, entity_type, description, description_list, attributes, confidence, occurrence_count, first_seen_time, last_seen_time, embedding})
-(:Topic {name, normalized_name, description, keywords, relevance_score, embedding})
-(:Community {community_id, video_id, title, summary, themes, member_entity_ids, member_count, time_span_start, time_span_end, level, embedding})
+(:Video {video_id, user_id, title, description, duration_seconds, topics, ai_summary, embedding})
+(:Chapter {video_id, user_id, chapter_index, start_time, end_time, title, summary, topics, detection_method, embedding})
+(:Scene {video_id, user_id, scene_index, start_time, end_time, description, dominant_colors, scene_type, transition_type, visual_change_score, embedding})
+(:Frame {video_id, user_id, timestamp, frame_number, description, perceptual_hash, embedding, embedding_coarse})
+(:AudioSegment {video_id, user_id, start_time, end_time, text, language, speaker_id, confidence, embedding, embedding_coarse})
+(:Entity {video_id, user_id, name, normalized_name, entity_type, description, description_list, attributes, confidence, occurrence_count, first_seen_time, last_seen_time, embedding})
+(:Topic {video_id, user_id, name, normalized_name, description, keywords, relevance_score, embedding})
+(:Community {community_id, video_id, user_id, title, summary, themes, member_entity_ids, member_count, time_span_start, time_span_end, level, embedding})
 
 -- Relaciones jerárquicas
 (v:Video)-[:CONTAINS]->(ch:Chapter)
@@ -1228,6 +1228,8 @@ process_video_pipeline (orchestrator)
 (c:Community)-[:SUMMARIZES]->(v:Video)
 ```
 
+**Aislamiento real del grafo**: todas las etiquetas operativas persisten `user_id`. `Entity` es única por `(video_id, normalized_name, entity_type)` y `Topic` por `(video_id, normalized_name)`, evitando fusión global entre videos.
+
 **Entity Description Enrichment**: Al hacer MERGE de entidades, `description_list` acumula hasta 5 variantes únicas. La `description` canónica se actualiza solo si la nueva es más larga. `occurrence_count` se incrementa y se actualizan `first_seen_time` / `last_seen_time`.
 
 **Edge Weights**: Las relaciones semánticas extraídas por el LLM incluyen `strength` (1-10) que se normaliza a `weight` (0.1-1.0). En MERGE, se conserva el peso más alto. `evidence_count` se incrementa con cada observación repetida.
@@ -1246,7 +1248,15 @@ CREATE VECTOR INDEX frame_coarse_embedding FOR (f:Frame) ON (f.coarse_embedding)
 CREATE FULLTEXT INDEX frame_description FOR (f:Frame) ON EACH [f.description]
 CREATE FULLTEXT INDEX audio_text FOR (a:AudioSegment) ON EACH [a.text]
 CREATE FULLTEXT INDEX entity_name FOR (e:Entity) ON EACH [e.name]
+
+-- Uniqueness constraints
+CREATE CONSTRAINT video_id IF NOT EXISTS FOR (v:Video) REQUIRE v.id IS UNIQUE
+CREATE CONSTRAINT video_video_id_unique IF NOT EXISTS FOR (v:Video) REQUIRE v.video_id IS UNIQUE
+CREATE CONSTRAINT entity_video_name_type_unique IF NOT EXISTS FOR (e:Entity) REQUIRE (e.video_id, e.normalized_name, e.entity_type) IS UNIQUE
+CREATE CONSTRAINT topic_video_name_unique IF NOT EXISTS FOR (t:Topic) REQUIRE (t.video_id, t.normalized_name) IS UNIQUE
 ```
+
+Además de los índices vectoriales/fulltext, el esquema crea índices `user_id` para `Video`, `Scene`, `Frame`, `AudioSegment`, `Entity`, `Topic` y `Community`, y las rutas `/graph` validan ownership antes de ejecutar búsquedas por `video_id` o `node_id`.
 
 ### 10.3 Jerarquía para RAG
 
@@ -1513,7 +1523,7 @@ Every Request → HTTPBearer → verify_token → User object
 | Password | Mín 8 chars, mayúscula, minúscula, dígito |
 | JWT Secret | Min 32 chars en producción |
 | Default creds | Falla hard en producción si detecta defaults |
-| Multi-tenant | `user_id` scoping en todas las queries |
+| Graph isolation | Ownership en `/graph` + filtros Neo4j por `user_id` en lectura y expansión |
 | CORS | Configurable, strict en producción |
 
 ### Dependency Injection

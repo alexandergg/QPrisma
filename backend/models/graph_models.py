@@ -93,6 +93,7 @@ class GraphNodeBase(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     node_type: NodeType
+    user_id: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

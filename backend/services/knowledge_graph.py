@@ -254,11 +254,14 @@ class KnowledgeGraphService:
             # Uniqueness constraints
             constraints = [
                 "CREATE CONSTRAINT video_id IF NOT EXISTS FOR (v:Video) REQUIRE v.id IS UNIQUE",
+                "CREATE CONSTRAINT video_video_id_unique IF NOT EXISTS FOR (v:Video) REQUIRE v.video_id IS UNIQUE",
                 "CREATE CONSTRAINT chapter_id IF NOT EXISTS FOR (c:Chapter) REQUIRE c.id IS UNIQUE",
                 "CREATE CONSTRAINT scene_id IF NOT EXISTS FOR (s:Scene) REQUIRE s.id IS UNIQUE",
                 "CREATE CONSTRAINT frame_id IF NOT EXISTS FOR (f:Frame) REQUIRE f.id IS UNIQUE",
                 "CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE",
+                "CREATE CONSTRAINT entity_video_name_type_unique IF NOT EXISTS FOR (e:Entity) REQUIRE (e.video_id, e.normalized_name, e.entity_type) IS UNIQUE",
                 "CREATE CONSTRAINT topic_id IF NOT EXISTS FOR (t:Topic) REQUIRE t.id IS UNIQUE",
+                "CREATE CONSTRAINT topic_video_name_unique IF NOT EXISTS FOR (t:Topic) REQUIRE (t.video_id, t.normalized_name) IS UNIQUE",
                 "CREATE CONSTRAINT audio_id IF NOT EXISTS FOR (a:AudioSegment) REQUIRE a.id IS UNIQUE",
                 "CREATE CONSTRAINT community_id IF NOT EXISTS FOR (c:Community) REQUIRE c.id IS UNIQUE",
             ]
@@ -270,7 +273,17 @@ class KnowledgeGraphService:
                 "CREATE INDEX scene_video_id IF NOT EXISTS FOR (s:Scene) ON (s.video_id)",
                 "CREATE INDEX frame_video_id IF NOT EXISTS FOR (f:Frame) ON (f.video_id)",
                 "CREATE INDEX entity_video_id IF NOT EXISTS FOR (e:Entity) ON (e.video_id)",
+                "CREATE INDEX topic_video_id IF NOT EXISTS FOR (t:Topic) ON (t.video_id)",
                 "CREATE INDEX audio_video_id IF NOT EXISTS FOR (a:AudioSegment) ON (a.video_id)",
+                # Indexes by user_id for tenant scoping
+                "CREATE INDEX video_user_id IF NOT EXISTS FOR (v:Video) ON (v.user_id)",
+                "CREATE INDEX chapter_user_id IF NOT EXISTS FOR (c:Chapter) ON (c.user_id)",
+                "CREATE INDEX scene_user_id IF NOT EXISTS FOR (s:Scene) ON (s.user_id)",
+                "CREATE INDEX frame_user_id IF NOT EXISTS FOR (f:Frame) ON (f.user_id)",
+                "CREATE INDEX entity_user_id IF NOT EXISTS FOR (e:Entity) ON (e.user_id)",
+                "CREATE INDEX audio_user_id IF NOT EXISTS FOR (a:AudioSegment) ON (a.user_id)",
+                "CREATE INDEX topic_user_id IF NOT EXISTS FOR (t:Topic) ON (t.user_id)",
+                "CREATE INDEX community_user_id IF NOT EXISTS FOR (c:Community) ON (c.user_id)",
                 # Indexes by timestamp for temporal queries
                 "CREATE INDEX frame_timestamp IF NOT EXISTS FOR (f:Frame) ON (f.timestamp)",
                 "CREATE INDEX scene_start_time IF NOT EXISTS FOR (s:Scene) ON (s.start_time)",
@@ -331,6 +344,10 @@ class KnowledgeGraphService:
     def get_video_node(self, video_id: str) -> dict | None:
         """Retrieve a Video node by its video_id (or legacy id)."""
         return self.nodes.get_video_node(video_id)
+
+    def get_node_video_id(self, node_id: str) -> str | None:
+        """Resolve the owning video_id for a graph node."""
+        return self.nodes.get_node_video_id(node_id)
 
     def get_video_summary(self, video_id: str) -> tuple[str | None, list[str]]:
         """Get video summary and topics from the knowledge graph."""
@@ -449,6 +466,7 @@ class KnowledgeGraphService:
         query_text: str,
         entity_types: list[EntityType] | None = None,
         video_id: str | None = None,
+        user_id: str | None = None,
         limit: int = 20,
     ) -> list[dict]:
         """Full-text search for entities."""
@@ -456,47 +474,38 @@ class KnowledgeGraphService:
         if safe_text is None:
             return []
 
-        type_filter = ""
-        video_filter = ""
+        filters = ["node:Entity"]
+        params: dict = {"search_text": safe_text, "limit": limit}
 
         if entity_types:
-            types = [t.value for t in entity_types]
-            type_filter = f"AND e.entity_type IN {types}"
+            filters.append("node.entity_type IN $entity_types")
+            params["entity_types"] = [t.value for t in entity_types]
 
         if video_id:
-            video_filter = "MATCH (v:Video {video_id: $video_id})-[:CONTAINS*..3]->(e)"
+            filters.append("node.video_id = $video_id")
+            params["video_id"] = video_id
 
-        if video_filter:
-            cypher = f"""
-            {video_filter}
-            WHERE e:Entity
-            {type_filter}
-            CALL db.index.fulltext.queryNodes('entity_search', $search_text) YIELD node, score
-            WHERE node = e
-            RETURN e, score
-            ORDER BY score DESC
-            LIMIT $limit
-            """
-        else:
-            cypher = f"""
-            CALL db.index.fulltext.queryNodes('entity_search', $search_text) YIELD node, score
-            WHERE node:Entity {type_filter.replace('e.', 'node.')}
-            RETURN node as e, score
-            ORDER BY score DESC
-            LIMIT $limit
-            """
+        if user_id:
+            filters.append("node.user_id = $user_id")
+            params["user_id"] = user_id
+
+        cypher = f"""
+        CALL db.index.fulltext.queryNodes('entity_search', $search_text) YIELD node, score
+        WHERE {' AND '.join(filters)}
+        RETURN node as e, score
+        ORDER BY score DESC
+        LIMIT $limit
+        """
 
         with self.get_session() as session:
-            result = session.run(
-                cypher,
-                parameters={"search_text": safe_text, "video_id": video_id, "limit": limit},
-            )
+            result = session.run(cypher, parameters=params)
             return [{"entity": dict(r["e"]), "score": r["score"]} for r in result]
 
     def search_frames_by_description(
         self,
         query_text: str,
         video_id: str | None = None,
+        user_id: str | None = None,
         time_range: tuple[float, float] | None = None,
         limit: int = 20,
     ) -> list[dict]:
@@ -505,12 +514,16 @@ class KnowledgeGraphService:
         if safe_text is None:
             return []
 
-        filters = []
+        filters = ["node:Frame"]
         params: dict = {"search_text": safe_text, "limit": limit}
 
         if video_id:
             filters.append("node.video_id = $video_id")
             params["video_id"] = video_id
+
+        if user_id:
+            filters.append("node.user_id = $user_id")
+            params["user_id"] = user_id
 
         if time_range:
             filters.append("node.timestamp >= $time_start AND node.timestamp <= $time_end")
@@ -541,9 +554,12 @@ class KnowledgeGraphService:
         hops: int = 2,
         relation_types: list[RelationType] | None = None,
         max_nodes: int = 50,
+        user_id: str | None = None,
     ) -> dict:
         """Expand the context of a node for RAG."""
-        return self.expander.expand_context(node_id, hops, relation_types, max_nodes)
+        if user_id is None:
+            return self.expander.expand_context(node_id, hops, relation_types, max_nodes)
+        return self.expander.expand_context(node_id, hops, relation_types, max_nodes, user_id)
 
     def get_entity_timeline(self, entity_name: str, video_id: str) -> list[dict]:
         """Retrieve the appearance timeline of an entity within a video."""
@@ -554,22 +570,30 @@ class KnowledgeGraphService:
         entity_id: str,
         relation_types: list[RelationType] | None = None,
         limit: int = 20,
+        user_id: str | None = None,
     ) -> list[dict]:
         """Retrieve entities related to a given entity."""
-        return self.expander.get_related_entities(entity_id, relation_types, limit)
+        if user_id is None:
+            return self.expander.get_related_entities(entity_id, relation_types, limit)
+        return self.expander.get_related_entities(entity_id, relation_types, limit, user_id)
 
     def find_common_entities(
         self,
         video_ids: list[str],
         entity_type: str | None = None,
         limit: int = 20,
+        user_id: str | None = None,
     ) -> list[dict]:
         """Find entities that appear in multiple videos."""
-        return self.expander.find_common_entities(video_ids, entity_type, limit)
+        if user_id is None:
+            return self.expander.find_common_entities(video_ids, entity_type, limit)
+        return self.expander.find_common_entities(video_ids, entity_type, limit, user_id)
 
-    def get_video_topics(self, video_ids: list[str]) -> list[dict]:
+    def get_video_topics(self, video_ids: list[str], user_id: str | None = None) -> list[dict]:
         """Get topics and summaries for multiple videos."""
-        return self.expander.get_video_topics(video_ids)
+        if user_id is None:
+            return self.expander.get_video_topics(video_ids)
+        return self.expander.get_video_topics(video_ids, user_id)
 
     def get_stats(self) -> GraphStats:
         """Retrieve statistics for the Knowledge Graph."""
@@ -583,6 +607,7 @@ class KnowledgeGraphService:
         self,
         query_text: str,
         video_id: str | None = None,
+        user_id: str | None = None,
         include_visual: bool = True,
         include_audio: bool = True,
         limit: int = 20,
@@ -607,9 +632,12 @@ class KnowledgeGraphService:
             "combined_timeline": [],
         }
 
-        video_filter = ""
+        filters = []
         if video_id:
-            video_filter = "AND (v.video_id = $video_id OR v.id = $video_id)"
+            filters.append("(v.video_id = $video_id OR v.id = $video_id)")
+        if user_id:
+            filters.append("v.user_id = $user_id")
+        scoped_filter = f"AND {' AND '.join(filters)}" if filters else ""
 
         # Split query into keywords for better matching (used by both visual and audio)
         keywords = [w.strip() for w in query_text.split() if len(w.strip()) > 2]
@@ -627,7 +655,7 @@ class KnowledgeGraphService:
             visual_query = f"""
             MATCH (v:Video)-[:CONTAINS*1..2]->(f:Frame)
             WHERE {desc_filter}
-            {video_filter}
+            {scoped_filter}
             RETURN f.id as id, f.video_id as video_id, f.timestamp as timestamp,
                    f.description as content, 'visual' as source_type,
                    v.title as video_title
@@ -637,7 +665,11 @@ class KnowledgeGraphService:
 
             with self.get_session() as session:
                 result = session.run(
-                    visual_query, query_text=query_text, video_id=video_id, limit=limit
+                    visual_query,
+                    query_text=query_text,
+                    video_id=video_id,
+                    user_id=user_id,
+                    limit=limit,
                 )
                 results["visual_results"] = [dict(r) for r in result]
 
@@ -657,7 +689,7 @@ class KnowledgeGraphService:
             audio_query = f"""
             MATCH (v:Video)-[:HAS_TRANSCRIPT]->(a:AudioSegment)
             WHERE {text_filter}
-            {video_filter}
+            {scoped_filter}
             RETURN a.id as id, a.video_id as video_id, a.start_time as timestamp,
                    a.end_time as end_time, a.text as content, 'audio' as source_type,
                    v.title as video_title
@@ -667,7 +699,11 @@ class KnowledgeGraphService:
 
             with self.get_session() as session:
                 result = session.run(
-                    audio_query, query_text=query_text, video_id=video_id, limit=limit
+                    audio_query,
+                    query_text=query_text,
+                    video_id=video_id,
+                    user_id=user_id,
+                    limit=limit,
                 )
                 results["audio_results"] = [dict(r) for r in result]
 

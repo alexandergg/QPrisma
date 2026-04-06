@@ -285,6 +285,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         node_types: list[NodeType] | None = None,
         video_id: str | None = None,
         video_ids: list[str] | None = None,
+        user_id: str | None = None,
         time_range: tuple[float, float] | None = None,
         limit: int = 20,
         expansion_hops: int = 2,
@@ -344,6 +345,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 limit=limit * 2,
                 video_id=effective_video_id,
                 video_ids=effective_video_ids,
+                user_id=user_id,
                 min_score=0.3,
             )
             all_candidates.extend(vector_results)
@@ -356,12 +358,19 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 limit=limit,
                 video_id=effective_video_id,
                 video_ids=effective_video_ids,
+                user_id=user_id,
             )
             fulltext_time_acc += (datetime.now(UTC) - ft_start).total_seconds() * 1000
 
             # Merge full-text scores
-            vid = effective_video_id or (effective_video_ids[0] if effective_video_ids else None)
-            self._merge_fulltext_scores(all_candidates, fulltext_results, node_type, vid)
+            self._merge_fulltext_scores(
+                all_candidates,
+                fulltext_results,
+                node_type,
+                video_id=effective_video_id,
+                video_ids=effective_video_ids,
+                user_id=user_id,
+            )
 
         vector_search_time = (
             datetime.now(UTC) - vector_start
@@ -373,7 +382,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
 
         # 4. Calculate graph scores
         graph_start = datetime.now(UTC)
-        self._calculate_graph_scores(all_candidates, expansion_hops)
+        self._calculate_graph_scores(all_candidates, expansion_hops, user_id=user_id)
         graph_time = (datetime.now(UTC) - graph_start).total_seconds() * 1000
 
         # 5. Calculate temporal scores
@@ -444,6 +453,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         reference_node_id: str,
         limit: int = 10,
         min_similarity: float = 0.7,
+        allowed_video_ids: list[str] | None = None,
+        user_id: str | None = None,
     ) -> list[ScoredNode]:
         """
         Find similar nodes across other videos.
@@ -452,6 +463,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             reference_node_id: Reference node ID
             limit: Maximum number of results
             min_similarity: Minimum similarity threshold
+            allowed_video_ids: Optional explicit video scope for callers that need it
+            user_id: Optional tenant scope applied directly in Neo4j
 
         Returns:
             List of similar nodes from other videos
@@ -480,10 +493,16 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             return []
 
         # Vector search excluding the current video
-        search_query = """
+        tenant_scope = "AND node.user_id = $user_id" if user_id else ""
+        allowed_scope = (
+            "AND node.video_id IN $allowed_video_ids" if allowed_video_ids is not None else ""
+        )
+        search_query = f"""
             CALL db.index.vector.queryNodes($index_name, $limit * 2, $embedding)
             YIELD node, score
             WHERE node.video_id <> $exclude_video AND score >= $min_score
+            {tenant_scope}
+            {allowed_scope}
             RETURN node, score
             ORDER BY score DESC
             LIMIT $limit
@@ -493,15 +512,20 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         index_name = f"{ref_label.lower()}_embedding"
 
         try:
+            params = {
+                "index_name": index_name,
+                "embedding": ref_embedding,
+                "exclude_video": ref_video_id,
+                "limit": limit,
+                "min_score": min_similarity,
+            }
+            if user_id:
+                params["user_id"] = user_id
+            if allowed_video_ids is not None:
+                params["allowed_video_ids"] = allowed_video_ids
+
             with self.graph_service.get_session() as session:
-                result = session.run(
-                    search_query,
-                    index_name=index_name,
-                    embedding=ref_embedding,
-                    exclude_video=ref_video_id,
-                    limit=limit,
-                    min_score=min_similarity,
-                )
+                result = session.run(search_query, **params)
 
                 for record in result:
                     node_data = dict(record["node"])

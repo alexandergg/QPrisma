@@ -98,15 +98,15 @@ class TestGraphSearchScoringLogging:
             vector_score=0.8,
         )
 
-        # Make expand_context raise to trigger the graph expansion except block
-        svc.graph_service.expand_context.side_effect = RuntimeError("boom")
+        # Make the batch query path fail to trigger the graph expansion warning
+        svc.graph_service.get_session.side_effect = RuntimeError("boom")
 
         with caplog.at_level(logging.DEBUG, logger="services.graph_search_scoring"):
             svc._calculate_graph_scores([candidate], expansion_hops=1)
 
         warning_msgs = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert any(
-            "Graph expansion failed" in m.message for m in warning_msgs
+            "Batch graph expansion failed" in m.message for m in warning_msgs
         ), "Expected a WARNING log for graph expansion failure"
         assert candidate.graph_score == 0.0
 

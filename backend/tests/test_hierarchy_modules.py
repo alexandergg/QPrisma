@@ -310,6 +310,7 @@ class TestNodeFactory:
         chapter = MagicMock()
         chapter.id = "ch-1"
         chapter.video_id = "v-1"
+        chapter.user_id = "user-1"
         chapter.start_time = 0.0
         chapter.end_time = 30.0
         chapter.chapter_index = 0
@@ -320,12 +321,15 @@ class TestNodeFactory:
         result = node_factory.create_chapter_node(chapter)
         assert result == "test-id"
         mock_kg_service._driver.session.assert_called()
+        session = mock_kg_service._driver.session().__enter__()
+        assert session.run.call_args.kwargs["user_id"] == "user-1"
 
     def test_create_scene_node(self, node_factory, mock_kg_service):
         scene = MagicMock()
         scene.id = "sc-1"
         scene.video_id = "v-1"
         scene.chapter_id = "ch-1"
+        scene.user_id = "user-1"
         scene.start_time = 0.0
         scene.end_time = 10.0
         scene.scene_index = 0
@@ -333,18 +337,28 @@ class TestNodeFactory:
 
         result = node_factory.create_scene_node(scene)
         assert result == "test-id"
+        session = mock_kg_service._driver.session().__enter__()
+        assert session.run.call_args.kwargs["user_id"] == "user-1"
 
     def test_create_chapters_batch(self, node_factory, mock_kg_service):
-        chapters = [{"id": "c1"}, {"id": "c2"}]
+        chapters = [
+            {"id": "c1", "video_id": "v-1", "user_id": "user-1"},
+            {"id": "c2", "video_id": "v-1"},
+        ]
         node_factory.create_chapters_batch(chapters)
         session = mock_kg_service._driver.session().__enter__()
         session.run.assert_called()
+        assert session.run.call_args.kwargs["batch"][0]["user_id"] == "user-1"
 
     def test_create_scenes_batch(self, node_factory, mock_kg_service):
-        scenes = [{"id": "s1"}, {"id": "s2"}]
+        scenes = [
+            {"id": "s1", "video_id": "v-1", "user_id": "user-1"},
+            {"id": "s2", "video_id": "v-1"},
+        ]
         node_factory.create_scenes_batch(scenes)
         session = mock_kg_service._driver.session().__enter__()
         session.run.assert_called()
+        assert session.run.call_args.kwargs["batch"][0]["user_id"] == "user-1"
 
     def test_create_relationship(self, node_factory, mock_kg_service):
         from models.graph_models import RelationType

@@ -10,10 +10,11 @@ response.  Business logic lives in :mod:`services.graph_route_service`.
 
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.dependencies import (
     get_current_user,
+    get_graph_node_media_or_404,
     get_graph_route_service,
     get_graph_search_service,
     get_hierarchical_context_service,
@@ -131,11 +132,15 @@ async def search_entities(
     Supports filters by entity type and video.
     """
     try:
+        if request.video_id:
+            get_media_or_404(request.video_id, current_user)
+
         service = get_knowledge_graph_service()
         results = service.search_entities(
             query_text=request.query,
             entity_types=request.entity_types,
             video_id=request.video_id,
+            user_id=current_user.id,
             limit=request.limit,
         )
 
@@ -144,6 +149,8 @@ async def search_entities(
             "total_results": len(results),
             "results": results,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Entity search failed: {e}", exc_info=True)
         raise internal_error() from e
@@ -159,12 +166,16 @@ async def search_frames(
     Supports filters by video and temporal range.
     """
     try:
+        if request.video_id:
+            get_media_or_404(request.video_id, current_user)
+
         service = get_knowledge_graph_service()
         time_range = GraphRouteService.build_time_range(request.time_start, request.time_end)
 
         results = service.search_frames_by_description(
             query_text=request.query,
             video_id=request.video_id,
+            user_id=current_user.id,
             time_range=time_range,
             limit=request.limit,
         )
@@ -174,6 +185,8 @@ async def search_frames(
             "total_results": len(results),
             "results": results,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Frame search failed: {e}", exc_info=True)
         raise internal_error() from e
@@ -192,8 +205,12 @@ async def advanced_graph_search(
     - Context expansion in the graph
     """
     try:
+        if query.video_ids:
+            for video_id in query.video_ids:
+                get_media_or_404(video_id, current_user)
+
         svc: GraphRouteService = get_graph_route_service()
-        result = svc.advanced_search(query)
+        result = svc.advanced_search(query, user_id=current_user.id)
 
         if result.error:
             logger.error(f"Advanced search error: {result.error}")
@@ -229,6 +246,9 @@ async def hybrid_search(
     Includes re-ranking with expanded context for better results.
     """
     try:
+        if request.video_id:
+            get_media_or_404(request.video_id, current_user)
+
         search_service = get_graph_search_service()
         time_range = GraphRouteService.build_time_range(request.time_start, request.time_end)
 
@@ -236,6 +256,7 @@ async def hybrid_search(
             query_text=request.query,
             node_types=request.node_types,
             video_id=request.video_id,
+            user_id=current_user.id,
             time_range=time_range,
             limit=request.limit,
             expansion_hops=request.expansion_hops,
@@ -244,6 +265,8 @@ async def hybrid_search(
 
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Hybrid search failed: {e}", exc_info=True)
         raise internal_error() from e
@@ -262,12 +285,15 @@ async def cross_video_search(
     - Creating SAME_ENTITY relationships cross-video
     """
     try:
+        get_graph_node_media_or_404(request.reference_node_id, current_user)
         search_service = get_graph_search_service()
+        scoped_user_id = None if current_user.is_superuser else current_user.id
 
         similar_nodes = search_service.find_similar_across_videos(
             reference_node_id=request.reference_node_id,
             limit=request.limit,
             min_similarity=request.min_similarity,
+            user_id=scoped_user_id,
         )
 
         return CrossVideoSearchResponse(
@@ -276,6 +302,8 @@ async def cross_video_search(
             total_found=len(similar_nodes),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Cross-video search failed: {e}", exc_info=True)
         raise internal_error() from e
@@ -289,7 +317,6 @@ async def cross_video_search(
 @router.post("/embeddings/generate", response_model=GenerateEmbeddingsResponse)
 async def generate_embeddings(
     request: GenerateEmbeddingsRequest,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -301,6 +328,14 @@ async def generate_embeddings(
     Note: For large quantities, consider running in background.
     """
     try:
+        if request.video_id:
+            get_media_or_404(request.video_id, current_user)
+        elif not current_user.is_superuser:
+            raise HTTPException(
+                status_code=403,
+                detail="Not authorized to generate embeddings across all videos",
+            )
+
         search_service = get_graph_search_service()
         text_field = GraphRouteService.determine_text_field(request.node_type)
 
@@ -317,6 +352,8 @@ async def generate_embeddings(
             video_id=request.video_id,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to generate embeddings: {e}", exc_info=True)
         raise internal_error() from e
@@ -364,12 +401,14 @@ async def expand_context(
     Useful for enriching context in RAG queries.
     """
     try:
+        get_graph_node_media_or_404(request.node_id, current_user)
         service = get_knowledge_graph_service()
         result = service.expand_context(
             node_id=request.node_id,
             hops=request.hops,
             relation_types=request.relation_types,
             max_nodes=request.max_nodes,
+            user_id=current_user.id,
         )
 
         return ContextExpansionResponse(
@@ -378,6 +417,8 @@ async def expand_context(
             total_nodes=result["total_nodes"],
             nodes_by_distance=result["nodes_by_distance"],
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Context expansion failed: {e}", exc_info=True)
         raise internal_error() from e
@@ -393,6 +434,7 @@ async def get_entity_timeline(
     Useful for understanding when and where an entity appears.
     """
     try:
+        get_media_or_404(request.video_id, current_user)
         service = get_knowledge_graph_service()
         occurrences = service.get_entity_timeline(
             entity_name=request.entity_name,
@@ -405,6 +447,8 @@ async def get_entity_timeline(
             occurrences=occurrences,
             total_occurrences=len(occurrences),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get entity timeline: {e}", exc_info=True)
         raise internal_error() from e
@@ -420,11 +464,13 @@ async def get_related_entities(
     Supports filters by relationship type.
     """
     try:
+        get_graph_node_media_or_404(request.entity_id, current_user)
         service = get_knowledge_graph_service()
         results = service.get_related_entities(
             entity_id=request.entity_id,
             relation_types=request.relation_types,
             limit=request.limit,
+            user_id=current_user.id,
         )
 
         return {
@@ -432,6 +478,8 @@ async def get_related_entities(
             "total_related": len(results),
             "related_entities": results,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get related entities: {e}", exc_info=True)
         raise internal_error() from e
@@ -450,6 +498,7 @@ async def get_video_graph(video_id: str, current_user: User = Depends(get_curren
     Includes scenes, frames, entities, and relationships.
     """
     try:
+        get_media_or_404(video_id, current_user)
         svc: GraphRouteService = get_graph_route_service()
         data = svc.get_video_graph_data(video_id)
 
@@ -500,6 +549,7 @@ async def get_video_graph_summary(video_id: str, current_user: User = Depends(ge
 
     Includes most frequent entities, main topics, etc.
     """
+    get_media_or_404(video_id, current_user)
     # TODO: Implement summary query
     raise HTTPException(status_code=501, detail="Not implemented yet")
 
@@ -570,7 +620,6 @@ async def extract_entities_from_description(
 @router.post("/hierarchy/process", response_model=ProcessHierarchyResponse)
 async def process_video_hierarchy(
     request: ProcessHierarchyRequest,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ):
     """
@@ -587,6 +636,7 @@ async def process_video_hierarchy(
     hierarchical navigation and drill-down search.
     """
     try:
+        get_media_or_404(request.video_id, current_user)
         hierarchy_service = get_hierarchical_context_service()
         svc: GraphRouteService = get_graph_route_service()
 
@@ -596,6 +646,7 @@ async def process_video_hierarchy(
             fps=request.fps,
             duration=request.duration,
             resolution=request.resolution,
+            user_id=current_user.id,
         )
 
         result = await hierarchy_service.process_video_hierarchy(
@@ -612,6 +663,8 @@ async def process_video_hierarchy(
             errors=result.get("errors", []),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Hierarchy processing failed: {e}", exc_info=True)
         raise internal_error() from e
@@ -638,6 +691,9 @@ async def drill_down_search(
     3. Find specific scenes within those chapters
     """
     try:
+        if request.video_id:
+            get_media_or_404(request.video_id, current_user)
+
         hierarchy_service = get_hierarchical_context_service()
 
         results = await hierarchy_service.drill_down_search(
@@ -658,6 +714,8 @@ async def drill_down_search(
             levels_traversed=formatted.levels_traversed,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Drill-down search failed: {e}", exc_info=True)
         raise internal_error() from e
@@ -676,6 +734,7 @@ async def load_children(
     Supports pagination for levels with many children.
     """
     try:
+        get_graph_node_media_or_404(request.node_id, current_user)
         hierarchy_service = get_hierarchical_context_service()
 
         children = await hierarchy_service.load_children(
@@ -706,6 +765,8 @@ async def load_children(
             has_more=paginated.has_more,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Load children failed: {e}", exc_info=True)
         raise internal_error() from e
@@ -722,6 +783,7 @@ async def get_hierarchy_stats(video_id: str, current_user: User = Depends(get_cu
     - Video duration and title
     """
     try:
+        get_media_or_404(video_id, current_user)
         hierarchy_service = get_hierarchical_context_service()
         stats = await hierarchy_service.get_hierarchy_stats(video_id)
 
@@ -758,6 +820,7 @@ async def get_hierarchy_path(
     - Building navigation URLs
     """
     try:
+        get_graph_node_media_or_404(node_id, current_user)
         hierarchy_service = get_hierarchical_context_service()
         path = await hierarchy_service.get_hierarchy_path(node_id, node_type)
 
@@ -778,6 +841,8 @@ async def get_hierarchy_path(
             depth=len(path),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Get hierarchy path failed: {e}", exc_info=True)
         raise internal_error() from e
@@ -798,6 +863,9 @@ async def clear_all_graph_data(
     DANGEROUS - For development/testing only.
     Requires explicit confirmation.
     """
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     if not confirm:
         raise HTTPException(
             status_code=400,
@@ -919,6 +987,7 @@ async def get_video_visualization(
     - Relationships have id, from, to, caption, type, properties
     """
     try:
+        get_media_or_404(video_id, current_user)
         service = get_knowledge_graph_service()
         subgraph = service.get_video_subgraph(
             video_id=video_id,
@@ -962,6 +1031,7 @@ async def expand_subgraph(
     Returns additional NVL nodes and relationships around the given node.
     """
     try:
+        get_graph_node_media_or_404(request.node_id, current_user)
         service = get_knowledge_graph_service()
         subgraph = service.expand_node_subgraph(
             node_id=request.node_id,
@@ -982,6 +1052,8 @@ async def expand_subgraph(
             "total_nodes": len(nvl_nodes),
             "total_relationships": len(nvl_rels),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to expand subgraph: {e}", exc_info=True)
         raise internal_error() from e

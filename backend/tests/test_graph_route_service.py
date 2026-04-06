@@ -17,7 +17,7 @@ Covers the business logic extracted from graph route handlers:
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -233,6 +233,56 @@ class TestAdvancedSearch:
             limit=20,
         )
 
+    def test_multiple_video_ids_are_all_searched(self, service, mock_kg_service):
+        mock_kg_service.search_entities.side_effect = [
+            [{"entity": {"id": "e1"}, "score": 0.8}],
+            [{"entity": {"id": "e2"}, "score": 0.9}],
+        ]
+
+        query = GraphSearchQuery(
+            query="test",
+            video_ids=["vid-1", "vid-2"],
+            node_types=[NodeType.ENTITY],
+            use_graph_expansion=False,
+        )
+        result = service.advanced_search(query)
+
+        assert result.response.total_results == 2
+        assert [item.node_id for item in result.response.results] == ["e2", "e1"]
+        assert mock_kg_service.search_entities.call_args_list == [
+            call(query_text="test", entity_types=None, video_id="vid-1", limit=20),
+            call(query_text="test", entity_types=None, video_id="vid-2", limit=20),
+        ]
+
+    def test_user_id_is_forwarded_to_search_and_expansion(self, service, mock_kg_service):
+        mock_kg_service.search_entities.return_value = [
+            {"entity": {"id": "e1"}, "score": 0.9},
+        ]
+        mock_kg_service.expand_context.return_value = {"nodes_by_distance": {"1": [{"id": "e2"}]}}
+
+        query = GraphSearchQuery(
+            query="test",
+            node_types=[NodeType.ENTITY],
+            use_graph_expansion=True,
+            expansion_hops=2,
+        )
+
+        service.advanced_search(query, user_id="user-1")
+
+        mock_kg_service.search_entities.assert_called_once_with(
+            video_id=None,
+            query_text="test",
+            entity_types=None,
+            limit=20,
+            user_id="user-1",
+        )
+        mock_kg_service.expand_context.assert_called_once_with(
+            node_id="e1",
+            hops=2,
+            max_nodes=20,
+            user_id="user-1",
+        )
+
     def test_timing_metrics_populated(self, service, mock_kg_service):
         mock_kg_service.search_entities.return_value = []
 
@@ -359,10 +409,12 @@ class TestBuildHierarchyMetadata:
             fps=30.0,
             duration=120.0,
             resolution=(1920, 1080),
+            user_id="user-1",
         )
 
         assert meta["video_id"] == "v1"
         assert meta["media_id"] == "v1"
+        assert meta["user_id"] == "user-1"
         assert meta["title"] == "My Video"
         assert meta["fps"] == 30.0
         assert meta["duration"] == 120.0
@@ -381,6 +433,7 @@ class TestBuildHierarchyMetadata:
 
         assert meta["title"] == "Video v1"
         assert meta["duration"] == 0
+        assert meta["user_id"] is None
 
 
 # =============================================================================

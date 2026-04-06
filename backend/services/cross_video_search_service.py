@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent.utils.formatting import format_timestamp
+
 from services.graph_search_queries import sanitize_fulltext_query
 
 if TYPE_CHECKING:
@@ -92,8 +93,8 @@ class CompareVideosResult:
 _FRAME_SEARCH_SCOPED = """
 CALL db.index.fulltext.queryNodes('frame_search', $search_text) YIELD node, score
 WITH node as f, score
-WHERE f.video_id IN $media_ids
-MATCH (v:Video {video_id: f.video_id})
+WHERE f.video_id IN $media_ids AND f.user_id = $user_id
+MATCH (v:Video {video_id: f.video_id, user_id: $user_id})
 RETURN v.video_id as video_id, v.title as video_title,
        collect({
            timestamp: f.timestamp,
@@ -107,36 +108,8 @@ LIMIT $max_videos
 _AUDIO_SEARCH_SCOPED = """
 CALL db.index.fulltext.queryNodes('audio_search', $search_text) YIELD node, score
 WITH node as a, score
-WHERE a.video_id IN $media_ids
-MATCH (v:Video {video_id: a.video_id})
-RETURN v.video_id as video_id, v.title as video_title,
-       collect({
-           timestamp: a.start_time,
-           text: a.text,
-           score: score
-       })[0..$limit] as matches
-ORDER BY max(score) DESC
-LIMIT $max_videos
-"""
-
-_FRAME_SEARCH_ALL = """
-CALL db.index.fulltext.queryNodes('frame_search', $search_text) YIELD node, score
-WITH node as f, score
-MATCH (v:Video {video_id: f.video_id})
-RETURN v.video_id as video_id, v.title as video_title,
-       collect({
-           timestamp: f.timestamp,
-           description: f.description,
-           score: score
-       })[0..$limit] as matches
-ORDER BY max(score) DESC
-LIMIT $max_videos
-"""
-
-_AUDIO_SEARCH_ALL = """
-CALL db.index.fulltext.queryNodes('audio_search', $search_text) YIELD node, score
-WITH node as a, score
-MATCH (v:Video {video_id: a.video_id})
+WHERE a.video_id IN $media_ids AND a.user_id = $user_id
+MATCH (v:Video {video_id: a.video_id, user_id: $user_id})
 RETURN v.video_id as video_id, v.title as video_title,
        collect({
            timestamp: a.start_time,
@@ -149,7 +122,7 @@ LIMIT $max_videos
 
 _VIDEO_METADATA = """
 MATCH (v:Video)
-WHERE v.video_id = $vid OR v.id = $vid
+WHERE (v.video_id = $vid OR v.id = $vid) AND v.user_id = $user_id
 RETURN v.title as title, v.summary as summary, v.topics as topics,
        v.duration_seconds as duration
 LIMIT 1
@@ -158,7 +131,7 @@ LIMIT 1
 _FRAME_SEARCH_SINGLE = """
 CALL db.index.fulltext.queryNodes('frame_search', $search_text) YIELD node, score
 WITH node as f, score
-WHERE f.video_id = $vid
+WHERE f.video_id = $vid AND f.user_id = $user_id
 RETURN f.timestamp as timestamp, f.description as description, score
 ORDER BY score DESC
 LIMIT 3
@@ -167,7 +140,7 @@ LIMIT 3
 _AUDIO_SEARCH_SINGLE = """
 CALL db.index.fulltext.queryNodes('audio_search', $search_text) YIELD node, score
 WITH node as a, score
-WHERE a.video_id = $vid
+WHERE a.video_id = $vid AND a.user_id = $user_id
 RETURN a.start_time as timestamp, a.text as text, score
 ORDER BY score DESC
 LIMIT 3
@@ -213,6 +186,14 @@ class CrossVideoSearchService:
 
         return self._kg
 
+    @staticmethod
+    def _resolve_user_media_ids(user_id: str) -> list[str]:
+        """Return all processed media IDs that belong to the given user."""
+        from services.database_service import get_database_service
+
+        db = get_database_service()
+        return db.get_user_media_ids(user_id, processed_only=True)
+
     # ------------------------------------------------------------------
     # Cross-video search
     # ------------------------------------------------------------------
@@ -224,13 +205,14 @@ class CrossVideoSearchService:
         limit_per_video: int = 3,
         max_videos: int = 5,
         media_ids: list[str] | None = None,
+        user_id: str | None = None,
     ) -> CrossVideoSearchResult:
         """
         Search for content across multiple videos.
 
         When *media_ids* is provided, only those videos are searched.
-        Otherwise all indexed videos are queried.  Falls back from
-        frame search to audio search when no frame hits are found.
+        Otherwise the user's processed videos are queried. Falls back
+        from frame search to audio search when no frame hits are found.
         """
         kg = self._ensure_kg()
 
@@ -244,30 +226,48 @@ class CrossVideoSearchService:
                 total_matches=0,
             )
 
+        scoped_to_selection = media_ids is not None
+        if not user_id:
+            return CrossVideoSearchResult(
+                query=query,
+                videos_searched=0,
+                scoped_to_selection=scoped_to_selection,
+                results_by_video=[],
+                total_matches=0,
+                error="User context required for cross-video search.",
+            )
+
+        effective_media_ids = list(media_ids) if media_ids is not None else None
+        if effective_media_ids is None:
+            effective_media_ids = self._resolve_user_media_ids(user_id)
+
+        if not effective_media_ids:
+            return CrossVideoSearchResult(
+                query=query,
+                videos_searched=0,
+                scoped_to_selection=scoped_to_selection,
+                results_by_video=[],
+                total_matches=0,
+            )
+
         params: dict[str, Any] = {
             "search_text": safe_text,
             "limit": limit_per_video,
             "max_videos": max_videos,
+            "media_ids": effective_media_ids,
+            "user_id": user_id,
         }
 
-        scoped = media_ids is not None
-
-        if scoped:
-            params["media_ids"] = media_ids
-            video_results = self._run_query(kg, _FRAME_SEARCH_SCOPED, params)
-            if not video_results:
-                video_results = self._run_query(kg, _AUDIO_SEARCH_SCOPED, params)
-        else:
-            video_results = self._run_query(kg, _FRAME_SEARCH_ALL, params)
-            if not video_results:
-                video_results = self._run_query(kg, _AUDIO_SEARCH_ALL, params)
+        video_results = self._run_query(kg, _FRAME_SEARCH_SCOPED, params)
+        if not video_results:
+            video_results = self._run_query(kg, _AUDIO_SEARCH_SCOPED, params)
 
         results_by_video = [self._format_video_result(vr) for vr in video_results]
 
         return CrossVideoSearchResult(
             query=query,
             videos_searched=len(results_by_video),
-            scoped_to_selection=scoped,
+            scoped_to_selection=scoped_to_selection,
             results_by_video=[self._result_to_dict(r) for r in results_by_video],
             total_matches=sum(r.match_count for r in results_by_video),
         )
@@ -280,6 +280,7 @@ class CrossVideoSearchService:
         self,
         query: str,
         effective_ids: list[str],
+        user_id: str | None = None,
     ) -> CompareVideosResult:
         """
         Compare how each video covers a given topic.
@@ -289,9 +290,17 @@ class CrossVideoSearchService:
         """
         kg = self._ensure_kg()
 
+        if not user_id:
+            return CompareVideosResult(
+                query=query,
+                videos_compared=0,
+                comparison=[],
+                error="User context required for video comparison.",
+            )
+
         comparison: list[dict[str, Any]] = []
         for vid in effective_ids[: self.MAX_COMPARE_VIDEOS]:
-            entry = self._build_comparison_entry(kg, query, vid)
+            entry = self._build_comparison_entry(kg, query, vid, user_id)
             comparison.append(entry)
 
         comparison.sort(key=lambda x: x["relevance_score"], reverse=True)
@@ -361,20 +370,21 @@ class CrossVideoSearchService:
         kg: KnowledgeGraphService,
         query: str,
         vid: str,
+        user_id: str,
     ) -> dict[str, Any]:
         """Assemble comparison data for a single video."""
         safe_text = sanitize_fulltext_query(query) or ""
 
         # Video metadata
         with kg.get_session() as session:
-            result = session.run(_VIDEO_METADATA, parameters={"vid": vid})
+            result = session.run(_VIDEO_METADATA, parameters={"vid": vid, "user_id": user_id})
             video = result.single()
 
         # Frame matches
         with kg.get_session() as session:
             result = session.run(
                 _FRAME_SEARCH_SINGLE,
-                parameters={"search_text": safe_text, "vid": vid},
+                parameters={"search_text": safe_text, "vid": vid, "user_id": user_id},
             )
             frame_matches = list(result)
 
@@ -382,7 +392,7 @@ class CrossVideoSearchService:
         with kg.get_session() as session:
             result = session.run(
                 _AUDIO_SEARCH_SINGLE,
-                parameters={"search_text": safe_text, "vid": vid},
+                parameters={"search_text": safe_text, "vid": vid, "user_id": user_id},
             )
             audio_matches = list(result)
 
