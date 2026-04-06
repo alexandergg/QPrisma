@@ -170,7 +170,7 @@ jobs:
       actions: write
     steps:
       - name: Trigger app deployment with latest images
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             await github.rest.actions.createWorkflowDispatch({
