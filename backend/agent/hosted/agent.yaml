@@ -33,9 +33,11 @@ template:
       value: ${AZURE_OPENAI_ENDPOINT}
     - name: AZURE_OPENAI_API_VERSION
       value: "2025-04-01-preview"
-    - name: AZURE_OPENAI_DEPLOYMENT
+    - name: AZURE_USE_MANAGED_IDENTITY
+      value: "true"
+    - name: AZURE_OPENAI_DEPLOYMENT_GPT
       value: "{{chat}}"
-    - name: AZURE_OPENAI_EMBEDDING_DEPLOYMENT
+    - name: AZURE_OPENAI_DEPLOYMENT_EMBEDDING
       value: "{{embedding}}"
 
     # --- Neo4j Knowledge Graph ---

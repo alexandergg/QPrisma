@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
@@ -41,10 +42,56 @@ POLL_INTERVAL_SECONDS = 30
 POLL_TIMEOUT_SECONDS = 600
 
 
-def _optional_env(key: str) -> dict[str, str]:
+def _optional_env(key: str, *, env: Mapping[str, str] | None = None) -> dict[str, str]:
     """Return {key: value} if the env var is set, otherwise empty dict."""
-    value = os.environ.get(key, "")
+    source = os.environ if env is None else env
+    value = source.get(key, "")
     return {key: value} if value else {}
+
+
+def build_environment_variables(
+    *, account_name: str = ACCOUNT_NAME, env: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Build the hosted agent container environment contract."""
+    source = os.environ if env is None else env
+
+    return {
+        # --- Core ---
+        "ENVIRONMENT": source.get("ENVIRONMENT", "hosted"),
+        "LOG_LEVEL": source.get("LOG_LEVEL", "INFO"),
+        # --- Azure OpenAI ---
+        "AZURE_OPENAI_ENDPOINT": source.get(
+            "AZURE_OPENAI_ENDPOINT",
+            f"https://{account_name}.openai.azure.com/",
+        ),
+        "AZURE_OPENAI_API_VERSION": source.get("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
+        "AZURE_OPENAI_DEPLOYMENT_GPT": source.get("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o"),
+        "AZURE_OPENAI_DEPLOYMENT_EMBEDDING": source.get(
+            "AZURE_OPENAI_DEPLOYMENT_EMBEDDING",
+            "text-embedding-3-large",
+        ),
+        "AZURE_USE_MANAGED_IDENTITY": source.get("AZURE_USE_MANAGED_IDENTITY", "true"),
+        "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
+        # --- Telemetry ---
+        **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING", env=source),
+        **_optional_env("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", env=source),
+        **_optional_env("OTEL_SERVICE_NAME", env=source),
+        # --- Neo4j Knowledge Graph ---
+        **_optional_env("NEO4J_URI", env=source),
+        **_optional_env("NEO4J_USER", env=source),
+        **_optional_env("NEO4J_PASSWORD", env=source),
+        **_optional_env("NEO4J_DATABASE", env=source),
+        # --- PostgreSQL ---
+        **_optional_env("DATABASE_URL", env=source),
+        # --- Redis ---
+        **_optional_env("REDIS_URL", env=source),
+        # --- Azure Blob Storage ---
+        **_optional_env("AZURE_STORAGE_CONNECTION_STRING", env=source),
+        # --- Foundry Memory Store ---
+        **_optional_env("FOUNDRY_MEMORY_STORE_NAME", env=source),
+        **_optional_env("FOUNDRY_MEMORY_CHAT_MODEL", env=source),
+        **_optional_env("FOUNDRY_MEMORY_EMBEDDING_MODEL", env=source),
+    }
 
 
 def _run_az(*args: str) -> subprocess.CompletedProcess[str]:
@@ -152,34 +199,7 @@ def main() -> None:
         credential=DefaultAzureCredential(),
     )
 
-    environment_variables = {
-        # --- Core ---
-        "ENVIRONMENT": os.environ.get("ENVIRONMENT", "hosted"),
-        "LOG_LEVEL": os.environ.get("LOG_LEVEL", "INFO"),
-        # --- Azure OpenAI ---
-        "AZURE_OPENAI_ENDPOINT": f"https://{ACCOUNT_NAME}.openai.azure.com/",
-        "AZURE_OPENAI_API_VERSION": "2024-08-01-preview",
-        "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
-        # --- Telemetry ---
-        **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING"),
-        **_optional_env("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED"),
-        **_optional_env("OTEL_SERVICE_NAME"),
-        # --- Neo4j Knowledge Graph ---
-        **_optional_env("NEO4J_URI"),
-        **_optional_env("NEO4J_USER"),
-        **_optional_env("NEO4J_PASSWORD"),
-        **_optional_env("NEO4J_DATABASE"),
-        # --- PostgreSQL ---
-        **_optional_env("DATABASE_URL"),
-        # --- Redis ---
-        **_optional_env("REDIS_URL"),
-        # --- Azure Blob Storage ---
-        **_optional_env("AZURE_STORAGE_CONNECTION_STRING"),
-        # --- Foundry Memory Store ---
-        **_optional_env("FOUNDRY_MEMORY_STORE_NAME"),
-        **_optional_env("FOUNDRY_MEMORY_CHAT_MODEL"),
-        **_optional_env("FOUNDRY_MEMORY_EMBEDDING_MODEL"),
-    }
+    environment_variables = build_environment_variables()
 
     # Warn if critical backend service vars are missing
     _CRITICAL_VARS = ["NEO4J_URI", "NEO4J_PASSWORD", "DATABASE_URL", "REDIS_URL"]

@@ -308,6 +308,10 @@ jobs:
           AZURE_AI_PROJECT_ENDPOINT: https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
           CONTAINER_IMAGE: ${{ env.FULL_IMAGE }}
           ENVIRONMENT: hosted
+          AZURE_USE_MANAGED_IDENTITY: 'true'
+          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION || '2024-08-01-preview' }}
+          AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-4o' }}
+          AZURE_OPENAI_DEPLOYMENT_EMBEDDING: ${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING || 'text-embedding-3-large' }}
           APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ steps.appinsights.outputs.connection_string }}
           OTEL_SERVICE_NAME: qprisma-hosted-agent
           # Neo4j Knowledge Graph
