@@ -15,8 +15,13 @@ resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-11-01-pr
     name: 'Basic'
   }
   properties: {
-    adminUserEnabled: true
+    adminUserEnabled: false
     publicNetworkAccess: 'Enabled'
+    policies: {
+      azureADAuthenticationAsArmPolicy: {
+        status: 'enabled'
+      }
+    }
   }
 }
 

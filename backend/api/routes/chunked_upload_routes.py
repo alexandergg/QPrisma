@@ -9,21 +9,21 @@ High-performance upload endpoints for large files (1GB+) using:
 
 import logging
 import uuid
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 
 from azure.storage.blob import (
     BlobBlock,
     BlobSasPermissions,
     BlobType,
-    generate_blob_sas,
 )
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.dependencies import (
+    build_blob_sas_url_async,
     get_blob_service,
     get_current_user,
-    get_storage_account_info,
     get_storage_container_name,
 )
 from models.user import User
@@ -188,25 +188,14 @@ async def init_chunked_upload(
         )
 
     # Generate SAS URL for upload
-    account_info = get_storage_account_info()
-    if not account_info:
-        raise HTTPException(status_code=503, detail="Cannot generate SAS token")
-
-    account_name, account_key, container_name = account_info
-
     sas_expiry = datetime.now(UTC) + timedelta(hours=4)
-    sas_token = generate_blob_sas(
-        account_name=account_name,
-        container_name=container_name,
-        blob_name=blob_name,
-        account_key=account_key,
+    upload_url = await build_blob_sas_url_async(
+        blob_name,
         permission=BlobSasPermissions(write=True, create=True, read=True),
         expiry=sas_expiry,
     )
-
-    upload_url = (
-        f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas_token}"
-    )
+    if not upload_url:
+        raise HTTPException(status_code=503, detail="Cannot generate SAS token")
 
     # Store upload session in database (for resumability)
     db = get_database_service()
@@ -441,14 +430,12 @@ async def cancel_upload(
 
     # Try to delete the blob (uncommitted blocks are auto-deleted after 7 days)
     container_name = get_storage_container_name()
-    try:
+    with suppress(Exception):
         blob_client = blob_service.get_blob_client(
             container=container_name,
             blob=media.blob_name,
         )
-        blob_client.delete_blob()
-    except Exception:
-        pass  # Blob may not exist yet
+        blob_client.delete_blob()  # Blob may not exist yet
 
     # Delete media record
     db.delete_media(media_id)

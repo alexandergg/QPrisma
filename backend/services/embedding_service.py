@@ -11,6 +11,7 @@ import logging
 from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from core.azure_credentials import build_openai_client_kwargs
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -69,11 +70,15 @@ class EmbeddingService:
     def client(self) -> AzureOpenAI | AsyncAzureOpenAI:
         """Lazy initialization of the Azure OpenAI client."""
         if self._client is None:
-            self._client = AsyncAzureOpenAI(
+            client_kwargs = build_openai_client_kwargs(
+                endpoint=self.endpoint,
                 api_key=self.api_key,
                 api_version=self.api_version,
-                azure_endpoint=self.endpoint,
+                use_managed_identity=settings.azure.use_managed_identity,
             )
+            if client_kwargs is None:
+                raise ValueError("Azure OpenAI client is not configured")
+            self._client = AsyncAzureOpenAI(**client_kwargs)
         return self._client
 
     def _compute_hash(self, text: str) -> str:

@@ -24,6 +24,7 @@ from typing import Any
 from azure.storage.blob import BlobServiceClient, StandardBlobTier
 from pydantic import BaseModel
 
+from core.azure_credentials import create_blob_service_client
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -101,9 +102,11 @@ class StorageTieringService:
         self.container_name = container_name or settings.azure.storage_container_name
 
         if not self.blob_service:
-            conn_string = settings.azure.storage_connection_string
-            if conn_string:
-                self.blob_service = BlobServiceClient.from_connection_string(conn_string)
+            self.blob_service = create_blob_service_client(
+                storage_connection_string=settings.azure.storage_connection_string,
+                storage_account_url=settings.azure.storage_account_url,
+                use_managed_identity=settings.azure.use_managed_identity,
+            )
 
     def _get_container_client(self):
         """Get the container client."""

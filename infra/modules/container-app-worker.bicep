@@ -13,12 +13,8 @@ param imageName string
 @description('Container Registry server')
 param registryServer string
 
-@description('Container Registry username')
-param registryUsername string
-
-@description('Container Registry password')
-@secure()
-param registryPassword string
+@description('User-assigned managed identity resource ID for ACR pulls and Key Vault secret refs')
+param runtimeIdentityResourceId string
 
 @description('Redis host for KEDA scaler')
 param redisHost string
@@ -26,7 +22,7 @@ param redisHost string
 @description('Environment variables (plain values only: {name, value})')
 param envVars array = []
 
-@description('Secrets for the container app ({name, value} pairs)')
+@description('Secrets for the container app ({name, value} or {name, keyVaultUrl, identity})')
 param secrets array = []
 
 @description('Environment variables that reference secrets ({name, secretRef} pairs)')
@@ -40,7 +36,10 @@ resource workerContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
   location: location
   tags: tags
   identity: {
-    type: 'SystemAssigned'
+    type: 'SystemAssigned,UserAssigned'
+    userAssignedIdentities: {
+      '${runtimeIdentityResourceId}': {}
+    }
   }
   properties: {
     environmentId: environmentId
@@ -48,14 +47,10 @@ resource workerContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
       registries: [
         {
           server: registryServer
-          username: registryUsername
-          passwordSecretRef: 'registry-password'
+          identity: runtimeIdentityResourceId
         }
       ]
-      secrets: union(
-        [{ name: 'registry-password', value: registryPassword }],
-        secrets
-      )
+      secrets: secrets
     }
     template: {
       containers: [

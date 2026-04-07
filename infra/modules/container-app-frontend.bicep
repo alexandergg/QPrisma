@@ -13,12 +13,8 @@ param imageName string
 @description('Container Registry server')
 param registryServer string
 
-@description('Container Registry username')
-param registryUsername string
-
-@description('Container Registry password')
-@secure()
-param registryPassword string
+@description('User-assigned managed identity resource ID for ACR pulls')
+param runtimeIdentityResourceId string
 
 @description('Environment variables')
 param envVars array = []
@@ -31,7 +27,10 @@ resource frontendContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
   location: location
   tags: tags
   identity: {
-    type: 'SystemAssigned'
+    type: 'SystemAssigned,UserAssigned'
+    userAssignedIdentities: {
+      '${runtimeIdentityResourceId}': {}
+    }
   }
   properties: {
     environmentId: environmentId
@@ -45,14 +44,7 @@ resource frontendContainerApp 'Microsoft.App/containerApps@2024-03-01' = {
       registries: [
         {
           server: registryServer
-          username: registryUsername
-          passwordSecretRef: 'registry-password'
-        }
-      ]
-      secrets: [
-        {
-          name: 'registry-password'
-          value: registryPassword
+          identity: runtimeIdentityResourceId
         }
       ]
     }

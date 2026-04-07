@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from azure.storage.blob import BlobServiceClient, ContentSettings
 
+from core.azure_credentials import create_blob_service_client
 from core.config import settings
 from services.cache_service import CacheService, get_cache_service
 from services.database_service import DatabaseService, get_database_service
@@ -36,9 +37,11 @@ class ToolArtifactService:
 
         if blob_service is not None:
             self.blob_service = blob_service
-        elif settings.azure.storage_connection_string:
-            self.blob_service = BlobServiceClient.from_connection_string(
-                settings.azure.storage_connection_string
+        elif settings.azure.is_storage_configured:
+            self.blob_service = create_blob_service_client(
+                storage_connection_string=settings.azure.storage_connection_string,
+                storage_account_url=settings.azure.storage_account_url,
+                use_managed_identity=settings.azure.use_managed_identity,
             )
         else:
             self.blob_service = None
