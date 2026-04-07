@@ -15,6 +15,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
 from agent.utils.formatting import format_timestamp
+from agent.utils.tool_meta import tool_error, tool_meta, truncate_with_notice
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ async def search_across_videos(
     Returns results grouped by video.
     """
     if not user_id:
-        return {"error": "User context not available.", "results": []}
+        return tool_error("no_context", "User context not available.")
 
     try:
         from services.cross_video_search_service import get_cross_video_search_service
@@ -47,15 +48,18 @@ async def search_across_videos(
             media_ids=media_ids,
             user_id=user_id,
         )
-        return asdict(result)
+        data = asdict(result)
+        data["_meta"] = tool_meta(
+            result_count=sum(len(v.get("results", [])) for v in data.get("results", [])),
+        )
+        return data
     except Exception as e:
-        return {
-            "error": f"Cross-video search failed: {str(e)}",
-            "results": [],
-            "fallback_suggestion": (
-                "Use search_video with target_video_id on each video individually."
-            ),
-        }
+        logger.error("search_across_videos failed: %s", e)
+        return tool_error(
+            "query_error",
+            f"Cross-video search failed: {e}",
+            recovery="Use search_video with target_video_id on each video individually.",
+        )
 
 
 @tool
@@ -74,7 +78,6 @@ async def compare_videos(
     Finds how each video covers a given topic and highlights similarities and differences.
     Requires multi-video mode (2+ videos selected).
     """
-    # Build effective list
     effective_ids: list[str] = []
     if media_ids:
         effective_ids = list(media_ids)
@@ -82,37 +85,34 @@ async def compare_videos(
         effective_ids = [media_id]
 
     if len(effective_ids) < 2:
-        return {
-            "error": "Compare requires at least 2 videos selected. Currently only "
+        return tool_error(
+            "invalid_input",
+            f"Compare requires at least 2 videos selected. Currently only "
             f"{len(effective_ids)} video(s) in context.",
-            "comparison": [],
-            "fallback_suggestion": (
-                "Ensure multiple videos are selected in library mode before comparing."
-            ),
-        }
+            recovery="Ensure multiple videos are selected in library mode before comparing.",
+        )
 
     if not user_id:
-        return {
-            "error": "User context not available.",
-            "comparison": [],
-        }
+        return tool_error("no_context", "User context not available.")
 
     try:
         from services.cross_video_search_service import get_cross_video_search_service
 
         svc = get_cross_video_search_service()
         result = svc.compare_videos(query, effective_ids, user_id=user_id)
-        return asdict(result)
+        data = asdict(result)
+        data["_meta"] = tool_meta(result_count=len(effective_ids))
+        return data
     except Exception as e:
-        return {
-            "error": f"Video comparison failed: {str(e)}",
-            "comparison": [],
-            "videos_attempted": len(effective_ids),
-            "fallback_suggestion": (
+        logger.error("compare_videos failed: %s", e)
+        return tool_error(
+            "query_error",
+            f"Video comparison failed: {e}",
+            recovery=(
                 "Use get_summary with target_video_id for each video individually, "
                 "then synthesize the comparison from the individual summaries."
             ),
-        }
+        )
 
 
 @tool
@@ -138,16 +138,13 @@ async def find_common_entities(
         effective_ids.append(media_id)
 
     if len(effective_ids) < 2:
-        return {
-            "error": "Need at least 2 videos to find common entities.",
-            "entities": [],
-        }
+        return tool_error(
+            "invalid_input",
+            "Need at least 2 videos to find common entities.",
+        )
 
     if not user_id:
-        return {
-            "error": "User context not available.",
-            "entities": [],
-        }
+        return tool_error("no_context", "User context not available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -165,16 +162,18 @@ async def find_common_entities(
             "total_found": len(entities),
             "videos_analyzed": len(effective_ids),
             "entity_type_filter": entity_type,
-        }
-    except Exception as e:
-        return {
-            "error": f"Finding common entities failed: {str(e)}",
-            "entities": [],
-            "videos_attempted": len(effective_ids),
-            "fallback_suggestion": (
-                "Use search_across_videos with entity names to find shared content."
+            "_meta": tool_meta(
+                result_count=len(entities),
+                total_available=len(entities),
             ),
         }
+    except Exception as e:
+        logger.error("find_common_entities failed: %s", e)
+        return tool_error(
+            "query_error",
+            f"Finding common entities failed: {e}",
+            recovery="Use search_across_videos with entity names to find shared content.",
+        )
 
 
 @tool
@@ -193,10 +192,10 @@ async def get_library_overview(
         effective_ids.append(media_id)
 
     if not effective_ids:
-        return {"error": "No videos selected.", "videos": []}
+        return tool_error("no_context", "No videos selected.")
 
     if not user_id:
-        return {"error": "User context not available.", "videos": []}
+        return tool_error("no_context", "User context not available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -204,13 +203,17 @@ async def get_library_overview(
         kg = get_knowledge_graph_service()
         videos = kg.get_video_topics(video_ids=effective_ids, user_id=user_id)
 
+        truncated_fields: list[str] = []
         result = []
         for v in videos:
+            summary_text, was_cut = truncate_with_notice(v.get("summary") or "", 500)
+            if was_cut:
+                truncated_fields.append("summary")
             result.append(
                 {
                     "video_id": v["video_id"],
                     "title": v.get("title") or "Untitled",
-                    "summary": (v.get("summary") or "")[:500],
+                    "summary": summary_text,
                     "topics": v.get("topics") or [],
                     "duration_formatted": (
                         format_timestamp(v["duration"]) if v.get("duration") else None
@@ -227,9 +230,15 @@ async def get_library_overview(
             "videos": result,
             "total_videos": len(result),
             "all_topics": unique_topics[:30],
+            "_meta": tool_meta(
+                result_count=len(result),
+                total_available=len(effective_ids),
+                truncated_fields=list(set(truncated_fields)) if truncated_fields else None,
+            ),
         }
     except Exception as e:
-        return {"error": str(e), "videos": []}
+        logger.error("get_library_overview failed: %s", e)
+        return tool_error("query_error", f"Library overview failed: {e}")
 
 
 # =============================================================================

@@ -12,8 +12,165 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
 from agent.utils.formatting import format_timestamp
+from agent.utils.text import SCENE_DESCRIPTION_PREFIXES, clean_generated_text, is_valid_content
+from agent.utils.tool_meta import tool_error, tool_meta, truncate_with_notice
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_scene_title(scene: dict, scene_frames: list[dict]) -> str | None:
+    """Generate a scene title from its first frame description."""
+    title = scene.get("title")
+    if title:
+        return title
+
+    if not scene_frames:
+        return None
+
+    first_desc = scene_frames[0].get("description", "")
+    if not first_desc:
+        return None
+
+    clean_desc = clean_generated_text(first_desc, SCENE_DESCRIPTION_PREFIXES)
+    if clean_desc:
+        first_sentence = clean_desc.split(".")[0][:100]
+        return first_sentence.strip()
+    return None
+
+
+def _generate_scene_summary(scene: dict, scene_frames: list[dict]) -> str | None:
+    """Generate a scene summary from its description or frame descriptions."""
+    summary = scene.get("description")
+    if summary:
+        clean_summary = clean_generated_text(summary, SCENE_DESCRIPTION_PREFIXES)
+        return clean_summary or None
+
+    if not scene_frames:
+        return None
+
+    descriptions = [
+        clean_generated_text(f.get("description", ""), SCENE_DESCRIPTION_PREFIXES)
+        for f in scene_frames[:3]
+        if f.get("description")
+    ]
+    descriptions = [d for d in descriptions if d]
+    if descriptions:
+        return " ".join(descriptions)[:500]
+    return None
+
+
+def _generate_video_summary(video_node: dict, all_frames: list[dict]) -> str | None:
+    """Generate a video summary from the video node or sampled frame descriptions."""
+    from agent.utils.text import VIDEO_SUMMARY_PREFIXES
+
+    video_summary = video_node.get("summary")
+    if video_summary:
+        return video_summary
+
+    valid_frames = [f for f in all_frames if is_valid_content(f.get("description", ""))]
+    if not valid_frames:
+        return None
+
+    sample_count = min(5, len(valid_frames))
+    step = max(1, len(valid_frames) // sample_count)
+    sampled = [valid_frames[i] for i in range(0, len(valid_frames), step)][:sample_count]
+
+    summaries = []
+    for f in sampled:
+        desc = f.get("description", "")
+        clean = clean_generated_text(desc, VIDEO_SUMMARY_PREFIXES)
+        if clean:
+            summaries.append(clean[:150])
+
+    return " ".join(summaries)[:600] if summaries else None
+
+
+def _extract_key_topics(video_node: dict) -> list[str]:
+    """Extract key topics from the video node."""
+    return video_node.get("topics") or []
+
+
+def _build_scene_list(scenes: list[dict], all_frames: list[dict]) -> list[dict[str, Any]]:
+    """Build enriched scene list with titles and summaries from graph data."""
+    scene_list = []
+    for s in scenes:
+        start = float(s.get("start_time", 0) or 0)
+        end = float(s.get("end_time", 0) or 0)
+
+        scene_frames = [
+            f
+            for f in all_frames
+            if f.get("timestamp") is not None and start <= f["timestamp"] < end
+        ]
+
+        scene_title = _generate_scene_title(s, scene_frames)
+        scene_summary = _generate_scene_summary(s, scene_frames)
+
+        scene_list.append(
+            {
+                "scene_id": int(s.get("scene_index", 0) or 0),
+                "start_time": start,
+                "end_time": end,
+                "title": scene_title or f"Scene {int(s.get('scene_index', 0) or 0) + 1}",
+                "summary": scene_summary,
+            }
+        )
+    return scene_list
+
+
+def _build_chapters(scene_list: list[dict], max_scenes_per_chapter: int = 5) -> list[dict]:
+    """Group scenes into chapters."""
+    chapters = []
+    for i in range(0, len(scene_list), max_scenes_per_chapter):
+        chunk = scene_list[i : i + max_scenes_per_chapter]
+        if not chunk:
+            continue
+        chapter_id = len(chapters)
+
+        first_scene_title = chunk[0].get("title", "")
+        chapter_title = first_scene_title[:60] if first_scene_title else f"Part {chapter_id + 1}"
+
+        scene_summaries = [s.get("summary", "") for s in chunk if s.get("summary")]
+        chapter_summary = " ".join(scene_summaries)[:300] if scene_summaries else None
+
+        chapters.append(
+            {
+                "chapter_id": chapter_id,
+                "title": chapter_title,
+                "summary": chapter_summary,
+                "start_time": chunk[0]["start_time"],
+                "end_time": chunk[-1]["end_time"],
+                "duration": max(0.0, chunk[-1]["end_time"] - chunk[0]["start_time"]),
+                "scene_count": len(chunk),
+            }
+        )
+    return chapters
+
+
+def _format_chapter_entry(entry: dict[str, Any], number: int) -> dict[str, Any]:
+    """Format a scene or chapter entry into the list_chapters response shape."""
+    start_time = float(entry.get("start_time", 0) or 0)
+    end_time = float(entry.get("end_time", start_time) or start_time)
+
+    title = entry.get("title")
+    title = title.strip() if isinstance(title, str) else ""
+    if not title:
+        title = f"Scene {number}"
+
+    summary = entry.get("summary")
+    summary = summary.strip() if isinstance(summary, str) else ""
+    if not summary:
+        summary = title
+
+    return {
+        "number": number,
+        "title": title,
+        "start_time": start_time,
+        "start_formatted": format_timestamp(start_time),
+        "end_time": end_time,
+        "end_formatted": format_timestamp(end_time),
+        "summary": summary,
+    }
 
 
 @tool
@@ -26,12 +183,15 @@ async def list_chapters(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get the chapter structure and overview of the video.
+    Get the chronological chapter structure and timeline of the video.
+    Returns scenes grouped into chapters with titles, time ranges, and summaries.
+    Use for timeline requests, table-of-contents, or chapter-by-chapter breakdown.
+    For a single synopsis, use get_summary. For thematic clusters, use get_community_overview.
     When several videos are selected, use target_video_id to get chapters for a specific video.
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available.", "chapters": []}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -41,63 +201,65 @@ async def list_chapters(
             kg.connect()
 
         if not kg.is_connected:
-            logger.warning("list_chapters: Neo4j unavailable at %s", kg.uri)
-            return {"error": "Knowledge graph not available.", "chapters": []}
-
-        with kg.get_session() as session:
-            # Get scenes as chapters using video_id property
-            result = session.run(
-                """
-                MATCH (s:Scene)
-                WHERE s.video_id = $media_id
-                RETURN s.id as id, s.start_time as start_time, s.end_time as end_time,
-                       s.description as description, s.scene_type as scene_type
-                ORDER BY s.start_time
-                """,
-                media_id=effective_id,
+            logger.warning("list_chapters: Neo4j unavailable at %s", getattr(kg, "uri", "unknown"))
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_video_info for basic metadata from database.",
             )
-            scenes = list(result)
 
+        video_node = kg.get_video_node(effective_id)
+        if not video_node:
+            return {
+                "message": "Video not found in knowledge graph.",
+                "chapters": [],
+                "_meta": tool_meta(is_complete=False, result_count=0),
+            }
+
+        scenes = kg.get_video_scenes(effective_id)
         if not scenes:
-            # Try to get video topics as alternative
-            with kg.get_session() as session:
-                result = session.run(
-                    """
-                    MATCH (v:Video)
-                    WHERE v.video_id = $media_id OR v.id = $media_id
-                    RETURN v.topics as topics,
-                           v.summary as summary
-                    """,
-                    media_id=effective_id,
-                )
-                record = result.single()
-                if record and record.get("topics"):
-                    return {
-                        "message": "No chapters found, but here are the main topics covered:",
-                        "topics": record.get("topics", []),
-                        "summary": record.get("summary", ""),
-                        "chapters": [],
-                    }
-            return {"message": "No chapters found for this video.", "chapters": []}
+            summary, topics = kg.get_video_summary(effective_id)
+            result: dict[str, Any] = {
+                "chapters": [],
+                "_meta": tool_meta(is_complete=True, result_count=0),
+            }
+            if topics:
+                result["message"] = "No chapters found, but here are the main topics covered:"
+                result["topics"] = topics
+            else:
+                result["message"] = "No chapters found for this video."
+            if summary:
+                result["summary"] = summary
+            return result
 
-        return {
-            "total_chapters": len(scenes),
-            "chapters": [
-                {
-                    "number": i + 1,
-                    "title": scene.get("scene_type") or f"Scene {i + 1}",
-                    "start_time": scene.get("start_time", 0),
-                    "start_formatted": format_timestamp(scene.get("start_time", 0)),
-                    "end_time": scene.get("end_time", 0),
-                    "end_formatted": format_timestamp(scene.get("end_time", 0)),
-                    "summary": scene.get("description", ""),
-                }
-                for i, scene in enumerate(scenes)
-            ],
+        all_frames = kg.get_video_frames(effective_id)
+        # Cap frames to avoid expensive per-scene filtering on long videos
+        MAX_FRAMES_FOR_CHAPTERS = 500
+        if len(all_frames) > MAX_FRAMES_FOR_CHAPTERS:
+            all_frames = all_frames[:MAX_FRAMES_FOR_CHAPTERS]
+        scene_list = _build_scene_list(scenes, all_frames)
+        chapters = _build_chapters(scene_list)
+
+        video_summary = _generate_video_summary(video_node, all_frames)
+        key_topics = _extract_key_topics(video_node)
+
+        entries = chapters if len(chapters) > 1 else scene_list
+        response: dict[str, Any] = {
+            "total_chapters": len(entries),
+            "chapters": [_format_chapter_entry(e, i + 1) for i, e in enumerate(entries)],
+            "_meta": tool_meta(result_count=len(entries)),
         }
 
+        if video_summary:
+            response["video_summary"] = video_summary
+        if key_topics:
+            response["topics"] = key_topics
+
+        return response
+
     except Exception as e:
-        return {"error": f"Failed to get chapters: {str(e)}", "chapters": []}
+        logger.error("list_chapters failed for %s: %s", effective_id, e)
+        return tool_error("query_error", f"Failed to get chapters: {e}")
 
 
 @tool
@@ -110,12 +272,13 @@ async def get_video_info(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get basic information about a video (title, duration, etc.).
+    Get basic info about a video: title, duration, resolution, fps, and processing status.
+    Database-backed — works even when the knowledge graph is unavailable.
     When several videos are selected, use target_video_id to get info for a specific video.
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available."}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.database_service import get_database_service
@@ -124,7 +287,7 @@ async def get_video_info(
         media = db.get_media(effective_id)
 
         if not media:
-            return {"error": "Video not found."}
+            return tool_error("no_data", "Video not found.")
 
         metadata = media.video_metadata or {}
 
@@ -136,15 +299,19 @@ async def get_video_info(
             "resolution": f"{metadata.get('width', 0)}x{metadata.get('height', 0)}",
             "fps": metadata.get("fps", 0),
             "status": media.processing_status,
+            "_meta": tool_meta(source="database"),
         }
 
     except Exception as e:
-        return {"error": f"Failed to get video info: {str(e)}"}
+        logger.error("get_video_info failed for %s: %s", effective_id, e)
+        return tool_error("query_error", f"Failed to get video info: {e}")
 
 
 @tool
 async def get_summary(
-    level: Annotated[str, "Summary level: 'brief', 'detailed', or 'comprehensive'"] = "brief",
+    level: Annotated[
+        str, "Hint for response style: 'brief', 'detailed', or 'comprehensive'"
+    ] = "brief",
     target_video_id: Annotated[
         str | None,
         "When several videos are selected, specify which video to summarize. "
@@ -153,12 +320,15 @@ async def get_summary(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get a summary of the video content at different levels of detail.
+    Get a single synopsis summary of the video with title, topics, and duration.
+    The level parameter hints at desired response verbosity but the underlying data
+    is the same. For chronological chapter breakdown, use list_chapters instead.
+    For thematic topic clusters, use get_community_overview.
     When several videos are selected, use target_video_id to summarize a specific video.
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available.", "summary": ""}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -169,43 +339,36 @@ async def get_summary(
 
         if not kg.is_connected:
             logger.warning("get_summary: Neo4j unavailable at %s", kg.uri)
-            return {"error": "Knowledge graph not available.", "summary": ""}
-
-        with kg.get_session() as session:
-            result = session.run(
-                """
-                MATCH (v:Video)
-                WHERE v.video_id = $media_id OR v.id = $media_id
-                RETURN v.summary as summary,
-                       v.title as title, v.topics as topics,
-                       v.duration_seconds as duration
-                """,
-                media_id=effective_id,
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_video_info for basic metadata from database.",
             )
-            record = result.single()
+
+        record = kg.get_video_summary_data(effective_id)
 
         if not record or not record.get("summary"):
             return {
                 "level": level,
                 "summary": "No summary available for this video.",
                 "title": record.get("title") if record else "Unknown",
+                "_meta": tool_meta(source="graph", is_complete=False),
             }
 
-        summary = record.get("summary", "")
-        topics = record.get("topics", [])
-        title = record.get("title", "")
         duration = record.get("duration", 0)
 
         return {
             "level": level,
-            "summary": summary,
-            "title": title,
-            "topics": topics or [],
+            "summary": record.get("summary", ""),
+            "title": record.get("title", ""),
+            "topics": record.get("topics") or [],
             "duration_formatted": format_timestamp(duration) if duration else None,
+            "_meta": tool_meta(),
         }
 
     except Exception as e:
-        return {"error": f"Failed to get summary: {str(e)}", "summary": ""}
+        logger.error("get_summary failed for %s: %s", effective_id, e)
+        return tool_error("query_error", f"Failed to get summary: {e}")
 
 
 @tool
@@ -220,15 +383,16 @@ async def get_scene_context(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get comprehensive context around a specific moment in the video.
-    Returns frames, audio, and scene information within the time window.
+    Get comprehensive context around a specific moment in the video using a time window.
+    Returns frames and audio organized as before/during/after phases around the timestamp.
     Use this for understanding what happened before, during, and after a moment.
+    For a single frame description at one point, use describe_scene instead.
     Uses temporal chain traversal when available for seamless cross-scene context.
     When several videos are selected, use target_video_id to examine a specific video.
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available.", "context": {}}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -238,157 +402,34 @@ async def get_scene_context(
             kg.connect()
 
         if not kg.is_connected:
-            return {"error": "Knowledge graph not available.", "context": {}}
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_video_info for basic metadata from database.",
+            )
 
         start_time = max(0, timestamp - window_seconds)
         end_time = timestamp + window_seconds
 
-        # Get frames — try chain walk from nearest frame, fallback to property query
-        frames = []
-        with kg.get_session() as session:
-            # Find the anchor frame closest to center timestamp
-            anchor_result = session.run(
-                """
-                MATCH (f:Frame)
-                WHERE f.video_id = $media_id
-                  AND f.timestamp >= $start_time AND f.timestamp <= $end_time
-                RETURN f.id AS id, f.timestamp AS ts
-                ORDER BY abs(f.timestamp - $timestamp)
-                LIMIT 1
-                """,
-                media_id=effective_id,
-                start_time=start_time,
-                end_time=end_time,
-                timestamp=timestamp,
-            )
-            anchor = anchor_result.single()
-
-            if anchor:
-                max_hops = max(int(window_seconds / 2), 10)
-                frame_chain_query = """
-                    MATCH (anchor:Frame {id: $anchor_id})
-                    OPTIONAL MATCH bwd = (prev:Frame)-[:NEXT_FRAME*1..{hops}]->(anchor)
-                    WHERE prev.timestamp >= $start_time
-                    WITH anchor, collect(DISTINCT prev) AS before_nodes
-                    OPTIONAL MATCH fwd = (anchor)-[:NEXT_FRAME*1..{hops}]->(nxt:Frame)
-                    WHERE nxt.timestamp <= $end_time
-                    WITH anchor, before_nodes, collect(DISTINCT nxt) AS after_nodes
-                    WITH before_nodes + [anchor] + after_nodes AS all_nodes
-                    UNWIND all_nodes AS f
-                    WITH DISTINCT f
-                    RETURN f.timestamp AS timestamp, f.description AS description
-                    ORDER BY f.timestamp
-                    """
-                frame_chain_query = frame_chain_query.replace("{hops}", str(max_hops))
-                chain_result = session.run(
-                    frame_chain_query,
-                    anchor_id=anchor["id"],
-                    start_time=start_time,
-                    end_time=end_time,
-                )
-                frames = list(chain_result)
-
-        # Fallback to property-based query
-        if not frames:
-            with kg.get_session() as session:
-                result = session.run(
-                    """
-                    MATCH (f:Frame)
-                    WHERE f.video_id = $media_id
-                      AND f.timestamp >= $start_time
-                      AND f.timestamp <= $end_time
-                    RETURN f.timestamp as timestamp, f.description as description
-                    ORDER BY f.timestamp
-                    """,
-                    media_id=effective_id,
-                    start_time=start_time,
-                    end_time=end_time,
-                )
-                frames = list(result)
-
-        # Get audio segments — try chain walk, fallback to property query
-        audio_segments = []
-        with kg.get_session() as session:
-            anchor_result = session.run(
-                """
-                MATCH (a:AudioSegment)
-                WHERE a.video_id = $media_id
-                  AND a.start_time >= $start_time AND a.start_time <= $end_time
-                RETURN a.id AS id
-                ORDER BY abs(a.start_time - $timestamp)
-                LIMIT 1
-                """,
-                media_id=effective_id,
-                start_time=start_time,
-                end_time=end_time,
-                timestamp=timestamp,
-            )
-            anchor = anchor_result.single()
-
-            if anchor:
-                max_hops = max(int(window_seconds), 20)
-                audio_chain_query = """
-                    MATCH (anchor:AudioSegment {id: $anchor_id})
-                    OPTIONAL MATCH (prev:AudioSegment)-[:NEXT_SEGMENT*1..{hops}]->(anchor)
-                    WHERE prev.start_time >= $start_time
-                    WITH anchor, collect(DISTINCT prev) AS before_nodes
-                    OPTIONAL MATCH (anchor)-[:NEXT_SEGMENT*1..{hops}]->(nxt:AudioSegment)
-                    WHERE nxt.start_time <= $end_time
-                    WITH anchor, before_nodes, collect(DISTINCT nxt) AS after_nodes
-                    WITH before_nodes + [anchor] + after_nodes AS all_nodes
-                    UNWIND all_nodes AS a
-                    WITH DISTINCT a
-                    RETURN a.start_time AS timestamp, a.text AS text
-                    ORDER BY a.start_time
-                    """
-                audio_chain_query = audio_chain_query.replace("{hops}", str(max_hops))
-                chain_result = session.run(
-                    audio_chain_query,
-                    anchor_id=anchor["id"],
-                    start_time=start_time,
-                    end_time=end_time,
-                )
-                audio_segments = list(chain_result)
-
-        # Fallback to property-based query
-        if not audio_segments:
-            with kg.get_session() as session:
-                result = session.run(
-                    """
-                    MATCH (a:AudioSegment)
-                    WHERE a.video_id = $media_id
-                      AND a.start_time >= $start_time
-                      AND a.start_time <= $end_time
-                    RETURN a.start_time as timestamp, a.text as text
-                    ORDER BY a.start_time
-                    """,
-                    media_id=effective_id,
-                    start_time=start_time,
-                    end_time=end_time,
-                )
-                audio_segments = list(result)
-
-        # Get scene that contains this timestamp
-        with kg.get_session() as session:
-            result = session.run(
-                """
-                MATCH (s:Scene)
-                WHERE s.video_id = $media_id
-                  AND s.start_time <= $timestamp
-                  AND s.end_time >= $timestamp
-                RETURN s.start_time as start_time, s.end_time as end_time,
-                       s.description as description, s.scene_type as scene_type
-                LIMIT 1
-                """,
-                media_id=effective_id,
-                timestamp=timestamp,
-            )
-            scene = result.single()
+        # Delegate all raw Cypher to service layer
+        frames = kg.get_frames_in_window(effective_id, start_time, end_time, timestamp)
+        audio_segments = kg.get_audio_in_window(effective_id, start_time, end_time, timestamp)
+        scene = kg.get_scene_at_timestamp(effective_id, timestamp)
 
         # Organize context by phase
         before_frames = [f for f in frames if f["timestamp"] < timestamp - 5]
         during_frames = [f for f in frames if timestamp - 5 <= f["timestamp"] <= timestamp + 5]
         after_frames = [f for f in frames if f["timestamp"] > timestamp + 5]
+
+        truncated_fields: list[str] = []
+
+        def _trunc_desc(desc: str | None, limit: int) -> str | None:
+            if not desc:
+                return None
+            text, was_cut = truncate_with_notice(desc, limit)
+            if was_cut:
+                truncated_fields.append("description")
+            return text
 
         context = {
             "center_timestamp": timestamp,
@@ -404,7 +445,8 @@ async def get_scene_context(
                     "type": scene.get("scene_type") if scene else None,
                     "description": scene.get("description") if scene else None,
                     "time_range": (
-                        f"{format_timestamp(scene.get('start_time', 0))} - {format_timestamp(scene.get('end_time', 0))}"
+                        f"{format_timestamp(scene.get('start_time', 0))} - "
+                        f"{format_timestamp(scene.get('end_time', 0))}"
                         if scene
                         else None
                     ),
@@ -416,16 +458,16 @@ async def get_scene_context(
                 "frames": [
                     {
                         "timestamp": format_timestamp(f["timestamp"]),
-                        "description": f["description"][:400] if f["description"] else None,
+                        "description": _trunc_desc(f["description"], 400),
                     }
-                    for f in before_frames[-3:]  # Last 3 before
+                    for f in before_frames[-3:]
                 ],
             },
             "during": {
                 "frames": [
                     {
                         "timestamp": format_timestamp(f["timestamp"]),
-                        "description": f["description"][:500] if f["description"] else None,
+                        "description": _trunc_desc(f["description"], 500),
                     }
                     for f in during_frames
                 ],
@@ -442,9 +484,9 @@ async def get_scene_context(
                 "frames": [
                     {
                         "timestamp": format_timestamp(f["timestamp"]),
-                        "description": f["description"][:400] if f["description"] else None,
+                        "description": _trunc_desc(f["description"], 400),
                     }
-                    for f in after_frames[:3]  # First 3 after
+                    for f in after_frames[:3]
                 ],
             },
         }
@@ -454,10 +496,15 @@ async def get_scene_context(
             "context": context,
             "total_frames_in_window": len(frames),
             "total_audio_segments": len(audio_segments),
+            "_meta": tool_meta(
+                result_count=len(frames) + len(audio_segments),
+                truncated_fields=list(set(truncated_fields)) if truncated_fields else None,
+            ),
         }
 
     except Exception as e:
-        return {"error": f"Failed to get scene context: {str(e)}", "context": {}}
+        logger.error("get_scene_context failed for %s: %s", effective_id, e)
+        return tool_error("query_error", f"Failed to get scene context: {e}")
 
 
 @tool
@@ -469,12 +516,14 @@ async def get_community_overview(
     Get thematic community summaries for a video.
     Communities are pre-computed clusters of related entities and content that
     reveal major themes, recurring patterns, and content groupings.
+    Returns clusters with titles, summaries, theme lists, and member counts.
     Use this for overview questions, thematic analysis, or to understand
     the main topics covered before drilling into specifics.
+    For a single synopsis, use get_summary. For chronological structure, use list_chapters.
     Optionally filter by topic to find relevant thematic groups.
     """
     if not media_id:
-        return {"error": "No video context available.", "communities": []}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -484,7 +533,11 @@ async def get_community_overview(
             kg.connect()
 
         if not kg.is_connected:
-            return {"error": "Knowledge graph not available.", "communities": []}
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_summary for a high-level overview from the video node.",
+            )
 
         communities = kg.get_community_context(media_id, topic=topic)
 
@@ -492,6 +545,7 @@ async def get_community_overview(
             return {
                 "message": "No community summaries available for this video.",
                 "communities": [],
+                "_meta": tool_meta(is_complete=True, result_count=0),
             }
 
         return {
@@ -507,7 +561,9 @@ async def get_community_overview(
                 }
                 for c in communities
             ],
+            "_meta": tool_meta(result_count=len(communities)),
         }
 
     except Exception as e:
-        return {"error": f"Failed to get communities: {str(e)}", "communities": []}
+        logger.error("get_community_overview failed for %s: %s", media_id, e)
+        return tool_error("query_error", f"Failed to get communities: {e}")

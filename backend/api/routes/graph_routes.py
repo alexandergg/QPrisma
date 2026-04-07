@@ -27,7 +27,6 @@ from models.graph_models import (
     GraphSearchResponse,
     GraphStats,
     NodeType,
-    VideoGraphSummary,
 )
 from models.graph_route_schemas import (
     ContextExpansionRequest,
@@ -540,18 +539,6 @@ async def delete_video_graph(video_id: str, current_user: User = Depends(get_cur
     except Exception as e:
         logger.error(f"Failed to delete video graph: {e}", exc_info=True)
         raise internal_error() from e
-
-
-@router.get("/video/{video_id}/summary", response_model=VideoGraphSummary)
-async def get_video_graph_summary(video_id: str, current_user: User = Depends(get_current_user)):
-    """
-    Gets a summary of a video's graph.
-
-    Includes most frequent entities, main topics, etc.
-    """
-    get_media_or_404(video_id, current_user)
-    # TODO: Implement summary query
-    raise HTTPException(status_code=501, detail="Not implemented yet")
 
 
 # =============================================================================

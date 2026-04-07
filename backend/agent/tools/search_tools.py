@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
 from agent.utils.formatting import format_timestamp, get_timestamp_from_content
+from agent.utils.tool_meta import tool_error, tool_meta, truncate_with_notice
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,10 @@ async def search_video(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Search for specific moments, topics, objects, or spoken words in the video.
-    Returns timestamped results with descriptions.
+    Primary search tool. Uses hybrid retrieval (semantic, lexical, graph, and reranking)
+    to find specific moments, objects, or discussions in the video.
+    Returns ranked results with timestamps, descriptions, and relevance scores.
+    Filter by content_type or time range to narrow results.
     When several videos are selected, use target_video_id to search a specific video.
     """
     effective_id = target_video_id or media_id
@@ -41,7 +44,7 @@ async def search_video(
 
     if not effective_id:
         logger.warning("search_video: No media_id provided via InjectedState")
-        return {"error": "No video context available. Please select a video first.", "results": []}
+        return tool_error("no_context", "No video context available. Please select a video first.")
 
     try:
         from models.graph_models import NodeType
@@ -75,6 +78,8 @@ async def search_video(
         )
 
         results = []
+        truncated_fields: list[str] = []
+
         for r in search_response.results:
             ts = get_timestamp_from_content(r.content)
 
@@ -84,27 +89,32 @@ async def search_video(
                 continue
 
             if r.node_type == NodeType.FRAME:
+                desc, was_cut = truncate_with_notice(r.content.get("description", ""), 900)
+                if was_cut:
+                    truncated_fields.append("content")
                 results.append(
                     {
                         "timestamp": ts,
                         "timestamp_formatted": format_timestamp(ts),
                         "type": "visual",
-                        "content": r.content.get("description", "")[:900],
+                        "content": desc,
                         "score": round(r.combined_score, 3),
                     }
                 )
             elif r.node_type == NodeType.AUDIO_SEGMENT:
+                text, was_cut = truncate_with_notice(r.content.get("text", ""), 600)
+                if was_cut:
+                    truncated_fields.append("content")
                 results.append(
                     {
                         "timestamp": ts,
                         "timestamp_formatted": format_timestamp(ts),
                         "type": "audio",
-                        "content": r.content.get("text", "")[:600],
+                        "content": text,
                         "score": round(r.combined_score, 3),
                     }
                 )
             elif r.node_type == NodeType.ENTITY:
-                # Include entity attributes for richer context
                 entity_desc = f"{r.content.get('type', 'entity')}: {r.content.get('name', '')}"
                 if r.content.get("description"):
                     entity_desc += f" - {r.content['description'][:200]}"
@@ -129,10 +139,16 @@ async def search_video(
             "total_found": search_response.total_results,
             "results": results,
             "search_time_ms": search_response.vector_search_time_ms,
+            "_meta": tool_meta(
+                result_count=len(results),
+                total_available=search_response.total_results,
+                truncated_fields=list(set(truncated_fields)) if truncated_fields else None,
+            ),
         }
 
     except Exception as e:
-        return {"error": f"Search failed: {str(e)}", "results": []}
+        logger.error("search_video failed for %s: %s", effective_id, e)
+        return tool_error("query_error", f"Search failed: {e}")
 
 
 @tool
@@ -144,11 +160,13 @@ async def find_entity(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Find all occurrences of a specific person, object, or concept in the video.
-    Returns timestamps where the entity appears or is mentioned.
+    Quick entity lookup — find where a specific person, object, or concept appears.
+    Returns timestamps and brief descriptions for each occurrence.
+    For a full chronological timeline with rich detail at each
+    appearance, use get_entity_timeline instead.
     """
     if not media_id:
-        return {"error": "No video context available.", "occurrences": []}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from models.graph_models import NodeType
@@ -169,7 +187,7 @@ async def find_entity(
         )
 
         occurrences = []
-        seen_timestamps = set()
+        seen_timestamps: set[float] = set()
 
         for r in search_response.results:
             ts = get_timestamp_from_content(r.content)
@@ -187,10 +205,10 @@ async def find_entity(
                 context = f"Entity '{r.content.get('name')}' of type {r.content.get('type')}"
                 occurrence_type = "identified"
             elif r.node_type == NodeType.FRAME:
-                context = r.content.get("description", "")[:500]
+                context, _ = truncate_with_notice(r.content.get("description", ""), 500)
                 occurrence_type = "visible"
             elif r.node_type == NodeType.AUDIO_SEGMENT:
-                context = r.content.get("text", "")[:500]
+                context, _ = truncate_with_notice(r.content.get("text", ""), 500)
                 occurrence_type = "mentioned"
 
             occurrences.append(
@@ -205,15 +223,21 @@ async def find_entity(
 
         occurrences.sort(key=lambda x: x["timestamp"])
 
+        shown = occurrences[:10]
         return {
             "entity": entity_name,
             "entity_type": entity_type,
             "total_occurrences": len(occurrences),
-            "occurrences": occurrences[:10],
+            "occurrences": shown,
+            "_meta": tool_meta(
+                result_count=len(shown),
+                total_available=len(occurrences),
+            ),
         }
 
     except Exception as e:
-        return {"error": f"Entity search failed: {str(e)}", "occurrences": []}
+        logger.error("find_entity failed for %s: %s", media_id, e)
+        return tool_error("query_error", f"Entity search failed: {e}")
 
 
 @tool
@@ -239,7 +263,7 @@ async def get_transcript(
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available.", "transcript": ""}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -249,80 +273,22 @@ async def get_transcript(
             kg.connect()
 
         if not kg.is_connected:
-            return {"error": "Knowledge graph not available.", "transcript": ""}
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_video_info for basic metadata from database.",
+            )
 
         full_transcript = start_time is None and end_time is None
         effective_start = start_time if start_time is not None else 0.0
         effective_end = end_time if end_time is not None else 999999.0
 
-        segments = []
-
-        if full_transcript:
-            # Retrieve all segments for the video ordered by time
-            with kg.get_session() as session:
-                result = session.run(
-                    """
-                    MATCH (a:AudioSegment)
-                    WHERE a.video_id = $media_id
-                    RETURN a.start_time as timestamp, a.text as text,
-                           a.speaker_label as speaker, a.confidence as confidence
-                    ORDER BY a.start_time
-                    """,
-                    media_id=effective_id,
-                )
-                segments = list(result)
-        else:
-            # Try chain-based retrieval first: find the anchor segment, then walk
-            with kg.get_session() as session:
-                anchor_result = session.run(
-                    """
-                    MATCH (a:AudioSegment)
-                    WHERE a.video_id = $media_id
-                      AND a.start_time >= $start_time
-                      AND a.start_time <= $end_time
-                    RETURN a.id AS id
-                    ORDER BY a.start_time
-                    LIMIT 1
-                    """,
-                    media_id=effective_id,
-                    start_time=effective_start,
-                    end_time=effective_end,
-                )
-                anchor = anchor_result.single()
-
-                if anchor:
-                    chain_result = session.run(
-                        """
-                        MATCH (start:AudioSegment {id: $anchor_id})
-                        OPTIONAL MATCH path = (start)-[:NEXT_SEGMENT*0..100]->(n:AudioSegment)
-                        WHERE n.start_time <= $end_time
-                        WITH n ORDER BY n.start_time
-                        RETURN n.start_time AS timestamp, n.text AS text,
-                               n.speaker_label AS speaker, n.confidence AS confidence
-                        """,
-                        anchor_id=anchor["id"],
-                        end_time=effective_end,
-                    )
-                    segments = list(chain_result)
-
-            # Fallback to property-based query if chain walk returned nothing
-            if not segments:
-                with kg.get_session() as session:
-                    result = session.run(
-                        """
-                        MATCH (a:AudioSegment)
-                        WHERE a.video_id = $media_id
-                          AND a.start_time >= $start_time
-                          AND a.start_time <= $end_time
-                        RETURN a.start_time as timestamp, a.text as text,
-                               a.speaker_label as speaker, a.confidence as confidence
-                        ORDER BY a.start_time
-                        """,
-                        media_id=effective_id,
-                        start_time=effective_start,
-                        end_time=effective_end,
-                    )
-                    segments = list(result)
+        # Delegate to service layer (handles chain-walk + fallback)
+        segments = kg.get_transcript_segments(
+            effective_id,
+            start_time=None if full_transcript else effective_start,
+            end_time=None if full_transcript else effective_end,
+        )
 
         if not segments:
             return {
@@ -330,10 +296,11 @@ async def get_transcript(
                 "end_time": effective_end if not full_transcript else None,
                 "transcript": "",
                 "message": "No transcript found for this video. It may not have audio transcription.",
+                "_meta": tool_meta(is_complete=True, result_count=0),
             }
 
         transcript_parts = []
-        speakers_found = set()
+        speakers_found: set[str] = set()
 
         for seg in segments:
             ts = format_timestamp(seg.get("timestamp", 0))
@@ -355,10 +322,12 @@ async def get_transcript(
             "segments_count": len(segments),
             "speakers": list(speakers_found) if include_speakers else [],
             "has_speaker_ids": len(speakers_found) > 0,
+            "_meta": tool_meta(result_count=len(segments)),
         }
 
     except Exception as e:
-        return {"error": f"Failed to get transcript: {str(e)}", "transcript": ""}
+        logger.error("get_transcript failed for %s: %s", effective_id, e)
+        return tool_error("query_error", f"Failed to get transcript: {e}")
 
 
 @tool
@@ -372,12 +341,14 @@ async def describe_scene(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get a detailed visual description of what's happening at a specific timestamp.
+    Point-in-time visual lookup — shows what is happening at a specific timestamp
+    by returning the nearest frame's detailed description. Reports the actual
+    frame timestamp and gap if it differs from the requested time.
     When several videos are selected, use target_video_id to describe a scene from a specific video.
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available.", "description": ""}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -387,34 +358,36 @@ async def describe_scene(
             kg.connect()
 
         if not kg.is_connected:
-            return {"error": "Knowledge graph not available.", "description": ""}
-
-        # Find the nearest frame to the requested timestamp
-        with kg.get_session() as session:
-            result = session.run(
-                """
-                MATCH (f:Frame)
-                WHERE f.video_id = $media_id
-                RETURN f.timestamp as timestamp, f.description as description
-                ORDER BY abs(f.timestamp - $timestamp)
-                LIMIT 1
-                """,
-                media_id=effective_id,
-                timestamp=timestamp,
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_video_info for basic metadata from database.",
             )
-            frame = result.single()
+
+        frame = kg.get_nearest_frame(effective_id, timestamp)
 
         if not frame:
             return {
                 "timestamp": timestamp,
                 "description": "No frame data available for this timestamp.",
+                "_meta": tool_meta(is_complete=False, result_count=0),
             }
 
-        return {
-            "timestamp": frame.get("timestamp", timestamp),
-            "timestamp_formatted": format_timestamp(frame.get("timestamp", timestamp)),
+        actual_ts = frame.get("timestamp", timestamp)
+        gap = abs(actual_ts - timestamp)
+
+        result: dict[str, Any] = {
+            "timestamp": actual_ts,
+            "timestamp_formatted": format_timestamp(actual_ts),
             "description": frame.get("description") or "No description available.",
+            "_meta": tool_meta(),
         }
+        if gap > 1.0:
+            result["requested_timestamp"] = timestamp
+            result["gap_seconds"] = round(gap, 2)
+
+        return result
 
     except Exception as e:
-        return {"error": f"Failed to describe scene: {str(e)}", "description": ""}
+        logger.error("describe_scene failed for %s: %s", effective_id, e)
+        return tool_error("query_error", f"Failed to describe scene: {e}")

@@ -17,6 +17,8 @@ from typing import Annotated, Any
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
+from agent.utils.tool_meta import tool_error, tool_meta
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +42,7 @@ async def find_highlights(
     Returns exportable time ranges with descriptions of why they're highlights.
     """
     if not media_id:
-        return {"error": "No video context available.", "highlights": []}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.highlight_detection_service import HighlightDetectionService
@@ -51,7 +53,7 @@ async def find_highlights(
             kg.connect()
 
         service = HighlightDetectionService(kg)
-        return service.detect_highlights(
+        result = service.detect_highlights(
             media_id=media_id,
             criteria=criteria,
             max_clips=max_clips,
@@ -59,5 +61,10 @@ async def find_highlights(
             max_duration=max_duration,
         )
 
+        highlights = result.get("highlights", [])
+        result["_meta"] = tool_meta(result_count=len(highlights))
+        return result
+
     except Exception as e:
-        return {"error": f"Failed to find highlights: {str(e)}", "highlights": []}
+        logger.error("find_highlights failed for %s: %s", media_id, e)
+        return tool_error("query_error", f"Failed to find highlights: {e}")

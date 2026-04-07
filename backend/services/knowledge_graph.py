@@ -421,6 +421,64 @@ class KnowledgeGraphService:
         """Delete all transcript segments for a video."""
         return self.nodes.delete_video_transcripts(video_id)
 
+    # -----------------------------------------------------------------
+    # Agent-facing query façade
+    # -----------------------------------------------------------------
+
+    def get_video_summary_data(self, video_id: str) -> dict | None:
+        """Return video summary, title, topics, and duration."""
+        return self.nodes.get_video_summary_data(video_id)
+
+    def get_transcript_segments(
+        self,
+        video_id: str,
+        start_time: float | None = None,
+        end_time: float | None = None,
+    ) -> list[dict]:
+        """Retrieve ordered transcript segments, optionally within a time range."""
+        return self.nodes.get_transcript_segments(video_id, start_time, end_time)
+
+    def get_nearest_frame(self, video_id: str, timestamp: float) -> dict | None:
+        """Return the single frame closest to *timestamp*."""
+        return self.nodes.get_nearest_frame(video_id, timestamp)
+
+    def get_frames_in_window(
+        self,
+        video_id: str,
+        start_time: float,
+        end_time: float,
+        center_timestamp: float | None = None,
+    ) -> list[dict]:
+        """Return frames within [start_time, end_time] using chain-walk or fallback."""
+        return self.nodes.get_frames_in_window(video_id, start_time, end_time, center_timestamp)
+
+    def get_audio_in_window(
+        self,
+        video_id: str,
+        start_time: float,
+        end_time: float,
+        center_timestamp: float | None = None,
+    ) -> list[dict]:
+        """Return audio segments within [start_time, end_time]."""
+        return self.nodes.get_audio_in_window(video_id, start_time, end_time, center_timestamp)
+
+    def get_scene_at_timestamp(self, video_id: str, timestamp: float) -> dict | None:
+        """Return the scene that contains *timestamp*."""
+        return self.nodes.get_scene_at_timestamp(video_id, timestamp)
+
+    def find_entity_appearances(self, video_id: str, entity_name: str) -> dict[str, list[dict]]:
+        """Find visual and audio appearances of an entity."""
+        return self.nodes.find_entity_appearances(video_id, entity_name)
+
+    def get_moments_context(
+        self,
+        video_id: str,
+        timestamps: list[float],
+        window: float = 5.0,
+    ) -> list[dict]:
+        """Retrieve frame + audio context for multiple timestamps (batched)."""
+        return self.nodes.get_moments_context(video_id, timestamps, window)
+
     def create_relation(
         self,
         source_id: str,

@@ -23,7 +23,7 @@ from .hierarchical_context_service import (
     HierarchicalContextService,
     get_hierarchical_context_service,
 )
-from .hierarchical_summarizer import HierarchicalSummarizer, SceneEmbeddingGenerator
+from .hierarchical_summarizer import HierarchicalSummarizer
 from .hierarchy_embedding_generator import HierarchyEmbeddingGenerator
 from .hierarchy_node_factory import HierarchyNodeFactory
 from .highlight_detection_service import HighlightDetectionService, get_highlight_detection_service
@@ -52,7 +52,6 @@ __all__ = [
     "EntityExtractor",
     "get_entity_extractor",
     "HierarchicalSummarizer",
-    "SceneEmbeddingGenerator",
     "SceneAnalyzer",
     # Cross-Video Search
     "CrossVideoSearchService",

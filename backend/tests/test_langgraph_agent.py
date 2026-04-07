@@ -485,7 +485,94 @@ class TestLangGraphTools:
         )
 
         assert "error" in result
-        assert "No video context" in result["error"]
+        assert result["error"]["type"] == "no_context"
+        assert "No video context" in result["error"]["message"]
+
+    @pytest.mark.asyncio
+    async def test_list_chapters_uses_graph_direct(self):
+        """Timeline output should query KnowledgeGraphService directly, not StructureService."""
+        from agent.tools.context_tools import list_chapters
+
+        mock_kg = MagicMock()
+        mock_kg.is_connected = True
+        mock_kg.get_video_node.return_value = {
+            "video_id": "vid-123",
+            "title": "Festival Video",
+            "summary": "Festival-themed product montage.",
+            "topics": ["Dragon Boat Festival", "SmallRig"],
+        }
+        mock_kg.get_video_scenes.return_value = [
+            {
+                "scene_index": 0,
+                "start_time": 0.0,
+                "end_time": 15.0,
+                "title": "A busy street scene",
+                "description": "Pedestrians move through a crowded intersection.",
+            },
+            {
+                "scene_index": 1,
+                "start_time": 15.0,
+                "end_time": 30.0,
+                "title": "Dragon boat branding close-up",
+                "description": "",
+            },
+        ]
+        mock_kg.get_video_frames.return_value = [
+            {"timestamp": 2.0, "description": "People walking on a busy street."},
+            {"timestamp": 18.0, "description": "Close-up of dragon boat decoration."},
+        ]
+
+        with patch("services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg):
+            result = await list_chapters.coroutine(target_video_id="vid-123")
+
+        assert result["total_chapters"] == 2
+        assert result["chapters"][0]["title"] == "A busy street scene"
+        assert result["chapters"][0]["summary"] == (
+            "Pedestrians move through a crowded intersection."
+        )
+        assert result["chapters"][1]["title"] == "Dragon boat branding close-up"
+        # Scene has empty description, so summary is generated from frame descriptions
+        assert result["chapters"][1]["summary"] == "Close-up of dragon boat decoration."
+        assert result["video_summary"] == "Festival-themed product montage."
+        assert result["topics"] == ["Dragon Boat Festival", "SmallRig"]
+        # Verify no StructureService or DB calls
+        mock_kg.get_video_node.assert_called_once_with("vid-123")
+        mock_kg.get_video_scenes.assert_called_once_with("vid-123")
+        mock_kg.get_video_frames.assert_called_once_with("vid-123")
+
+    @pytest.mark.asyncio
+    async def test_list_chapters_no_scenes_returns_topics(self):
+        """When no scenes exist, list_chapters should return video-level topics."""
+        from agent.tools.context_tools import list_chapters
+
+        mock_kg = MagicMock()
+        mock_kg.is_connected = True
+        mock_kg.get_video_node.return_value = {"video_id": "vid-123"}
+        mock_kg.get_video_scenes.return_value = []
+        mock_kg.get_video_summary.return_value = ("A video about festivals.", ["Festival"])
+
+        with patch("services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg):
+            result = await list_chapters.coroutine(target_video_id="vid-123")
+
+        assert result["chapters"] == []
+        assert result["topics"] == ["Festival"]
+        assert result["summary"] == "A video about festivals."
+
+    @pytest.mark.asyncio
+    async def test_list_chapters_graph_unavailable(self):
+        """When Neo4j is not connected, return an error."""
+        from agent.tools.context_tools import list_chapters
+
+        mock_kg = MagicMock()
+        mock_kg.is_connected = False
+        mock_kg.connect.return_value = None
+
+        with patch("services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg):
+            result = await list_chapters.coroutine(target_video_id="vid-123")
+
+        assert "error" in result
+        assert result["error"]["type"] == "graph_unavailable"
+        assert "not connected" in result["error"]["message"]
 
 
 class TestRedisCheckpointer:
@@ -821,6 +908,19 @@ class TestDynamicToolBinding:
 
         assert len(selected) <= 5
 
+    def test_select_tools_for_generic_timeline_query(self):
+        """Generic timeline queries should prioritize structure-aware tools."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Generate a timeline"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=5)
+
+        tool_names = [t.name for t in selected]
+        assert "list_chapters" in tool_names[:4]
+        assert "get_video_info" in tool_names
+        assert "get_summary" in tool_names
+
     def test_select_tools_max_limit(self):
         """Test that tool selection respects max_tools limit."""
         from agent.nodes.base import select_tools_for_query
@@ -910,6 +1010,72 @@ class TestDynamicToolBinding:
         assert (
             "compare_videos" in tool_names or "search_across_videos" in tool_names
         ), f"Expected cross-video tool for compare query, got {tool_names}"
+
+    # -- Selector regression tests for confusing tool pairs --
+
+    def test_describe_scene_still_classified_as_search(self):
+        """describe_scene docstring update must keep routing keywords for search."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "What is happening at 1:30?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "describe_scene" in tool_names, f"describe_scene missing from {tool_names}"
+
+    def test_find_entity_stays_in_entity_category(self):
+        """find_entity must still route on entity queries after docstring change."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Who is the person in the red shirt?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "find_entity" in tool_names, f"find_entity missing from {tool_names}"
+
+    def test_get_entity_timeline_routes_for_tracking(self):
+        """get_entity_timeline should be selected for tracking/timeline queries."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Track how the speaker changes throughout the video"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "get_entity_timeline" in tool_names, f"get_entity_timeline missing from {tool_names}"
+
+    def test_get_transcript_routes_for_quote_queries(self):
+        """get_transcript should be selected for verbatim/quote queries."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "What exactly did the speaker say about revenue?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "get_transcript" in tool_names, f"get_transcript missing from {tool_names}"
+
+    def test_overview_tools_selected_for_summary_query(self):
+        """Summary queries should select get_summary and list_chapters."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Give me a summary of this video"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "get_summary" in tool_names, f"get_summary missing from {tool_names}"
+
+    def test_scene_context_routes_for_context_queries(self):
+        """get_scene_context is in subtitle category (name contains 'text' substring).
+        Verify it surfaces for subtitle/transcript queries."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        # get_scene_context is categorised as subtitle because the tool name
+        # "get_scene_context" contains the substring "text" (con-text).
+        # It surfaces when the query matches subtitle keywords.
+        query = "What exactly was said around the 5 minute mark?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "get_scene_context" in tool_names, f"get_scene_context missing from {tool_names}"
 
 
 class TestProductionCheckpointerFactory:

@@ -2,15 +2,22 @@
 Structure Service
 
 Business logic for video structure (scenes, chapters) generation.
-Extracted from structure_routes.py to maintain proper layering.
+Handles REST endpoint with graph → legacy fallback.
+For agent tools, use graph-direct methods in context_tools.py instead.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import TYPE_CHECKING
+
+from agent.utils.text import (
+    INVALID_CONTENT_PHRASES,
+    SCENE_DESCRIPTION_PREFIXES,
+    VIDEO_SUMMARY_PREFIXES,
+    clean_generated_text,
+)
 
 if TYPE_CHECKING:
     from azure.storage.blob import BlobServiceClient
@@ -21,17 +28,26 @@ logger = logging.getLogger(__name__)
 
 
 class StructureService:
-    """Service for generating video structure from graph and legacy data."""
+    """Service for generating video structure from graph and legacy data.
+
+    Used by the REST ``/structure`` endpoint which needs legacy fallback.
+    Agent tools should use ``KnowledgeGraphService`` directly.
+    """
 
     def __init__(
         self,
-        graph_service: KnowledgeGraphService,
+        graph_service: KnowledgeGraphService | None,
         blob_service: BlobServiceClient | None = None,
         storage_container: str = "",
     ) -> None:
         self.graph_service = graph_service
         self.blob_service = blob_service
         self.storage_container = storage_container
+
+    @staticmethod
+    def _clean_generated_text(text: str, prefixes: tuple[str, ...]) -> str:
+        """Delegate to shared utility (kept for backward-compat with tests)."""
+        return clean_generated_text(text, prefixes)
 
     def _generate_scene_title(self, scene: dict, scene_frames: list[dict]) -> str | None:
         """Generate a scene title from its first frame description."""
@@ -46,17 +62,7 @@ class StructureService:
         if not first_desc:
             return None
 
-        clean_desc = re.sub(r"^\d+\.\s*\*?\*?", "", first_desc)
-        clean_desc = clean_desc.replace("**", "")
-        for skip in [
-            "General scene description:",
-            "General description:",
-            "Scene description:",
-            "Descripción general de la escena:",
-            "Descripción general:",
-        ]:
-            clean_desc = clean_desc.replace(skip, "")
-        clean_desc = clean_desc.strip()
+        clean_desc = clean_generated_text(first_desc, SCENE_DESCRIPTION_PREFIXES)
         if clean_desc:
             first_sentence = clean_desc.split(".")[0][:100]
             return first_sentence.strip()
@@ -66,12 +72,18 @@ class StructureService:
         """Generate a scene summary from its frame descriptions."""
         summary = scene.get("description")
         if summary:
-            return summary
+            clean_summary = clean_generated_text(summary, SCENE_DESCRIPTION_PREFIXES)
+            return clean_summary or None
 
         if not scene_frames:
             return None
 
-        descriptions = [f.get("description", "") for f in scene_frames[:3] if f.get("description")]
+        descriptions = [
+            clean_generated_text(f.get("description", ""), SCENE_DESCRIPTION_PREFIXES)
+            for f in scene_frames[:3]
+            if f.get("description")
+        ]
+        descriptions = [description for description in descriptions if description]
         if descriptions:
             return " ".join(descriptions)[:500]
         return None
@@ -115,17 +127,7 @@ class StructureService:
         if not desc:
             return False
         desc_lower = desc.lower()
-        skip_phrases = [
-            "black screen",
-            "completely black",
-            "no visible",
-            "no information",
-            "imagen negra",
-            "completamente negra",
-            "no contiene elementos",
-            "no hay información",
-        ]
-        return not any(phrase in desc_lower for phrase in skip_phrases)
+        return not any(phrase in desc_lower for phrase in INVALID_CONTENT_PHRASES)
 
     def _generate_video_summary(self, video_node: dict, all_frames: list[dict]) -> str | None:
         """Generate a video summary from frame descriptions."""
@@ -144,16 +146,7 @@ class StructureService:
         summaries = []
         for f in sampled_frames:
             desc = f.get("description", "")
-            clean = re.sub(r"^\d+\.\s*\*?\*?", "", desc)
-            clean = clean.replace("**", "").replace("\n", " ")
-            for prefix in [
-                "General scene description:",
-                "The image shows",
-                "Descripción general de la escena:",
-                "La imagen muestra",
-            ]:
-                if clean.startswith(prefix):
-                    clean = clean[len(prefix) :].strip()
+            clean = clean_generated_text(desc, VIDEO_SUMMARY_PREFIXES)
             if clean:
                 summaries.append(clean[:150])
 
@@ -199,12 +192,31 @@ class StructureService:
                 key_topics.append(t)
         return key_topics
 
+    def get_structure(self, media_id: str, media_dict: dict | None = None) -> dict | None:
+        """Return graph-backed structure when available, otherwise fall back to legacy data."""
+        try:
+            graph_result = self.get_structure_from_graph(media_id)
+        except Exception as exc:
+            sanitized_id = media_id[:100].replace("\n", "").replace("\r", "")
+            logger.warning("Failed to load graph structure for media_id=%s: %s", sanitized_id, exc)
+            graph_result = None
+        if graph_result:
+            return graph_result
+
+        if media_dict:
+            return self.get_structure_from_legacy(media_dict)
+
+        return None
+
     def get_structure_from_graph(self, media_id: str) -> dict | None:
         """
         Build video structure from Neo4j graph data.
 
         Returns None if the video is not in the graph.
         """
+        if self.graph_service is None:
+            return None
+
         video_node = self.graph_service.get_video_node(media_id)
         if not video_node:
             return None
@@ -214,6 +226,10 @@ class StructureService:
             return None
 
         all_frames = self.graph_service.get_video_frames(media_id)
+        # Cap frames to bound per-scene filtering cost on long videos
+        MAX_FRAMES_FOR_STRUCTURE = 500
+        if len(all_frames) > MAX_FRAMES_FOR_STRUCTURE:
+            all_frames = all_frames[:MAX_FRAMES_FOR_STRUCTURE]
 
         # Build scene list
         scene_list = []
