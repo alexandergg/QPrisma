@@ -38,14 +38,6 @@ class RelationType(str, Enum):
     CONTAINS = "CONTAINS"
     BELONGS_TO = "BELONGS_TO"
 
-    # Temporal
-    BEFORE = "BEFORE"
-    AFTER = "AFTER"
-    DURING = "DURING"
-    STARTS_WITH = "STARTS_WITH"
-    ENDS_WITH = "ENDS_WITH"
-    SIMULTANEOUS = "SIMULTANEOUS"
-
     # Sequential chains (dense temporal)
     NEXT_FRAME = "NEXT_FRAME"
     NEXT_SEGMENT = "NEXT_SEGMENT"
@@ -62,12 +54,10 @@ class RelationType(str, Enum):
 
     # Cross-video
     SAME_ENTITY = "SAME_ENTITY"  # Same entity in different videos
-    TOPIC_OVERLAP = "TOPIC_OVERLAP"
 
     # Community / Hierarchical summarization
     IN_COMMUNITY = "IN_COMMUNITY"  # Entity -> Community membership
     SUMMARIZES = "SUMMARIZES"  # Community -> Video (summary of)
-    SUPPORTS = "SUPPORTS"  # Frame/AudioSegment -> Community (evidence)
 
 
 class NodeType(str, Enum):
@@ -525,30 +515,3 @@ class FrameAnalysisResult(BaseModel):
     # Analysis metadata
     model_used: str = "gpt-4o"
     analysis_time_ms: float = 0.0
-
-
-class VideoGraphSummary(BaseModel):
-    """Summary of the graph for a specific video."""
-
-    video_id: str
-    video_title: str
-
-    # Counts
-    total_scenes: int
-    total_frames: int
-    total_entities: int
-    unique_entities: int
-
-    # Most frequent entities by type
-    top_persons: list[dict] = Field(default_factory=list)
-    top_objects: list[dict] = Field(default_factory=list)
-    top_locations: list[dict] = Field(default_factory=list)
-
-    # Main topics
-    main_topics: list[str] = Field(default_factory=list)
-
-    # Entity timeline
-    entity_timeline: list[dict] = Field(default_factory=list)
-
-    # Most common relationships
-    top_relations: list[dict] = Field(default_factory=list)
