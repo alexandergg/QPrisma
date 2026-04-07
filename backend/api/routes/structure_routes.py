@@ -33,65 +33,35 @@ async def get_video_structure(media_id: str, current_user: User = Depends(get_cu
     - Video-level summary and key topics
     """
     db = get_database_service()
+    media = db.get_media(media_id)
+    if media and media.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    media_dict = media.to_dict() if media else None
 
-    # First, try Neo4j graph (primary source for structure)
     try:
         from services.knowledge_graph import get_knowledge_graph_service
         from services.structure_service import StructureService
 
         graph = get_knowledge_graph_service()
-        structure_service = StructureService(graph_service=graph)
-        result = structure_service.get_structure_from_graph(media_id)
-
-        if result:
-            # Verify ownership
-            video_user_id = result.get("video_user_id")
-            if video_user_id and video_user_id != current_user.id:
-                raise HTTPException(status_code=403, detail="Access denied")
-
-            return {
-                "media_id": media_id,
-                "structure": result["structure"],
-                "processing_method": result["processing_method"],
-                "processed_at": result["processed_at"],
-            }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.warning(f"Graph structure not available, falling back to PostgreSQL: {e}")
-
-    # Fallback to PostgreSQL for legacy data
-    try:
-        media = db.get_media(media_id)
-        if not media:
-            raise HTTPException(status_code=404, detail="Media not found")
-
-        if media.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-        item = media.to_dict()
-
-        from services.structure_service import StructureService
-
-        blob_service = get_blob_service()
         structure_service = StructureService(
-            graph_service=None,
-            blob_service=blob_service,
+            graph_service=graph,
+            blob_service=get_blob_service(),
             storage_container=get_storage_container_name(),
         )
-        result = structure_service.get_structure_from_legacy(item)
-
-        if result:
-            return {
-                "media_id": media_id,
-                **result,
-            }
-
-        raise HTTPException(status_code=404, detail="Video structure not available yet.")
-
-    except HTTPException:
-        raise
+        result = structure_service.get_structure(media_id, media_dict)
     except Exception as e:
         logger.error(f"Failed to get video structure for media_id={media_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred") from e
+
+    if result:
+        # Verify ownership
+        video_user_id = result.get("video_user_id")
+        if video_user_id and video_user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        return {"media_id": media_id, **result}
+
+    if media is None:
+        raise HTTPException(status_code=404, detail="Media not found")
+
+    raise HTTPException(status_code=404, detail="Video structure not available yet.")

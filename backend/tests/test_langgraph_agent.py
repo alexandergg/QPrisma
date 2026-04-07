@@ -77,8 +77,9 @@ class TestRestoreMediaContext:
 
     def test_overrides_none_state_with_config_media_id(self):
         """When state has no media_id but config does, state is updated."""
-        from agent.nodes.video_nodes import restore_media_context
         from langchain_core.runnables import RunnableConfig
+
+        from agent.nodes.video_nodes import restore_media_context
 
         state = {"media_id": None, "media_ids": None, "video_context": None}
         config = RunnableConfig(configurable={"media_id": "vid-123"})
@@ -90,8 +91,9 @@ class TestRestoreMediaContext:
 
     def test_overrides_stale_media_id(self):
         """When state has a different media_id, config wins."""
-        from agent.nodes.video_nodes import restore_media_context
         from langchain_core.runnables import RunnableConfig
+
+        from agent.nodes.video_nodes import restore_media_context
 
         state = {
             "media_id": "old-vid",
@@ -107,8 +109,9 @@ class TestRestoreMediaContext:
 
     def test_no_op_when_ids_match(self):
         """When state and config agree, no video_context update is needed if present."""
-        from agent.nodes.video_nodes import restore_media_context
         from langchain_core.runnables import RunnableConfig
+
+        from agent.nodes.video_nodes import restore_media_context
 
         state = {
             "media_id": "vid-123",
@@ -124,8 +127,9 @@ class TestRestoreMediaContext:
 
     def test_creates_video_context_when_missing(self):
         """When state has correct media_id but no video_context, one is created."""
-        from agent.nodes.video_nodes import restore_media_context
         from langchain_core.runnables import RunnableConfig
+
+        from agent.nodes.video_nodes import restore_media_context
 
         state = {"media_id": "vid-123", "media_ids": None, "video_context": None}
         config = RunnableConfig(configurable={"media_id": "vid-123"})
@@ -137,8 +141,9 @@ class TestRestoreMediaContext:
 
     def test_no_config_no_state_media_id_returns_empty(self):
         """When neither config nor state has media_id, no updates are made."""
-        from agent.nodes.video_nodes import restore_media_context
         from langchain_core.runnables import RunnableConfig
+
+        from agent.nodes.video_nodes import restore_media_context
 
         state = {"media_id": None, "media_ids": None, "video_context": None}
         config = RunnableConfig(configurable={})
@@ -149,8 +154,9 @@ class TestRestoreMediaContext:
 
     def test_falls_back_to_state_media_id_when_config_missing(self):
         """When config has no media_id but state has one (from checkpoint), preserve it."""
-        from agent.nodes.video_nodes import restore_media_context
         from langchain_core.runnables import RunnableConfig
+
+        from agent.nodes.video_nodes import restore_media_context
 
         # State has media_id from checkpoint, config doesn't (frontend didn't send it)
         state = {
@@ -167,8 +173,9 @@ class TestRestoreMediaContext:
 
     def test_falls_back_to_state_and_creates_video_context(self):
         """When config has no media_id but state has one, create video_context if missing."""
-        from agent.nodes.video_nodes import restore_media_context
         from langchain_core.runnables import RunnableConfig
+
+        from agent.nodes.video_nodes import restore_media_context
 
         state = {
             "media_id": "checkpointed-vid",
@@ -183,8 +190,9 @@ class TestRestoreMediaContext:
 
     def test_restores_media_ids_from_config(self):
         """Config media_ids overrides stale state media_ids."""
-        from agent.nodes.video_nodes import restore_media_context
         from langchain_core.runnables import RunnableConfig
+
+        from agent.nodes.video_nodes import restore_media_context
 
         state = {
             "media_id": "vid-1",
@@ -199,8 +207,9 @@ class TestRestoreMediaContext:
 
     def test_graph_has_restore_media_context_node(self):
         """The compiled graph includes restore_media_context before call_model."""
-        from agent.graphs.video import create_video_agent_graph
         from langgraph.checkpoint.memory import MemorySaver
+
+        from agent.graphs.video import create_video_agent_graph
 
         graph = create_video_agent_graph(MemorySaver())
         node_names = list(graph.get_graph().nodes.keys())
@@ -370,8 +379,9 @@ class TestVideoAgentGraph:
     @pytest.mark.asyncio
     async def test_agent_graph_creation(self):
         """Test that the graph compiles successfully."""
-        from agent.graphs.video import create_video_agent_graph
         from langgraph.checkpoint.memory import MemorySaver
+
+        from agent.graphs.video import create_video_agent_graph
 
         checkpointer = MemorySaver()
         graph = create_video_agent_graph(checkpointer)
@@ -487,6 +497,97 @@ class TestLangGraphTools:
         assert "error" in result
         assert "No video context" in result["error"]
 
+    @pytest.mark.asyncio
+    async def test_list_chapters_uses_graph_direct(self):
+        """Timeline output should query KnowledgeGraphService directly, not StructureService."""
+        from agent.tools.context_tools import list_chapters
+
+        mock_kg = MagicMock()
+        mock_kg.is_connected = True
+        mock_kg.get_video_node.return_value = {
+            "video_id": "vid-123",
+            "title": "Festival Video",
+            "summary": "Festival-themed product montage.",
+            "topics": ["Dragon Boat Festival", "SmallRig"],
+        }
+        mock_kg.get_video_scenes.return_value = [
+            {
+                "scene_index": 0,
+                "start_time": 0.0,
+                "end_time": 15.0,
+                "title": "A busy street scene",
+                "description": "Pedestrians move through a crowded intersection.",
+            },
+            {
+                "scene_index": 1,
+                "start_time": 15.0,
+                "end_time": 30.0,
+                "title": "Dragon boat branding close-up",
+                "description": "",
+            },
+        ]
+        mock_kg.get_video_frames.return_value = [
+            {"timestamp": 2.0, "description": "People walking on a busy street."},
+            {"timestamp": 18.0, "description": "Close-up of dragon boat decoration."},
+        ]
+
+        with patch(
+            "services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg
+        ):
+            result = await list_chapters.coroutine(target_video_id="vid-123")
+
+        assert result["total_chapters"] == 2
+        assert result["chapters"][0]["title"] == "A busy street scene"
+        assert result["chapters"][0]["summary"] == (
+            "Pedestrians move through a crowded intersection."
+        )
+        assert result["chapters"][1]["title"] == "Dragon boat branding close-up"
+        # Scene has empty description, so summary is generated from frame descriptions
+        assert result["chapters"][1]["summary"] == "Close-up of dragon boat decoration."
+        assert result["video_summary"] == "Festival-themed product montage."
+        assert result["topics"] == ["Dragon Boat Festival", "SmallRig"]
+        # Verify no StructureService or DB calls
+        mock_kg.get_video_node.assert_called_once_with("vid-123")
+        mock_kg.get_video_scenes.assert_called_once_with("vid-123")
+        mock_kg.get_video_frames.assert_called_once_with("vid-123")
+
+    @pytest.mark.asyncio
+    async def test_list_chapters_no_scenes_returns_topics(self):
+        """When no scenes exist, list_chapters should return video-level topics."""
+        from agent.tools.context_tools import list_chapters
+
+        mock_kg = MagicMock()
+        mock_kg.is_connected = True
+        mock_kg.get_video_node.return_value = {"video_id": "vid-123"}
+        mock_kg.get_video_scenes.return_value = []
+        mock_kg.get_video_summary.return_value = ("A video about festivals.", ["Festival"])
+
+        with patch(
+            "services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg
+        ):
+            result = await list_chapters.coroutine(target_video_id="vid-123")
+
+        assert result["chapters"] == []
+        assert result["topics"] == ["Festival"]
+        assert result["summary"] == "A video about festivals."
+
+    @pytest.mark.asyncio
+    async def test_list_chapters_graph_unavailable(self):
+        """When Neo4j is not connected, return an error."""
+        from agent.tools.context_tools import list_chapters
+
+        mock_kg = MagicMock()
+        mock_kg.is_connected = False
+        mock_kg.connect.return_value = None
+
+        with patch(
+            "services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg
+        ):
+            result = await list_chapters.coroutine(target_video_id="vid-123")
+
+        assert "error" in result
+        assert "not available" in result["error"]
+
 
 class TestRedisCheckpointer:
     """Test Redis checkpointer creation via unified factory."""
@@ -494,8 +595,9 @@ class TestRedisCheckpointer:
     @pytest.mark.asyncio
     async def test_checkpointer_fallback_to_memory(self):
         """Test fallback to MemorySaver when no persistent stores available."""
-        import agent.graphs.video as module
         from langgraph.checkpoint.memory import MemorySaver
+
+        import agent.graphs.video as module
 
         # Reset singleton state
         module._shared_checkpointer = None
@@ -596,8 +698,9 @@ class TestGraphExecutionPaths:
     @pytest.mark.asyncio
     async def test_video_graph_structure(self):
         """Test that the video graph compiles with expected nodes."""
-        from agent.graphs.video import create_video_agent_graph
         from langgraph.checkpoint.memory import MemorySaver
+
+        from agent.graphs.video import create_video_agent_graph
 
         checkpointer = MemorySaver()
         graph = create_video_agent_graph(checkpointer)
@@ -616,8 +719,9 @@ class TestGraphExecutionPaths:
     @pytest.mark.asyncio
     async def test_video_graph_edges(self):
         """Test that the video graph has correct edge connections."""
-        from agent.graphs.video import create_video_agent_graph
         from langgraph.checkpoint.memory import MemorySaver
+
+        from agent.graphs.video import create_video_agent_graph
 
         checkpointer = MemorySaver()
         graph = create_video_agent_graph(checkpointer)
@@ -821,6 +925,19 @@ class TestDynamicToolBinding:
 
         assert len(selected) <= 5
 
+    def test_select_tools_for_generic_timeline_query(self):
+        """Generic timeline queries should prioritize structure-aware tools."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Generate a timeline"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=5)
+
+        tool_names = [t.name for t in selected]
+        assert "list_chapters" in tool_names[:4]
+        assert "get_video_info" in tool_names
+        assert "get_summary" in tool_names
+
     def test_select_tools_max_limit(self):
         """Test that tool selection respects max_tools limit."""
         from agent.nodes.base import select_tools_for_query
@@ -918,8 +1035,9 @@ class TestProductionCheckpointerFactory:
     @pytest.mark.asyncio
     async def test_checkpointer_cascade_fallback(self):
         """Test that factory falls back to MemorySaver when no stores available."""
-        import agent.graphs.video as module
         from langgraph.checkpoint.memory import MemorySaver
+
+        import agent.graphs.video as module
 
         module._shared_checkpointer = None
         module._checkpointer_lock = None
@@ -1620,8 +1738,9 @@ class TestMultiVideoState:
 
     def test_extract_metadata_from_messages_passes_video_id(self):
         """Test that extract_metadata_from_messages forwards video_id."""
-        from agent.graphs.video import extract_metadata_from_messages
         from langchain_core.messages import ToolMessage
+
+        from agent.graphs.video import extract_metadata_from_messages
 
         messages = [
             ToolMessage(
@@ -1713,8 +1832,9 @@ class TestMultiVideoState:
         """Test that restore_media_context logs all media_ids in multi-video mode."""
         import logging
 
-        from agent.nodes.video_nodes import restore_media_context
         from langchain_core.runnables import RunnableConfig
+
+        from agent.nodes.video_nodes import restore_media_context
 
         state = {
             "media_id": None,

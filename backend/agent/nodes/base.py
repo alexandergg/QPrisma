@@ -32,7 +32,6 @@ from agent.state.agent_state import (
 )
 from agent.utils.observability import (
     Metrics,
-    extract_request_id_from_config,
     get_logger,
 )
 from core.azure_credentials import build_openai_client_kwargs
@@ -152,21 +151,6 @@ def _get_latest_human_query(messages: list) -> str:
         if isinstance(msg, HumanMessage):
             return msg.content if isinstance(msg.content, str) else str(msg.content)
     return ""
-
-
-def _format_external_memory(memory: dict) -> str | None:
-    """Format one external memory entry as compact text."""
-    text = (
-        memory.get("memory") or memory.get("text") or memory.get("content") or memory.get("summary")
-    )
-    if not isinstance(text, str) or not text:
-        return None
-
-    metadata = memory.get("metadata") if isinstance(memory.get("metadata"), dict) else {}
-    artifact_id = metadata.get("artifact_id")
-    if artifact_id:
-        return f"{text[:180]} [artifact:{artifact_id}]"
-    return text[:180]
 
 
 def _extract_artifact_id(text: str) -> str | None:
@@ -644,7 +628,6 @@ async def base_call_model(
         State update dict with messages and tracking info
     """
     start_time = time.time()
-    extract_request_id_from_config(config) or "unknown"
 
     # Get model from config or create default
     model_deployment = config.get("configurable", {}).get("model_deployment")
@@ -1282,6 +1265,9 @@ def select_tools_for_query(
 
     # Select based on query intent
     selected = []
+    is_generic_timeline_query = "timeline" in query_lower and not any(
+        kw in query_lower for kw in entity_keywords
+    )
 
     if has_library_intent:
         # Multi-video mode with cross-video query: prioritise library tools
@@ -1303,6 +1289,24 @@ def select_tools_for_query(
     elif any(kw in query_lower for kw in entity_keywords):
         selected.extend(entity_tools[:3])
         selected.extend(search_tools[:2])
+    elif is_generic_timeline_query:
+        preferred_timeline_tools = [
+            "list_chapters",
+            "get_video_info",
+            "get_summary",
+            "get_scene_context",
+        ]
+        for preferred_name in preferred_timeline_tools:
+            if len(selected) >= max_tools:
+                break
+            tool = next((candidate for candidate in structure_tools if candidate.name == preferred_name), None)
+            if tool and tool not in selected:
+                selected.append(tool)
+        for tool in analysis_tools + search_tools:
+            if tool not in selected:
+                selected.append(tool)
+                if len(selected) >= max_tools:
+                    break
     elif any(kw in query_lower for kw in structure_keywords):
         selected.extend(structure_tools[:3])
         selected.extend(search_tools[:2])

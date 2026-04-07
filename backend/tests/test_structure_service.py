@@ -1,8 +1,11 @@
 """
 Tests for services/structure_service.py
 
-Covers scene title generation, scene summary, and chapter building.
+Covers scene title generation, scene summary, video summary, structure resolution,
+and chapter building.
 """
+
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -12,8 +15,6 @@ from services.structure_service import StructureService
 @pytest.fixture
 def structure_service():
     """Create a StructureService with mock dependencies."""
-    from unittest.mock import MagicMock
-
     return StructureService(graph_service=MagicMock(), blob_service=None, storage_container="")
 
 
@@ -68,6 +69,11 @@ class TestGenerateSceneSummary:
         scene = {"description": "Existing summary."}
         assert structure_service._generate_scene_summary(scene, []) == "Existing summary."
 
+    def test_cleans_existing_description_prefixes(self, structure_service):
+        scene = {"description": "General scene description: A busy street scene."}
+        summary = structure_service._generate_scene_summary(scene, [])
+        assert summary == "A busy street scene."
+
     def test_generates_from_frames(self, structure_service):
         frames = [
             {"description": "Frame 1 desc."},
@@ -87,10 +93,107 @@ class TestGenerateSceneSummary:
         assert "Frame 0." in summary
         assert "Frame 2." in summary
 
+    def test_cleans_frame_descriptions_before_joining(self, structure_service):
+        frames = [
+            {"description": "1. **General description:** A busy street scene."},
+            {"description": "Scene description: People walk by storefronts."},
+        ]
+        summary = structure_service._generate_scene_summary({}, frames)
+        assert "General description:" not in summary
+        assert "Scene description:" not in summary
+        assert "**" not in summary
+
     def test_truncates_to_500_chars(self, structure_service):
         frames = [{"description": "X" * 300} for _ in range(3)]
         summary = structure_service._generate_scene_summary({}, frames)
         assert len(summary) <= 500
+
+
+# =============================================================================
+# Video Summary Generation
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestGenerateVideoSummary:
+    def test_cleans_generated_video_summary_prefixes(self, structure_service):
+        frames = [
+            {"description": "The image shows a crowded plaza.\nPeople carry banners."},
+            {"description": "La imagen muestra decorated storefronts."},
+        ]
+        summary = structure_service._generate_video_summary({}, frames)
+        assert "The image shows" not in summary
+        assert "La imagen muestra" not in summary
+        assert "crowded plaza." in summary
+
+
+# =============================================================================
+# Structure Resolution
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestGetStructure:
+    def test_prefers_graph_structure(self, structure_service):
+        graph_result = {"structure": {"scenes": []}, "processing_method": "graph"}
+
+        with (
+            patch.object(
+                structure_service,
+                "get_structure_from_graph",
+                return_value=graph_result,
+            ) as graph_mock,
+            patch.object(structure_service, "get_structure_from_legacy") as legacy_mock,
+        ):
+            result = structure_service.get_structure("vid-123", {"structure": {"scenes": []}})
+
+        assert result == graph_result
+        graph_mock.assert_called_once_with("vid-123")
+        legacy_mock.assert_not_called()
+
+    def test_falls_back_to_legacy_structure(self, structure_service):
+        legacy_result = {"structure": {"chapters": []}, "processing_method": "legacy"}
+        media_dict = {"structure": {"chapters": []}}
+
+        with (
+            patch.object(structure_service, "get_structure_from_graph", return_value=None) as graph_mock,
+            patch.object(
+                structure_service,
+                "get_structure_from_legacy",
+                return_value=legacy_result,
+            ) as legacy_mock,
+        ):
+            result = structure_service.get_structure("vid-123", media_dict)
+
+        assert result == legacy_result
+        graph_mock.assert_called_once_with("vid-123")
+        legacy_mock.assert_called_once_with(media_dict)
+
+    def test_falls_back_to_legacy_when_graph_lookup_raises(self, structure_service):
+        legacy_result = {"structure": {"chapters": []}, "processing_method": "legacy"}
+        media_dict = {"structure": {"chapters": []}}
+
+        with (
+            patch.object(
+                structure_service,
+                "get_structure_from_graph",
+                side_effect=RuntimeError("neo4j unavailable"),
+            ) as graph_mock,
+            patch.object(
+                structure_service,
+                "get_structure_from_legacy",
+                return_value=legacy_result,
+            ) as legacy_mock,
+        ):
+            result = structure_service.get_structure("vid-123", media_dict)
+
+        assert result == legacy_result
+        graph_mock.assert_called_once_with("vid-123")
+        legacy_mock.assert_called_once_with(media_dict)
+
+    def test_graph_structure_returns_none_without_graph_service(self):
+        service = StructureService(graph_service=None, blob_service=None, storage_container="")
+        assert service.get_structure_from_graph("vid-123") is None
 
 
 # =============================================================================
