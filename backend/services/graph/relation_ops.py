@@ -9,11 +9,17 @@ entity links.
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 
 from models.graph_models import RelationType
 
 logger = logging.getLogger(__name__)
+
+# Valid Neo4j relationship type: starts with uppercase letter, then uppercase
+# letters, digits, or underscores.  Used to guard against Cypher injection when
+# relationship types are interpolated into queries.
+_VALID_REL_TYPE_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
 class RelationOpsMixin:
@@ -66,6 +72,10 @@ class RelationOpsMixin:
 
         total_created = 0
         for rel_type, rels in grouped.items():
+            if not _VALID_REL_TYPE_RE.match(rel_type):
+                logger.warning("Skipping invalid relation type: %s", rel_type[:100])
+                continue
+
             batch_data = [
                 {
                     "source_id": r["source_id"],
@@ -134,6 +144,10 @@ class RelationOpsMixin:
 
         total_created = 0
         for rel_type, rels in grouped.items():
+            if not _VALID_REL_TYPE_RE.match(rel_type):
+                logger.warning("Skipping invalid semantic relation type: %s", rel_type[:100])
+                continue
+
             batch_data = [
                 {
                     "source_name": r["source_name"],

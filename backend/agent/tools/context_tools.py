@@ -235,6 +235,10 @@ async def list_chapters(
             return result
 
         all_frames = kg.get_video_frames(effective_id)
+        # Cap frames to avoid expensive per-scene filtering on long videos
+        MAX_FRAMES_FOR_CHAPTERS = 500
+        if len(all_frames) > MAX_FRAMES_FOR_CHAPTERS:
+            all_frames = all_frames[:MAX_FRAMES_FOR_CHAPTERS]
         scene_list = _build_scene_list(scenes, all_frames)
         chapters = _build_chapters(scene_list)
 

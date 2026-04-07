@@ -36,6 +36,11 @@ async def get_video_structure(media_id: str, current_user: User = Depends(get_cu
     media = db.get_media(media_id)
     if media and media.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if media is None:
+        # No Postgres record — only allow graph fallback if we can verify ownership later.
+        # The graph result will be checked below; if the graph video node also lacks a
+        # user_id we cannot prove ownership, so we treat it as not found.
+        pass
 
     try:
         media_dict = media.to_dict() if media else None
@@ -55,10 +60,14 @@ async def get_video_structure(media_id: str, current_user: User = Depends(get_cu
         raise HTTPException(status_code=500, detail="An internal error occurred") from e
 
     if result:
-        # Verify ownership
+        # Verify ownership via graph video node
         video_user_id = result.get("video_user_id")
         if video_user_id and video_user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Access denied")
+        # If media is missing in Postgres and graph node lacks user_id,
+        # we cannot verify ownership — deny access to prevent tenant leakage.
+        if media is None and not video_user_id:
+            raise HTTPException(status_code=404, detail="Media not found")
 
         return {"media_id": media_id, **result}
 

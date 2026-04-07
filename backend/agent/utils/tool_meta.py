@@ -42,9 +42,13 @@ def tool_error(
     message: str,
     recovery: str | None = None,
     partial_data: dict | None = None,
+    source: str = "error",
 ) -> dict:
     """Build a structured error response for a tool."""
-    err: dict = {"error": {"type": error_type, "message": message}}
+    err: dict = {
+        "error": {"type": error_type, "message": message},
+        "_meta": {"source": source, "is_complete": False, "result_count": 0},
+    }
     if recovery:
         err["error"]["recovery"] = recovery
     if partial_data:

@@ -197,7 +197,10 @@ class StructureService:
         try:
             graph_result = self.get_structure_from_graph(media_id)
         except Exception as exc:
-            logger.warning("Failed to load graph structure for media_id=%s: %s", media_id, exc)
+            sanitized_id = media_id[:100].replace("\n", "").replace("\r", "")
+            logger.warning(
+                "Failed to load graph structure for media_id=%s: %s", sanitized_id, exc
+            )
             graph_result = None
         if graph_result:
             return graph_result
@@ -225,6 +228,10 @@ class StructureService:
             return None
 
         all_frames = self.graph_service.get_video_frames(media_id)
+        # Cap frames to bound per-scene filtering cost on long videos
+        MAX_FRAMES_FOR_STRUCTURE = 500
+        if len(all_frames) > MAX_FRAMES_FOR_STRUCTURE:
+            all_frames = all_frames[:MAX_FRAMES_FOR_STRUCTURE]
 
         # Build scene list
         scene_list = []
