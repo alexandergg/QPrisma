@@ -324,7 +324,7 @@ async def get_summary(
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return tool_error("no_context", "No video context available.", "summary")
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service

@@ -152,7 +152,8 @@ class AgentQueryMixin:
             anchor = anchor_result.single()
 
             if anchor:
-                max_hops = max(int((end_time - start_time) / 2), 10)
+                # ~0.5 fps: divide window by 2; clamp to avoid OOM on large windows
+                max_hops = min(max(int((end_time - start_time) / 2), 10), 200)
                 chain_result = session.run(
                     f"""
                     MATCH (anchor:Frame {{id: $anchor_id}})
@@ -222,7 +223,8 @@ class AgentQueryMixin:
             anchor = anchor_result.single()
 
             if anchor:
-                max_hops = max(int(end_time - start_time), 20)
+                # ~1s audio segments; clamp to avoid OOM on large windows
+                max_hops = min(max(int(end_time - start_time), 20), 200)
                 chain_result = session.run(
                     f"""
                     MATCH (anchor:AudioSegment {{id: $anchor_id}})
@@ -315,23 +317,26 @@ class AgentQueryMixin:
         if not timestamps:
             return []
 
-        # Batch frame lookup: one query for all timestamps
+        # Batch frame lookup: one query for the combined timestamp window
+        min_ts = min(timestamps) - window
+        max_ts = max(timestamps) + window
+
         with self._get_session() as session:
-            # Get ALL frames for this video, ordered by timestamp
             all_frames_result = session.run(
                 """
                 MATCH (f:Frame)
                 WHERE f.video_id = $video_id
+                  AND f.timestamp >= $min_ts AND f.timestamp <= $max_ts
                 RETURN f.timestamp AS timestamp, f.description AS description
                 ORDER BY f.timestamp
                 """,
                 video_id=video_id,
+                min_ts=min_ts,
+                max_ts=max_ts,
             )
             all_frames = [dict(r) for r in all_frames_result]
 
-            # Get ALL audio segments that overlap any of the windows
-            min_ts = min(timestamps) - window
-            max_ts = max(timestamps) + window
+            # Audio segments overlapping any timestamp window
             all_audio_result = session.run(
                 """
                 MATCH (a:AudioSegment)
