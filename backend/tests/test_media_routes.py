@@ -5,7 +5,7 @@ Covers upload, list, get, delete, and status endpoints.
 """
 
 from io import BytesIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -124,6 +124,45 @@ class TestGetMedia:
             resp = authenticated_client.get("/media/media_123")
 
         assert resp.status_code == 200
+
+    def test_success_includes_signed_blob_url(
+        self,
+        authenticated_client,
+        mock_db_service,
+        test_user,
+    ):
+        item = {
+            "id": "media_123",
+            "user_id": test_user.id,
+            "blob_name": "test.mp4",
+            "media_type": "video",
+            "video_metadata": {},
+        }
+        mock_media = MagicMock()
+        mock_media.user_id = test_user.id
+        mock_media.to_dict.return_value = item
+        mock_db_service.get_media.return_value = mock_media
+
+        with (
+            patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
+            patch(
+                "api.routes.media_routes.hydrate_data_from_blob",
+                new=AsyncMock(return_value=item),
+            ),
+            patch(
+                "api.routes.media_routes.build_blob_sas_url_async",
+                new=AsyncMock(
+                    return_value="https://storage.blob.core.windows.net/media/test.mp4?sig=1"
+                ),
+            ),
+        ):
+            resp = authenticated_client.get("/media/media_123")
+
+        assert resp.status_code == 200
+        assert (
+            resp.json()["blob_url"]
+            == "https://storage.blob.core.windows.net/media/test.mp4?sig=1"
+        )
 
 
 @pytest.mark.unit

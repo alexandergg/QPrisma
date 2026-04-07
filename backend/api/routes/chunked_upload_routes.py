@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.dependencies import (
-    build_blob_sas_url,
+    build_blob_sas_url_async,
     get_blob_service,
     get_current_user,
     get_storage_container_name,
@@ -188,7 +188,7 @@ async def init_chunked_upload(
 
     # Generate SAS URL for upload
     sas_expiry = datetime.now(UTC) + timedelta(hours=4)
-    upload_url = build_blob_sas_url(
+    upload_url = await build_blob_sas_url_async(
         blob_name,
         permission=BlobSasPermissions(write=True, create=True, read=True),
         expiry=sas_expiry,

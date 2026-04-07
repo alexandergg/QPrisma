@@ -5,13 +5,16 @@ Covers authentication dependencies (get_current_user, get_current_user_optional)
 get_media_or_404, singleton service getters, and storage helpers.
 """
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from azure.storage.blob import BlobSasPermissions
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
 from api.dependencies import (
+    build_blob_sas_url,
     get_blob_service,
     get_current_user,
     get_current_user_optional,
@@ -260,7 +263,9 @@ class TestSingletonGetters:
 
         with (
             patch("api.dependencies.settings") as mock_settings,
-            patch("api.dependencies.create_blob_service_client", return_value=mock_blob_service),
+            patch(
+                "api.dependencies.create_blob_service_client", return_value=mock_blob_service
+            ) as mock_create_blob_service_client,
         ):
             mock_settings.azure.storage_connection_string = None
             mock_settings.azure.storage_account_url = "https://storage.blob.core.windows.net"
@@ -268,6 +273,14 @@ class TestSingletonGetters:
             result = get_blob_service()
 
         assert result is mock_blob_service
+        mock_create_blob_service_client.assert_called_once_with(
+            storage_connection_string=None,
+            storage_account_url="https://storage.blob.core.windows.net",
+            use_managed_identity=True,
+            max_single_put_size=256 * 1024 * 1024,
+            max_block_size=100 * 1024 * 1024,
+            max_concurrency=8,
+        )
 
     def test_openai_client_uses_managed_identity(self):
         import api.dependencies as deps
@@ -333,3 +346,128 @@ class TestGetStorageAccountInfo:
             result = get_storage_account_info()
 
         assert result is None
+
+
+@pytest.mark.unit
+class TestBuildBlobSasUrl:
+    def test_uses_user_delegation_key_for_managed_identity(self):
+        permission = BlobSasPermissions(read=True)
+        start = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
+        expiry = start + timedelta(hours=1)
+        mock_blob_service = MagicMock()
+        mock_blob_client = MagicMock(
+            account_name="mediaaccount",
+            url="https://mediaaccount.blob.core.windows.net/media/test.mp4",
+        )
+        mock_blob_service.get_blob_client.return_value = mock_blob_client
+        mock_user_delegation_key = object()
+        mock_blob_service.get_user_delegation_key.return_value = mock_user_delegation_key
+
+        with (
+            patch("api.dependencies.get_blob_service", return_value=mock_blob_service),
+            patch("api.dependencies.get_storage_container_name", return_value="media"),
+            patch("api.dependencies.uses_managed_identity_storage", return_value=True),
+            patch("api.dependencies.generate_blob_sas", return_value="mi-sas") as mock_generate,
+        ):
+            result = build_blob_sas_url(
+                "test.mp4",
+                permission=permission,
+                expiry=expiry,
+                start=start,
+            )
+
+        assert result == "https://mediaaccount.blob.core.windows.net/media/test.mp4?mi-sas"
+        mock_blob_service.get_user_delegation_key.assert_called_once_with(
+            key_start_time=start,
+            key_expiry_time=expiry,
+        )
+        kwargs = mock_generate.call_args.kwargs
+        assert kwargs["account_name"] == "mediaaccount"
+        assert kwargs["container_name"] == "media"
+        assert kwargs["blob_name"] == "test.mp4"
+        assert kwargs["user_delegation_key"] is mock_user_delegation_key
+        assert kwargs["permission"] is permission
+        assert kwargs["start"] == start
+        assert kwargs["expiry"] == expiry
+        assert "account_key" not in kwargs
+
+    def test_uses_clock_skew_start_time_for_account_key_fallback(self):
+        permission = BlobSasPermissions(read=True)
+        expiry = datetime.now(UTC) + timedelta(hours=1)
+        mock_blob_service = MagicMock()
+        mock_blob_client = MagicMock(
+            url="https://mediaaccount.blob.core.windows.net/media/test.mp4"
+        )
+        mock_blob_service.get_blob_client.return_value = mock_blob_client
+        before = datetime.now(UTC)
+
+        with (
+            patch("api.dependencies.get_blob_service", return_value=mock_blob_service),
+            patch("api.dependencies.get_storage_container_name", return_value="media"),
+            patch("api.dependencies.uses_managed_identity_storage", return_value=False),
+            patch(
+                "api.dependencies.get_storage_account_info",
+                return_value=("mediaaccount", "secret-key", "media"),
+            ),
+            patch(
+                "api.dependencies.generate_blob_sas", return_value="fallback-sas"
+            ) as mock_generate,
+        ):
+            result = build_blob_sas_url(
+                "test.mp4",
+                permission=permission,
+                expiry=expiry,
+            )
+        after = datetime.now(UTC)
+
+        assert (
+            result
+            == "https://mediaaccount.blob.core.windows.net/media/test.mp4?fallback-sas"
+        )
+        kwargs = mock_generate.call_args.kwargs
+        assert kwargs["account_name"] == "mediaaccount"
+        assert kwargs["account_key"] == "secret-key"
+        assert kwargs["container_name"] == "media"
+        assert kwargs["blob_name"] == "test.mp4"
+        assert kwargs["permission"] is permission
+        assert kwargs["expiry"] == expiry
+        assert kwargs["start"] is not None
+        assert before - timedelta(minutes=6) <= kwargs["start"] <= after - timedelta(minutes=4)
+        mock_blob_service.get_user_delegation_key.assert_not_called()
+
+    def test_returns_none_without_blob_service(self):
+        permission = BlobSasPermissions(read=True)
+        expiry = datetime.now(UTC) + timedelta(hours=1)
+
+        with patch("api.dependencies.get_blob_service", return_value=None):
+            result = build_blob_sas_url(
+                "test.mp4",
+                permission=permission,
+                expiry=expiry,
+            )
+
+        assert result is None
+
+    def test_returns_none_without_local_signing_credentials(self):
+        permission = BlobSasPermissions(read=True)
+        expiry = datetime.now(UTC) + timedelta(hours=1)
+        mock_blob_service = MagicMock()
+        mock_blob_service.get_blob_client.return_value = MagicMock(
+            url="https://mediaaccount.blob.core.windows.net/media/test.mp4"
+        )
+
+        with (
+            patch("api.dependencies.get_blob_service", return_value=mock_blob_service),
+            patch("api.dependencies.get_storage_container_name", return_value="media"),
+            patch("api.dependencies.uses_managed_identity_storage", return_value=False),
+            patch("api.dependencies.get_storage_account_info", return_value=None),
+            patch("api.dependencies.generate_blob_sas") as mock_generate,
+        ):
+            result = build_blob_sas_url(
+                "test.mp4",
+                permission=permission,
+                expiry=expiry,
+            )
+
+        assert result is None
+        mock_generate.assert_not_called()

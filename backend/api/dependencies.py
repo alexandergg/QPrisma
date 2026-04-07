@@ -5,9 +5,11 @@ This module contains shared dependencies, utilities, and service getters
 that are used across multiple route modules.
 """
 
+import asyncio
 import logging
 import re
 from datetime import UTC, datetime, timedelta
+from functools import partial
 
 from azure.storage.blob import BlobSasPermissions, BlobServiceClient, generate_blob_sas
 from fastapi import Depends, HTTPException
@@ -379,10 +381,31 @@ def build_blob_sas_url(
         blob_name=blob_name,
         account_key=account_key,
         permission=permission,
-        start=start,
+        start=start_time,
         expiry=expiry,
     )
     return f"{blob_client.url}?{sas_token}"
+
+
+async def build_blob_sas_url_async(
+    blob_name: str,
+    *,
+    permission: BlobSasPermissions,
+    expiry: datetime,
+    start: datetime | None = None,
+) -> str | None:
+    """Build a blob SAS URL without blocking the event loop."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        partial(
+            build_blob_sas_url,
+            blob_name,
+            permission=permission,
+            expiry=expiry,
+            start=start,
+        ),
+    )
 
 
 def get_media_or_404(

@@ -26,7 +26,7 @@ from fastapi import (
 )
 
 from api.dependencies import (
-    build_blob_sas_url,
+    build_blob_sas_url_async,
     get_blob_service,
     get_current_user,
     get_knowledge_graph_service,
@@ -49,9 +49,9 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-def generate_sas_url(blob_name: str, expiry_hours: int = 1) -> str | None:
+async def generate_sas_url(blob_name: str, expiry_hours: int = 1) -> str | None:
     """Generate a SAS URL for reading a blob."""
-    return build_blob_sas_url(
+    return await build_blob_sas_url_async(
         blob_name,
         permission=BlobSasPermissions(read=True),
         expiry=datetime.now(UTC) + timedelta(hours=expiry_hours),
@@ -467,7 +467,7 @@ async def get_media_metadata(media_id: str, current_user: User = Depends(get_cur
 
         # Generate URL with SAS token (valid for 1 hour)
         if item.get("blob_name"):
-            blob_url = generate_sas_url(item["blob_name"], expiry_hours=1)
+            blob_url = await generate_sas_url(item["blob_name"], expiry_hours=1)
             if blob_url:
                 item["blob_url"] = blob_url
 
