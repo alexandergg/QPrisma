@@ -156,7 +156,9 @@ class TestGetStructure:
         media_dict = {"structure": {"chapters": []}}
 
         with (
-            patch.object(structure_service, "get_structure_from_graph", return_value=None) as graph_mock,
+            patch.object(
+                structure_service, "get_structure_from_graph", return_value=None
+            ) as graph_mock,
             patch.object(
                 structure_service,
                 "get_structure_from_legacy",

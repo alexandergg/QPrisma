@@ -532,9 +532,7 @@ class TestLangGraphTools:
             {"timestamp": 18.0, "description": "Close-up of dragon boat decoration."},
         ]
 
-        with patch(
-            "services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg
-        ):
+        with patch("services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg):
             result = await list_chapters.coroutine(target_video_id="vid-123")
 
         assert result["total_chapters"] == 2
@@ -563,9 +561,7 @@ class TestLangGraphTools:
         mock_kg.get_video_scenes.return_value = []
         mock_kg.get_video_summary.return_value = ("A video about festivals.", ["Festival"])
 
-        with patch(
-            "services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg
-        ):
+        with patch("services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg):
             result = await list_chapters.coroutine(target_video_id="vid-123")
 
         assert result["chapters"] == []
@@ -581,9 +577,7 @@ class TestLangGraphTools:
         mock_kg.is_connected = False
         mock_kg.connect.return_value = None
 
-        with patch(
-            "services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg
-        ):
+        with patch("services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg):
             result = await list_chapters.coroutine(target_video_id="vid-123")
 
         assert "error" in result
@@ -1060,9 +1054,7 @@ class TestDynamicToolBinding:
         query = "Track how the speaker changes throughout the video"
         selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
         tool_names = [t.name for t in selected]
-        assert "get_entity_timeline" in tool_names, (
-            f"get_entity_timeline missing from {tool_names}"
-        )
+        assert "get_entity_timeline" in tool_names, f"get_entity_timeline missing from {tool_names}"
 
     def test_get_transcript_routes_for_quote_queries(self):
         """get_transcript should be selected for verbatim/quote queries."""
@@ -1096,9 +1088,7 @@ class TestDynamicToolBinding:
         query = "What exactly was said around the 5 minute mark?"
         selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
         tool_names = [t.name for t in selected]
-        assert "get_scene_context" in tool_names, (
-            f"get_scene_context missing from {tool_names}"
-        )
+        assert "get_scene_context" in tool_names, f"get_scene_context missing from {tool_names}"
 
 
 class TestProductionCheckpointerFactory:

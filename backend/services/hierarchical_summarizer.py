@@ -422,6 +422,3 @@ Respond in JSON format:
             logger.info(f"Generated {len(embeddings)} scene embeddings")
 
         return structure
-
-
-

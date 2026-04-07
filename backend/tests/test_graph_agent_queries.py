@@ -175,7 +175,9 @@ class TestGetTranscriptSegments:
         session = _make_session(run_results=[None])
         sess_fn.return_value = session
 
-        fallback_data = [{"timestamp": 10.0, "text": "Fallback", "speaker": None, "confidence": 0.7}]
+        fallback_data = [
+            {"timestamp": 10.0, "text": "Fallback", "speaker": None, "confidence": 0.7}
+        ]
         exec_fn.return_value = fallback_data
 
         result = repo.get_transcript_segments("vid-1", start_time=10.0, end_time=15.0)
@@ -257,7 +259,9 @@ class TestGetAudioInWindow:
 @pytest.mark.unit
 class TestFindEntityAppearances:
     def test_returns_visual_and_audio(self):
-        visual = [{"name": "Cat", "entity_type": "object", "timestamp": 5.0, "description": "A cat"}]
+        visual = [
+            {"name": "Cat", "entity_type": "object", "timestamp": 5.0, "description": "A cat"}
+        ]
         audio = [{"timestamp": 10.0, "text": "Look at the cat"}]
 
         repo, exec_fn, _ = _make_repo()

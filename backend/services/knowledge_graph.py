@@ -466,9 +466,7 @@ class KnowledgeGraphService:
         """Return the scene that contains *timestamp*."""
         return self.nodes.get_scene_at_timestamp(video_id, timestamp)
 
-    def find_entity_appearances(
-        self, video_id: str, entity_name: str
-    ) -> dict[str, list[dict]]:
+    def find_entity_appearances(self, video_id: str, entity_name: str) -> dict[str, list[dict]]:
         """Find visual and audio appearances of an entity."""
         return self.nodes.find_entity_appearances(video_id, entity_name)
 

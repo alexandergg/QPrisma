@@ -198,9 +198,7 @@ class StructureService:
             graph_result = self.get_structure_from_graph(media_id)
         except Exception as exc:
             sanitized_id = media_id[:100].replace("\n", "").replace("\r", "")
-            logger.warning(
-                "Failed to load graph structure for media_id=%s: %s", sanitized_id, exc
-            )
+            logger.warning("Failed to load graph structure for media_id=%s: %s", sanitized_id, exc)
             graph_result = None
         if graph_result:
             return graph_result

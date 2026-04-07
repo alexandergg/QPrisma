@@ -1299,7 +1299,10 @@ def select_tools_for_query(
         for preferred_name in preferred_timeline_tools:
             if len(selected) >= max_tools:
                 break
-            tool = next((candidate for candidate in structure_tools if candidate.name == preferred_name), None)
+            tool = next(
+                (candidate for candidate in structure_tools if candidate.name == preferred_name),
+                None,
+            )
             if tool and tool not in selected:
                 selected.append(tool)
         for tool in analysis_tools + search_tools:

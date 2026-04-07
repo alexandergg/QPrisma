@@ -268,9 +268,7 @@ async def compare_moments(
 
             if comparison_aspect in ["visual", "all"] and moment.get("visual"):
                 frame = moment["visual"]
-                desc, was_cut = truncate_with_notice(
-                    frame.get("description") or "", 500
-                )
+                desc, was_cut = truncate_with_notice(frame.get("description") or "", 500)
                 if was_cut:
                     truncated_fields.append("description")
                 moment_entry["visual"] = {
@@ -281,9 +279,7 @@ async def compare_moments(
             if comparison_aspect in ["audio", "all"] and moment.get("audio"):
                 audio_segs = moment["audio"]
                 texts = [seg.get("text", "") for seg in audio_segs]
-                speakers = list(
-                    {seg.get("speaker") for seg in audio_segs if seg.get("speaker")}
-                )
+                speakers = list({seg.get("speaker") for seg in audio_segs if seg.get("speaker")})
                 transcript, was_cut = truncate_with_notice(" ".join(texts), 400)
                 if was_cut:
                     truncated_fields.append("transcript")

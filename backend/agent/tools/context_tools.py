@@ -90,9 +90,7 @@ def _extract_key_topics(video_node: dict) -> list[str]:
     return video_node.get("topics") or []
 
 
-def _build_scene_list(
-    scenes: list[dict], all_frames: list[dict]
-) -> list[dict[str, Any]]:
+def _build_scene_list(scenes: list[dict], all_frames: list[dict]) -> list[dict[str, Any]]:
     """Build enriched scene list with titles and summaries from graph data."""
     scene_list = []
     for s in scenes:
@@ -311,7 +309,9 @@ async def get_video_info(
 
 @tool
 async def get_summary(
-    level: Annotated[str, "Hint for response style: 'brief', 'detailed', or 'comprehensive'"] = "brief",
+    level: Annotated[
+        str, "Hint for response style: 'brief', 'detailed', or 'comprehensive'"
+    ] = "brief",
     target_video_id: Annotated[
         str | None,
         "When several videos are selected, specify which video to summarize. "
