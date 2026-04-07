@@ -1030,6 +1030,76 @@ class TestDynamicToolBinding:
             "compare_videos" in tool_names or "search_across_videos" in tool_names
         ), f"Expected cross-video tool for compare query, got {tool_names}"
 
+    # -- Selector regression tests for confusing tool pairs --
+
+    def test_describe_scene_still_classified_as_search(self):
+        """describe_scene docstring update must keep routing keywords for search."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "What is happening at 1:30?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "describe_scene" in tool_names, f"describe_scene missing from {tool_names}"
+
+    def test_find_entity_stays_in_entity_category(self):
+        """find_entity must still route on entity queries after docstring change."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Who is the person in the red shirt?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "find_entity" in tool_names, f"find_entity missing from {tool_names}"
+
+    def test_get_entity_timeline_routes_for_tracking(self):
+        """get_entity_timeline should be selected for tracking/timeline queries."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Track how the speaker changes throughout the video"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "get_entity_timeline" in tool_names, (
+            f"get_entity_timeline missing from {tool_names}"
+        )
+
+    def test_get_transcript_routes_for_quote_queries(self):
+        """get_transcript should be selected for verbatim/quote queries."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "What exactly did the speaker say about revenue?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "get_transcript" in tool_names, f"get_transcript missing from {tool_names}"
+
+    def test_overview_tools_selected_for_summary_query(self):
+        """Summary queries should select get_summary and list_chapters."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Give me a summary of this video"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "get_summary" in tool_names, f"get_summary missing from {tool_names}"
+
+    def test_scene_context_routes_for_context_queries(self):
+        """get_scene_context is in subtitle category (name contains 'text' substring).
+        Verify it surfaces for subtitle/transcript queries."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        # get_scene_context is categorised as subtitle because the tool name
+        # "get_scene_context" contains the substring "text" (con-text).
+        # It surfaces when the query matches subtitle keywords.
+        query = "What exactly was said around the 5 minute mark?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
+        tool_names = [t.name for t in selected]
+        assert "get_scene_context" in tool_names, (
+            f"get_scene_context missing from {tool_names}"
+        )
+
 
 class TestProductionCheckpointerFactory:
     """Test unified async checkpointer factory."""

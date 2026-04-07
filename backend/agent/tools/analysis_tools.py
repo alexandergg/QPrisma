@@ -25,8 +25,10 @@ async def get_related_content(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Explore the knowledge graph to find related content, entities, and connections.
-    Use this to discover how topics/entities are connected throughout the video.
+    Explore the knowledge graph to find related entities and connections
+    by traversing relationships (1-3 hops from matching nodes).
+    Use this to discover how entities and ideas are connected throughout the video.
+    For relevance-ranked search, use search_video instead.
     """
     if not media_id:
         return tool_error("no_context", "No video context available.")
@@ -124,9 +126,10 @@ async def get_entity_timeline(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Create a complete timeline of all appearances of an entity throughout the video.
-    Returns chronologically ordered moments with rich context.
-    Useful for tracking how a person, object, or topic appears over time.
+    Build a complete chronological timeline of all appearances of an entity
+    throughout the video. Returns ordered moments with rich detail for each
+    appearance. Useful for tracking how a person, object, or concept evolves over time.
+    For a quick list of where an entity appears, use find_entity instead.
     """
     if not media_id:
         return tool_error("no_context", "No video context available.")
@@ -232,7 +235,8 @@ async def compare_moments(
     """
     Compare multiple moments in the video side by side.
     Useful for understanding progression, changes, or differences between scenes.
-    Returns detailed context for each moment to enable comparison.
+    Returns frame descriptions and surrounding detail for each timestamp to enable comparison.
+    Provide 2-5 timestamps in seconds.
     """
     if not media_id:
         return tool_error("no_context", "No video context available.")

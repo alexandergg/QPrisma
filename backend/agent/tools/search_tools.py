@@ -33,8 +33,10 @@ async def search_video(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Search for specific moments, topics, objects, or spoken words in the video.
-    Returns timestamped results with descriptions.
+    Primary search tool. Uses hybrid retrieval (semantic, lexical, graph, and reranking)
+    to find specific moments, objects, or discussions in the video.
+    Returns ranked results with timestamps, descriptions, and relevance scores.
+    Filter by content_type or time range to narrow results.
     When several videos are selected, use target_video_id to search a specific video.
     """
     effective_id = target_video_id or media_id
@@ -158,8 +160,10 @@ async def find_entity(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Find all occurrences of a specific person, object, or concept in the video.
-    Returns timestamps where the entity appears or is mentioned.
+    Quick entity lookup — find where a specific person, object, or concept appears.
+    Returns timestamps and brief descriptions for each occurrence.
+    For a full chronological timeline with rich detail at each
+    appearance, use get_entity_timeline instead.
     """
     if not media_id:
         return tool_error("no_context", "No video context available.")
@@ -337,7 +341,9 @@ async def describe_scene(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get a detailed visual description of what's happening at a specific timestamp.
+    Point-in-time visual lookup — shows what is happening at a specific timestamp
+    by returning the nearest frame's detailed description. Reports the actual
+    frame timestamp and gap if it differs from the requested time.
     When several videos are selected, use target_video_id to describe a scene from a specific video.
     """
     effective_id = target_video_id or media_id

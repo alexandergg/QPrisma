@@ -185,8 +185,10 @@ async def list_chapters(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get the chapter structure and timeline overview of the video.
-    Returns scenes grouped into chapters with titles, summaries, and timestamps.
+    Get the chronological chapter structure and timeline of the video.
+    Returns scenes grouped into chapters with titles, time ranges, and summaries.
+    Use for timeline requests, table-of-contents, or chapter-by-chapter breakdown.
+    For a single synopsis, use get_summary. For thematic clusters, use get_community_overview.
     When several videos are selected, use target_video_id to get chapters for a specific video.
     """
     effective_id = target_video_id or media_id
@@ -268,7 +270,8 @@ async def get_video_info(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get basic information about a video (title, duration, etc.).
+    Get basic info about a video: title, duration, resolution, fps, and processing status.
+    Database-backed — works even when the knowledge graph is unavailable.
     When several videos are selected, use target_video_id to get info for a specific video.
     """
     effective_id = target_video_id or media_id
@@ -304,7 +307,7 @@ async def get_video_info(
 
 @tool
 async def get_summary(
-    level: Annotated[str, "Summary level: 'brief', 'detailed', or 'comprehensive'"] = "brief",
+    level: Annotated[str, "Hint for response style: 'brief', 'detailed', or 'comprehensive'"] = "brief",
     target_video_id: Annotated[
         str | None,
         "When several videos are selected, specify which video to summarize. "
@@ -313,7 +316,10 @@ async def get_summary(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get a summary of the video content at different levels of detail.
+    Get a single synopsis summary of the video with title, topics, and duration.
+    The level parameter hints at desired response verbosity but the underlying data
+    is the same. For chronological chapter breakdown, use list_chapters instead.
+    For thematic topic clusters, use get_community_overview.
     When several videos are selected, use target_video_id to summarize a specific video.
     """
     effective_id = target_video_id or media_id
@@ -373,9 +379,10 @@ async def get_scene_context(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get comprehensive context around a specific moment in the video.
-    Returns frames, audio, and scene information within the time window.
+    Get comprehensive context around a specific moment in the video using a time window.
+    Returns frames and audio organized as before/during/after phases around the timestamp.
     Use this for understanding what happened before, during, and after a moment.
+    For a single frame description at one point, use describe_scene instead.
     Uses temporal chain traversal when available for seamless cross-scene context.
     When several videos are selected, use target_video_id to examine a specific video.
     """
@@ -505,8 +512,10 @@ async def get_community_overview(
     Get thematic community summaries for a video.
     Communities are pre-computed clusters of related entities and content that
     reveal major themes, recurring patterns, and content groupings.
+    Returns clusters with titles, summaries, theme lists, and member counts.
     Use this for overview questions, thematic analysis, or to understand
     the main topics covered before drilling into specifics.
+    For a single synopsis, use get_summary. For chronological structure, use list_chapters.
     Optionally filter by topic to find relevant thematic groups.
     """
     if not media_id:
