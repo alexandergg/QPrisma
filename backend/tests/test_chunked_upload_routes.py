@@ -12,8 +12,13 @@ class TestInitChunkedUpload:
         mock_db_service,
     ):
         with (
-            patch("api.routes.chunked_upload_routes.get_blob_service", return_value=mock_blob_service),
-            patch("api.routes.chunked_upload_routes.get_database_service", return_value=mock_db_service),
+            patch(
+                "api.routes.chunked_upload_routes.get_blob_service", return_value=mock_blob_service
+            ),
+            patch(
+                "api.routes.chunked_upload_routes.get_database_service",
+                return_value=mock_db_service,
+            ),
             patch(
                 "api.routes.chunked_upload_routes.build_blob_sas_url_async",
                 new=AsyncMock(

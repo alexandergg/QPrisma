@@ -9,6 +9,7 @@ High-performance upload endpoints for large files (1GB+) using:
 
 import logging
 import uuid
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 
 from azure.storage.blob import (
@@ -429,14 +430,12 @@ async def cancel_upload(
 
     # Try to delete the blob (uncommitted blocks are auto-deleted after 7 days)
     container_name = get_storage_container_name()
-    try:
+    with suppress(Exception):
         blob_client = blob_service.get_blob_client(
             container=container_name,
             blob=media.blob_name,
         )
-        blob_client.delete_blob()
-    except Exception:
-        pass  # Blob may not exist yet
+        blob_client.delete_blob()  # Blob may not exist yet
 
     # Delete media record
     db.delete_media(media_id)

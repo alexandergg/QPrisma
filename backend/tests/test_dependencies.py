@@ -420,10 +420,7 @@ class TestBuildBlobSasUrl:
             )
         after = datetime.now(UTC)
 
-        assert (
-            result
-            == "https://mediaaccount.blob.core.windows.net/media/test.mp4?fallback-sas"
-        )
+        assert result == "https://mediaaccount.blob.core.windows.net/media/test.mp4?fallback-sas"
         kwargs = mock_generate.call_args.kwargs
         assert kwargs["account_name"] == "mediaaccount"
         assert kwargs["account_key"] == "secret-key"

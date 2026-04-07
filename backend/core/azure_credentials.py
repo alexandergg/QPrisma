@@ -69,9 +69,7 @@ def uses_managed_identity_storage(
     storage_connection_string: str | None,
 ) -> bool:
     """Return True when Blob auth should use managed identity."""
-    return bool(
-        use_managed_identity and storage_account_url and not storage_connection_string
-    )
+    return bool(use_managed_identity and storage_account_url and not storage_connection_string)
 
 
 def create_blob_service_client(

@@ -160,8 +160,7 @@ class TestGetMedia:
 
         assert resp.status_code == 200
         assert (
-            resp.json()["blob_url"]
-            == "https://storage.blob.core.windows.net/media/test.mp4?sig=1"
+            resp.json()["blob_url"] == "https://storage.blob.core.windows.net/media/test.mp4?sig=1"
         )
 
 

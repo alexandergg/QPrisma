@@ -231,9 +231,9 @@ class TestAppSettings:
         assert s.api_base_url == "https://api.example.com"
 
     def test_log_file_from_env(self):
-        with patch.dict(os.environ, {"LOG_FILE": "/tmp/app.log"}):
+        with patch.dict(os.environ, {"LOG_FILE": "logs/app.log"}):
             s = AppSettings()
-        assert s.log_file == "/tmp/app.log"
+        assert s.log_file == "logs/app.log"
 
     def test_disable_startup_healthchecks_default(self):
         with patch.dict(os.environ, {}, clear=True):
