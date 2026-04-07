@@ -88,6 +88,7 @@ var appInsightsName = 'appi-qprisma-${environment}'
 var apiContainerAppName = 'ca-qprisma-api-${environment}'
 var frontendContainerAppName = 'ca-qprisma-web-${environment}'
 var workerContainerAppName = 'ca-qprisma-worker-${environment}'
+var runtimeIdentityName = 'id-qprisma-runtime-${environment}'
 
 // Compute defaultcontainer images from ACR (used when image params are empty)
 var acrLoginServer = '${containerRegistryName}.azurecr.io'
@@ -167,10 +168,16 @@ module appInsights 'modules/app-insights.bicep' = {
 }
 
 // =====================================================================
-// Shared secrets & env vars for API and Worker
+// Shared runtime identity, secrets & env vars for API and Worker
 // =====================================================================
 
-// Existing resource references for secret retrieval (avoids exposing secrets as module outputs)
+resource runtimeIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: runtimeIdentityName
+  location: location
+  tags: tags
+}
+
+// Existing resource references for secret retrieval and RBAC scopes
 resource existingAcr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' existing = {
   name: containerRegistryName
 }
@@ -198,22 +205,95 @@ resource existingRedisDb 'Microsoft.Cache/redisEnterprise/databases@2025-04-01' 
 }
 
 // Resolve secrets via existing resource methods (never exposed as Bicep outputs)
-var acrAdminPassword = existingAcr.listCredentials().passwords[0].value
-var aiApiKey = existingAiFoundry.listKeys().key1
-var storageAccountKey = existingStorage.listKeys().keys[0].value
-var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storageAccountName};AccountKey=${storageAccountKey};EndpointSuffix=${az.environment().suffixes.storage}'
 var pgConnectionString = 'postgresql://${dbAdminLogin}:${dbAdminPassword}@${postgres.outputs.fqdn}:5432/qprisma?sslmode=require'
 var redisAccessKey = existingRedisDb.listKeys().primaryKey
 var redisConnectionString = 'rediss://:${redisAccessKey}@${redis.outputs.hostName}'
 
-// Secrets stored in Container Apps (actual values)
+// =====================================================================
+// Key Vault (grants runtime identity access before Container Apps depend on it)
+// =====================================================================
+
+module keyVault 'modules/key-vault.bicep' = {
+  name: 'keyvault-deployment'
+  params: {
+    name: keyVaultName
+    location: location
+    principalIds: [
+      runtimeIdentity.properties.principalId
+    ]
+    tags: tags
+  }
+}
+
+resource keyVaultResource 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: keyVaultName
+}
+
+resource neo4jPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVaultResource
+  name: 'neo4j-password'
+  properties: {
+    value: neo4jPassword
+  }
+  dependsOn: [
+    keyVault
+  ]
+}
+
+resource jwtSecretKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVaultResource
+  name: 'jwt-secret-key'
+  properties: {
+    value: jwtSecretKey
+  }
+  dependsOn: [
+    keyVault
+  ]
+}
+
+resource databaseUrlSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVaultResource
+  name: 'database-url'
+  properties: {
+    value: pgConnectionString
+  }
+  dependsOn: [
+    keyVault
+  ]
+}
+
+resource redisUrlSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVaultResource
+  name: 'redis-url'
+  properties: {
+    value: redisConnectionString
+  }
+  dependsOn: [
+    keyVault
+  ]
+}
+
 var appSecrets = [
-  { name: 'neo4j-password', value: neo4jPassword }
-  { name: 'openai-api-key', value: aiApiKey }
-  { name: 'storage-connection-string', value: storageConnectionString }
-  { name: 'jwt-secret-key', value: jwtSecretKey }
-  { name: 'database-url', value: pgConnectionString }
-  { name: 'redis-url', value: redisConnectionString }
+  {
+    name: 'neo4j-password'
+    keyVaultUrl: '${keyVault.outputs.uri}secrets/neo4j-password'
+    identity: runtimeIdentity.id
+  }
+  {
+    name: 'jwt-secret-key'
+    keyVaultUrl: '${keyVault.outputs.uri}secrets/jwt-secret-key'
+    identity: runtimeIdentity.id
+  }
+  {
+    name: 'database-url'
+    keyVaultUrl: '${keyVault.outputs.uri}secrets/database-url'
+    identity: runtimeIdentity.id
+  }
+  {
+    name: 'redis-url'
+    keyVaultUrl: '${keyVault.outputs.uri}secrets/redis-url'
+    identity: runtimeIdentity.id
+  }
 ]
 
 // Construct frontend FQDN from naming convention + environment domain (avoids circular dependency)
@@ -229,6 +309,8 @@ var appEnvVars = [
   { name: 'NEO4J_USER', value: effectiveNeo4jUser }
   { name: 'NEO4J_DATABASE', value: effectiveNeo4jDatabase }
   { name: 'AZURE_OPENAI_ENDPOINT', value: existingAiFoundry.properties.endpoint }
+  { name: 'AZURE_USE_MANAGED_IDENTITY', value: 'true' }
+  { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storage.outputs.blobEndpoint }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_CHAT', value: 'gpt-5.2-chat' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
@@ -256,8 +338,6 @@ var appSecretEnvVars = [
   { name: 'DATABASE_URL', secretRef: 'database-url' }
   { name: 'REDIS_URL', secretRef: 'redis-url' }
   { name: 'NEO4J_PASSWORD', secretRef: 'neo4j-password' }
-  { name: 'AZURE_OPENAI_API_KEY', secretRef: 'openai-api-key' }
-  { name: 'AZURE_STORAGE_CONNECTION_STRING', secretRef: 'storage-connection-string' }
   { name: 'JWT_SECRET_KEY', secretRef: 'jwt-secret-key' }
 ]
 
@@ -267,15 +347,14 @@ var appSecretEnvVars = [
 
 module apiContainerApp 'modules/container-app-api.bicep' = {
   name: 'api-deployment'
-  dependsOn: [storage, postgres, redis, containerRegistry]
+  dependsOn: [neo4jPasswordSecret, jwtSecretKeySecret, databaseUrlSecret, redisUrlSecret, runtimeAcrPullRole]
   params: {
     name: apiContainerAppName
     location: location
     environmentId: containerAppsEnv.outputs.id
     imageName: effectiveApiImage
     registryServer: containerRegistry.outputs.loginServer
-    registryUsername: containerRegistry.outputs.name
-    registryPassword: acrAdminPassword
+    runtimeIdentityResourceId: runtimeIdentity.id
     enableProbes: !apiIsPlaceholder
     envVars: appEnvVars
     secrets: appSecrets
@@ -286,15 +365,14 @@ module apiContainerApp 'modules/container-app-api.bicep' = {
 
 module frontendContainerApp 'modules/container-app-frontend.bicep' = {
   name: 'frontend-deployment'
-  dependsOn: [containerRegistry]
+  dependsOn: [runtimeAcrPullRole]
   params: {
     name: frontendContainerAppName
     location: location
     environmentId: containerAppsEnv.outputs.id
     imageName: effectiveFrontendImage
     registryServer: containerRegistry.outputs.loginServer
-    registryUsername: containerRegistry.outputs.name
-    registryPassword: acrAdminPassword
+    runtimeIdentityResourceId: runtimeIdentity.id
     envVars: [
       { name: 'NEXT_PUBLIC_API_URL', value: 'https://${apiContainerApp.outputs.fqdn}' }
     ]
@@ -304,36 +382,18 @@ module frontendContainerApp 'modules/container-app-frontend.bicep' = {
 
 module workerContainerApp 'modules/container-app-worker.bicep' = {
   name: 'worker-deployment'
-  dependsOn: [storage, postgres, redis, containerRegistry]
+  dependsOn: [neo4jPasswordSecret, jwtSecretKeySecret, databaseUrlSecret, redisUrlSecret, runtimeAcrPullRole]
   params: {
     name: workerContainerAppName
     location: location
     environmentId: containerAppsEnv.outputs.id
     imageName: effectiveWorkerImage
     registryServer: containerRegistry.outputs.loginServer
-    registryUsername: containerRegistry.outputs.name
-    registryPassword: acrAdminPassword
+    runtimeIdentityResourceId: runtimeIdentity.id
     redisHost: redis.outputs.hostName
     envVars: appEnvVars
     secrets: appSecrets
     secretEnvVars: appSecretEnvVars
-    tags: tags
-  }
-}
-
-// =====================================================================
-// Key Vault (grants managed identity access to Container Apps)
-// =====================================================================
-
-module keyVault 'modules/key-vault.bicep' = {
-  name: 'keyvault-deployment'
-  params: {
-    name: keyVaultName
-    location: location
-    principalIds: [
-      apiContainerApp.outputs.principalId
-      workerContainerApp.outputs.principalId
-    ]
     tags: tags
   }
 }
@@ -345,8 +405,41 @@ module keyVault 'modules/key-vault.bicep' = {
 // Both are needed so the backend can fully operate Foundry agents.
 // =====================================================================
 
+var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
+var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 var azureAiDeveloperRoleId = '64702f94-c441-49e6-a78b-ef80e0188fee'
 var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
+var cognitiveServicesOpenAiUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+
+resource runtimeAcrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingAcr.id, runtimeIdentityName, acrPullRoleId)
+  scope: existingAcr
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
+    principalId: runtimeIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource apiStorageBlobContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingStorage.id, apiContainerAppName, storageBlobDataContributorRoleId)
+  scope: existingStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
+    principalId: apiContainerApp.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource workerStorageBlobContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingStorage.id, workerContainerAppName, storageBlobDataContributorRoleId)
+  scope: existingStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
+    principalId: workerContainerApp.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
 
 resource apiAiDeveloperRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(existingAiFoundry.id, 'ca-qprisma-api', azureAiDeveloperRoleId)
@@ -364,6 +457,26 @@ resource apiCognitiveServicesUserRole 'Microsoft.Authorization/roleAssignments@2
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRoleId)
     principalId: apiContainerApp.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource apiOpenAiUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingAiFoundry.id, apiContainerAppName, cognitiveServicesOpenAiUserRoleId)
+  scope: existingAiFoundry
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAiUserRoleId)
+    principalId: apiContainerApp.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource workerOpenAiUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingAiFoundry.id, workerContainerAppName, cognitiveServicesOpenAiUserRoleId)
+  scope: existingAiFoundry
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAiUserRoleId)
+    principalId: workerContainerApp.outputs.principalId
     principalType: 'ServicePrincipal'
   }
 }

@@ -235,6 +235,8 @@ class TestSingletonGetters:
         deps._blob_service = None
         with patch("api.dependencies.settings") as mock_settings:
             mock_settings.azure.storage_connection_string = None
+            mock_settings.azure.storage_account_url = None
+            mock_settings.azure.use_managed_identity = False
             result = get_blob_service()
         assert result is None
 
@@ -245,8 +247,53 @@ class TestSingletonGetters:
         with patch("api.dependencies.settings") as mock_settings:
             mock_settings.azure.openai_endpoint = None
             mock_settings.azure.openai_api_key = None
+            mock_settings.azure.use_managed_identity = False
+            mock_settings.azure.openai_api_version = "2024-08-01-preview"
             result = get_openai_client()
         assert result is None
+
+    def test_blob_service_uses_managed_identity_account_url(self):
+        import api.dependencies as deps
+
+        deps._blob_service = None
+        mock_blob_service = MagicMock()
+
+        with (
+            patch("api.dependencies.settings") as mock_settings,
+            patch("api.dependencies.create_blob_service_client", return_value=mock_blob_service),
+        ):
+            mock_settings.azure.storage_connection_string = None
+            mock_settings.azure.storage_account_url = "https://storage.blob.core.windows.net"
+            mock_settings.azure.use_managed_identity = True
+            result = get_blob_service()
+
+        assert result is mock_blob_service
+
+    def test_openai_client_uses_managed_identity(self):
+        import api.dependencies as deps
+
+        deps._openai_client = None
+        mock_client = MagicMock()
+
+        with (
+            patch("api.dependencies.settings") as mock_settings,
+            patch("api.dependencies.AzureOpenAI", return_value=mock_client) as mock_ctor,
+            patch("api.dependencies.build_openai_client_kwargs") as mock_kwargs_builder,
+        ):
+            mock_settings.azure.openai_endpoint = "https://foo.openai.azure.com"
+            mock_settings.azure.openai_api_key = None
+            mock_settings.azure.use_managed_identity = True
+            mock_settings.azure.openai_api_version = "2024-08-01-preview"
+            mock_kwargs_builder.return_value = {
+                "azure_endpoint": "https://foo.openai.azure.com",
+                "api_version": "2024-08-01-preview",
+                "azure_ad_token_provider": object(),
+            }
+
+            result = get_openai_client()
+
+        assert result is mock_client
+        mock_ctor.assert_called_once()
 
     def test_storage_container_name(self):
         name = get_storage_container_name()

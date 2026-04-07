@@ -12,7 +12,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from functools import partial
 
-from azure.storage.blob import BlobSasPermissions, generate_blob_sas
+from azure.storage.blob import BlobSasPermissions
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -26,11 +26,11 @@ from fastapi import (
 )
 
 from api.dependencies import (
+    build_blob_sas_url,
     get_blob_service,
     get_current_user,
     get_knowledge_graph_service,
     get_media_or_404,
-    get_storage_account_info,
     get_storage_container_name,
     get_video_processor,
 )
@@ -51,22 +51,11 @@ logger = logging.getLogger(__name__)
 
 def generate_sas_url(blob_name: str, expiry_hours: int = 1) -> str | None:
     """Generate a SAS URL for reading a blob."""
-    account_info = get_storage_account_info()
-    if not account_info:
-        return None
-
-    account_name, account_key, container_name = account_info
-
-    sas_token = generate_blob_sas(
-        account_name=account_name,
-        container_name=container_name,
-        blob_name=blob_name,
-        account_key=account_key,
+    return build_blob_sas_url(
+        blob_name,
         permission=BlobSasPermissions(read=True),
         expiry=datetime.now(UTC) + timedelta(hours=expiry_hours),
     )
-
-    return f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas_token}"
 
 
 async def hydrate_data_from_blob(item: dict) -> dict:

@@ -15,15 +15,14 @@ from azure.storage.blob import (
     BlobBlock,
     BlobSasPermissions,
     BlobType,
-    generate_blob_sas,
 )
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.dependencies import (
+    build_blob_sas_url,
     get_blob_service,
     get_current_user,
-    get_storage_account_info,
     get_storage_container_name,
 )
 from models.user import User
@@ -188,25 +187,14 @@ async def init_chunked_upload(
         )
 
     # Generate SAS URL for upload
-    account_info = get_storage_account_info()
-    if not account_info:
-        raise HTTPException(status_code=503, detail="Cannot generate SAS token")
-
-    account_name, account_key, container_name = account_info
-
     sas_expiry = datetime.now(UTC) + timedelta(hours=4)
-    sas_token = generate_blob_sas(
-        account_name=account_name,
-        container_name=container_name,
-        blob_name=blob_name,
-        account_key=account_key,
+    upload_url = build_blob_sas_url(
+        blob_name,
         permission=BlobSasPermissions(write=True, create=True, read=True),
         expiry=sas_expiry,
     )
-
-    upload_url = (
-        f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas_token}"
-    )
+    if not upload_url:
+        raise HTTPException(status_code=503, detail="Cannot generate SAS token")
 
     # Store upload session in database (for resumability)
     db = get_database_service()

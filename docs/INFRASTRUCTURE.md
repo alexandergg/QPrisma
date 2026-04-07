@@ -81,7 +81,7 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 | `ca-qprisma-worker-{env}` | Celery Worker | 1 CPU / 2Gi | 1–3 | KEDA Redis scaler (queue >5) | None (internal) |
 
 **Key Design Decisions:**
-- **Managed Identity**: API and Worker apps use system-assigned managed identities for Key Vault access
+- **Managed Identity**: API, Worker, and Frontend use a shared user-assigned identity for ACR pulls and Key Vault-backed secret resolution; API and Worker keep system-assigned identities for runtime Azure SDK auth
 - **KEDA Autoscaling**: Worker scales based on Celery Redis queue depth, with 600s graceful termination
 - **Min Replicas = 1**: API and Frontend always have at least 1 replica to avoid cold start latency
 
@@ -109,8 +109,8 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 | Service | Config |
 |---------|--------|
 | Key Vault | Standard SKU, RBAC authorization, soft delete (7-day retention) |
-| Container Registry | Basic tier, admin user enabled |
-| Managed Identity | API + Worker apps granted "Key Vault Secrets User" role |
+| Container Registry | Basic tier, admin user disabled, ARM-token auth enabled for managed-identity image pulls |
+| Managed Identity | Shared runtime UAMI granted "AcrPull" + "Key Vault Secrets User"; API + Worker system identities granted Storage Blob Data Contributor and Azure OpenAI access |
 
 ---
 
@@ -199,8 +199,7 @@ validate ──▶ deploy
    - 20-minute timeout per attempt
    - 120s wait between retries
 5. **Re-authenticate** (OIDC tokens expire during long deployments)
-6. **Sync secrets to Key Vault**: `az keyvault secret set` for JWT secret key
-7. **Deployment summary**: Outputs markdown table to GitHub Step Summary
+6. **Deployment summary**: Outputs markdown table to GitHub Step Summary
 
 **Secure Parameters Injected:**
 ```
@@ -274,9 +273,9 @@ infra/
 ```
 Phase 1 (Parallel):  Storage, PostgreSQL, Redis, ACR, AI Foundry
 Phase 2:             Container Apps Environment (VNet + Log Analytics)
-Phase 3:             API + Worker Container Apps (need all foundation services)
-Phase 4:             Frontend Container App (needs API FQDN)
-Phase 5:             Key Vault (needs managed identities from API + Worker)
+Phase 3:             User-assigned runtime identity + Key Vault + runtime secrets
+Phase 4:             API + Worker Container Apps (need foundation services + runtime identity + Key Vault refs)
+Phase 5:             Frontend Container App (needs API FQDN + runtime identity for ACR pulls)
 ```
 
 ### Key Parameters (`main.bicep`)
@@ -296,23 +295,22 @@ Phase 5:             Key Vault (needs managed identities from API + Worker)
 
 ### Container App Environment Variables
 
-**Secrets (stored as Container App secrets, referenced by name):**
+**Secrets (stored in Key Vault, referenced by Container Apps):**
 
 | Secret Name | Source | Used By |
 |-------------|--------|---------|
 | `database-url` | PostgreSQL FQDN + credentials | API, Worker |
 | `redis-url` | Redis hostname + access key | API, Worker |
 | `neo4j-password` | Parameter | API, Worker |
-| `openai-api-key` | AI Foundry key | API, Worker |
-| `storage-connection-string` | Storage account key | API, Worker |
 | `jwt-secret-key` | Parameter | API |
-| `registry-password` | ACR admin password | All apps |
 
 **Environment Variables:**
 
 | Variable | Value | Used By |
 |----------|-------|---------|
 | `AZURE_OPENAI_ENDPOINT` | AI Foundry endpoint | API, Worker |
+| `AZURE_USE_MANAGED_IDENTITY` | `true` in Azure runtime | API, Worker |
+| `AZURE_STORAGE_ACCOUNT_URL` | Storage blob endpoint | API, Worker |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o` | API, Worker |
 | `AZURE_OPENAI_DEPLOYMENT_GPT_BATCH` | `gpt-4o-batch` | API, Worker |
 | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | `text-embedding-3-large` | API, Worker |
@@ -360,7 +358,7 @@ GitHub Secrets
     │
     ├──▶ deploy-infra.yml ──▶ Bicep parameters (secureString) ──▶ Container App secrets
     │
-    └──▶ deploy-infra.yml ──▶ az keyvault secret set ──▶ Key Vault
+    └──▶ deploy-infra.yml ──▶ Bicep secret resources ──▶ Key Vault
                                                               │
                                                               ▼
                                                      Managed Identity access

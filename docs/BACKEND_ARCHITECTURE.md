@@ -1888,8 +1888,10 @@ User Query: "What does the speaker say about AI?"
 | Variable | Descripción |
 |----------|-------------|
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint |
-| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key |
-| `AZURE_STORAGE_CONNECTION_STRING` | Azure Blob Storage |
+| `AZURE_USE_MANAGED_IDENTITY` | Usa Azure AD / managed identity para Azure OpenAI y Blob Storage en runtime Azure |
+| `AZURE_STORAGE_ACCOUNT_URL` | URL de la cuenta Blob Storage para autenticación sin connection string |
+| `AZURE_OPENAI_API_KEY` | Azure OpenAI API key (fallback para local/dev) |
+| `AZURE_STORAGE_CONNECTION_STRING` | Azure Blob Storage connection string (fallback para local/dev) |
 | `DATABASE_URL` | PostgreSQL connection URL |
 | `NEO4J_URI` | Neo4j bolt:// URI |
 | `NEO4J_PASSWORD` | Neo4j password |

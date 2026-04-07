@@ -82,24 +82,24 @@ def _initialize_services():
 
     load_dotenv()
 
-    from azure.storage.blob import BlobServiceClient
     from openai import AsyncAzureOpenAI
 
+    from core.azure_credentials import build_openai_client_kwargs, create_blob_service_client
     from core.config import settings
 
     # Azure Blob storage
-    if settings.azure.storage_connection_string:
-        _blob_service = BlobServiceClient.from_connection_string(
-            settings.azure.storage_connection_string
-        )
+    if settings.azure.is_storage_configured:
+        _blob_service = create_blob_service_client()
 
     # Azure OpenAI (async for non-blocking pipeline)
     if settings.azure.is_openai_configured:
-        _openai_client = AsyncAzureOpenAI(
-            azure_endpoint=settings.azure.openai_endpoint,
+        client_kwargs = build_openai_client_kwargs(
+            endpoint=settings.azure.openai_endpoint,
             api_key=settings.azure.openai_api_key,
             api_version=settings.azure.openai_api_version,
         )
+        if client_kwargs is not None:
+            _openai_client = AsyncAzureOpenAI(**client_kwargs)
 
     # Video Processor
     if _blob_service and _openai_client:

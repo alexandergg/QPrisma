@@ -50,6 +50,8 @@ class AzureSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AZURE_", extra="ignore")
 
     # Storage
+    use_managed_identity: bool = Field(default=False)
+    storage_account_url: str | None = Field(default=None)
     storage_connection_string: str | None = Field(default=None)
     storage_container_name: str = Field(default="media")
 
@@ -97,11 +99,14 @@ class AzureSettings(BaseSettings):
 
     @property
     def is_openai_configured(self) -> bool:
-        return bool(self.openai_endpoint and self.openai_api_key)
+        return bool(self.openai_endpoint and (self.openai_api_key or self.use_managed_identity))
 
     @property
     def is_storage_configured(self) -> bool:
-        return bool(self.storage_connection_string)
+        return bool(
+            self.storage_connection_string
+            or (self.use_managed_identity and self.storage_account_url)
+        )
 
     @property
     def is_batch_configured(self) -> bool:
@@ -552,18 +557,27 @@ def create_azure_openai_client() -> "AzureOpenAI":
     """
     from openai import AzureOpenAI
 
+    from core.azure_credentials import build_openai_client_kwargs
+
     azure_settings = get_settings().azure
 
     if not azure_settings.is_openai_configured:
         raise ValueError(
-            "Azure OpenAI not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY."
+            "Azure OpenAI not configured. Set AZURE_OPENAI_ENDPOINT and either "
+            "AZURE_OPENAI_API_KEY or AZURE_USE_MANAGED_IDENTITY=true."
         )
 
-    return AzureOpenAI(
+    client_kwargs = build_openai_client_kwargs(
+        endpoint=azure_settings.openai_endpoint,
         api_key=azure_settings.openai_api_key,
         api_version=azure_settings.openai_api_version,
-        azure_endpoint=azure_settings.openai_endpoint,
     )
+    if client_kwargs is None:
+        raise ValueError(
+            "Azure OpenAI auth not configured. Set AZURE_OPENAI_API_KEY or "
+            "AZURE_USE_MANAGED_IDENTITY=true."
+        )
+    return AzureOpenAI(**client_kwargs)
 
 
 def create_async_azure_openai_client() -> "AsyncAzureOpenAI":
@@ -581,18 +595,27 @@ def create_async_azure_openai_client() -> "AsyncAzureOpenAI":
     """
     from openai import AsyncAzureOpenAI
 
+    from core.azure_credentials import build_openai_client_kwargs
+
     azure_settings = get_settings().azure
 
     if not azure_settings.is_openai_configured:
         raise ValueError(
-            "Azure OpenAI not configured. Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY."
+            "Azure OpenAI not configured. Set AZURE_OPENAI_ENDPOINT and either "
+            "AZURE_OPENAI_API_KEY or AZURE_USE_MANAGED_IDENTITY=true."
         )
 
-    return AsyncAzureOpenAI(
+    client_kwargs = build_openai_client_kwargs(
+        endpoint=azure_settings.openai_endpoint,
         api_key=azure_settings.openai_api_key,
         api_version=azure_settings.openai_api_version,
-        azure_endpoint=azure_settings.openai_endpoint,
     )
+    if client_kwargs is None:
+        raise ValueError(
+            "Azure OpenAI auth not configured. Set AZURE_OPENAI_API_KEY or "
+            "AZURE_USE_MANAGED_IDENTITY=true."
+        )
+    return AsyncAzureOpenAI(**client_kwargs)
 
 
 # Convenience exports

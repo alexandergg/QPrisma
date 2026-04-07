@@ -15,6 +15,7 @@ import httpx
 from openai import APIConnectionError, APIError, AzureOpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from core.azure_credentials import build_openai_client_kwargs
 from core.config import settings
 from models.graph_models import (
     EntityNode,
@@ -245,11 +246,14 @@ class EntityExtractor:
     def client(self) -> AzureOpenAI:
         """Lazy initialization of the Azure OpenAI client."""
         if self._client is None:
-            self._client = AzureOpenAI(
+            client_kwargs = build_openai_client_kwargs(
+                endpoint=self.endpoint,
                 api_key=self.api_key,
                 api_version=self.api_version,
-                azure_endpoint=self.endpoint,
             )
+            if client_kwargs is None:
+                raise ValueError("Azure OpenAI client is not configured")
+            self._client = AzureOpenAI(**client_kwargs)
         return self._client
 
     def _encode_image_to_base64(self, image_path: str) -> str:

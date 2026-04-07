@@ -35,6 +35,7 @@ from agent.utils.observability import (
     extract_request_id_from_config,
     get_logger,
 )
+from core.azure_credentials import build_openai_client_kwargs
 from core.config import settings
 
 logger = get_logger(__name__)
@@ -71,15 +72,6 @@ HYBRID_MEMORY_DETAIL_BUDGET_CHARS = 2200
 # Model Creation (Cached)
 # =============================================================================
 
-
-def _get_azure_ad_token_provider():
-    """Create an AAD token provider for managed identity auth (hosted agent)."""
-    from azure.identity import DefaultAzureCredential, get_bearer_token_provider
-
-    credential = DefaultAzureCredential()
-    return get_bearer_token_provider(credential, "https://cognitiveservices.azure.com/.default")
-
-
 @lru_cache(maxsize=8)
 def create_model(
     model_deployment: str | None = None,
@@ -105,16 +97,17 @@ def create_model(
     kwargs = {
         "azure_deployment": deployment,
         "model": deployment,  # Needed for OpenTelemetry gen_ai instrumentation
-        "api_version": settings.azure.openai_api_version,
-        "azure_endpoint": settings.azure.openai_endpoint,
         "temperature": temperature,
         "streaming": streaming,
     }
-
-    if settings.azure.openai_api_key:
-        kwargs["api_key"] = settings.azure.openai_api_key
-    else:
-        kwargs["azure_ad_token_provider"] = _get_azure_ad_token_provider()
+    client_kwargs = build_openai_client_kwargs(
+        endpoint=settings.azure.openai_endpoint,
+        api_key=settings.azure.openai_api_key,
+        api_version=settings.azure.openai_api_version,
+    )
+    if client_kwargs is None:
+        raise ValueError("Azure OpenAI chat model is not configured")
+    kwargs.update(client_kwargs)
 
     return AzureChatOpenAI(**kwargs)
 
@@ -926,7 +919,7 @@ async def _persist_tool_artifact(
 
     from core.config import settings
 
-    if not settings.azure.storage_connection_string:
+    if not settings.azure.is_storage_configured:
         return None
 
     from services.tool_artifact_service import get_tool_artifact_service

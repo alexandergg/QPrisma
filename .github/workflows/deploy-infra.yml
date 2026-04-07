@@ -144,13 +144,6 @@ jobs:
             echo "No legacy Neo4j Container App found — nothing to clean up."
           fi
 
-      - name: Set Key Vault secrets
-        run: |
-          az keyvault secret set \
-            --vault-name ${{ vars.KEY_VAULT_NAME }} \
-            --name "jwt-secret-key" \
-            --value "${{ secrets.JWT_SECRET_KEY }}"
-
       - name: Deployment summary
         run: |
           echo "## Infrastructure Deployment Complete" >> $GITHUB_STEP_SUMMARY

@@ -36,6 +36,14 @@ class TestAzureSettings:
         s = AzureSettings(openai_endpoint="https://foo.openai.azure.com", openai_api_key="key123")
         assert s.is_openai_configured is True
 
+    def test_is_openai_configured_true_with_managed_identity(self):
+        s = AzureSettings(
+            openai_endpoint="https://foo.openai.azure.com",
+            openai_api_key=None,
+            use_managed_identity=True,
+        )
+        assert s.is_openai_configured is True
+
     def test_is_openai_configured_partial(self):
         s = AzureSettings(openai_endpoint="https://foo.openai.azure.com", openai_api_key=None)
         assert s.is_openai_configured is False
@@ -46,6 +54,14 @@ class TestAzureSettings:
 
     def test_is_storage_configured_true(self):
         s = AzureSettings(storage_connection_string="DefaultEndpointsProtocol=https;...")
+        assert s.is_storage_configured is True
+
+    def test_is_storage_configured_true_with_managed_identity(self):
+        s = AzureSettings(
+            storage_connection_string=None,
+            storage_account_url="https://storage.blob.core.windows.net",
+            use_managed_identity=True,
+        )
         assert s.is_storage_configured is True
 
     def test_is_batch_configured_false(self):

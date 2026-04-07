@@ -268,7 +268,7 @@ Key patterns: OIDC authentication, stale deployment cancellation, AI Foundry pro
 
 ### 6.4. Security Architecture
 
-- **Managed Identity**: API and Worker apps use system-assigned identities for Key Vault access
+- **Managed Identity**: A shared runtime user-assigned identity handles ACR pulls and Key Vault-backed secrets, while API and Worker keep system-assigned identities for runtime Azure SDK access
 - **OIDC Federation**: GitHub Actions authenticate via federated credentials (no stored secrets)
 - **Key Vault**: RBAC-authorized secrets for JWT keys, with "Key Vault Secrets User" role grants
 - **TLS**: All external traffic encrypted; Redis Enterprise requires TLS 1.2+
