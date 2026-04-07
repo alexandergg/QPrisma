@@ -104,6 +104,7 @@ def create_model(
         endpoint=settings.azure.openai_endpoint,
         api_key=settings.azure.openai_api_key,
         api_version=settings.azure.openai_api_version,
+        use_managed_identity=settings.azure.use_managed_identity,
     )
     if client_kwargs is None:
         raise ValueError("Azure OpenAI chat model is not configured")

@@ -74,6 +74,7 @@ class EmbeddingService:
                 endpoint=self.endpoint,
                 api_key=self.api_key,
                 api_version=self.api_version,
+                use_managed_identity=settings.azure.use_managed_identity,
             )
             if client_kwargs is None:
                 raise ValueError("Azure OpenAI client is not configured")

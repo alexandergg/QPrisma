@@ -38,7 +38,11 @@ class ToolArtifactService:
         if blob_service is not None:
             self.blob_service = blob_service
         elif settings.azure.is_storage_configured:
-            self.blob_service = create_blob_service_client()
+            self.blob_service = create_blob_service_client(
+                storage_connection_string=settings.azure.storage_connection_string,
+                storage_account_url=settings.azure.storage_account_url,
+                use_managed_identity=settings.azure.use_managed_identity,
+            )
         else:
             self.blob_service = None
 

@@ -89,7 +89,11 @@ def _initialize_services():
 
     # Azure Blob storage
     if settings.azure.is_storage_configured:
-        _blob_service = create_blob_service_client()
+        _blob_service = create_blob_service_client(
+            storage_connection_string=settings.azure.storage_connection_string,
+            storage_account_url=settings.azure.storage_account_url,
+            use_managed_identity=settings.azure.use_managed_identity,
+        )
 
     # Azure OpenAI (async for non-blocking pipeline)
     if settings.azure.is_openai_configured:
@@ -97,6 +101,7 @@ def _initialize_services():
             endpoint=settings.azure.openai_endpoint,
             api_key=settings.azure.openai_api_key,
             api_version=settings.azure.openai_api_version,
+            use_managed_identity=settings.azure.use_managed_identity,
         )
         if client_kwargs is not None:
             _openai_client = AsyncAzureOpenAI(**client_kwargs)

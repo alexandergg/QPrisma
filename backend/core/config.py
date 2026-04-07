@@ -571,6 +571,7 @@ def create_azure_openai_client() -> "AzureOpenAI":
         endpoint=azure_settings.openai_endpoint,
         api_key=azure_settings.openai_api_key,
         api_version=azure_settings.openai_api_version,
+        use_managed_identity=azure_settings.use_managed_identity,
     )
     if client_kwargs is None:
         raise ValueError(
@@ -609,6 +610,7 @@ def create_async_azure_openai_client() -> "AsyncAzureOpenAI":
         endpoint=azure_settings.openai_endpoint,
         api_key=azure_settings.openai_api_key,
         api_version=azure_settings.openai_api_version,
+        use_managed_identity=azure_settings.use_managed_identity,
     )
     if client_kwargs is None:
         raise ValueError(

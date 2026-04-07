@@ -5,9 +5,9 @@ This module contains shared dependencies, utilities, and service getters
 that are used across multiple route modules.
 """
 
-from datetime import UTC, datetime, timedelta
 import logging
 import re
+from datetime import UTC, datetime, timedelta
 
 from azure.storage.blob import BlobSasPermissions, BlobServiceClient, generate_blob_sas
 from fastapi import Depends, HTTPException
@@ -48,6 +48,9 @@ def get_blob_service() -> BlobServiceClient | None:
     global _blob_service
     if _blob_service is None:
         _blob_service = create_blob_service_client(
+            storage_connection_string=settings.azure.storage_connection_string,
+            storage_account_url=settings.azure.storage_account_url,
+            use_managed_identity=settings.azure.use_managed_identity,
             max_single_put_size=256 * 1024 * 1024,  # 256MB: use blocks above this
             max_block_size=100 * 1024 * 1024,  # 100MB blocks for parallel transfer
             max_concurrency=8,  # parallel threads per blob operation
@@ -63,6 +66,7 @@ def get_openai_client() -> AzureOpenAI | None:
             endpoint=settings.azure.openai_endpoint,
             api_key=settings.azure.openai_api_key,
             api_version=settings.azure.openai_api_version,
+            use_managed_identity=settings.azure.use_managed_identity,
         )
         if client_kwargs is not None:
             _openai_client = AzureOpenAI(**client_kwargs)
@@ -77,6 +81,7 @@ def get_async_openai_client() -> AsyncAzureOpenAI | None:
             endpoint=settings.azure.openai_endpoint,
             api_key=settings.azure.openai_api_key,
             api_version=settings.azure.openai_api_version,
+            use_managed_identity=settings.azure.use_managed_identity,
         )
         if client_kwargs is not None:
             _async_openai_client = AsyncAzureOpenAI(**client_kwargs)
@@ -343,7 +348,11 @@ def build_blob_sas_url(
     blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
     start_time = start or (datetime.now(UTC) - timedelta(minutes=5))
 
-    if uses_managed_identity_storage():
+    if uses_managed_identity_storage(
+        use_managed_identity=settings.azure.use_managed_identity,
+        storage_account_url=settings.azure.storage_account_url,
+        storage_connection_string=settings.azure.storage_connection_string,
+    ):
         user_delegation_key = blob_service.get_user_delegation_key(
             key_start_time=start_time,
             key_expiry_time=expiry,

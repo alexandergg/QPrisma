@@ -102,7 +102,11 @@ class StorageTieringService:
         self.container_name = container_name or settings.azure.storage_container_name
 
         if not self.blob_service:
-            self.blob_service = create_blob_service_client()
+            self.blob_service = create_blob_service_client(
+                storage_connection_string=settings.azure.storage_connection_string,
+                storage_account_url=settings.azure.storage_account_url,
+                use_managed_identity=settings.azure.use_managed_identity,
+            )
 
     def _get_container_client(self):
         """Get the container client."""
