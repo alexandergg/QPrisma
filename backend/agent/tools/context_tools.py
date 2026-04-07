@@ -13,6 +13,7 @@ from langgraph.prebuilt import InjectedState
 
 from agent.utils.formatting import format_timestamp
 from agent.utils.text import SCENE_DESCRIPTION_PREFIXES, clean_generated_text, is_valid_content
+from agent.utils.tool_meta import tool_error, tool_meta, truncate_with_notice
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ async def list_chapters(
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available.", "chapters": []}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -201,17 +202,27 @@ async def list_chapters(
 
         if not kg.is_connected:
             logger.warning("list_chapters: Neo4j unavailable at %s", getattr(kg, "uri", "unknown"))
-            return {"error": "Knowledge graph not available.", "chapters": []}
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_video_info for basic metadata from database.",
+            )
 
         video_node = kg.get_video_node(effective_id)
         if not video_node:
-            return {"message": "Video not found in knowledge graph.", "chapters": []}
+            return {
+                "message": "Video not found in knowledge graph.",
+                "chapters": [],
+                "_meta": tool_meta(is_complete=False, result_count=0),
+            }
 
         scenes = kg.get_video_scenes(effective_id)
         if not scenes:
-            # No scenes — return video-level info as fallback
             summary, topics = kg.get_video_summary(effective_id)
-            result: dict[str, Any] = {"chapters": []}
+            result: dict[str, Any] = {
+                "chapters": [],
+                "_meta": tool_meta(is_complete=True, result_count=0),
+            }
             if topics:
                 result["message"] = "No chapters found, but here are the main topics covered:"
                 result["topics"] = topics
@@ -228,11 +239,11 @@ async def list_chapters(
         video_summary = _generate_video_summary(video_node, all_frames)
         key_topics = _extract_key_topics(video_node)
 
-        # Build response using chapters (or scenes if only 1 chapter)
         entries = chapters if len(chapters) > 1 else scene_list
         response: dict[str, Any] = {
             "total_chapters": len(entries),
             "chapters": [_format_chapter_entry(e, i + 1) for i, e in enumerate(entries)],
+            "_meta": tool_meta(result_count=len(entries)),
         }
 
         if video_summary:
@@ -244,7 +255,7 @@ async def list_chapters(
 
     except Exception as e:
         logger.error("list_chapters failed for %s: %s", effective_id, e)
-        return {"error": f"Failed to get chapters: {str(e)}", "chapters": []}
+        return tool_error("query_error", f"Failed to get chapters: {e}")
 
 
 @tool
@@ -262,7 +273,7 @@ async def get_video_info(
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available."}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.database_service import get_database_service
@@ -271,7 +282,7 @@ async def get_video_info(
         media = db.get_media(effective_id)
 
         if not media:
-            return {"error": "Video not found."}
+            return tool_error("no_data", "Video not found.")
 
         metadata = media.video_metadata or {}
 
@@ -283,10 +294,12 @@ async def get_video_info(
             "resolution": f"{metadata.get('width', 0)}x{metadata.get('height', 0)}",
             "fps": metadata.get("fps", 0),
             "status": media.processing_status,
+            "_meta": tool_meta(source="database"),
         }
 
     except Exception as e:
-        return {"error": f"Failed to get video info: {str(e)}"}
+        logger.error("get_video_info failed for %s: %s", effective_id, e)
+        return tool_error("query_error", f"Failed to get video info: {e}")
 
 
 @tool
@@ -305,7 +318,7 @@ async def get_summary(
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available.", "summary": ""}
+        return tool_error("no_context", "No video context available.", "summary")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -316,7 +329,11 @@ async def get_summary(
 
         if not kg.is_connected:
             logger.warning("get_summary: Neo4j unavailable at %s", kg.uri)
-            return {"error": "Knowledge graph not available.", "summary": ""}
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_video_info for basic metadata from database.",
+            )
 
         record = kg.get_video_summary_data(effective_id)
 
@@ -325,6 +342,7 @@ async def get_summary(
                 "level": level,
                 "summary": "No summary available for this video.",
                 "title": record.get("title") if record else "Unknown",
+                "_meta": tool_meta(source="graph", is_complete=False),
             }
 
         duration = record.get("duration", 0)
@@ -335,11 +353,12 @@ async def get_summary(
             "title": record.get("title", ""),
             "topics": record.get("topics") or [],
             "duration_formatted": format_timestamp(duration) if duration else None,
+            "_meta": tool_meta(),
         }
 
     except Exception as e:
         logger.error("get_summary failed for %s: %s", effective_id, e)
-        return {"error": f"Failed to get summary: {str(e)}", "summary": ""}
+        return tool_error("query_error", f"Failed to get summary: {e}")
 
 
 @tool
@@ -362,7 +381,7 @@ async def get_scene_context(
     """
     effective_id = target_video_id or media_id
     if not effective_id:
-        return {"error": "No video context available.", "context": {}}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -372,7 +391,11 @@ async def get_scene_context(
             kg.connect()
 
         if not kg.is_connected:
-            return {"error": "Knowledge graph not available.", "context": {}}
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_video_info for basic metadata from database.",
+            )
 
         start_time = max(0, timestamp - window_seconds)
         end_time = timestamp + window_seconds
@@ -386,6 +409,16 @@ async def get_scene_context(
         before_frames = [f for f in frames if f["timestamp"] < timestamp - 5]
         during_frames = [f for f in frames if timestamp - 5 <= f["timestamp"] <= timestamp + 5]
         after_frames = [f for f in frames if f["timestamp"] > timestamp + 5]
+
+        truncated_fields: list[str] = []
+
+        def _trunc_desc(desc: str | None, limit: int) -> str | None:
+            if not desc:
+                return None
+            text, was_cut = truncate_with_notice(desc, limit)
+            if was_cut:
+                truncated_fields.append("description")
+            return text
 
         context = {
             "center_timestamp": timestamp,
@@ -414,7 +447,7 @@ async def get_scene_context(
                 "frames": [
                     {
                         "timestamp": format_timestamp(f["timestamp"]),
-                        "description": f["description"][:400] if f["description"] else None,
+                        "description": _trunc_desc(f["description"], 400),
                     }
                     for f in before_frames[-3:]
                 ],
@@ -423,7 +456,7 @@ async def get_scene_context(
                 "frames": [
                     {
                         "timestamp": format_timestamp(f["timestamp"]),
-                        "description": f["description"][:500] if f["description"] else None,
+                        "description": _trunc_desc(f["description"], 500),
                     }
                     for f in during_frames
                 ],
@@ -440,7 +473,7 @@ async def get_scene_context(
                 "frames": [
                     {
                         "timestamp": format_timestamp(f["timestamp"]),
-                        "description": f["description"][:400] if f["description"] else None,
+                        "description": _trunc_desc(f["description"], 400),
                     }
                     for f in after_frames[:3]
                 ],
@@ -452,11 +485,15 @@ async def get_scene_context(
             "context": context,
             "total_frames_in_window": len(frames),
             "total_audio_segments": len(audio_segments),
+            "_meta": tool_meta(
+                result_count=len(frames) + len(audio_segments),
+                truncated_fields=list(set(truncated_fields)) if truncated_fields else None,
+            ),
         }
 
     except Exception as e:
         logger.error("get_scene_context failed for %s: %s", effective_id, e)
-        return {"error": f"Failed to get scene context: {str(e)}", "context": {}}
+        return tool_error("query_error", f"Failed to get scene context: {e}")
 
 
 @tool
@@ -473,7 +510,7 @@ async def get_community_overview(
     Optionally filter by topic to find relevant thematic groups.
     """
     if not media_id:
-        return {"error": "No video context available.", "communities": []}
+        return tool_error("no_context", "No video context available.")
 
     try:
         from services.knowledge_graph import get_knowledge_graph_service
@@ -483,7 +520,11 @@ async def get_community_overview(
             kg.connect()
 
         if not kg.is_connected:
-            return {"error": "Knowledge graph not available.", "communities": []}
+            return tool_error(
+                "graph_unavailable",
+                "Knowledge graph is not connected.",
+                recovery="Try get_summary for a high-level overview from the video node.",
+            )
 
         communities = kg.get_community_context(media_id, topic=topic)
 
@@ -491,6 +532,7 @@ async def get_community_overview(
             return {
                 "message": "No community summaries available for this video.",
                 "communities": [],
+                "_meta": tool_meta(is_complete=True, result_count=0),
             }
 
         return {
@@ -506,7 +548,9 @@ async def get_community_overview(
                 }
                 for c in communities
             ],
+            "_meta": tool_meta(result_count=len(communities)),
         }
 
     except Exception as e:
-        return {"error": f"Failed to get communities: {str(e)}", "communities": []}
+        logger.error("get_community_overview failed for %s: %s", media_id, e)
+        return tool_error("query_error", f"Failed to get communities: {e}")

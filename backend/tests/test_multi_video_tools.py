@@ -9,13 +9,13 @@ from dataclasses import asdict
 from unittest.mock import patch
 
 import pytest
+
 from agent.tools.multi_video_tools import (
     compare_videos,
     find_common_entities,
     get_library_overview,
     search_across_videos,
 )
-
 from services.cross_video_search_service import CompareVideosResult, CrossVideoSearchResult
 
 # ── search_across_videos ────────────────────────────────────────────────
@@ -52,7 +52,10 @@ class TestSearchAcrossVideosErrors:
             media_ids=None,
             user_id="u1",
         )
-        assert result == asdict(mock_factory.return_value.search_across_videos.return_value)
+        base_expected = asdict(mock_factory.return_value.search_across_videos.return_value)
+        for key in base_expected:
+            assert result[key] == base_expected[key]
+        assert "_meta" in result
 
     @pytest.mark.asyncio
     async def test_error_includes_fallback_suggestion(self):
@@ -71,10 +74,8 @@ class TestSearchAcrossVideosErrors:
             )
 
         assert "error" in result
-        assert "Cross-video search failed" in result["error"]
-        assert result["results"] == []
-        assert "fallback_suggestion" in result
-        assert "search_video" in result["fallback_suggestion"]
+        assert "Cross-video search failed" in result["error"]["message"]
+        assert "search_video" in result["error"]["recovery"]
 
 
 # ── compare_videos ──────────────────────────────────────────────────────
@@ -121,11 +122,9 @@ class TestCompareVideosErrors:
         )
 
         assert "error" in result
-        assert "at least 2 videos" in result["error"]
-        assert "1 video(s)" in result["error"]
-        assert result["comparison"] == []
-        assert "fallback_suggestion" in result
-        assert "library mode" in result["fallback_suggestion"]
+        assert "at least 2 videos" in result["error"]["message"]
+        assert "1 video(s)" in result["error"]["message"]
+        assert "library mode" in result["error"]["recovery"]
 
     @pytest.mark.asyncio
     async def test_no_videos_includes_fallback(self):
@@ -138,8 +137,8 @@ class TestCompareVideosErrors:
             }
         )
 
-        assert "0 video(s)" in result["error"]
-        assert "fallback_suggestion" in result
+        assert "0 video(s)" in result["error"]["message"]
+        assert "recovery" in result["error"]
 
     @pytest.mark.asyncio
     async def test_service_exception_includes_fallback_and_count(self):
@@ -156,11 +155,8 @@ class TestCompareVideosErrors:
                 }
             )
 
-        assert "Video comparison failed" in result["error"]
-        assert result["comparison"] == []
-        assert result["videos_attempted"] == 3
-        assert "fallback_suggestion" in result
-        assert "get_summary" in result["fallback_suggestion"]
+        assert "Video comparison failed" in result["error"]["message"]
+        assert "get_summary" in result["error"]["recovery"]
 
 
 # ── find_common_entities ────────────────────────────────────────────────
@@ -206,11 +202,8 @@ class TestFindCommonEntitiesErrors:
                 }
             )
 
-        assert "Finding common entities failed" in result["error"]
-        assert result["entities"] == []
-        assert result["videos_attempted"] == 2
-        assert "fallback_suggestion" in result
-        assert "search_across_videos" in result["fallback_suggestion"]
+        assert "Finding common entities failed" in result["error"]["message"]
+        assert "search_across_videos" in result["error"]["recovery"]
 
 
 class TestGetLibraryOverview:

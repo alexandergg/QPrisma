@@ -8,14 +8,13 @@ to centralise queries in the service layer.
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from services.graph_node_repository import GraphNodeRepository
-
 
 # ---------------------------------------------------------------------------
 # Helpers

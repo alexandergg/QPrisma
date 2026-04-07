@@ -495,7 +495,8 @@ class TestLangGraphTools:
         )
 
         assert "error" in result
-        assert "No video context" in result["error"]
+        assert result["error"]["type"] == "no_context"
+        assert "No video context" in result["error"]["message"]
 
     @pytest.mark.asyncio
     async def test_list_chapters_uses_graph_direct(self):
@@ -586,7 +587,8 @@ class TestLangGraphTools:
             result = await list_chapters.coroutine(target_video_id="vid-123")
 
         assert "error" in result
-        assert "not available" in result["error"]
+        assert result["error"]["type"] == "graph_unavailable"
+        assert "not connected" in result["error"]["message"]
 
 
 class TestRedisCheckpointer:
