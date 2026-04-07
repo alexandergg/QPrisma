@@ -106,3 +106,20 @@ def test_build_environment_variables_preserves_explicit_openai_overrides():
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-small"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "false"
     assert env_vars["NEO4J_URI"] == "neo4j+s://example.databases.neo4j.io"
+
+
+@pytest.mark.unit
+def test_hosted_manifest_openai_api_version_matches_script_default():
+    deploy_agent = _load_deploy_agent_module()
+    default_api_version = deploy_agent.build_environment_variables(env={})[
+        "AZURE_OPENAI_API_VERSION"
+    ]
+    manifest_path = Path(__file__).resolve().parents[1] / "agent" / "hosted" / "agent.yaml"
+    lines = manifest_path.read_text(encoding="utf-8").splitlines()
+
+    for index, line in enumerate(lines):
+        if line.strip() == "- name: AZURE_OPENAI_API_VERSION":
+            assert lines[index + 1].strip() == f'value: "{default_api_version}"'
+            break
+    else:
+        pytest.fail("AZURE_OPENAI_API_VERSION missing from hosted agent manifest")
