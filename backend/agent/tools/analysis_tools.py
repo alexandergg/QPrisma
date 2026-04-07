@@ -124,39 +124,12 @@ async def get_entity_timeline(
         if not kg.is_connected:
             kg.connect()
 
-        # Find visual appearances via entity-frame links
-        with kg.get_session() as session:
-            result = session.run(
-                """
-                MATCH (e:Entity)<-[:CONTAINS]-(f:Frame)
-                WHERE e.video_id = $media_id
-                  AND toLower(e.name) CONTAINS toLower($entity_name)
-                RETURN e.name as name, e.entity_type as entity_type,
-                       f.timestamp as timestamp, f.description as description
-                ORDER BY f.timestamp
-                """,
-                media_id=media_id,
-                entity_name=entity_name,
-            )
-            visual_records = list(result)
-
-        # Find audio mentions via text search
-        with kg.get_session() as session:
-            result = session.run(
-                """
-                MATCH (a:AudioSegment)
-                WHERE a.video_id = $media_id
-                  AND toLower(a.text) CONTAINS toLower($entity_name)
-                RETURN a.start_time as timestamp, a.text as text
-                ORDER BY a.start_time
-                """,
-                media_id=media_id,
-                entity_name=entity_name,
-            )
-            audio_records = list(result)
+        appearances = kg.find_entity_appearances(media_id, entity_name)
+        visual_records = appearances.get("visual", [])
+        audio_records = appearances.get("audio", [])
 
         timeline = []
-        seen_timestamps = set()
+        seen_timestamps: set[float] = set()
 
         for record in visual_records:
             if (
@@ -202,10 +175,8 @@ async def get_entity_timeline(
                 }
             )
 
-        # Sort by timestamp
         timeline.sort(key=lambda x: x["timestamp"])
 
-        # Calculate statistics
         visual_count = sum(1 for t in timeline if t["appearance_type"] == "visual")
         spoken_count = sum(1 for t in timeline if t["appearance_type"] == "spoken")
 
@@ -215,12 +186,13 @@ async def get_entity_timeline(
             "total_appearances": len(timeline),
             "visual_appearances": visual_count,
             "spoken_mentions": spoken_count,
-            "timeline": timeline[:30],  # Limit for context window
+            "timeline": timeline[:30],
             "first_appearance": timeline[0]["timestamp_formatted"] if timeline else None,
             "last_appearance": timeline[-1]["timestamp_formatted"] if timeline else None,
         }
 
     except Exception as e:
+        logger.error("get_entity_timeline failed for %s: %s", media_id, e)
         return {"error": f"Failed to create entity timeline: {str(e)}", "timeline": []}
 
 
@@ -251,71 +223,47 @@ async def compare_moments(
         if not kg.is_connected:
             kg.connect()
 
-        comparison = []
+        # Batched retrieval: 2 queries total instead of 2 per timestamp
+        moments_data = kg.get_moments_context(media_id, timestamps, window=5.0)
 
-        for ts in sorted(timestamps):
-            moment_data = {
+        comparison = []
+        for moment in moments_data:
+            ts = moment["timestamp"]
+            moment_entry: dict[str, Any] = {
                 "timestamp": ts,
                 "timestamp_formatted": format_timestamp(ts),
             }
 
-            # Get visual content
-            if comparison_aspect in ["visual", "all"]:
-                with kg.get_session() as session:
-                    result = session.run(
-                        """
-                        MATCH (f:Frame)
-                        WHERE f.video_id = $media_id
-                        RETURN f.timestamp as timestamp, f.description as description
-                        ORDER BY abs(f.timestamp - $timestamp)
-                        LIMIT 1
-                        """,
-                        media_id=media_id,
-                        timestamp=ts,
-                    )
-                    frame = result.single()
+            if comparison_aspect in ["visual", "all"] and moment.get("visual"):
+                frame = moment["visual"]
+                moment_entry["visual"] = {
+                    "actual_timestamp": frame.get("timestamp"),
+                    "description": (frame.get("description") or "")[:500],
+                }
 
-                if frame:
-                    moment_data["visual"] = {
-                        "actual_timestamp": frame.get("timestamp"),
-                        "description": frame.get("description", "")[:500],
-                    }
+            if comparison_aspect in ["audio", "all"] and moment.get("audio"):
+                audio_segs = moment["audio"]
+                texts = [seg.get("text", "") for seg in audio_segs]
+                speakers = list(
+                    {seg.get("speaker") for seg in audio_segs if seg.get("speaker")}
+                )
+                moment_entry["audio"] = {
+                    "transcript": " ".join(texts)[:400],
+                    "speakers": speakers,
+                }
 
-            # Get audio content
-            if comparison_aspect in ["audio", "all"]:
-                with kg.get_session() as session:
-                    result = session.run(
-                        """
-                        MATCH (a:AudioSegment)
-                        WHERE a.video_id = $media_id
-                          AND a.start_time >= $start AND a.start_time <= $end
-                        RETURN a.text as text, a.speaker_label as speaker
-                        ORDER BY a.start_time
-                        """,
-                        media_id=media_id,
-                        start=ts - 5,
-                        end=ts + 5,
-                    )
-                    audio_segments = list(result)
-
-                if audio_segments:
-                    texts = [seg.get("text", "") for seg in audio_segments]
-                    speakers = list(
-                        {seg.get("speaker") for seg in audio_segments if seg.get("speaker")}
-                    )
-                    moment_data["audio"] = {
-                        "transcript": " ".join(texts)[:400],
-                        "speakers": speakers,
-                    }
-
-            comparison.append(moment_data)
+            comparison.append(moment_entry)
 
         return {
             "timestamps_compared": len(timestamps),
             "comparison_aspect": comparison_aspect,
             "moments": comparison,
-            "summary": f"Compared {len(timestamps)} moments from {format_timestamp(min(timestamps))} to {format_timestamp(max(timestamps))}",
+            "summary": (
+                f"Compared {len(timestamps)} moments from "
+                f"{format_timestamp(min(timestamps))} to {format_timestamp(max(timestamps))}"
+            ),
         }
 
     except Exception as e:
+        logger.error("compare_moments failed for %s: %s", media_id, e)
         return {"error": f"Failed to compare moments: {str(e)}", "comparison": []}

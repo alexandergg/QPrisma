@@ -36,9 +36,10 @@ async def get_video_structure(media_id: str, current_user: User = Depends(get_cu
     media = db.get_media(media_id)
     if media and media.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    media_dict = media.to_dict() if media else None
 
     try:
+        media_dict = media.to_dict() if media else None
+
         from services.knowledge_graph import get_knowledge_graph_service
         from services.structure_service import StructureService
 
