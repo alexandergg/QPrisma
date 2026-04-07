@@ -37,7 +37,9 @@ def _load_deploy_agent_module():
         pass
 
     azure_projects_models_module.AgentProtocol = types.SimpleNamespace(RESPONSES="responses")
-    azure_projects_models_module.ImageBasedHostedAgentDefinition = DummyImageBasedHostedAgentDefinition
+    azure_projects_models_module.ImageBasedHostedAgentDefinition = (
+        DummyImageBasedHostedAgentDefinition
+    )
     azure_projects_models_module.ProtocolVersionRecord = DummyProtocolVersionRecord
     azure_core_exceptions_module.HttpResponseError = DummyHttpResponseError
 
