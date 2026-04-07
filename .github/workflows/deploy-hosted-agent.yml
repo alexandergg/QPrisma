@@ -279,15 +279,18 @@ jobs:
             --name redis-qprisma-dev --resource-group "$RG" \
             --query "hostName" -o tsv 2>/dev/null || echo "")
           REDIS_PORT="${REDIS_PORT:-10000}"
+          # Azure CLI resolves Redis Enterprise database keys at the cluster scope.
           REDIS_KEY=$(az redisenterprise database list-keys \
-            --cluster-name redis-qprisma-dev --name default --resource-group "$RG" \
+            --cluster-name redis-qprisma-dev --resource-group "$RG" \
             --query "primaryKey" -o tsv 2>/dev/null || echo "")
           if [ -n "$REDIS_HOST" ] && [ -n "$REDIS_KEY" ]; then
             echo "::add-mask::${REDIS_KEY}"
             echo "redis_url=rediss://:${REDIS_KEY}@${REDIS_HOST}:${REDIS_PORT}/0" >> $GITHUB_OUTPUT
             echo "Redis host: ${REDIS_HOST}:${REDIS_PORT}"
+          elif [ -z "$REDIS_HOST" ]; then
+            echo "::warning::Redis Enterprise cluster not found — REDIS_URL will be missing"
           else
-            echo "::warning::Redis Enterprise not found or keys unavailable — REDIS_URL will be missing"
+            echo "::warning::Redis Enterprise access keys unavailable — REDIS_URL will be missing"
           fi
 
           # Azure Storage Account
