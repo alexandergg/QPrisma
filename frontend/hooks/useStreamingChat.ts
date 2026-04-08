@@ -32,6 +32,8 @@ export interface UseStreamingChatOptions {
   setIsLoading: React.Dispatch<React.SetStateAction<boolean>>;
   sessionId: string | undefined;
   setSessionId: React.Dispatch<React.SetStateAction<string | undefined>>;
+  setIsThinking: React.Dispatch<React.SetStateAction<boolean>>;
+  setThinkingStartTime: React.Dispatch<React.SetStateAction<number | null>>;
 
   /** Single video id (single mode). */
   videoId?: string;
@@ -73,6 +75,8 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
     setIsLoading,
     sessionId,
     setSessionId,
+    setIsThinking,
+    setThinkingStartTime,
     videoId,
     videoIds,
     videoName,
@@ -83,6 +87,7 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
   const abortControllerRef = useRef<AbortController | null>(null);
   const tokenBufferRef = useRef('');
   const rafIdRef = useRef<number | undefined>(undefined);
+  const isThinkingRef = useRef(false);
 
   // Clean up rAF on unmount
   useEffect(() => {
@@ -158,6 +163,9 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
       setIsLoading(true);
       setStreamingContent('');
       setActiveTools([]);
+      setIsThinking(false);
+      setThinkingStartTime(null);
+      isThinkingRef.current = false;
 
       try {
         // Build chat history from existing messages
@@ -191,9 +199,19 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
               break;
 
             case 'thinking':
+              if (!isThinkingRef.current) {
+                isThinkingRef.current = true;
+                setIsThinking(true);
+                setThinkingStartTime(Date.now());
+              }
               break;
 
             case 'tool_start': {
+              // Clear thinking state when tools start
+              if (isThinkingRef.current) {
+                isThinkingRef.current = false;
+                setIsThinking(false);
+              }
               const toolName = event.data.tool || 'unknown';
               localTools.push({ name: toolName, status: 'running' });
               setActiveTools((prev) => [
@@ -233,6 +251,11 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
             }
 
             case 'token':
+              // Clear thinking state on first token
+              if (isThinkingRef.current) {
+                isThinkingRef.current = false;
+                setIsThinking(false);
+              }
               if (event.data.token) {
                 streamedResponse += event.data.token;
                 tokenBufferRef.current += event.data.token;
@@ -317,6 +340,9 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
       } finally {
         abortControllerRef.current = null;
         setIsLoading(false);
+        isThinkingRef.current = false;
+        setIsThinking(false);
+        setThinkingStartTime(null);
       }
     },
     [
@@ -327,6 +353,8 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
       setIsLoading,
       sessionId,
       setSessionId,
+      setIsThinking,
+      setThinkingStartTime,
       videoId,
       videoIds,
       videoName,
@@ -346,8 +374,11 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
       setStreamingContent((prev) => prev + tokenBufferRef.current);
       tokenBufferRef.current = '';
     }
+    isThinkingRef.current = false;
+    setIsThinking(false);
+    setThinkingStartTime(null);
     abortControllerRef.current.abort();
-  }, [setStreamingContent]);
+  }, [setStreamingContent, setIsThinking, setThinkingStartTime]);
 
   const handleRetryLast = useCallback(() => {
     if (!lastSubmittedPrompt) return;

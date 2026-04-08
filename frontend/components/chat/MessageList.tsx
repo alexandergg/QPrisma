@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useRef, useEffect } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import { MessageBubble } from './MessageBubble';
 import { LiveReasoningPanel } from './ReasoningPanel';
+import ThinkingIndicator from './ThinkingIndicator';
 import type { ChatMessageData, ChatMessageSource, ToolStatus } from './MessageBubble';
 
 // Re-export types for backward compatibility
@@ -16,9 +18,21 @@ interface MessageListProps {
   streamingContent?: string;
   activeTools?: ToolStatus[];
   onRetryLast?: () => void;
+  isThinking?: boolean;
+  thinkingStartTime?: number | null;
 }
 
-export default function MessageList({ messages, isLoading, onTimestampClick, onSuggestionClick, streamingContent, activeTools = [], onRetryLast }: MessageListProps) {
+export default function MessageList({
+  messages,
+  isLoading,
+  onTimestampClick,
+  onSuggestionClick,
+  streamingContent,
+  activeTools = [],
+  onRetryLast,
+  isThinking = false,
+  thinkingStartTime = null,
+}: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const isStreamingRef = useRef(false);
@@ -41,11 +55,11 @@ export default function MessageList({ messages, isLoading, onTimestampClick, onS
     return () => {
       if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
     };
-  }, [messages, isLoading, streamingContent, activeTools]);
+  }, [messages, isLoading, streamingContent, activeTools, isThinking]);
 
   return (
     <div className="flex-1 overflow-y-auto min-h-0 px-4 py-6">
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="max-w-3xl mx-auto space-y-8">
         {messages.map((message) => (
           <MessageBubble
             key={message.id}
@@ -55,6 +69,13 @@ export default function MessageList({ messages, isLoading, onTimestampClick, onS
             onRetryLast={onRetryLast}
           />
         ))}
+
+        {/* Thinking indicator — shown before tools or tokens arrive */}
+        <AnimatePresence>
+          {isThinking && !streamingContent && activeTools.length === 0 && (
+            <ThinkingIndicator startTime={thinkingStartTime ?? undefined} />
+          )}
+        </AnimatePresence>
 
         {/* Live Reasoning Panel — shows tool progress during streaming */}
         {activeTools.length > 0 && (
@@ -73,8 +94,8 @@ export default function MessageList({ messages, isLoading, onTimestampClick, onS
           />
         )}
 
-        {/* Loading indicator for pending response (only if not streaming and not showing tools) */}
-        {isLoading && !streamingContent && activeTools.length === 0 && (
+        {/* Loading indicator for pending response (only if not streaming/thinking/tools) */}
+        {isLoading && !streamingContent && !isThinking && activeTools.length === 0 && (
           <MessageBubble
             message={{
               id: 'loading',

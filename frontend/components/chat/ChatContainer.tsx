@@ -64,7 +64,7 @@ export default function ChatContainer({
     onSessionIdChange,
   });
 
-  const { messages, inputValue, setInputValue, isLoading, streamingContent, activeTools } = chatState;
+  const { messages, inputValue, setInputValue, isLoading, streamingContent, activeTools, isThinking, thinkingStartTime } = chatState;
 
   const { handleSend, handleCancel, lastSubmittedPrompt } = useStreamingChat({
     ...chatState,
@@ -195,6 +195,8 @@ export default function ChatContainer({
               activeTools={activeTools}
               onSuggestionClick={handleQuickSuggestion}
               onRetryLast={lastSubmittedPrompt ? handleRetryLast : undefined}
+              isThinking={isThinking}
+              thinkingStartTime={thinkingStartTime}
             />
 
             {!hasVideo && (

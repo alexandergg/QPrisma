@@ -69,6 +69,10 @@ export interface UseChatStateReturn {
   setActiveTools: React.Dispatch<React.SetStateAction<ToolStatus[]>>;
   sessionId: string | undefined;
   setSessionId: React.Dispatch<React.SetStateAction<string | undefined>>;
+  isThinking: boolean;
+  setIsThinking: React.Dispatch<React.SetStateAction<boolean>>;
+  thinkingStartTime: number | null;
+  setThinkingStartTime: React.Dispatch<React.SetStateAction<number | null>>;
 }
 
 // =============================================================================
@@ -89,6 +93,8 @@ export function useChatState(options: UseChatStateOptions = {}): UseChatStateRet
   const [streamingContent, setStreamingContent] = useState('');
   const [activeTools, setActiveTools] = useState<ToolStatus[]>([]);
   const [sessionId, setSessionId] = useState<string | undefined>(initialSessionId);
+  const [isThinking, setIsThinking] = useState(false);
+  const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null);
 
   // Notify parent about message changes
   useEffect(() => {
@@ -113,5 +119,9 @@ export function useChatState(options: UseChatStateOptions = {}): UseChatStateRet
     setActiveTools,
     sessionId,
     setSessionId,
+    isThinking,
+    setIsThinking,
+    thinkingStartTime,
+    setThinkingStartTime,
   };
 }

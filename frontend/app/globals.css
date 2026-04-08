@@ -250,3 +250,150 @@ body {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-10px); }
 }
+
+/* ==========================================================================
+   Chat UI — Streaming Cursor
+   ========================================================================== */
+
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.15em;
+  background: var(--violet-8);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  animation: cursor-pulse 1.2s ease-in-out infinite;
+}
+@keyframes cursor-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* ==========================================================================
+   Chat UI — Thinking Shimmer & Sparkle
+   ========================================================================== */
+
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--violet-5) 0%,
+    var(--violet-8) 50%,
+    var(--violet-5) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-sweep 2s ease-in-out infinite;
+}
+@keyframes shimmer-sweep {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.thinking-sparkle {
+  animation: sparkle-pulse 2.4s ease-in-out infinite;
+}
+@keyframes sparkle-pulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+/* ==========================================================================
+   Chat UI — Prose Overrides
+   ========================================================================== */
+
+.chat-prose {
+  /* Base typography */
+  font-feature-settings: "kern" 1, "liga" 1;
+
+  /* Paragraphs */
+  & p { margin-top: 0.5em; margin-bottom: 0.5em; }
+  & p:first-child { margin-top: 0; }
+  & p:last-child { margin-bottom: 0; }
+
+  /* Headings — scaled for in-chat use */
+  & h1 { font-size: 1.3em; font-weight: 700; margin-top: 1em; margin-bottom: 0.5em; color: var(--foreground); }
+  & h2 { font-size: 1.15em; font-weight: 700; margin-top: 0.8em; margin-bottom: 0.4em; color: var(--foreground); }
+  & h3 { font-size: 1.05em; font-weight: 600; margin-top: 0.6em; margin-bottom: 0.3em; color: var(--foreground); }
+  & h4 { font-size: 1em; font-weight: 600; margin-top: 0.5em; margin-bottom: 0.25em; color: var(--foreground); }
+
+  /* Lists */
+  & ul, & ol { margin-top: 0.4em; margin-bottom: 0.4em; padding-left: 1.5em; }
+  & li { margin-top: 0.15em; margin-bottom: 0.15em; }
+  & ul { list-style-type: disc; }
+  & ol { list-style-type: decimal; }
+  & li::marker { color: var(--text-tertiary); }
+
+  /* Strong / emphasis */
+  & strong { font-weight: 650; color: var(--foreground); }
+
+  /* Horizontal rule */
+  & hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
+}
+
+/* ==========================================================================
+   Chat UI — Code Block (syntax highlighting theme — Catppuccin-inspired)
+   ========================================================================== */
+
+.code-block pre {
+  margin: 0;
+  padding: 1rem;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  font-family: var(--font-mono), ui-monospace, "Cascadia Code", "Fira Code", monospace;
+}
+
+.code-block pre code {
+  font-family: inherit;
+  background: none !important;
+  padding: 0 !important;
+}
+
+/* highlight.js syntax colours */
+.hljs { color: #cdd6f4; background: transparent; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in { color: #cba6f7; }        /* purple */
+.hljs-string,
+.hljs-attr { color: #a6e3a1; }            /* green */
+.hljs-number,
+.hljs-literal { color: #fab387; }          /* peach/orange */
+.hljs-comment,
+.hljs-doctag { color: #6c7086; font-style: italic; }  /* gray */
+.hljs-type,
+.hljs-class .hljs-title { color: #f9e2af; }  /* yellow */
+.hljs-function,
+.hljs-title { color: #89b4fa; }              /* blue */
+.hljs-variable,
+.hljs-template-variable { color: #f5c2e7; }  /* pink */
+.hljs-meta { color: #94e2d5; }               /* teal */
+.hljs-regexp { color: #f38ba8; }             /* red */
+.hljs-symbol { color: #f2cdcd; }             /* flamingo */
+.hljs-addition { color: #a6e3a1; background: rgba(166,227,161,0.1); }
+.hljs-deletion { color: #f38ba8; background: rgba(243,139,168,0.1); }
+.hljs-section { color: #89b4fa; font-weight: 700; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+
+/* ==========================================================================
+   Chat UI — Tool Running Shimmer
+   ========================================================================== */
+
+@keyframes tool-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.tool-running-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.tool-running-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 30%, rgba(139,92,246,0.06) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: tool-shimmer 2s ease-in-out infinite;
+  pointer-events: none;
+}

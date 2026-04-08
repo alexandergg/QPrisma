@@ -62,14 +62,13 @@ export const slideInLeft: Variants = {
   exit: { x: '-100%', opacity: 0, transition: { duration: 0.2 } },
 };
 
-// Message bubble entrance
+// Message bubble entrance — gentle fade-in
 export const messageBubble: Variants = {
-  initial: { opacity: 0, y: 16, scale: 0.97 },
+  initial: { opacity: 0, y: 6 },
   animate: {
     opacity: 1,
     y: 0,
-    scale: 1,
-    transition: { type: 'spring', damping: 20, stiffness: 300 },
+    transition: { type: 'spring', damping: 28, stiffness: 260 },
   },
 };
 
