@@ -49,10 +49,8 @@ class RelationOpsMixin:
 
         params = {"source_id": source_id, "target_id": target_id, **props}
 
-        with self._get_session() as session:
-            result = session.run(query, **params)
-            record = result.single()
-            return record is not None
+        record = self._execute_query(query, params, single=True)
+        return record is not None
 
     def create_relations_batch(
         self,
@@ -98,10 +96,8 @@ class RelationOpsMixin:
             """
 
             try:
-                with self._get_session() as session:
-                    result = session.run(query, batch=batch_data)
-                    record = result.single()
-                    total_created += record["created"] if record else 0
+                record = self._execute_query(query, {"batch": batch_data}, single=True)
+                total_created += record["created"] if record else 0
             except Exception as e:
                 logger.error(f"Batch relation creation failed for type {rel_type}: {e}")
 
@@ -122,8 +118,10 @@ class RelationOpsMixin:
         RETURN type(r)
         """
 
-        with self._get_session() as session:
-            session.run(query, source_id=source_id, target_id=target_id, time_gap=time_gap)
+        self._execute_query(
+            query,
+            {"source_id": source_id, "target_id": target_id, "time_gap": time_gap},
+        )
 
     def create_semantic_relations_batch(self, relations: list[dict]) -> int:
         """Create semantic relations between entities extracted by the LLM.
@@ -180,10 +178,8 @@ class RelationOpsMixin:
             """
 
             try:
-                with self._get_session() as session:
-                    result = session.run(query, batch=batch_data)
-                    record = result.single()
-                    total_created += record["created"] if record else 0
+                record = self._execute_query(query, {"batch": batch_data}, single=True)
+                total_created += record["created"] if record else 0
             except Exception as e:
                 logger.error(f"Semantic relation creation failed for type {rel_type}: {e}")
 

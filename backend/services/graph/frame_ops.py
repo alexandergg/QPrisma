@@ -65,25 +65,26 @@ class FrameOpsMixin:
             RETURN f.id as id
             """
 
-        with self._get_session() as session:
-            result = session.run(
-                query,
-                id=frame.id,
-                video_id=frame.video_id,
-                scene_id=frame.scene_id,
-                user_id=frame.user_id,
-                timestamp=frame.timestamp,
-                frame_number=frame.frame_number,
-                description=frame.description,
-                perceptual_hash=frame.perceptual_hash,
-                content_hash=frame.content_hash,
-                blur_score=frame.blur_score,
-                brightness=frame.brightness,
-                is_keyframe=frame.is_keyframe,
-                created_at=frame.created_at.isoformat(),
-            )
-            record = result.single()
-            return record["id"]
+        record = self._execute_query(
+            query,
+            {
+                "id": frame.id,
+                "video_id": frame.video_id,
+                "scene_id": frame.scene_id,
+                "user_id": frame.user_id,
+                "timestamp": frame.timestamp,
+                "frame_number": frame.frame_number,
+                "description": frame.description,
+                "perceptual_hash": frame.perceptual_hash,
+                "content_hash": frame.content_hash,
+                "blur_score": frame.blur_score,
+                "brightness": frame.brightness,
+                "is_keyframe": frame.is_keyframe,
+                "created_at": frame.created_at.isoformat(),
+            },
+            single=True,
+        )
+        return record["id"] if record else frame.id
 
     def create_frames_batch(self, frames: list[FrameNode]) -> int:
         """Create multiple Frame nodes in a single batch for better performance."""
@@ -120,12 +121,10 @@ class FrameOpsMixin:
             for f in frames
         ]
 
-        with self._get_session() as session:
-            result = session.run(query, frames=frames_data)
-            record = result.single()
-            count = record["created"]
-            logger.info(f"Created {count} Frame nodes in batch")
-            return count
+        record = self._execute_query(query, {"frames": frames_data}, single=True)
+        count = record["created"] if record else 0
+        logger.info(f"Created {count} Frame nodes in batch")
+        return count
 
     # =====================================================================
     # Frame Chain Operations
@@ -153,10 +152,6 @@ class FrameOpsMixin:
         RETURN count(*) AS created
         """
 
-        with self._get_session() as session:
-            session.run(delete_query, video_id=video_id)
-            result = session.run(create_query, video_id=video_id)
-            record = result.single()
-            count = record["created"] if record else 0
-            logger.info(f"Created {count} NEXT_FRAME edges for video {video_id}")
-            return count
+        count = self._execute_chain_rebuild(delete_query, create_query, {"video_id": video_id})
+        logger.info(f"Created {count} NEXT_FRAME edges for video {video_id}")
+        return count

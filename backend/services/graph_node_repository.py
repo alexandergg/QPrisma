@@ -53,3 +53,23 @@ class GraphNodeRepository(
     ):
         self._execute_query = execute_query_fn
         self._get_session = get_session_fn
+
+    def _execute_chain_rebuild(
+        self,
+        delete_query: str,
+        create_query: str,
+        params: dict,
+        count_key: str = "created",
+    ) -> int:
+        """Run a delete-then-create chain rebuild within a single session.
+
+        Used by temporal chain operations (NEXT_FRAME, NEXT_SEGMENT,
+        NEXT_SCENE) that need atomic delete + recreate in one session.
+        Centralises the two-statement pattern so that async conversion
+        (Phase 2) only needs to touch this helper.
+        """
+        with self._get_session() as session:
+            session.run(delete_query, **params)
+            result = session.run(create_query, **params)
+            record = result.single()
+            return record[count_key] if record else 0

@@ -43,25 +43,26 @@ class AudioOpsMixin:
         RETURN a.id as id
         """
 
-        with self._get_session() as session:
-            result = session.run(
-                query,
-                id=segment.id,
-                video_id=segment.video_id,
-                user_id=segment.user_id,
-                start_time=segment.start_time,
-                end_time=segment.end_time,
-                text=segment.text,
-                language=segment.language,
-                confidence=segment.confidence,
-                speaker_id=segment.speaker_id,
-                speaker_label=segment.speaker_label,
-                created_at=segment.created_at.isoformat(),
-            )
-            record = result.single()
-            if record:
-                return record["id"]
-            return segment.id
+        record = self._execute_query(
+            query,
+            {
+                "id": segment.id,
+                "video_id": segment.video_id,
+                "user_id": segment.user_id,
+                "start_time": segment.start_time,
+                "end_time": segment.end_time,
+                "text": segment.text,
+                "language": segment.language,
+                "confidence": segment.confidence,
+                "speaker_id": segment.speaker_id,
+                "speaker_label": segment.speaker_label,
+                "created_at": segment.created_at.isoformat(),
+            },
+            single=True,
+        )
+        if record:
+            return record["id"]
+        return segment.id
 
     def create_audio_segments_batch(
         self, segments: list[AudioSegmentNode], batch_size: int = 100
@@ -121,11 +122,9 @@ class AudioOpsMixin:
             ]
 
             try:
-                with self._get_session() as session:
-                    result = session.run(query, segments=segments_data)
-                    record = result.single()
-                    count = record["created"] if record else 0
-                    total_created += count
+                record = self._execute_query(query, {"segments": segments_data}, single=True)
+                count = record["created"] if record else 0
+                total_created += count
             except Exception as e:
                 logger.error(f"Failed to create batch {i // batch_size + 1}: {e}")
                 # Continue with the next batch rather than failing completely
@@ -186,9 +185,9 @@ class AudioOpsMixin:
             LIMIT $limit
             """
 
-        with self._get_session() as session:
-            result = session.run(query, query_text=query_text, video_id=video_id, limit=limit)
-            return [dict(record) for record in result]
+        return self._execute_query(
+            query, {"query_text": query_text, "video_id": video_id, "limit": limit}
+        )
 
     def delete_video_transcripts(self, video_id: str) -> int:
         """Delete all transcript segments for a video."""
@@ -245,10 +244,6 @@ class AudioOpsMixin:
         RETURN count(*) AS created
         """
 
-        with self._get_session() as session:
-            session.run(delete_query, video_id=video_id)
-            result = session.run(create_query, video_id=video_id)
-            record = result.single()
-            count = record["created"] if record else 0
-            logger.info(f"Created {count} NEXT_SEGMENT edges for video {video_id}")
-            return count
+        count = self._execute_chain_rebuild(delete_query, create_query, {"video_id": video_id})
+        logger.info(f"Created {count} NEXT_SEGMENT edges for video {video_id}")
+        return count

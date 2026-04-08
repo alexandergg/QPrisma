@@ -45,25 +45,26 @@ class CommunityOpsMixin:
         CREATE (c)-[:SUMMARIZES]->(v)
         RETURN c.id as id
         """
-        with self._get_session() as session:
-            result = session.run(
-                query,
-                id=community.id,
-                community_id=community.community_id,
-                video_id=community.video_id,
-                user_id=community.user_id,
-                title=community.title,
-                summary=community.summary,
-                themes=community.themes,
-                themes_text=", ".join(community.themes) if community.themes else "",
-                member_entity_ids=community.member_entity_ids,
-                member_count=community.member_count,
-                time_span_start=community.time_span_start,
-                time_span_end=community.time_span_end,
-                level=community.level,
-            )
-            record = result.single()
-            return record["id"] if record else community.id
+        record = self._execute_query(
+            query,
+            {
+                "id": community.id,
+                "community_id": community.community_id,
+                "video_id": community.video_id,
+                "user_id": community.user_id,
+                "title": community.title,
+                "summary": community.summary,
+                "themes": community.themes,
+                "themes_text": ", ".join(community.themes) if community.themes else "",
+                "member_entity_ids": community.member_entity_ids,
+                "member_count": community.member_count,
+                "time_span_start": community.time_span_start,
+                "time_span_end": community.time_span_end,
+                "level": community.level,
+            },
+            single=True,
+        )
+        return record["id"] if record else community.id
 
     def create_communities_batch(self, communities: list[CommunityNode]) -> int:
         """Create multiple Community nodes in a single batch."""
@@ -114,12 +115,10 @@ class CommunityOpsMixin:
         """
 
         try:
-            with self._get_session() as session:
-                result = session.run(query, communities=batch_data)
-                record = result.single()
-                created = record["created"] if record else 0
-                logger.info(f"Batch created {created} Community nodes")
-                return created
+            record = self._execute_query(query, {"communities": batch_data}, single=True)
+            created = record["created"] if record else 0
+            logger.info(f"Batch created {created} Community nodes")
+            return created
         except Exception as e:
             logger.error(f"Batch community creation failed: {e}")
             return 0
@@ -137,10 +136,10 @@ class CommunityOpsMixin:
         RETURN count(*) as linked
         """
 
-        with self._get_session() as session:
-            result = session.run(query, community_id=community_id, entity_ids=entity_ids)
-            record = result.single()
-            return record["linked"] if record else 0
+        record = self._execute_query(
+            query, {"community_id": community_id, "entity_ids": entity_ids}, single=True
+        )
+        return record["linked"] if record else 0
 
     def get_video_communities(self, video_id: str) -> list[dict]:
         """Retrieve all communities for a video, ordered by member count."""
@@ -154,9 +153,7 @@ class CommunityOpsMixin:
         ORDER BY c.member_count DESC
         """
 
-        with self._get_session() as session:
-            result = session.run(query, video_id=video_id)
-            return [record["community"] for record in result]
+        return self._execute_query(query, {"video_id": video_id}, unpack_key="community")
 
     def get_community_members(self, community_id: str) -> list[dict]:
         """Retrieve all entities belonging to a community."""
@@ -170,9 +167,7 @@ class CommunityOpsMixin:
         ORDER BY e.occurrence_count DESC
         """
 
-        with self._get_session() as session:
-            result = session.run(query, community_id=community_id)
-            return [record["entity"] for record in result]
+        return self._execute_query(query, {"community_id": community_id}, unpack_key="entity")
 
     def delete_video_communities(self, video_id: str) -> int:
         """Delete all Community nodes and their relationships for a video."""
@@ -182,9 +177,7 @@ class CommunityOpsMixin:
         RETURN count(c) as deleted
         """
 
-        with self._get_session() as session:
-            result = session.run(query, video_id=video_id)
-            record = result.single()
-            deleted = record["deleted"] if record else 0
-            logger.info(f"Deleted {deleted} community nodes for video {video_id}")
-            return deleted
+        record = self._execute_query(query, {"video_id": video_id}, single=True)
+        deleted = record["deleted"] if record else 0
+        logger.info(f"Deleted {deleted} community nodes for video {video_id}")
+        return deleted

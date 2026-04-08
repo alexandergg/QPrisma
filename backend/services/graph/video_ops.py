@@ -47,31 +47,32 @@ class VideoOpsMixin:
         RETURN v.id as id
         """
 
-        with self._get_session() as session:
-            result = session.run(
-                query,
-                id=video.id,
-                video_id=video.video_id,
-                user_id=video.user_id,
-                title=video.title,
-                description=video.description,
-                duration_seconds=video.duration_seconds,
-                fps=video.fps,
-                resolution=list(video.resolution),
-                file_size_bytes=video.file_size_bytes,
-                format=video.format,
-                total_frames=video.total_frames,
-                extracted_frames=video.extracted_frames,
-                summary=video.summary,
-                topics=video.topics,
-                blob_url=video.blob_url,
-                thumbnail_url=video.thumbnail_url,
-                created_at=video.created_at.isoformat(),
-                updated_at=video.updated_at.isoformat(),
-            )
-            record = result.single()
-            logger.info(f"Created Video node: {video.id}")
-            return record["id"]
+        record = self._execute_query(
+            query,
+            {
+                "id": video.id,
+                "video_id": video.video_id,
+                "user_id": video.user_id,
+                "title": video.title,
+                "description": video.description,
+                "duration_seconds": video.duration_seconds,
+                "fps": video.fps,
+                "resolution": list(video.resolution),
+                "file_size_bytes": video.file_size_bytes,
+                "format": video.format,
+                "total_frames": video.total_frames,
+                "extracted_frames": video.extracted_frames,
+                "summary": video.summary,
+                "topics": video.topics,
+                "blob_url": video.blob_url,
+                "thumbnail_url": video.thumbnail_url,
+                "created_at": video.created_at.isoformat(),
+                "updated_at": video.updated_at.isoformat(),
+            },
+            single=True,
+        )
+        logger.info(f"Created Video node: {video.id}")
+        return record["id"] if record else video.id
 
     def get_video_node(self, video_id: str) -> dict | None:
         """Retrieve a Video node by its video_id."""
@@ -164,24 +165,25 @@ class VideoOpsMixin:
         RETURN s.id as id
         """
 
-        with self._get_session() as session:
-            result = session.run(
-                query,
-                id=scene.id,
-                video_id=scene.video_id,
-                user_id=scene.user_id,
-                start_time=scene.start_time,
-                end_time=scene.end_time,
-                scene_index=scene.scene_index,
-                description=scene.description,
-                dominant_colors=scene.dominant_colors,
-                scene_type=scene.scene_type,
-                transition_type=scene.transition_type,
-                visual_change_score=scene.visual_change_score,
-                created_at=scene.created_at.isoformat(),
-            )
-            record = result.single()
-            return record["id"]
+        record = self._execute_query(
+            query,
+            {
+                "id": scene.id,
+                "video_id": scene.video_id,
+                "user_id": scene.user_id,
+                "start_time": scene.start_time,
+                "end_time": scene.end_time,
+                "scene_index": scene.scene_index,
+                "description": scene.description,
+                "dominant_colors": scene.dominant_colors,
+                "scene_type": scene.scene_type,
+                "transition_type": scene.transition_type,
+                "visual_change_score": scene.visual_change_score,
+                "created_at": scene.created_at.isoformat(),
+            },
+            single=True,
+        )
+        return record["id"] if record else scene.id
 
     def create_chapter_node(self, chapter: ChapterNode) -> str:
         """Create a Chapter node and connect it to its Video and contained Scenes."""
@@ -208,23 +210,24 @@ class VideoOpsMixin:
         RETURN ch.id as id
         """
 
-        with self._get_session() as session:
-            result = session.run(
-                query,
-                id=chapter.id,
-                video_id=chapter.video_id,
-                user_id=chapter.user_id,
-                start_time=chapter.start_time,
-                end_time=chapter.end_time,
-                chapter_index=chapter.chapter_index,
-                title=chapter.title,
-                summary=chapter.summary,
-                topics=chapter.topics,
-                detection_method=chapter.detection_method,
-                created_at=chapter.created_at.isoformat(),
-            )
-            record = result.single()
-            return record["id"]
+        record = self._execute_query(
+            query,
+            {
+                "id": chapter.id,
+                "video_id": chapter.video_id,
+                "user_id": chapter.user_id,
+                "start_time": chapter.start_time,
+                "end_time": chapter.end_time,
+                "chapter_index": chapter.chapter_index,
+                "title": chapter.title,
+                "summary": chapter.summary,
+                "topics": chapter.topics,
+                "detection_method": chapter.detection_method,
+                "created_at": chapter.created_at.isoformat(),
+            },
+            single=True,
+        )
+        return record["id"] if record else chapter.id
 
     def get_video_scenes(self, video_id: str) -> list[dict]:
         """Retrieve all scenes for a video, ordered by start time."""
@@ -281,10 +284,6 @@ class VideoOpsMixin:
         RETURN count(*) AS created
         """
 
-        with self._get_session() as session:
-            session.run(delete_query, video_id=video_id)
-            result = session.run(create_query, video_id=video_id)
-            record = result.single()
-            count = record["created"] if record else 0
-            logger.info(f"Created {count} NEXT_SCENE edges for video {video_id}")
-            return count
+        count = self._execute_chain_rebuild(delete_query, create_query, {"video_id": video_id})
+        logger.info(f"Created {count} NEXT_SCENE edges for video {video_id}")
+        return count

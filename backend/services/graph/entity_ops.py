@@ -60,23 +60,24 @@ class EntityOpsMixin:
         RETURN e.id as id
         """
 
-        with self._get_session() as session:
-            result = session.run(
-                query,
-                id=entity.id,
-                frame_id=frame_id,
-                name=entity.name,
-                normalized_name=entity.normalized_name,
-                entity_type=entity.entity_type.value,
-                user_id=entity.user_id,
-                description=entity.description,
-                attributes=str(entity.attributes),  # Neo4j does not support nested maps directly
-                confidence=entity.confidence,
-                bounding_box=str(entity.bounding_box) if entity.bounding_box else None,
-                created_at=entity.created_at.isoformat(),
-            )
-            record = result.single()
-            return record["id"]
+        record = self._execute_query(
+            query,
+            {
+                "id": entity.id,
+                "frame_id": frame_id,
+                "name": entity.name,
+                "normalized_name": entity.normalized_name,
+                "entity_type": entity.entity_type.value,
+                "user_id": entity.user_id,
+                "description": entity.description,
+                "attributes": str(entity.attributes),
+                "confidence": entity.confidence,
+                "bounding_box": str(entity.bounding_box) if entity.bounding_box else None,
+                "created_at": entity.created_at.isoformat(),
+            },
+            single=True,
+        )
+        return record["id"] if record else entity.id
 
     def create_entities_batch(self, entities: list[tuple[EntityNode, str]]) -> int:
         """
@@ -135,10 +136,8 @@ class EntityOpsMixin:
             for e, frame_id in entities
         ]
 
-        with self._get_session() as session:
-            result = session.run(query, entities=entities_data)
-            record = result.single()
-            return record["created"]
+        record = self._execute_query(query, {"entities": entities_data}, single=True)
+        return record["created"] if record else 0
 
     def get_entity_by_name(
         self,
@@ -192,10 +191,8 @@ class EntityOpsMixin:
         RETURN count(r) as relations_created
         """
 
-        with self._get_session() as session:
-            result = session.run(query, frame_id=frame_id)
-            record = result.single()
-            return record["relations_created"]
+        record = self._execute_query(query, {"frame_id": frame_id}, single=True)
+        return record["relations_created"] if record else 0
 
     def resolve_cross_video_entities(self, video_id: str) -> int:
         """Find and link entities that likely represent the same real-world entity
@@ -240,13 +237,11 @@ class EntityOpsMixin:
         RETURN count(r) as linked
         """
 
-        with self._get_session() as session:
-            result = session.run(query, video_id=video_id)
-            record = result.single()
-            count = record["linked"] if record else 0
-            if count > 0:
-                logger.info(f"Resolved {count} cross-video entity matches for video {video_id}")
-            return count
+        record = self._execute_query(query, {"video_id": video_id}, single=True)
+        count = record["linked"] if record else 0
+        if count > 0:
+            logger.info(f"Resolved {count} cross-video entity matches for video {video_id}")
+        return count
 
     # =====================================================================
     # Topic Node Operations
@@ -296,12 +291,12 @@ class EntityOpsMixin:
         RETURN count(t) as created
         """
 
-        with self._get_session() as session:
-            result = session.run(query, topics=topics_data, video_id=video_id)
-            record = result.single()
-            count = record["created"] if record else 0
-            logger.info(f"Created {count} Topic nodes for video {video_id}")
-            return count
+        record = self._execute_query(
+            query, {"topics": topics_data, "video_id": video_id}, single=True
+        )
+        count = record["created"] if record else 0
+        logger.info(f"Created {count} Topic nodes for video {video_id}")
+        return count
 
     def link_entities_to_topics(self, video_id: str) -> int:
         """Link entities to topics based on matching keywords and names.
@@ -322,9 +317,7 @@ class EntityOpsMixin:
         RETURN count(*) as linked
         """
 
-        with self._get_session() as session:
-            result = session.run(query, video_id=video_id)
-            record = result.single()
-            count = record["linked"] if record else 0
-            logger.info(f"Linked {count} entity-topic pairs for video {video_id}")
-            return count
+        record = self._execute_query(query, {"video_id": video_id}, single=True)
+        count = record["linked"] if record else 0
+        logger.info(f"Linked {count} entity-topic pairs for video {video_id}")
+        return count
