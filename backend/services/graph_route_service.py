@@ -282,6 +282,7 @@ class GraphRouteService:
     def get_video_graph_data(
         self,
         video_id: str,
+        user_id: str | None = None,
         knowledge_graph_service: KnowledgeGraphService | None = None,
     ) -> VideoGraphData:
         """Assemble video node, scenes, and global stats.
@@ -298,7 +299,7 @@ class GraphRouteService:
             return VideoGraphData(error=f"Video '{video_id}' not found")
 
         scenes = service.get_video_scenes(video_id)
-        stats = service.get_stats()
+        stats = service.get_stats(user_id=user_id)
 
         return VideoGraphData(
             video=video,

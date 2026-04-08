@@ -337,85 +337,87 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         query_embedding = await self.embedding_service.generate_embedding(query_text)
         embedding_time = (datetime.now(UTC) - embedding_start).total_seconds() * 1000
 
-        # 2. Search each node type
-        all_candidates: list[ScoredNode] = []
+        # 2-7. Sync search pipeline — run in thread pool to avoid blocking event loop.
+        # All Neo4j calls (vector_search, _fulltext_search, _calculate_graph_scores, etc.)
+        # are sync and would block the event loop if called directly from this async method.
+        def _sync_search_pipeline() -> tuple:
+            _all: list[ScoredNode] = []
+            _v_start = datetime.now(UTC)
+            _ft_acc = 0.0
 
-        vector_start = datetime.now(UTC)
-        fulltext_time_acc = 0.0
-        for node_type in node_types:
-            # Vector search
-            vector_results = self.vector_search(
-                query_embedding=query_embedding,
-                node_type=node_type,
-                limit=limit * 2,
-                video_id=effective_video_id,
-                video_ids=effective_video_ids,
-                user_id=user_id,
-                min_score=0.3,
-            )
-            all_candidates.extend(vector_results)
+            for nt in node_types:
+                _all.extend(
+                    self.vector_search(
+                        query_embedding=query_embedding,
+                        node_type=nt,
+                        limit=limit * 2,
+                        video_id=effective_video_id,
+                        video_ids=effective_video_ids,
+                        user_id=user_id,
+                        min_score=0.3,
+                    )
+                )
 
-            # Full-text search
-            ft_start = datetime.now(UTC)
-            fulltext_results = self._fulltext_search(
-                query_text=query_text,
-                node_type=node_type,
-                limit=limit,
-                video_id=effective_video_id,
-                video_ids=effective_video_ids,
-                user_id=user_id,
-            )
-            fulltext_time_acc += (datetime.now(UTC) - ft_start).total_seconds() * 1000
+                _ft_start = datetime.now(UTC)
+                ft_results = self._fulltext_search(
+                    query_text=query_text,
+                    node_type=nt,
+                    limit=limit,
+                    video_id=effective_video_id,
+                    video_ids=effective_video_ids,
+                    user_id=user_id,
+                )
+                _ft_acc += (datetime.now(UTC) - _ft_start).total_seconds() * 1000
 
-            # Merge full-text scores
-            self._merge_fulltext_scores(
-                all_candidates,
-                fulltext_results,
-                node_type,
-                video_id=effective_video_id,
-                video_ids=effective_video_ids,
-                user_id=user_id,
-            )
+                self._merge_fulltext_scores(
+                    _all,
+                    ft_results,
+                    nt,
+                    video_id=effective_video_id,
+                    video_ids=effective_video_ids,
+                    user_id=user_id,
+                )
 
-        vector_search_time = (
-            datetime.now(UTC) - vector_start
-        ).total_seconds() * 1000 - fulltext_time_acc
+            _v_time = (datetime.now(UTC) - _v_start).total_seconds() * 1000 - _ft_acc
 
-        # 3. Apply temporal filter if specified
-        if time_range:
-            all_candidates = self._filter_by_time_range(all_candidates, time_range)
+            if time_range:
+                _all = self._filter_by_time_range(_all, time_range)
 
-        # 4. Calculate graph scores
-        graph_start = datetime.now(UTC)
-        self._calculate_graph_scores(all_candidates, expansion_hops, user_id=user_id)
-        graph_time = (datetime.now(UTC) - graph_start).total_seconds() * 1000
+            _g_start = datetime.now(UTC)
+            self._calculate_graph_scores(_all, expansion_hops, user_id=user_id)
+            _g_time = (datetime.now(UTC) - _g_start).total_seconds() * 1000
 
-        # 5. Calculate temporal scores
-        temporal_start = datetime.now(UTC)
-        self._calculate_temporal_scores(all_candidates, time_range)
-        temporal_time = (datetime.now(UTC) - temporal_start).total_seconds() * 1000
+            _t_start = datetime.now(UTC)
+            self._calculate_temporal_scores(_all, time_range)
+            _t_time = (datetime.now(UTC) - _t_start).total_seconds() * 1000
 
-        # 6. Calculate combined score (intent-adaptive weights)
-        active_weights = self.get_weights_for_intent(query_intent)
-        for candidate in all_candidates:
-            candidate.combined_score = (
-                active_weights["vector"] * candidate.vector_score
-                + active_weights["fulltext"] * candidate.fulltext_score
-                + active_weights["graph"] * candidate.graph_score
-                + active_weights["temporal"] * candidate.temporal_score
-            )
+            weights = self.get_weights_for_intent(query_intent)
+            for c in _all:
+                c.combined_score = (
+                    weights["vector"] * c.vector_score
+                    + weights["fulltext"] * c.fulltext_score
+                    + weights["graph"] * c.graph_score
+                    + weights["temporal"] * c.temporal_score
+                )
 
-        # 7. Re-ranking with expanded context
-        rerank_start = datetime.now(UTC)
-        if use_reranking and all_candidates:
-            all_candidates = self._rerank_with_context(all_candidates, query_text, query_embedding)
-        reranking_time = (datetime.now(UTC) - rerank_start).total_seconds() * 1000
+            _r_start = datetime.now(UTC)
+            if use_reranking and _all:
+                _all = self._rerank_with_context(_all, query_text, query_embedding)
+            _r_time = (datetime.now(UTC) - _r_start).total_seconds() * 1000
 
-        # 8. Ordenar y limitar
-        all_candidates.sort(key=lambda x: x.combined_score, reverse=True)
-        final_results = all_candidates[:limit]
+            _all.sort(key=lambda x: x.combined_score, reverse=True)
+            return _all[:limit], _v_time, _ft_acc, _g_time, _t_time, _r_time
 
-        # 9. Construir respuesta
+        (
+            final_results,
+            vector_search_time,
+            fulltext_time_acc,
+            graph_time,
+            temporal_time,
+            reranking_time,
+        ) = await asyncio.to_thread(_sync_search_pipeline)
+
+        # 8. Build response
         total_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         search_results = [

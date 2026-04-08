@@ -1051,9 +1051,9 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             )
             try:
                 from models.graph_models import FrameNode, VideoNode
-                from services.knowledge_graph import KnowledgeGraphService
+                from services.knowledge_graph import get_knowledge_graph_service
 
-                graph = KnowledgeGraphService()
+                graph = get_knowledge_graph_service()
                 graph.initialize_schema()
 
                 # Avoid duplicates if reprocessing the same video

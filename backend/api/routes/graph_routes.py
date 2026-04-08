@@ -368,7 +368,8 @@ async def get_video_graph(video_id: str, current_user: User = Depends(get_curren
     try:
         get_media_or_404(video_id, current_user)
         svc: GraphRouteService = get_graph_route_service()
-        data = svc.get_video_graph_data(video_id)
+        scoped_user_id = None if current_user.is_superuser else current_user.id
+        data = svc.get_video_graph_data(video_id, user_id=scoped_user_id)
 
         if data.error:
             raise not_found_error("Video", video_id)
