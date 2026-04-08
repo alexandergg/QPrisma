@@ -662,8 +662,6 @@ Respond with JSON following this schema:
         """
         results = []
 
-        # Sequential processing for now to avoid rate limits
-        # TODO: Implement parallel processing with semaphore
         for frame in frames:
             try:
                 result = self.extract_from_image(

@@ -46,8 +46,6 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from api.routes.websocket_manager import (
     ConnectionManager,
-    MessageType,
-    WebSocketMessage,
     get_websocket_manager,
 )
 from services.entra_auth_service import get_entra_auth_service
@@ -382,37 +380,6 @@ async def _send_current_job_status(websocket: WebSocket, job_id: str):
             )
     except Exception as e:
         logger.warning(f"Could not send current job status: {e}")
-
-
-# =============================================================================
-# REST Endpoints for WebSocket statistics
-# =============================================================================
-
-
-@router.get("/stats")
-async def get_websocket_stats():
-    """Gets WebSocket connection statistics"""
-    manager = get_websocket_manager()
-    return manager.get_stats()
-
-
-@router.post("/broadcast")
-async def broadcast_message(message: str, msg_type: str = "info"):
-    """
-    Sends a message to all connected clients.
-    For administration/debug use only.
-    """
-    manager = get_websocket_manager()
-
-    await manager.broadcast(
-        WebSocketMessage(
-            type=MessageType.JOB_PROGRESS,  # Use generic type
-            payload={"message": message, "type": msg_type},
-        )
-    )
-
-    stats = manager.get_stats()
-    return {"sent_to": stats["total_connections"], "message": message}
 
 
 # =============================================================================

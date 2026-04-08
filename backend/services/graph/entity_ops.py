@@ -163,7 +163,7 @@ class EntityOpsMixin:
     # Entity Co-occurrence & Cross-video Resolution
     # =====================================================================
 
-    def create_entity_cooccurrence(self, frame_id: str):
+    def create_entity_cooccurrence(self, frame_id: str) -> int:
         """
         Create APPEARS_WITH relations between entities that appear in the same frame.
         """

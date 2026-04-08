@@ -30,6 +30,11 @@ from models.graph_models import (
     SceneNode,
     VideoNode,
 )
+from services.graph.types import (
+    ExpandContextNodes,
+    MultimodalSearchResult,
+    SubgraphResult,
+)
 from services.graph_expander import GraphExpander
 from services.graph_node_repository import GraphNodeRepository
 from services.graph_search_queries import sanitize_fulltext_query
@@ -157,7 +162,12 @@ class KnowledgeGraphService:
         unpack_key: str | None = None,
     ) -> list[dict] | dict | None:
         """
-        Execute a Neo4j query with centralized session management.
+        Execute a Neo4j query with centralized session management, error
+        handling, and automatic retry for transient failures.
+
+        Read queries (default) retry up to 3 times with exponential backoff.
+        Callers performing non-idempotent writes should catch exceptions at
+        the call site or use :func:`neo4j_write_retry` explicitly.
 
         Args:
             query: Cypher query string
@@ -167,23 +177,58 @@ class KnowledgeGraphService:
 
         Returns:
             Single dict, list of dicts, or None depending on params
+
+        Raises:
+            neo4j.exceptions: Permanent Neo4j errors propagate immediately.
+            Exception: Transient errors propagate after retry exhaustion.
         """
+        from services.graph.neo4j_resilience import is_transient
+
         params = params or {}
-        with self.get_session() as session:
-            result = session.run(query, **params)
+        try:
+            with self.get_session() as session:
+                result = session.run(query, **params)
 
-            if single:
-                record = result.single()
-                if record is None:
-                    return None
+                if single:
+                    record = result.single()
+                    if record is None:
+                        return None
+                    if unpack_key:
+                        return dict(record[unpack_key])
+                    return dict(record)
+
+                records = list(result)
                 if unpack_key:
-                    return dict(record[unpack_key])
-                return dict(record)
+                    return [dict(r[unpack_key]) for r in records]
+                return [dict(r) for r in records]
+        except Exception as exc:
+            failure_type = "transient" if is_transient(exc) else "permanent"
+            query_preview = query.strip()[:120].replace("\n", " ")
+            logger.error(
+                "Neo4j %s failure in _execute_query: [%s] %s | query: %s",
+                failure_type,
+                type(exc).__name__,
+                exc,
+                query_preview,
+            )
+            raise
 
-            records = list(result)
-            if unpack_key:
-                return [dict(r[unpack_key]) for r in records]
-            return [dict(r) for r in records]
+    def execute_query(
+        self,
+        query: str,
+        params: dict | None = None,
+        single: bool = False,
+        unpack_key: str | None = None,
+    ) -> list[dict] | dict | None:
+        """Public facade for :meth:`_execute_query`.
+
+        External services (e.g. ``HierarchyNodeFactory``,
+        ``HierarchicalContextService``) should use this method instead of
+        accessing ``_driver.session()`` directly.  This guarantees that every
+        Neo4j call flows through centralized error handling, structured
+        logging, and (future) retry logic.
+        """
+        return self._execute_query(query, params, single=single, unpack_key=unpack_key)
 
     # =========================================================================
     # Schema & Indexes
@@ -217,25 +262,6 @@ class KnowledgeGraphService:
                 )
                 session.run(f"DROP INDEX {idx_name}")
 
-    @staticmethod
-    def _migrate_property_renames(session: Session) -> None:
-        """Rename legacy properties on existing nodes for schema consistency."""
-        migrations = [
-            # VideoNode: ai_summary → summary
-            (
-                "MATCH (v:Video) WHERE v.ai_summary IS NOT NULL AND v.summary IS NULL "
-                "SET v.summary = v.ai_summary REMOVE v.ai_summary "
-                "RETURN count(v) AS migrated",
-                "Video.ai_summary → summary",
-            ),
-        ]
-        for query, label in migrations:
-            result = session.run(query)
-            record = result.single()
-            count = record["migrated"] if record else 0
-            if count:
-                logger.info("Property migration '%s': %d node(s) updated", label, count)
-
     def initialize_schema(self) -> None:
         """Create required indexes and constraints in Neo4j."""
         with self.get_session() as session:
@@ -244,12 +270,6 @@ class KnowledgeGraphService:
                 self._migrate_fulltext_indexes(session)
             except Exception as e:
                 logger.warning(f"Fulltext index migration check failed: {e}")
-
-            # Migrate renamed properties on existing nodes
-            try:
-                self._migrate_property_renames(session)
-            except Exception as e:
-                logger.warning(f"Property rename migration failed: {e}")
 
             # Uniqueness constraints
             constraints = [
@@ -353,7 +373,7 @@ class KnowledgeGraphService:
         """Get video summary and topics from the knowledge graph."""
         return self.nodes.get_video_summary(video_id)
 
-    def update_video_summary(self, video_id: str, summary: str, topics: list[str]):
+    def update_video_summary(self, video_id: str, summary: str, topics: list[str]) -> None:
         """Update the AI summary and topics for a video."""
         return self.nodes.update_video_summary(video_id, summary, topics)
 
@@ -499,11 +519,11 @@ class KnowledgeGraphService:
         target_id: str,
         relation_type: RelationType,
         time_gap: float | None = None,
-    ):
+    ) -> None:
         """Create a temporal relation between two nodes."""
         return self.nodes.create_temporal_relation(source_id, target_id, relation_type, time_gap)
 
-    def create_entity_cooccurrence(self, frame_id: str):
+    def create_entity_cooccurrence(self, frame_id: str) -> int:
         """Create APPEARS_WITH relations between entities in the same frame."""
         return self.nodes.create_entity_cooccurrence(frame_id)
 
@@ -613,7 +633,7 @@ class KnowledgeGraphService:
         relation_types: list[RelationType] | None = None,
         max_nodes: int = 50,
         user_id: str | None = None,
-    ) -> dict:
+    ) -> ExpandContextNodes:
         """Expand the context of a node for RAG."""
         if user_id is None:
             return self.expander.expand_context(node_id, hops, relation_types, max_nodes)
@@ -669,7 +689,7 @@ class KnowledgeGraphService:
         include_visual: bool = True,
         include_audio: bool = True,
         limit: int = 20,
-    ) -> dict:
+    ) -> MultimodalSearchResult:
         """
         Combined search across visual content (frames) and audio (transcripts).
 
@@ -697,18 +717,14 @@ class KnowledgeGraphService:
             filters.append("v.user_id = $user_id")
         scoped_filter = f"AND {' AND '.join(filters)}" if filters else ""
 
-        # Split query into keywords for better matching (used by both visual and audio)
-        keywords = [w.strip() for w in query_text.split() if len(w.strip()) > 2]
+        # Split query into sanitized keywords for parameterized matching
+        from services.graph.cypher_filters import build_keyword_filter, sanitize_keywords
 
-        # Search visual frame descriptions
+        safe_keywords = sanitize_keywords(query_text)
+
+        # Search visual frame descriptions — parameterized keyword matching
         if include_visual:
-            if keywords:
-                keyword_conditions = " OR ".join(
-                    [f"toLower(f.description) CONTAINS toLower('{kw}')" for kw in keywords[:5]]
-                )
-                desc_filter = f"({keyword_conditions})"
-            else:
-                desc_filter = "toLower(f.description) CONTAINS toLower($query_text)"
+            desc_filter = build_keyword_filter("f.description", safe_keywords)
 
             visual_query = f"""
             MATCH (v:Video)-[:CONTAINS*1..2]->(f:Frame)
@@ -725,24 +741,16 @@ class KnowledgeGraphService:
                 result = session.run(
                     visual_query,
                     query_text=query_text,
+                    keywords=safe_keywords,
                     video_id=video_id,
                     user_id=user_id,
                     limit=limit,
                 )
                 results["visual_results"] = [dict(r) for r in result]
 
-        # Search audio transcripts
+        # Search audio transcripts — parameterized keyword matching
         if include_audio:
-            # Split query into keywords for better matching
-            keywords = [w.strip() for w in query_text.split() if len(w.strip()) > 2]
-            # Build OR conditions for each keyword
-            if keywords:
-                keyword_conditions = " OR ".join(
-                    [f"toLower(a.text) CONTAINS toLower('{kw}')" for kw in keywords[:5]]
-                )
-                text_filter = f"({keyword_conditions})"
-            else:
-                text_filter = "toLower(a.text) CONTAINS toLower($query_text)"
+            text_filter = build_keyword_filter("a.text", safe_keywords)
 
             audio_query = f"""
             MATCH (v:Video)-[:HAS_TRANSCRIPT]->(a:AudioSegment)
@@ -759,6 +767,7 @@ class KnowledgeGraphService:
                 result = session.run(
                     audio_query,
                     query_text=query_text,
+                    keywords=safe_keywords,
                     video_id=video_id,
                     user_id=user_id,
                     limit=limit,
@@ -802,7 +811,7 @@ class KnowledgeGraphService:
         depth: int = 2,
         include_entities: bool = True,
         max_nodes: int = 200,
-    ) -> dict:
+    ) -> SubgraphResult:
         """Return a balanced subgraph for a video as nodes + relationships."""
         return self.expander.get_video_subgraph(video_id, depth, include_entities, max_nodes)
 
@@ -811,7 +820,7 @@ class KnowledgeGraphService:
         node_id: str,
         hops: int = 1,
         max_nodes: int = 50,
-    ) -> dict:
+    ) -> SubgraphResult:
         """Expand a single node's neighborhood, returning nodes + relationships."""
         return self.expander.expand_node_subgraph(node_id, hops, max_nodes)
 

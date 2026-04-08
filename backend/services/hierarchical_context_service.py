@@ -27,6 +27,7 @@ from enum import Enum
 
 from models.graph_models import ChapterNode, NodeType, RelationType, SceneNode, VideoNode
 from services.embedding_service import EmbeddingService
+from services.hierarchical_query_service import DrillDownResult, HierarchyLevel
 from services.hierarchical_summarizer import HierarchicalSummarizer, SummaryConfig
 from services.knowledge_graph import KnowledgeGraphService
 from services.scene_analyzer import Scene, SceneAnalyzer, VideoStructure
@@ -78,34 +79,6 @@ class HierarchicalConfig:
     store_video_embeddings: bool = True
 
 
-@dataclass
-class HierarchyLevel:
-    """Represents a level in the hierarchy with its data."""
-
-    level: str  # video, chapter, scene, frame
-    node_id: str
-    node_type: NodeType
-    embedding: list[float] | None = None
-    summary: str | None = None
-    title: str | None = None
-    start_time: float = 0.0
-    end_time: float = 0.0
-    children_count: int = 0
-    children_loaded: bool = False
-    metadata: dict = None
-
-
-@dataclass
-class DrillDownResult:
-    """Result of a drill-down search."""
-
-    current_level: HierarchyLevel
-    children: list[HierarchyLevel]
-    path_from_root: list[HierarchyLevel]
-    total_children: int
-    has_more_levels: bool
-
-
 class HierarchicalContextService:
     """
     Service for building and querying hierarchical video context.
@@ -139,6 +112,7 @@ class HierarchicalContextService:
         self.summarizer = HierarchicalSummarizer()
 
         # Compose focused helpers (lazy imports avoid circular dependencies)
+        from services.hierarchical_query_service import HierarchicalQueryService
         from services.hierarchy_embedding_generator import HierarchyEmbeddingGenerator
         from services.hierarchy_node_factory import HierarchyNodeFactory
 
@@ -148,6 +122,10 @@ class HierarchicalContextService:
         )
         self._node_factory = HierarchyNodeFactory(
             knowledge_graph=self.graph_service,
+        )
+        self._query_service = HierarchicalQueryService(
+            graph_service=self.graph_service,
+            embedding_service=self.embedding_service,
         )
 
         # Ensure graph connection
@@ -396,7 +374,7 @@ class HierarchicalContextService:
 
         # Store video embedding in vector index
         if self.config.store_video_embeddings and video_embedding:
-            self._store_embedding_node(
+            self._node_factory.store_embedding_node(
                 node_id=f"video:{structure.media_id}",
                 embedding=video_embedding,
                 node_type=NodeType.VIDEO,
@@ -454,10 +432,10 @@ class HierarchicalContextService:
                 )
 
         if chapters_data:
-            self._create_chapters_batch(chapters_data)
-            self._create_relationships_batch(chapter_rels, RelationType.CONTAINS)
+            self._node_factory.create_chapters_batch(chapters_data)
+            self._node_factory.create_relationships_batch(chapter_rels, RelationType.CONTAINS)
             if chapter_embeddings:
-                self._store_embeddings_batch(chapter_embeddings)
+                self._node_factory.store_embeddings_batch(chapter_embeddings)
             counts["chapters"] = len(chapters_data)
 
         # --- Batch create Scene nodes + CONTAINS relationships ---
@@ -515,11 +493,11 @@ class HierarchicalContextService:
                 )
 
         if scenes_data:
-            self._create_scenes_batch(scenes_data)
+            self._node_factory.create_scenes_batch(scenes_data)
             if scene_rels:
-                self._create_relationships_batch(scene_rels, RelationType.CONTAINS)
+                self._node_factory.create_relationships_batch(scene_rels, RelationType.CONTAINS)
             if scene_embeddings:
-                self._store_embeddings_batch(scene_embeddings)
+                self._node_factory.store_embeddings_batch(scene_embeddings)
             counts["scenes"] = len(scenes_data)
 
         return counts
@@ -537,44 +515,12 @@ class HierarchicalContextService:
     # Neo4j Node Operations (delegated to HierarchyNodeFactory)
     # =========================================================================
 
-    def _create_chapter_node(self, chapter: ChapterNode) -> str:
-        """Create a single chapter node in Neo4j."""
-        return self._node_factory.create_chapter_node(chapter)
-
-    def _create_chapters_batch(self, chapters: list[dict]) -> None:
-        """Create all chapter nodes in a single UNWIND transaction."""
-        self._node_factory.create_chapters_batch(chapters)
-
-    def _create_scene_node(self, scene: SceneNode) -> str:
-        """Create a single scene node in Neo4j."""
-        return self._node_factory.create_scene_node(scene)
-
-    def _create_scenes_batch(self, scenes: list[dict]) -> None:
-        """Create all scene nodes in a single UNWIND transaction."""
-        self._node_factory.create_scenes_batch(scenes)
-
-    def _create_relationship(self, source_id: str, target_id: str, relation_type: RelationType):
-        """Create a single relationship between two nodes."""
-        self._node_factory.create_relationship(source_id, target_id, relation_type)
-
-    def _create_relationships_batch(self, rels: list[dict], relation_type: RelationType) -> None:
-        """Create multiple relationships of the same type in a single UNWIND transaction."""
-        self._node_factory.create_relationships_batch(rels, relation_type)
-
-    def _store_embedding_node(self, node_id: str, embedding: list[float], node_type: NodeType):
-        """Store embedding for a single node (for vector index)."""
-        self._node_factory.store_embedding_node(node_id, embedding, node_type)
-
-    def _store_embeddings_batch(self, embeddings: list[dict]) -> None:
-        """Store full and coarse embeddings for multiple nodes."""
-        self._node_factory.store_embeddings_batch(embeddings)
-
     async def _ensure_vector_indexes(self):
         """Ensure vector indexes exist for all hierarchy levels (full + coarse)."""
         await self._node_factory.ensure_vector_indexes()
 
     # =========================================================================
-    # Drill-Down Search
+    # Query Methods (delegated to HierarchicalQueryService)
     # =========================================================================
 
     async def drill_down_search(
@@ -586,340 +532,40 @@ class HierarchicalContextService:
         top_k: int = 5,
         include_context: bool = True,
     ) -> list[DrillDownResult]:
-        """
-        Perform hierarchical drill-down search.
-
-        Starts at a high level (video/chapter) and drills down to target level
-        based on semantic relevance.
-
-        Args:
-            query_text: Search query
-            video_id: Optional video ID to restrict search
-            start_level: Level to start search (video, chapter, scene)
-            target_level: Level to drill down to
-            top_k: Number of results per level
-            include_context: Whether to include surrounding context
-
-        Returns:
-            List of DrillDownResult with hierarchy path
-        """
-        # Generate query embedding
-        query_embedding = await self.embedding_service.generate_embedding(query_text)
-
-        results = []
-
-        # Level 1: Find relevant videos
-        if start_level == "video":
-            videos = await self._search_level(
-                query_embedding=query_embedding,
-                node_type=NodeType.VIDEO,
-                video_id=video_id,
-                top_k=top_k,
-            )
-
-            for video in videos:
-                video_level = HierarchyLevel(
-                    level="video",
-                    node_id=video["id"],
-                    node_type=NodeType.VIDEO,
-                    summary=video.get("summary"),
-                    title=video.get("title"),
-                    start_time=0,
-                    end_time=video.get("duration_seconds", 0),
-                )
-
-                if target_level == "video":
-                    results.append(
-                        DrillDownResult(
-                            current_level=video_level,
-                            children=[],
-                            path_from_root=[video_level],
-                            total_children=0,
-                            has_more_levels=True,
-                        )
-                    )
-                else:
-                    # Drill down to chapters
-                    chapters = await self._search_children(
-                        parent_id=video["id"],
-                        parent_type=NodeType.VIDEO,
-                        child_type=NodeType.CHAPTER,
-                        query_embedding=query_embedding,
-                        top_k=top_k,
-                    )
-
-                    for chapter in chapters:
-                        chapter_level = HierarchyLevel(
-                            level="chapter",
-                            node_id=chapter["id"],
-                            node_type=NodeType.CHAPTER,
-                            summary=chapter.get("summary"),
-                            title=chapter.get("title"),
-                            start_time=chapter.get("start_time", 0),
-                            end_time=chapter.get("end_time", 0),
-                        )
-
-                        if target_level == "chapter":
-                            results.append(
-                                DrillDownResult(
-                                    current_level=chapter_level,
-                                    children=[],
-                                    path_from_root=[video_level, chapter_level],
-                                    total_children=0,
-                                    has_more_levels=True,
-                                )
-                            )
-                        else:
-                            # Drill down to scenes
-                            scenes = await self._search_children(
-                                parent_id=chapter["id"],
-                                parent_type=NodeType.CHAPTER,
-                                child_type=NodeType.SCENE,
-                                query_embedding=query_embedding,
-                                top_k=top_k,
-                            )
-
-                            for scene in scenes:
-                                scene_level = HierarchyLevel(
-                                    level="scene",
-                                    node_id=scene["id"],
-                                    node_type=NodeType.SCENE,
-                                    summary=scene.get("description"),
-                                    start_time=scene.get("start_time", 0),
-                                    end_time=scene.get("end_time", 0),
-                                )
-
-                                results.append(
-                                    DrillDownResult(
-                                        current_level=scene_level,
-                                        children=[],
-                                        path_from_root=[video_level, chapter_level, scene_level],
-                                        total_children=0,
-                                        has_more_levels=target_level == "frame",
-                                    )
-                                )
-
-        return results
-
-    async def _search_level(
-        self,
-        query_embedding: list[float],
-        node_type: NodeType,
-        video_id: str | None = None,
-        top_k: int = 5,
-    ) -> list[dict]:
-        """Search for nodes at a specific level using vector similarity."""
-        # Use parameterized query to prevent SQL injection
-        video_filter = "AND n.video_id = $video_id" if video_id else ""
-
-        query = f"""
-        MATCH (n:{node_type.value})
-        WHERE n.embedding IS NOT NULL {video_filter}
-        WITH n, gds.similarity.cosine(n.embedding, $query_embedding) AS score
-        ORDER BY score DESC
-        LIMIT $top_k
-        RETURN n {{.*, score: score}}
-        """
-
-        try:
-            with self.graph_service._driver.session() as session:
-                params = {"query_embedding": query_embedding, "top_k": top_k}
-                if video_id:
-                    params["video_id"] = video_id
-                result = session.run(query, **params)
-                return [dict(record["n"]) for record in result]
-        except Exception as e:
-            # Fallback if GDS not available
-            logger.warning(f"Vector search failed, using fallback: {e}")
-            return await self._fallback_search(node_type, video_id, top_k)
-
-    async def _search_children(
-        self,
-        parent_id: str,
-        parent_type: NodeType,
-        child_type: NodeType,
-        query_embedding: list[float],
-        top_k: int = 5,
-    ) -> list[dict]:
-        """Search for child nodes of a parent using vector similarity."""
-        query = f"""
-        MATCH (p:{parent_type.value})-[:CONTAINS]->(c:{child_type.value})
-        WHERE p.id = $parent_id AND c.embedding IS NOT NULL
-        WITH c, gds.similarity.cosine(c.embedding, $query_embedding) AS score
-        ORDER BY score DESC
-        LIMIT $top_k
-        RETURN c {{.*, score: score}}
-        """
-
-        try:
-            with self.graph_service._driver.session() as session:
-                result = session.run(
-                    query, parent_id=parent_id, query_embedding=query_embedding, top_k=top_k
-                )
-                return [dict(record["c"]) for record in result]
-        except Exception as e:
-            logger.warning(f"Child search failed: {e}")
-            return []
-
-    async def _fallback_search(
-        self, node_type: NodeType, video_id: str | None, top_k: int
-    ) -> list[dict]:
-        """Fallback search when vector search is not available."""
-        # Use parameterized query to prevent SQL injection
-        video_filter = "WHERE n.video_id = $video_id" if video_id else ""
-
-        query = f"""
-        MATCH (n:{node_type.value})
-        {video_filter}
-        RETURN n
-        LIMIT $top_k
-        """
-
-        with self.graph_service._driver.session() as session:
-            params = {"top_k": top_k}
-            if video_id:
-                params["video_id"] = video_id
-            result = session.run(query, **params)
-            return [dict(record["n"]) for record in result]
-
-    # =========================================================================
-    # Lazy Loading
-    # =========================================================================
+        """Perform hierarchical drill-down search. Delegated to HierarchicalQueryService."""
+        return await self._query_service.drill_down_search(
+            query_text=query_text,
+            video_id=video_id,
+            start_level=start_level,
+            target_level=target_level,
+            top_k=top_k,
+            include_context=include_context,
+        )
 
     async def load_children(
-        self, node_id: str, node_type: NodeType, limit: int = 20, offset: int = 0
+        self,
+        node_id: str,
+        node_type: NodeType,
+        child_type: NodeType,
+        offset: int = 0,
+        limit: int = 10,
     ) -> list[HierarchyLevel]:
-        """
-        Lazy load children of a node.
-
-        Used for on-demand loading of deeper hierarchy levels.
-        """
-        child_type_map = {
-            NodeType.VIDEO: NodeType.CHAPTER,
-            NodeType.CHAPTER: NodeType.SCENE,
-            NodeType.SCENE: NodeType.FRAME,
-        }
-
-        child_type = child_type_map.get(node_type)
-        if not child_type:
-            return []
-
-        query = f"""
-        MATCH (p)-[:CONTAINS]->(c:{child_type.value})
-        WHERE p.id = $node_id
-        RETURN c
-        ORDER BY c.start_time
-        SKIP $offset
-        LIMIT $limit
-        """
-
-        with self.graph_service._driver.session() as session:
-            result = session.run(query, node_id=node_id, offset=offset, limit=limit)
-
-            children = []
-            for record in result:
-                node = dict(record["c"])
-                children.append(
-                    HierarchyLevel(
-                        level=child_type.value.lower(),
-                        node_id=node["id"],
-                        node_type=child_type,
-                        summary=node.get("summary") or node.get("description"),
-                        title=node.get("title"),
-                        start_time=node.get("start_time", 0),
-                        end_time=node.get("end_time", 0),
-                    )
-                )
-
-            return children
+        """Lazy-load children of a node. Delegated to HierarchicalQueryService."""
+        return await self._query_service.load_children(
+            node_id=node_id,
+            node_type=node_type,
+            child_type=child_type,
+            offset=offset,
+            limit=limit,
+        )
 
     async def get_hierarchy_path(self, node_id: str, node_type: NodeType) -> list[HierarchyLevel]:
-        """
-        Get the full path from root (video) to a specific node.
-
-        Useful for breadcrumb navigation.
-        """
-        query = """
-        MATCH path = (v:Video)-[:CONTAINS*0..3]->(n)
-        WHERE n.id = $node_id
-        RETURN nodes(path) as path_nodes
-        """
-
-        with self.graph_service._driver.session() as session:
-            result = session.run(query, node_id=node_id)
-            record = result.single()
-
-            if not record:
-                return []
-
-            path = []
-            for node in record["path_nodes"]:
-                node_dict = dict(node)
-                level = self._determine_level(node.labels)
-                path.append(
-                    HierarchyLevel(
-                        level=level,
-                        node_id=node_dict["id"],
-                        node_type=NodeType(level.capitalize()),
-                        summary=node_dict.get("summary") or node_dict.get("description"),
-                        title=node_dict.get("title"),
-                        start_time=node_dict.get("start_time", 0),
-                        end_time=node_dict.get("end_time", 0),
-                    )
-                )
-
-            return path
-
-    def _determine_level(self, labels: frozenset) -> str:
-        """Determine hierarchy level from Neo4j labels."""
-        if "Video" in labels:
-            return "video"
-        elif "Chapter" in labels:
-            return "chapter"
-        elif "Scene" in labels:
-            return "scene"
-        elif "Frame" in labels:
-            return "frame"
-        return "unknown"
-
-    # =========================================================================
-    # Statistics
-    # =========================================================================
+        """Get full path from root to a specific node. Delegated to HierarchicalQueryService."""
+        return await self._query_service.get_hierarchy_path(node_id, node_type)
 
     async def get_hierarchy_stats(self, video_id: str) -> dict:
-        """Get statistics about a video's hierarchy."""
-        query = """
-        MATCH (v:Video {video_id: $video_id})
-        OPTIONAL MATCH (v)-[:CONTAINS]->(c:Chapter)
-        OPTIONAL MATCH (c)-[:CONTAINS]->(s:Scene)
-        OPTIONAL MATCH (s)-[:CONTAINS]->(f:Frame)
-        RETURN
-            v.title as video_title,
-            v.duration_seconds as duration,
-            count(DISTINCT c) as chapter_count,
-            count(DISTINCT s) as scene_count,
-            count(DISTINCT f) as frame_count,
-            v.embedding IS NOT NULL as has_video_embedding
-        """
-
-        with self.graph_service._driver.session() as session:
-            result = session.run(query, video_id=video_id)
-            record = result.single()
-
-            if not record:
-                return {"error": "Video not found"}
-
-            return {
-                "video_id": video_id,
-                "video_title": record["video_title"],
-                "duration_seconds": record["duration"],
-                "hierarchy": {
-                    "chapters": record["chapter_count"],
-                    "scenes": record["scene_count"],
-                    "frames": record["frame_count"],
-                },
-                "embeddings": {"video": record["has_video_embedding"]},
-            }
+        """Get statistics about a video's hierarchy. Delegated to HierarchicalQueryService."""
+        return await self._query_service.get_hierarchy_stats(video_id)
 
 
 # =============================================================================

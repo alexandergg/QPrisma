@@ -109,24 +109,6 @@ class TestProcessingRoutesErrorSanitization:
         assert "Neo4j" not in body_str
         assert "bolt://" not in body_str
 
-    def test_enhanced_search_hides_error_details(self, authenticated_client):
-        mock_search = MagicMock()
-        mock_search.search = AsyncMock(
-            side_effect=RuntimeError("OpenAI rate limit exceeded, key=sk-...")
-        )
-
-        with patch("api.routes.processing_routes.get_enhanced_search", return_value=mock_search):
-            resp = authenticated_client.post(
-                "/search/enhanced",
-                json={"query": "test"},
-            )
-
-        assert resp.status_code == 500
-        body = resp.json()
-        assert "sk-" not in body.get("detail", "")
-        assert "rate limit" not in body.get("detail", "")
-        assert body["detail"] == "Processing operation failed"
-
 
 # =============================================================================
 # Batch Routes — error sanitization

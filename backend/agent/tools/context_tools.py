@@ -510,6 +510,11 @@ async def get_scene_context(
 @tool
 async def get_community_overview(
     topic: Annotated[str | None, "Optional topic to filter communities by"] = None,
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video's communities to retrieve. "
+        "If omitted, uses the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
@@ -521,8 +526,10 @@ async def get_community_overview(
     the main topics covered before drilling into specifics.
     For a single synopsis, use get_summary. For chronological structure, use list_chapters.
     Optionally filter by topic to find relevant thematic groups.
+    When several videos are selected, use target_video_id to get communities for a specific video.
     """
-    if not media_id:
+    effective_id = target_video_id or media_id
+    if not effective_id:
         return tool_error("no_context", "No video context available.")
 
     try:
@@ -539,7 +546,7 @@ async def get_community_overview(
                 recovery="Try get_summary for a high-level overview from the video node.",
             )
 
-        communities = kg.get_community_context(media_id, topic=topic)
+        communities = kg.get_community_context(effective_id, topic=topic)
 
         if not communities:
             return {
@@ -565,5 +572,5 @@ async def get_community_overview(
         }
 
     except Exception as e:
-        logger.error("get_community_overview failed for %s: %s", media_id, e)
+        logger.error("get_community_overview failed for %s: %s", effective_id, e)
         return tool_error("query_error", f"Failed to get communities: {e}")

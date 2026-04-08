@@ -23,6 +23,10 @@ from .hierarchical_context_service import (
     HierarchicalContextService,
     get_hierarchical_context_service,
 )
+from .hierarchical_query_service import (
+    HierarchicalQueryService,
+    get_hierarchical_query_service,
+)
 from .hierarchical_summarizer import HierarchicalSummarizer
 from .hierarchy_embedding_generator import HierarchyEmbeddingGenerator
 from .hierarchy_node_factory import HierarchyNodeFactory
@@ -67,6 +71,8 @@ __all__ = [
     "get_highlight_detection_service",
     "HierarchicalContextService",
     "get_hierarchical_context_service",
+    "HierarchicalQueryService",
+    "get_hierarchical_query_service",
     "HierarchyEmbeddingGenerator",
     "HierarchyNodeFactory",
     "FoundryMemoryService",

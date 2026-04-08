@@ -127,7 +127,7 @@ class VideoOpsMixin:
             return summary, topics or []
         return None, []
 
-    def update_video_summary(self, video_id: str, summary: str, topics: list[str]):
+    def update_video_summary(self, video_id: str, summary: str, topics: list[str]) -> None:
         """Update the AI summary and topics for a video."""
         query = """
         MATCH (v:Video {video_id: $video_id})

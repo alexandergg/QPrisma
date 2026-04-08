@@ -15,7 +15,7 @@ from services.structure_service import StructureService
 @pytest.fixture
 def structure_service():
     """Create a StructureService with mock dependencies."""
-    return StructureService(graph_service=MagicMock(), blob_service=None, storage_container="")
+    return StructureService(graph_service=MagicMock())
 
 
 # =============================================================================
@@ -194,7 +194,7 @@ class TestGetStructure:
         legacy_mock.assert_called_once_with(media_dict)
 
     def test_graph_structure_returns_none_without_graph_service(self):
-        service = StructureService(graph_service=None, blob_service=None, storage_container="")
+        service = StructureService(graph_service=None)
         assert service.get_structure_from_graph("vid-123") is None
 
 

@@ -666,6 +666,25 @@ After graph indexing, the pipeline creates deterministic adjacency edges for gra
 
 These chains enable forward/backward traversal without timestamp arithmetic. The search scoring layer applies a **temporal adjacency boost** — results whose timestamps fall within 15 seconds of other high-scoring results receive an additive score increase.
 
+### Knowledge Graph Service Architecture
+
+The Knowledge Graph backend follows a layered architecture:
+
+| Layer | Service | Responsibility |
+|---|---|---|
+| **Facade** | `KnowledgeGraphService` | Public API, connection management, `execute_query()` gateway |
+| **Domain Mixins** | `services/graph/*.py` (7 mixins) | Neo4j operations grouped by domain (video, frame, entity, audio, relation, community, agent) |
+| **Query Utilities** | `cypher_filters.py`, `graph_search_queries.py` | Keyword sanitization, Lucene escaping, fulltext query building |
+| **Resilience** | `neo4j_resilience.py` | Read/write retry decorators, transient vs permanent error classification |
+| **Types** | `graph/types.py` | Shared TypedDicts (`MultimodalSearchResult`, `SubgraphResult`, `ExpandContextNodes`) |
+| **Hierarchical Orchestrator** | `HierarchicalContextService` | Pipeline coordination, embedding pooling, storage orchestration |
+| **Hierarchical Storage** | `HierarchyNodeFactory` | Neo4j persistence for hierarchy nodes |
+| **Hierarchical Query** | `HierarchicalQueryService` | Drill-down search, stats, level navigation |
+| **Search** | `GraphSearchService` + `GraphSearchScoring` | Hybrid vector/fulltext search with scoring |
+| **Structure** | `StructureService` | Scene/chapter extraction from graph data |
+
+All Neo4j access is funneled through `KnowledgeGraphService.execute_query()`, ensuring centralized retry handling and error classification. Direct `_driver.session()` usage is confined to `knowledge_graph.py`.
+
 ### Batch Processing (Azure OpenAI Batch API)
 
 #### Submit Batch Job

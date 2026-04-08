@@ -353,7 +353,6 @@ class TestInitializeSchemaCallsMigration:
         with (
             patch.object(svc, "get_session", return_value=mock_session),
             patch.object(svc, "_migrate_fulltext_indexes"),
-            patch.object(svc, "_migrate_property_renames"),
         ):
             svc.initialize_schema()
 

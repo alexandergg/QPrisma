@@ -113,7 +113,7 @@ class RelationOpsMixin:
         target_id: str,
         relation_type: RelationType,
         time_gap: float | None = None,
-    ):
+    ) -> None:
         """Create a temporal relation between two nodes."""
         query = f"""
         MATCH (a {{id: $source_id}})

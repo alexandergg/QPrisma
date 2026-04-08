@@ -288,6 +288,26 @@ def get_hierarchical_context_service():
     return _hierarchical_context_service
 
 
+_hierarchical_query_service = None
+
+
+def get_hierarchical_query_service():
+    """Get or create Hierarchical Query Service."""
+    global _hierarchical_query_service
+    if _hierarchical_query_service is None:
+        from services.embedding_service import get_embedding_service
+        from services.hierarchical_query_service import (
+            get_hierarchical_query_service as _get_hqs,
+        )
+
+        graph_svc = get_knowledge_graph_service()
+        embedding_svc = get_embedding_service()
+        _hierarchical_query_service = _get_hqs(
+            graph_service=graph_svc, embedding_service=embedding_svc
+        )
+    return _hierarchical_query_service
+
+
 async def get_tool_artifact_service():
     """Get ToolArtifactService singleton."""
     from services.tool_artifact_service import (

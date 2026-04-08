@@ -9,7 +9,6 @@ Endpoints for managing Azure Blob Storage tiers:
 - Generate lifecycle policy
 """
 
-from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -352,74 +351,4 @@ async def generate_lifecycle_policy(
             "cold_after_days": request.cold_days,
             "archive_after_days": request.archive_days,
         },
-    }
-
-
-@router.post("/sync-tiers")
-async def sync_all_tiers(
-    current_user: User = Depends(get_current_user),
-) -> dict[str, Any]:
-    """
-    Sync storage tier info from Azure for all user's videos.
-
-    Updates the database with current tier information from Azure.
-    Useful after lifecycle policies have run.
-    """
-    db = get_database_service()
-    media_list = db.get_media_by_user(current_user.id, limit=1000)
-
-    if not media_list:
-        return {"synced": 0, "message": "No videos found"}
-
-    service = get_storage_tiering_service()
-    synced = 0
-    errors = 0
-
-    for media in media_list:
-        try:
-            tier_info = service.get_blob_tier_info(media.blob_name)
-            if tier_info:
-                db.update_media(
-                    media.id,
-                    {
-                        "storage_tier": tier_info.current_tier.value,
-                        "rehydration_status": tier_info.rehydration_status,
-                    },
-                )
-                synced += 1
-        except Exception:
-            errors += 1
-
-    return {
-        "synced": synced,
-        "errors": errors,
-        "total": len(media_list),
-    }
-
-
-@router.post("/media/{media_id}/access")
-async def record_media_access(
-    media_id: str,
-    current_user: User = Depends(get_current_user),
-) -> dict[str, Any]:
-    """
-    Record that a video was accessed (for tier optimization).
-
-    Call this when a user views/plays a video to update last_accessed_at.
-    This affects tier recommendations.
-    """
-    db = get_database_service()
-    get_media_or_404(media_id, current_user)
-
-    db.update_media(
-        media_id,
-        {
-            "last_accessed_at": datetime.now(UTC),
-        },
-    )
-
-    return {
-        "media_id": media_id,
-        "last_accessed_at": datetime.now(UTC).isoformat(),
-        "message": "Access recorded",
     }

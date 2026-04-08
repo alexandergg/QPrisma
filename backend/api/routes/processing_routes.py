@@ -17,7 +17,7 @@ from api.dependencies import (
     get_video_processor,
 )
 from core.serializers import sanitize_for_json
-from models.api_schemas import EnhancedSearchRequest, ProcessingSearchRequest
+from models.api_schemas import ProcessingSearchRequest
 from models.ffmpeg_config import (
     FFmpegProcessingConfig,
     FrameExtractionConfig,
@@ -48,26 +48,6 @@ def _get_preset_description(preset: ProcessingPreset) -> str:
         ProcessingPreset.ADAPTIVE: "Automatic configuration based on video duration, adjusts method and frame count",
     }
     return descriptions.get(preset, "No description")
-
-
-# =============================================================================
-# Lazy Initialization
-# =============================================================================
-
-_enhanced_search = None
-
-
-def get_enhanced_search():
-    """Get the enhanced search service."""
-    global _enhanced_search
-    if _enhanced_search is None:
-        try:
-            from services.enhanced_search import EnhancedSearchService
-
-            _enhanced_search = EnhancedSearchService()
-        except Exception as e:
-            logger.warning(f"Error initializing Enhanced Search: {e}")
-    return _enhanced_search
 
 
 # =============================================================================
@@ -530,39 +510,4 @@ async def search_media(
         logger.error(
             f"Knowledge graph search failed for query={request.query!r}: {e}", exc_info=True
         )
-        raise HTTPException(status_code=500, detail="Processing operation failed") from e
-
-
-@router.post("/search/enhanced")
-async def enhanced_search_endpoint(
-    request: EnhancedSearchRequest, current_user: User = Depends(get_current_user)
-):
-    """
-    Enhanced search with re-ranking and intelligent result grouping.
-
-    Features:
-    - Query understanding and expansion
-    - Hybrid vector + text search
-    - LLM-based re-ranking for better relevance
-    - Temporal clustering of results
-    - Scene-based result grouping
-    """
-    search_service = get_enhanced_search()
-
-    if not search_service:
-        raise HTTPException(status_code=503, detail="Enhanced search not available")
-
-    try:
-        result = await search_service.search(
-            query=request.query,
-            media_id=request.media_id,
-            top_k=request.top_k,
-            use_reranking=request.use_reranking,
-            expand_query=request.expand_query,
-        )
-
-        return result.to_dict()
-
-    except Exception as e:
-        logger.error(f"Enhanced search failed for query={request.query!r}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Processing operation failed") from e

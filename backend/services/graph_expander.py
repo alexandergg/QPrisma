@@ -13,6 +13,7 @@ from models.graph_models import (
     GraphStats,
     RelationType,
 )
+from services.graph.types import ExpandContextNodes, SubgraphResult
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class GraphExpander:
         relation_types: list[RelationType] | None = None,
         max_nodes: int = 50,
         user_id: str | None = None,
-    ) -> dict:
+    ) -> ExpandContextNodes:
         """Expand the context of a node for RAG.
 
         Uses ``apoc.path.expandConfig`` with ``YIELD path`` so that hop
@@ -318,19 +319,9 @@ class GraphExpander:
         depth: int = 2,
         include_entities: bool = True,
         max_nodes: int = 200,
-    ) -> dict:
+    ) -> SubgraphResult:
         """
         Return a balanced subgraph for a video as nodes + relationships.
-
-        Instead of letting a single label (e.g. Frame) flood the result,
-        we collect each label separately and apply per-type quotas so the
-        visualization always shows a representative mix of labels.
-
-        Returns NVL-compatible structure:
-        {
-            "nodes": [{"id", "labels", "properties"}, ...],
-            "relationships": [{"id", "start", "end", "type", "properties"}, ...],
-        }
 
         Args:
             video_id: The video to visualize.
@@ -521,7 +512,7 @@ class GraphExpander:
         node_id: str,
         hops: int = 1,
         max_nodes: int = 50,
-    ) -> dict:
+    ) -> SubgraphResult:
         """
         Expand a single node's neighborhood, returning nodes + relationships.
 

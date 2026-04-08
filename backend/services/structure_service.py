@@ -8,7 +8,6 @@ For agent tools, use graph-direct methods in context_tools.py instead.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -20,8 +19,6 @@ from agent.utils.text import (
 )
 
 if TYPE_CHECKING:
-    from azure.storage.blob import BlobServiceClient
-
     from services.knowledge_graph import KnowledgeGraphService
 
 logger = logging.getLogger(__name__)
@@ -37,17 +34,8 @@ class StructureService:
     def __init__(
         self,
         graph_service: KnowledgeGraphService | None,
-        blob_service: BlobServiceClient | None = None,
-        storage_container: str = "",
     ) -> None:
         self.graph_service = graph_service
-        self.blob_service = blob_service
-        self.storage_container = storage_container
-
-    @staticmethod
-    def _clean_generated_text(text: str, prefixes: tuple[str, ...]) -> str:
-        """Delegate to shared utility (kept for backward-compat with tests)."""
-        return clean_generated_text(text, prefixes)
 
     def _generate_scene_title(self, scene: dict, scene_frames: list[dict]) -> str | None:
         """Generate a scene title from its first frame description."""
@@ -282,31 +270,24 @@ class StructureService:
         """
         Build video structure from legacy PostgreSQL data.
 
+        .. deprecated::
+            Legacy fallback for media processed before graph ingestion.
+            Will be removed once all media is migrated to the graph.
+
         Returns None if no structure data is available.
         """
         legacy_structure = media_dict.get("structure") or (
             media_dict.get("processing_result") or {}
         ).get("structure")
         if legacy_structure:
+            logger.warning(
+                "Serving structure from legacy Postgres path for media=%s",
+                media_dict.get("id", "unknown"),
+            )
             return {
                 "structure": legacy_structure,
                 "processing_method": media_dict.get("processing_method"),
                 "processed_at": media_dict.get("last_updated"),
             }
 
-        # Try loading from blob
-        structure_blob = media_dict.get("structure_blob")
-        if not structure_blob or not self.blob_service:
-            return None
-
-        blob_client = self.blob_service.get_blob_client(
-            container=self.storage_container, blob=structure_blob
-        )
-        structure_json = blob_client.download_blob().readall()
-        structure = json.loads(structure_json)
-
-        return {
-            "structure": structure,
-            "processing_method": media_dict.get("processing_method"),
-            "processed_at": media_dict.get("last_updated"),
-        }
+        return None

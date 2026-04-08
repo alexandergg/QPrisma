@@ -55,11 +55,9 @@ from models.graph_route_schemas import (
     NvlRelationship,
     ProcessHierarchyRequest,
     ProcessHierarchyResponse,
-    RelatedEntitiesRequest,
 )
 from models.user import User
 from services.embedding_service import get_embedding_service
-from services.entity_extractor import get_entity_extractor
 from services.graph_route_service import GraphRouteService
 
 logger = logging.getLogger(__name__)
@@ -453,37 +451,6 @@ async def get_entity_timeline(
         raise internal_error() from e
 
 
-@router.post("/related")
-async def get_related_entities(
-    request: RelatedEntitiesRequest, current_user: User = Depends(get_current_user)
-):
-    """
-    Gets entities related to a given entity.
-
-    Supports filters by relationship type.
-    """
-    try:
-        get_graph_node_media_or_404(request.entity_id, current_user)
-        service = get_knowledge_graph_service()
-        results = service.get_related_entities(
-            entity_id=request.entity_id,
-            relation_types=request.relation_types,
-            limit=request.limit,
-            user_id=current_user.id,
-        )
-
-        return {
-            "entity_id": request.entity_id,
-            "total_related": len(results),
-            "related_entities": results,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get related entities: {e}", exc_info=True)
-        raise internal_error() from e
-
-
 # =============================================================================
 # Video Graph Operations
 # =============================================================================
@@ -538,64 +505,6 @@ async def delete_video_graph(video_id: str, current_user: User = Depends(get_cur
         raise
     except Exception as e:
         logger.error(f"Failed to delete video graph: {e}", exc_info=True)
-        raise internal_error() from e
-
-
-# =============================================================================
-# Entity Extraction Endpoints
-# =============================================================================
-
-
-@router.post("/extract/frame")
-async def extract_entities_from_frame(
-    image_url: str,
-    timestamp: float = 0.0,
-    context: str = "",
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Extracts entities from an individual frame using GPT-4o.
-
-    Useful for testing or manual processing.
-    """
-    try:
-        extractor = get_entity_extractor()
-        result = extractor.extract_from_image(
-            image_source=image_url,
-            timestamp=timestamp,
-            context=context,
-            is_url=True,
-        )
-
-        return GraphRouteService.format_frame_extraction_result(result)
-    except Exception as e:
-        logger.error(f"Entity extraction failed: {e}", exc_info=True)
-        raise internal_error() from e
-
-
-@router.post("/extract/description")
-async def extract_entities_from_description(
-    description: str,
-    timestamp: float = 0.0,
-    context: str = "",
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Extracts entities from a textual frame description.
-
-    Useful for re-processing frames that already have a description.
-    """
-    try:
-        extractor = get_entity_extractor()
-        result = extractor.extract_from_description(
-            description=description,
-            timestamp=timestamp,
-            context=context,
-        )
-
-        return GraphRouteService.format_description_extraction_result(result)
-    except Exception as e:
-        logger.error(f"Entity extraction from description failed: {e}", exc_info=True)
         raise internal_error() from e
 
 

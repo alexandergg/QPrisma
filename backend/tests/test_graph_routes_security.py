@@ -13,7 +13,6 @@ from api.routes.graph_routes import (
     cross_video_search,
     expand_context,
     generate_embeddings,
-    get_related_entities,
     get_video_graph,
 )
 from models.graph_models import NodeType
@@ -21,7 +20,6 @@ from models.graph_route_schemas import (
     ContextExpansionRequest,
     CrossVideoSearchRequest,
     GenerateEmbeddingsRequest,
-    RelatedEntitiesRequest,
 )
 
 
@@ -146,29 +144,3 @@ class TestGraphRouteSecurity:
             user_id=test_user.id,
         )
         assert response.center_node_id == "node-1"
-
-    @pytest.mark.asyncio
-    async def test_related_entities_checks_node_ownership_and_user_scope(self, test_user):
-        request = RelatedEntitiesRequest(entity_id="entity-1", limit=10)
-        mock_service = MagicMock()
-        mock_service.get_related_entities.return_value = [
-            {"entity": {"id": "entity-2"}, "relation": "RELATED_TO", "direction": "outgoing"}
-        ]
-
-        with (
-            patch("api.routes.graph_routes.get_graph_node_media_or_404") as mock_node_auth,
-            patch(
-                "api.routes.graph_routes.get_knowledge_graph_service",
-                return_value=mock_service,
-            ),
-        ):
-            response = await get_related_entities(request, current_user=test_user)
-
-        mock_node_auth.assert_called_once_with("entity-1", test_user)
-        mock_service.get_related_entities.assert_called_once_with(
-            entity_id="entity-1",
-            relation_types=None,
-            limit=10,
-            user_id=test_user.id,
-        )
-        assert response["total_related"] == 1

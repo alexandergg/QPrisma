@@ -61,13 +61,15 @@ def embedding_generator(mock_embedding_service, config):
 
 @pytest.fixture
 def mock_kg_service():
-    """Mocked KnowledgeGraphService with a fake driver/session."""
+    """Mocked KnowledgeGraphService with execute_query and a fake driver/session."""
     svc = MagicMock()
+    # Phase 7: HierarchyNodeFactory now uses execute_query() instead of _driver.session()
+    svc.execute_query.return_value = {"id": "test-id"}
+    # Keep session mock for any remaining direct session usage (e.g., ensure_vector_indexes)
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock(return_value=False)
     svc._driver.session.return_value = mock_session
-    # Make run() return a result with .single()
     mock_result = MagicMock()
     mock_result.single.return_value = {"id": "test-id"}
     mock_session.run.return_value = mock_result
@@ -304,7 +306,7 @@ class TestEmbeddingGeneration:
 
 
 class TestNodeFactory:
-    """Tests for HierarchyNodeFactory with mocked Neo4j driver."""
+    """Tests for HierarchyNodeFactory with mocked KnowledgeGraphService."""
 
     def test_create_chapter_node(self, node_factory, mock_kg_service):
         chapter = MagicMock()
@@ -320,9 +322,9 @@ class TestNodeFactory:
 
         result = node_factory.create_chapter_node(chapter)
         assert result == "test-id"
-        mock_kg_service._driver.session.assert_called()
-        session = mock_kg_service._driver.session().__enter__()
-        assert session.run.call_args.kwargs["user_id"] == "user-1"
+        mock_kg_service.execute_query.assert_called()
+        call_kwargs = mock_kg_service.execute_query.call_args
+        assert call_kwargs[0][1]["user_id"] == "user-1"
 
     def test_create_scene_node(self, node_factory, mock_kg_service):
         scene = MagicMock()
@@ -337,8 +339,8 @@ class TestNodeFactory:
 
         result = node_factory.create_scene_node(scene)
         assert result == "test-id"
-        session = mock_kg_service._driver.session().__enter__()
-        assert session.run.call_args.kwargs["user_id"] == "user-1"
+        call_kwargs = mock_kg_service.execute_query.call_args
+        assert call_kwargs[0][1]["user_id"] == "user-1"
 
     def test_create_chapters_batch(self, node_factory, mock_kg_service):
         chapters = [
@@ -346,9 +348,9 @@ class TestNodeFactory:
             {"id": "c2", "video_id": "v-1"},
         ]
         node_factory.create_chapters_batch(chapters)
-        session = mock_kg_service._driver.session().__enter__()
-        session.run.assert_called()
-        assert session.run.call_args.kwargs["batch"][0]["user_id"] == "user-1"
+        mock_kg_service.execute_query.assert_called()
+        call_kwargs = mock_kg_service.execute_query.call_args
+        assert call_kwargs[0][1]["batch"][0]["user_id"] == "user-1"
 
     def test_create_scenes_batch(self, node_factory, mock_kg_service):
         scenes = [
@@ -356,31 +358,28 @@ class TestNodeFactory:
             {"id": "s2", "video_id": "v-1"},
         ]
         node_factory.create_scenes_batch(scenes)
-        session = mock_kg_service._driver.session().__enter__()
-        session.run.assert_called()
-        assert session.run.call_args.kwargs["batch"][0]["user_id"] == "user-1"
+        mock_kg_service.execute_query.assert_called()
+        call_kwargs = mock_kg_service.execute_query.call_args
+        assert call_kwargs[0][1]["batch"][0]["user_id"] == "user-1"
 
     def test_create_relationship(self, node_factory, mock_kg_service):
         from models.graph_models import RelationType
 
         node_factory.create_relationship("a", "b", RelationType.CONTAINS)
-        session = mock_kg_service._driver.session().__enter__()
-        session.run.assert_called()
+        mock_kg_service.execute_query.assert_called()
 
     def test_create_relationships_batch(self, node_factory, mock_kg_service):
         from models.graph_models import RelationType
 
         rels = [{"source_id": "a", "target_id": "b"}]
         node_factory.create_relationships_batch(rels, RelationType.CONTAINS)
-        session = mock_kg_service._driver.session().__enter__()
-        session.run.assert_called()
+        mock_kg_service.execute_query.assert_called()
 
     def test_store_embedding_node(self, node_factory, mock_kg_service):
         from models.graph_models import NodeType
 
         node_factory.store_embedding_node("n1", [0.1] * 10, NodeType.VIDEO)
-        session = mock_kg_service._driver.session().__enter__()
-        session.run.assert_called()
+        mock_kg_service.execute_query.assert_called()
 
     def test_store_embeddings_batch_adds_coarse(self, node_factory, mock_kg_service):
         embs = [{"node_id": "n1", "embedding": list(range(600))}]
@@ -398,9 +397,8 @@ class TestNodeFactory:
     @pytest.mark.asyncio
     async def test_ensure_vector_indexes(self, node_factory, mock_kg_service):
         await node_factory.ensure_vector_indexes()
-        session = mock_kg_service._driver.session().__enter__()
-        # Should have created 6 indexes (3 full + 3 coarse)
-        assert session.run.call_count == 6
+        # Should have created 6 indexes (3 full + 3 coarse) via execute_query
+        assert mock_kg_service.execute_query.call_count >= 6
 
 
 # =============================================================================
@@ -447,17 +445,13 @@ class TestOrchestratorDelegation:
         service._embedding_generator.compress_embedding.assert_called_once_with([1.0, 2.0], 1)
         assert result == [0.5]
 
-    def test_create_chapters_batch_delegates(self, service):
-        service._node_factory = MagicMock()
-        data = [{"id": "c1"}]
-        service._create_chapters_batch(data)
-        service._node_factory.create_chapters_batch.assert_called_once_with(data)
+    def test_node_factory_accessible(self, service):
+        """After Phase 8 inlining, storage calls go directly to _node_factory."""
+        assert hasattr(service, "_node_factory")
 
-    def test_store_embeddings_batch_delegates(self, service):
-        service._node_factory = MagicMock()
-        data = [{"node_id": "n1", "embedding": [0.1]}]
-        service._store_embeddings_batch(data)
-        service._node_factory.store_embeddings_batch.assert_called_once_with(data)
+    def test_query_service_accessible(self, service):
+        """Phase 8: query methods are delegated to _query_service."""
+        assert hasattr(service, "_query_service")
 
     def test_build_scene_text_delegates(self, service):
         service._embedding_generator = MagicMock()

@@ -55,20 +55,22 @@ class HierarchyNodeFactory:
         RETURN c.id as id
         """
 
-        with self._kg._driver.session() as session:
-            result = session.run(
-                query,
-                id=chapter.id,
-                video_id=chapter.video_id,
-                user_id=chapter.user_id,
-                start_time=chapter.start_time,
-                end_time=chapter.end_time,
-                chapter_index=chapter.chapter_index,
-                title=chapter.title,
-                summary=chapter.summary,
-                topics=chapter.topics,
-            )
-            return result.single()["id"]
+        result = self._kg.execute_query(
+            query,
+            {
+                "id": chapter.id,
+                "video_id": chapter.video_id,
+                "user_id": chapter.user_id,
+                "start_time": chapter.start_time,
+                "end_time": chapter.end_time,
+                "chapter_index": chapter.chapter_index,
+                "title": chapter.title,
+                "summary": chapter.summary,
+                "topics": chapter.topics,
+            },
+            single=True,
+        )
+        return result["id"]
 
     def create_scene_node(self, scene: SceneNode) -> str:
         """Create a single scene node in Neo4j."""
@@ -88,19 +90,21 @@ class HierarchyNodeFactory:
         RETURN s.id as id
         """
 
-        with self._kg._driver.session() as session:
-            result = session.run(
-                query,
-                id=scene.id,
-                video_id=scene.video_id,
-                chapter_id=scene.chapter_id,
-                user_id=scene.user_id,
-                start_time=scene.start_time,
-                end_time=scene.end_time,
-                scene_index=scene.scene_index,
-                description=scene.description,
-            )
-            return result.single()["id"]
+        result = self._kg.execute_query(
+            query,
+            {
+                "id": scene.id,
+                "video_id": scene.video_id,
+                "chapter_id": scene.chapter_id,
+                "user_id": scene.user_id,
+                "start_time": scene.start_time,
+                "end_time": scene.end_time,
+                "scene_index": scene.scene_index,
+                "description": scene.description,
+            },
+            single=True,
+        )
+        return result["id"]
 
     # =========================================================================
     # Batch Creation
@@ -124,8 +128,7 @@ class HierarchyNodeFactory:
             created_at: datetime()
         })
         """
-        with self._kg._driver.session() as session:
-            session.run(query, batch=chapters)
+        self._kg.execute_query(query, {"batch": chapters})
 
     def create_scenes_batch(self, scenes: list[dict]) -> None:
         """Create all scene nodes in a single UNWIND transaction."""
@@ -144,8 +147,7 @@ class HierarchyNodeFactory:
             created_at: datetime()
         })
         """
-        with self._kg._driver.session() as session:
-            session.run(query, batch=scenes)
+        self._kg.execute_query(query, {"batch": scenes})
 
     # =========================================================================
     # Relationships
@@ -160,8 +162,7 @@ class HierarchyNodeFactory:
         RETURN type(r) as rel_type
         """
 
-        with self._kg._driver.session() as session:
-            session.run(query, source_id=source_id, target_id=target_id)
+        self._kg.execute_query(query, {"source_id": source_id, "target_id": target_id})
 
     def create_relationships_batch(self, rels: list[dict], relation_type: RelationType) -> None:
         """Create multiple relationships of the same type in a single UNWIND transaction."""
@@ -171,8 +172,7 @@ class HierarchyNodeFactory:
         WHERE a.id = rel.source_id AND b.id = rel.target_id
         CREATE (a)-[:{relation_type.value}]->(b)
         """
-        with self._kg._driver.session() as session:
-            session.run(query, batch=rels)
+        self._kg.execute_query(query, {"batch": rels})
 
     # =========================================================================
     # Embeddings
@@ -186,8 +186,7 @@ class HierarchyNodeFactory:
         RETURN n.id
         """
 
-        with self._kg._driver.session() as session:
-            session.run(query, node_id=node_id, embedding=embedding)
+        self._kg.execute_query(query, {"node_id": node_id, "embedding": embedding})
 
     def store_embeddings_batch(self, embeddings: list[dict]) -> None:
         """Store full and coarse embeddings for multiple nodes in a single UNWIND transaction."""
@@ -202,8 +201,7 @@ class HierarchyNodeFactory:
         SET n.embedding = item.embedding,
             n.embedding_coarse = item.embedding_coarse
         """
-        with self._kg._driver.session() as session:
-            session.run(query, batch=embeddings)
+        self._kg.execute_query(query, {"batch": embeddings})
 
     # =========================================================================
     # Vector Indexes
@@ -234,7 +232,6 @@ class HierarchyNodeFactory:
                     }}
                 }}
                 """
-                with self._kg._driver.session() as session:
-                    session.run(query)
+                self._kg.execute_query(query)
             except Exception as e:
                 logger.debug(f"Index {index_name} may already exist: {e}")

@@ -22,7 +22,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Compiled regex for Lucene special character escaping (Neo4j fulltext uses Lucene 9.x).
-# Characters: + - && || ! ( ) { } [ ] ^ " ~ * ? : \ /
+# Neo4j fulltext indexes delegate query parsing to Apache Lucene, which
+# treats these characters as syntax: + - && || ! ( ) { } [ ] ^ " ~ * ? : \ /
+# Unescaped user input containing these characters causes ParseException or
+# alters query semantics (e.g. "*" triggers wildcard expansion).
+# We escape each occurrence with a leading backslash so the character is
+# matched literally.  Reference:
+#   https://neo4j.com/docs/cypher-manual/current/indexes/semantic-indexes/full-text-indexes/
 _LUCENE_SPECIAL_RE = re.compile(r'([+\-&|!(){}\[\]^"~*?:\\/])')
 _WHITESPACE_ONLY_RE = re.compile(r"^\s*$")
 
