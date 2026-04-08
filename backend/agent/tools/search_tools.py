@@ -6,6 +6,7 @@ LangGraph tools for searching video content.
 Includes visual search, entity search, transcript retrieval, and scene description.
 """
 
+import asyncio
 import logging
 from typing import Annotated, Any
 
@@ -51,9 +52,6 @@ async def search_video(
         from services.graph_search_service import get_graph_search_service
 
         search_service = get_graph_search_service()
-
-        if not search_service.graph_service.is_connected:
-            search_service.graph_service.connect()
 
         # Determine node types
         if content_type == "visual":
@@ -174,9 +172,6 @@ async def find_entity(
 
         search_service = get_graph_search_service()
 
-        if not search_service.graph_service.is_connected:
-            search_service.graph_service.connect()
-
         search_response = await search_service.hybrid_search(
             query_text=entity_name,
             node_types=[NodeType.ENTITY, NodeType.FRAME, NodeType.AUDIO_SEGMENT],
@@ -269,25 +264,18 @@ async def get_transcript(
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
-
-        if not kg.is_connected:
-            return tool_error(
-                "graph_unavailable",
-                "Knowledge graph is not connected.",
-                recovery="Try get_video_info for basic metadata from database.",
-            )
 
         full_transcript = start_time is None and end_time is None
         effective_start = start_time if start_time is not None else 0.0
         effective_end = end_time if end_time is not None else 999999.0
 
         # Delegate to service layer (handles chain-walk + fallback)
-        segments = kg.get_transcript_segments(
-            effective_id,
-            start_time=None if full_transcript else effective_start,
-            end_time=None if full_transcript else effective_end,
+        segments = await asyncio.to_thread(
+            lambda: kg.get_transcript_segments(
+                effective_id,
+                start_time=None if full_transcript else effective_start,
+                end_time=None if full_transcript else effective_end,
+            )
         )
 
         if not segments:
@@ -355,17 +343,10 @@ async def describe_scene(
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
 
-        if not kg.is_connected:
-            return tool_error(
-                "graph_unavailable",
-                "Knowledge graph is not connected.",
-                recovery="Try get_video_info for basic metadata from database.",
-            )
-
-        frame = kg.get_nearest_frame(effective_id, timestamp, user_id=user_id)
+        frame = await asyncio.to_thread(
+            lambda: kg.get_nearest_frame(effective_id, timestamp, user_id=user_id)
+        )
 
         if not frame:
             return {

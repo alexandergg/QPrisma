@@ -110,6 +110,11 @@ def app(reset_settings):
     deps._video_decoder = None
     deps._graph_search_service = None
 
+    # Reset async graph facade singleton to prevent real Neo4j connections
+    import services.async_graph_facade as _agf
+
+    _agf._async_facade = None
+
     from api.main import app as fastapi_app
 
     yield fastapi_app

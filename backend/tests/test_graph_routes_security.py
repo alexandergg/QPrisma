@@ -3,7 +3,7 @@ Focused security tests for graph route authorization.
 """
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -28,7 +28,7 @@ class TestGraphRouteSecurity:
     @pytest.mark.asyncio
     async def test_clear_all_graph_data_requires_superuser(self, test_user):
         with (
-            patch("api.routes.graph_routes.get_knowledge_graph_service") as mock_service,
+            patch("api.routes.graph_routes.get_async_graph_service") as mock_service,
             pytest.raises(HTTPException) as exc_info,
         ):
             await clear_all_graph_data(confirm=True, current_user=test_user)
@@ -87,15 +87,17 @@ class TestGraphRouteSecurity:
             min_similarity=0.8,
         )
         mock_search_service = MagicMock()
-        mock_search_service.find_similar_across_videos.return_value = [
-            SimpleNamespace(
-                node_id="node-2",
-                node_type=NodeType.FRAME,
-                video_id="vid-2",
-                vector_score=0.91,
-                content={"id": "node-2"},
-            )
-        ]
+        mock_search_service.find_similar_across_videos = AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    node_id="node-2",
+                    node_type=NodeType.FRAME,
+                    video_id="vid-2",
+                    vector_score=0.91,
+                    content={"id": "node-2"},
+                )
+            ]
+        )
 
         with (
             patch("api.routes.graph_routes.get_graph_node_media_or_404") as mock_node_auth,
@@ -118,7 +120,7 @@ class TestGraphRouteSecurity:
     @pytest.mark.asyncio
     async def test_expand_context_checks_node_ownership(self, test_user):
         request = ContextExpansionRequest(node_id="node-1", hops=2, max_nodes=10)
-        mock_service = MagicMock()
+        mock_service = AsyncMock()
         mock_service.expand_context.return_value = {
             "center_node_id": "node-1",
             "hops": 2,
@@ -129,7 +131,7 @@ class TestGraphRouteSecurity:
         with (
             patch("api.routes.graph_routes.get_graph_node_media_or_404") as mock_node_auth,
             patch(
-                "api.routes.graph_routes.get_knowledge_graph_service",
+                "api.routes.graph_routes.get_async_graph_service",
                 return_value=mock_service,
             ),
         ):

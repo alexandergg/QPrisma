@@ -11,6 +11,7 @@ tool functions are thin wrappers that provide the LangGraph ``@tool``
 interface and ``InjectedState`` plumbing.
 """
 
+import asyncio
 import logging
 from typing import Annotated, Any
 
@@ -49,16 +50,16 @@ async def find_highlights(
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
 
         service = HighlightDetectionService(kg)
-        result = service.detect_highlights(
-            media_id=media_id,
-            criteria=criteria,
-            max_clips=max_clips,
-            min_duration=min_duration,
-            max_duration=max_duration,
+        result = await asyncio.to_thread(
+            lambda: service.detect_highlights(
+                media_id=media_id,
+                criteria=criteria,
+                max_clips=max_clips,
+                min_duration=min_duration,
+                max_duration=max_duration,
+            )
         )
 
         highlights = result.get("highlights", [])

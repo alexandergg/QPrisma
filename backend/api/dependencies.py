@@ -178,7 +178,11 @@ def get_scene_detect_service():
 
 
 def get_knowledge_graph_service():
-    """Get or create Knowledge Graph Service, ensuring it is connected."""
+    """Get or create Knowledge Graph Service, ensuring it is connected.
+
+    For async contexts (route handlers, async services), prefer
+    :func:`get_async_graph_service` which returns the non-blocking facade.
+    """
     global _knowledge_graph_service
     if _knowledge_graph_service is None:
         from services.knowledge_graph import (
@@ -189,6 +193,21 @@ def get_knowledge_graph_service():
         if not _knowledge_graph_service.is_connected:
             _knowledge_graph_service.connect()
     return _knowledge_graph_service
+
+
+def get_async_graph_service():
+    """Return the :class:`AsyncKnowledgeGraphFacade` singleton.
+
+    The facade wraps the sync :class:`KnowledgeGraphService` with
+    ``asyncio.to_thread()`` so that route handlers never block the
+    event loop on Neo4j I/O.
+
+    The underlying sync service is eagerly connected at startup via
+    the FastAPI lifespan handler in ``api/main.py``.
+    """
+    from services.async_graph_facade import get_async_knowledge_graph_facade
+
+    return get_async_knowledge_graph_facade()
 
 
 _graph_search_service = None

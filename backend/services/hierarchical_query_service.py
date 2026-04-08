@@ -9,6 +9,7 @@ for hierarchical video representations stored in the knowledge graph.
 This service is read-only — it never writes to Neo4j.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
@@ -217,7 +218,9 @@ class HierarchicalQueryService:
             params = {"query_embedding": query_embedding, "top_k": top_k}
             if video_id:
                 params["video_id"] = video_id
-            return self.graph_service.execute_query(query, params, unpack_key="n")
+            return await asyncio.to_thread(
+                self.graph_service.execute_query, query, params, unpack_key="n"
+            )
         except Exception as e:
             logger.warning(f"Vector search failed, using fallback: {e}")
             return await self._fallback_search(node_type, video_id, top_k)
@@ -241,7 +244,8 @@ class HierarchicalQueryService:
         """
 
         try:
-            return self.graph_service.execute_query(
+            return await asyncio.to_thread(
+                self.graph_service.execute_query,
                 query,
                 {"parent_id": parent_id, "query_embedding": query_embedding, "top_k": top_k},
                 unpack_key="c",
@@ -266,7 +270,9 @@ class HierarchicalQueryService:
         params = {"top_k": top_k}
         if video_id:
             params["video_id"] = video_id
-        return self.graph_service.execute_query(query, params, unpack_key="n")
+        return await asyncio.to_thread(
+            self.graph_service.execute_query, query, params, unpack_key="n"
+        )
 
     # =========================================================================
     # Lazy Loading
@@ -301,7 +307,8 @@ class HierarchicalQueryService:
         LIMIT $limit
         """
 
-        records = self.graph_service.execute_query(
+        records = await asyncio.to_thread(
+            self.graph_service.execute_query,
             query,
             {"node_id": node_id, "offset": offset, "limit": limit},
             unpack_key="c",
@@ -344,32 +351,35 @@ class HierarchicalQueryService:
         RETURN nodes(path) as path_nodes
         """
 
-        # Uses get_session() because path_nodes contains Neo4j Node objects
-        # with .labels frozenset needed by _determine_level()
-        with self.graph_service.get_session() as session:
-            result = session.run(query, node_id=node_id)
-            record = result.single()
+        # Runs in a worker thread because it needs Neo4j Node objects with
+        # .labels (frozenset) for _determine_level().
+        def _run_path_query() -> list[HierarchyLevel]:
+            with self.graph_service.get_session() as session:
+                result = session.run(query, node_id=node_id)
+                record = result.single()
 
-            if not record:
-                return []
+                if not record:
+                    return []
 
-            path = []
-            for node in record["path_nodes"]:
-                node_dict = dict(node)
-                level = self._determine_level(node.labels)
-                path.append(
-                    HierarchyLevel(
-                        level=level,
-                        node_id=node_dict["id"],
-                        node_type=NodeType(level.capitalize()),
-                        summary=node_dict.get("summary") or node_dict.get("description"),
-                        title=node_dict.get("title"),
-                        start_time=node_dict.get("start_time", 0),
-                        end_time=node_dict.get("end_time", 0),
+                path = []
+                for node in record["path_nodes"]:
+                    node_dict = dict(node)
+                    level = self._determine_level(node.labels)
+                    path.append(
+                        HierarchyLevel(
+                            level=level,
+                            node_id=node_dict["id"],
+                            node_type=NodeType(level.capitalize()),
+                            summary=node_dict.get("summary") or node_dict.get("description"),
+                            title=node_dict.get("title"),
+                            start_time=node_dict.get("start_time", 0),
+                            end_time=node_dict.get("end_time", 0),
+                        )
                     )
-                )
 
-            return path
+                return path
+
+        return await asyncio.to_thread(_run_path_query)
 
     def _determine_level(self, labels: frozenset) -> str:
         """Determine hierarchy level from Neo4j labels."""
@@ -399,7 +409,9 @@ class HierarchicalQueryService:
             v.embedding IS NOT NULL as has_video_embedding
         """
 
-        record = self.graph_service.execute_query(query, {"video_id": video_id}, single=True)
+        record = await asyncio.to_thread(
+            self.graph_service.execute_query, query, {"video_id": video_id}, single=True
+        )
 
         if not record:
             return {"error": "Video not found"}

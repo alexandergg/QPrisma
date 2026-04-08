@@ -5,6 +5,7 @@ Context Tools
 LangGraph tools for retrieving video context, chapters, summaries, and metadata.
 """
 
+import asyncio
 import logging
 from typing import Annotated, Any
 
@@ -197,18 +198,8 @@ async def list_chapters(
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
 
-        if not kg.is_connected:
-            logger.warning("list_chapters: Neo4j unavailable at %s", getattr(kg, "uri", "unknown"))
-            return tool_error(
-                "graph_unavailable",
-                "Knowledge graph is not connected.",
-                recovery="Try get_video_info for basic metadata from database.",
-            )
-
-        video_node = kg.get_video_node(effective_id)
+        video_node = await asyncio.to_thread(kg.get_video_node, effective_id)
         if not video_node:
             return {
                 "message": "Video not found in knowledge graph.",
@@ -216,9 +207,9 @@ async def list_chapters(
                 "_meta": tool_meta(is_complete=False, result_count=0),
             }
 
-        scenes = kg.get_video_scenes(effective_id)
+        scenes = await asyncio.to_thread(kg.get_video_scenes, effective_id)
         if not scenes:
-            summary, topics = kg.get_video_summary(effective_id)
+            summary, topics = await asyncio.to_thread(kg.get_video_summary, effective_id)
             result: dict[str, Any] = {
                 "chapters": [],
                 "_meta": tool_meta(is_complete=True, result_count=0),
@@ -232,7 +223,7 @@ async def list_chapters(
                 result["summary"] = summary
             return result
 
-        all_frames = kg.get_video_frames(effective_id)
+        all_frames = await asyncio.to_thread(kg.get_video_frames, effective_id)
         # Cap frames to avoid expensive per-scene filtering on long videos
         MAX_FRAMES_FOR_CHAPTERS = 500
         if len(all_frames) > MAX_FRAMES_FOR_CHAPTERS:
@@ -335,18 +326,10 @@ async def get_summary(
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
 
-        if not kg.is_connected:
-            logger.warning("get_summary: Neo4j unavailable at %s", kg.uri)
-            return tool_error(
-                "graph_unavailable",
-                "Knowledge graph is not connected.",
-                recovery="Try get_video_info for basic metadata from database.",
-            )
-
-        record = kg.get_video_summary_data(effective_id, user_id=user_id)
+        record = await asyncio.to_thread(
+            lambda: kg.get_video_summary_data(effective_id, user_id=user_id)
+        )
 
         if not record or not record.get("summary"):
             return {
@@ -399,23 +382,18 @@ async def get_scene_context(
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
-
-        if not kg.is_connected:
-            return tool_error(
-                "graph_unavailable",
-                "Knowledge graph is not connected.",
-                recovery="Try get_video_info for basic metadata from database.",
-            )
 
         start_time = max(0, timestamp - window_seconds)
         end_time = timestamp + window_seconds
 
         # Delegate all raw Cypher to service layer
-        frames = kg.get_frames_in_window(effective_id, start_time, end_time, timestamp)
-        audio_segments = kg.get_audio_in_window(effective_id, start_time, end_time, timestamp)
-        scene = kg.get_scene_at_timestamp(effective_id, timestamp)
+        frames = await asyncio.to_thread(
+            kg.get_frames_in_window, effective_id, start_time, end_time, timestamp
+        )
+        audio_segments = await asyncio.to_thread(
+            kg.get_audio_in_window, effective_id, start_time, end_time, timestamp
+        )
+        scene = await asyncio.to_thread(kg.get_scene_at_timestamp, effective_id, timestamp)
 
         # Organize context by phase
         before_frames = [f for f in frames if f["timestamp"] < timestamp - 5]
@@ -537,17 +515,10 @@ async def get_community_overview(
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
 
-        if not kg.is_connected:
-            return tool_error(
-                "graph_unavailable",
-                "Knowledge graph is not connected.",
-                recovery="Try get_summary for a high-level overview from the video node.",
-            )
-
-        communities = kg.get_community_context(effective_id, topic=topic)
+        communities = await asyncio.to_thread(
+            lambda: kg.get_community_context(effective_id, topic=topic)
+        )
 
         if not communities:
             return {

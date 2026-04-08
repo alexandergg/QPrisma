@@ -5,6 +5,7 @@ Business logic for conversational AI chat with video context.
 Extracted from chat_routes.py to maintain proper layering.
 """
 
+import asyncio
 import logging
 
 from openai import AsyncAzureOpenAI
@@ -54,18 +55,14 @@ class ChatService:
         video_topics = []
         try:
             gs = self.graph_search_service
-            if not gs.graph_service.is_connected:
-                gs.graph_service.connect()
-
-            if gs.graph_service.is_connected:
-                summary, topics = gs.graph_service.get_video_summary(media_id)
-                video_summary = summary or ""
-                video_topics = topics
-                if video_summary:
-                    logger.info(
-                        f"Loaded video summary ({len(video_summary)} chars) "
-                        f"and {len(video_topics)} topics from Neo4j"
-                    )
+            summary, topics = await asyncio.to_thread(gs.graph_service.get_video_summary, media_id)
+            video_summary = summary or ""
+            video_topics = topics
+            if video_summary:
+                logger.info(
+                    f"Loaded video summary ({len(video_summary)} chars) "
+                    f"and {len(video_topics)} topics from Neo4j"
+                )
         except Exception as e:
             logger.warning(f"Could not load video summary from Neo4j: {e}")
 
@@ -78,15 +75,7 @@ class ChatService:
         video_summary, video_topics = await self._load_video_summary(media_id)
 
         try:
-            gs = self.graph_search_service
-            if not gs.graph_service.is_connected:
-                gs.graph_service.connect()
-
-            if not gs.graph_service.is_connected:
-                logger.warning("Neo4j not connected - cannot search video context")
-                return context, sources
-
-            search_response = await gs.hybrid_search(
+            search_response = await self.graph_search_service.hybrid_search(
                 query_text=message,
                 node_types=[NodeType.FRAME, NodeType.AUDIO_SEGMENT, NodeType.ENTITY],
                 video_id=media_id,

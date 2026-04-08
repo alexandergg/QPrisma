@@ -19,6 +19,7 @@ Key Features:
 - Embedding compression at higher levels
 """
 
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -128,9 +129,8 @@ class HierarchicalContextService:
             embedding_service=self.embedding_service,
         )
 
-        # Ensure graph connection
-        if not self.graph_service.is_connected:
-            self.graph_service.connect()
+        # Graph connection is managed at startup via FastAPI lifespan;
+        # no lazy connect needed here.
 
     # =========================================================================
     # Embedding Generation & Pooling (delegated to HierarchyEmbeddingGenerator)
@@ -369,12 +369,13 @@ class HierarchicalContextService:
             embedding_model="text-embedding-3-large",
         )
 
-        self.graph_service.create_video_node(video_node)
+        await asyncio.to_thread(self.graph_service.create_video_node, video_node)
         counts["video"] = 1
 
         # Store video embedding in vector index
         if self.config.store_video_embeddings and video_embedding:
-            self._node_factory.store_embedding_node(
+            await asyncio.to_thread(
+                self._node_factory.store_embedding_node,
                 node_id=f"video:{structure.media_id}",
                 embedding=video_embedding,
                 node_type=NodeType.VIDEO,
@@ -432,10 +433,16 @@ class HierarchicalContextService:
                 )
 
         if chapters_data:
-            self._node_factory.create_chapters_batch(chapters_data)
-            self._node_factory.create_relationships_batch(chapter_rels, RelationType.CONTAINS)
+            await asyncio.to_thread(self._node_factory.create_chapters_batch, chapters_data)
+            await asyncio.to_thread(
+                self._node_factory.create_relationships_batch,
+                chapter_rels,
+                RelationType.CONTAINS,
+            )
             if chapter_embeddings:
-                self._node_factory.store_embeddings_batch(chapter_embeddings)
+                await asyncio.to_thread(
+                    self._node_factory.store_embeddings_batch, chapter_embeddings
+                )
             counts["chapters"] = len(chapters_data)
 
         # --- Batch create Scene nodes + CONTAINS relationships ---
@@ -493,11 +500,15 @@ class HierarchicalContextService:
                 )
 
         if scenes_data:
-            self._node_factory.create_scenes_batch(scenes_data)
+            await asyncio.to_thread(self._node_factory.create_scenes_batch, scenes_data)
             if scene_rels:
-                self._node_factory.create_relationships_batch(scene_rels, RelationType.CONTAINS)
+                await asyncio.to_thread(
+                    self._node_factory.create_relationships_batch,
+                    scene_rels,
+                    RelationType.CONTAINS,
+                )
             if scene_embeddings:
-                self._node_factory.store_embeddings_batch(scene_embeddings)
+                await asyncio.to_thread(self._node_factory.store_embeddings_batch, scene_embeddings)
             counts["scenes"] = len(scenes_data)
 
         return counts

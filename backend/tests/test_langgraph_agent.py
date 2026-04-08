@@ -560,19 +560,18 @@ class TestLangGraphTools:
 
     @pytest.mark.asyncio
     async def test_list_chapters_graph_unavailable(self):
-        """When Neo4j is not connected, return an error."""
+        """When Neo4j call fails, return a tool_error."""
         from agent.tools.context_tools import list_chapters
 
         mock_kg = MagicMock()
-        mock_kg.is_connected = False
-        mock_kg.connect.return_value = None
+        mock_kg.get_video_node.side_effect = Exception("Neo4j connection refused")
 
         with patch("services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg):
             result = await list_chapters.coroutine(target_video_id="vid-123")
 
         assert "error" in result
-        assert result["error"]["type"] == "graph_unavailable"
-        assert "not connected" in result["error"]["message"]
+        assert result["error"]["type"] == "query_error"
+        assert "Failed to get chapters" in result["error"]["message"]
 
 
 class TestRedisCheckpointer:

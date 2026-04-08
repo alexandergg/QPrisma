@@ -11,6 +11,7 @@ Implements hybrid search combining:
 Inspired by VideoRAG for intelligent multimedia content retrieval.
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -210,7 +211,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             The generated embedding
         """
         embedding = await self.embedding_service.generate_embedding(text)
-        self.store_embedding(node_id, embedding, node_type)
+        await asyncio.to_thread(self.store_embedding, node_id, embedding, node_type)
         return embedding
 
     async def bulk_generate_embeddings(
@@ -255,9 +256,13 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         total_processed = 0
 
         while True:
-            with self.graph_service.get_session() as session:
-                result = session.run(query, **params)
-                nodes = [(r["id"], r["text"]) for r in result]
+
+            def _fetch_batch():
+                with self.graph_service.get_session() as session:
+                    result = session.run(query, **params)
+                    return [(r["id"], r["text"]) for r in result]
+
+            nodes = await asyncio.to_thread(_fetch_batch)
 
             if not nodes:
                 break
@@ -268,7 +273,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
 
             # Almacenar embeddings
             for (node_id, _), embedding in zip(nodes, embeddings):
-                self.store_embedding(node_id, embedding, node_type)
+                await asyncio.to_thread(self.store_embedding, node_id, embedding, node_type)
 
             total_processed += len(nodes)
             logger.info(f"Generated {total_processed} embeddings for {label}")
@@ -448,7 +453,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
     # Cross-Video Search
     # =========================================================================
 
-    def find_similar_across_videos(
+    async def find_similar_across_videos(
         self,
         reference_node_id: str,
         limit: int = 10,
@@ -475,16 +480,26 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             RETURN n.embedding as embedding, n.video_id as video_id, labels(n)[0] as label
         """
 
-        with self.graph_service.get_session() as session:
-            result = session.run(query, node_id=reference_node_id)
-            record = result.single()
+        def _fetch_ref():
+            with self.graph_service.get_session() as session:
+                result = session.run(query, node_id=reference_node_id)
+                record = result.single()
+                if not record or not record["embedding"]:
+                    return None
+                return {
+                    "embedding": record["embedding"],
+                    "video_id": record["video_id"],
+                    "label": record["label"],
+                }
 
-            if not record or not record["embedding"]:
-                return []
+        ref = await asyncio.to_thread(_fetch_ref)
 
-            ref_embedding = record["embedding"]
-            ref_video_id = record["video_id"]
-            ref_label = record["label"]
+        if ref is None:
+            return []
+
+        ref_embedding = ref["embedding"]
+        ref_video_id = ref["video_id"]
+        ref_label = ref["label"]
 
         # Search for similar nodes excluding the reference video
         try:
@@ -524,23 +539,28 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             if allowed_video_ids is not None:
                 params["allowed_video_ids"] = allowed_video_ids
 
-            with self.graph_service.get_session() as session:
-                result = session.run(search_query, **params)
+            def _run_cross_search():
+                _results = []
+                with self.graph_service.get_session() as session:
+                    result = session.run(search_query, **params)
 
-                for record in result:
-                    node_data = dict(record["node"])
-                    node_data.pop("embedding", None)
-                    node_data.pop("embedding_coarse", None)
+                    for record in result:
+                        node_data = dict(record["node"])
+                        node_data.pop("embedding", None)
+                        node_data.pop("embedding_coarse", None)
 
-                    scored = ScoredNode(
-                        node_id=node_data.get("id"),
-                        node_type=node_type,
-                        content=node_data,
-                        vector_score=record["score"],
-                        timestamp=node_data.get("timestamp") or node_data.get("start_time"),
-                        video_id=node_data.get("video_id"),
-                    )
-                    results.append(scored)
+                        scored = ScoredNode(
+                            node_id=node_data.get("id"),
+                            node_type=node_type,
+                            content=node_data,
+                            vector_score=record["score"],
+                            timestamp=node_data.get("timestamp") or node_data.get("start_time"),
+                            video_id=node_data.get("video_id"),
+                        )
+                        _results.append(scored)
+                return _results
+
+            results = await asyncio.to_thread(_run_cross_search)
 
         except Exception as e:
             logger.warning(f"Cross-video search failed: {e}")

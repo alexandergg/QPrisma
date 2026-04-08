@@ -147,10 +147,38 @@ async def lifespan(app: FastAPI):
 
     logger.info("=" * 50)
 
+    # --- Neo4j Knowledge Graph ---
+    if disable_startup_checks:
+        logger.info("Neo4j Knowledge Graph: skipped (startup checks disabled)")
+    else:
+        try:
+            from services.async_graph_facade import get_async_knowledge_graph_facade
+
+            kg_facade = get_async_knowledge_graph_facade()
+            connected = await kg_facade.connect()
+            logger.info(
+                "Neo4j Knowledge Graph: %s",
+                "ok" if connected else "connection failed",
+            )
+        except Exception as e:
+            logger.warning("Neo4j Knowledge Graph: failed (%s)", e)
+
     yield  # Application runs here
 
     # Shutdown (cleanup if needed)
     logger.info("QPrisma API shutting down...")
+
+    # Disconnect Neo4j (only if we connected during startup)
+    if not disable_startup_checks:
+        try:
+            from services.async_graph_facade import get_async_knowledge_graph_facade
+
+            kg_facade = get_async_knowledge_graph_facade()
+            if kg_facade.is_connected:
+                await kg_facade.disconnect()
+                logger.info("Neo4j disconnected")
+        except Exception:
+            logger.debug("Neo4j disconnect failed during shutdown", exc_info=True)
 
     # Stop Redis Pub/Sub listener
     if pubsub_task:

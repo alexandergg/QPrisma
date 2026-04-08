@@ -13,12 +13,12 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.dependencies import (
+    get_async_graph_service,
     get_current_user,
     get_graph_node_media_or_404,
     get_graph_route_service,
     get_graph_search_service,
     get_hierarchical_context_service,
-    get_knowledge_graph_service,
     get_media_or_404,
 )
 from core.exceptions import internal_error, not_found_error
@@ -73,9 +73,9 @@ async def graph_health_check(current_user: User = Depends(get_current_user)):
     Verifies the connection status with Neo4j.
     """
     try:
-        service = get_knowledge_graph_service()
+        service = get_async_graph_service()
         svc: GraphRouteService = get_graph_route_service()
-        result = svc.check_graph_health(service)
+        result = svc.check_graph_health(service.sync_service)
         return GraphHealthResponse(
             status=result.status,
             connected=result.connected,
@@ -103,9 +103,9 @@ async def get_graph_stats(current_user: User = Depends(get_current_user)):
     - Graph metrics
     """
     try:
-        service = get_knowledge_graph_service()
+        service = get_async_graph_service()
         scoped_user_id = None if current_user.is_superuser else current_user.id
-        stats = service.get_stats(user_id=scoped_user_id)
+        stats = await service.get_stats(user_id=scoped_user_id)
         return stats
     except Exception as e:
         logger.error(f"Failed to get graph stats: {e}", exc_info=True)
@@ -188,7 +188,7 @@ async def cross_video_search(
         search_service = get_graph_search_service()
         scoped_user_id = None if current_user.is_superuser else current_user.id
 
-        similar_nodes = search_service.find_similar_across_videos(
+        similar_nodes = await search_service.find_similar_across_videos(
             reference_node_id=request.reference_node_id,
             limit=request.limit,
             min_similarity=request.min_similarity,
@@ -301,8 +301,8 @@ async def expand_context(
     """
     try:
         get_graph_node_media_or_404(request.node_id, current_user)
-        service = get_knowledge_graph_service()
-        result = service.expand_context(
+        service = get_async_graph_service()
+        result = await service.expand_context(
             node_id=request.node_id,
             hops=request.hops,
             relation_types=request.relation_types,
@@ -334,8 +334,8 @@ async def get_entity_timeline(
     """
     try:
         get_media_or_404(request.video_id, current_user)
-        service = get_knowledge_graph_service()
-        occurrences = service.get_entity_timeline(
+        service = get_async_graph_service()
+        occurrences = await service.get_entity_timeline(
             entity_name=request.entity_name,
             video_id=request.video_id,
         )
@@ -395,8 +395,8 @@ async def delete_video_graph(video_id: str, current_user: User = Depends(get_cur
     """
     try:
         get_media_or_404(video_id, current_user)
-        service = get_knowledge_graph_service()
-        deleted_count = service.delete_video_graph(video_id)
+        service = get_async_graph_service()
+        deleted_count = await service.delete_video_graph(video_id)
 
         return {
             "status": "success",
@@ -671,8 +671,8 @@ async def clear_all_graph_data(
         )
 
     try:
-        service = get_knowledge_graph_service()
-        service.clear_all()
+        service = get_async_graph_service()
+        await service.clear_all()
         return {"status": "success", "message": "All graph data has been deleted"}
     except Exception as e:
         logger.error(f"Failed to clear graph: {e}", exc_info=True)
@@ -786,8 +786,8 @@ async def get_video_visualization(
     """
     try:
         get_media_or_404(video_id, current_user)
-        service = get_knowledge_graph_service()
-        subgraph = service.get_video_subgraph(
+        service = get_async_graph_service()
+        subgraph = await service.get_video_subgraph(
             video_id=video_id,
             depth=depth,
             include_entities=include_entities,
@@ -830,8 +830,8 @@ async def expand_subgraph(
     """
     try:
         get_graph_node_media_or_404(request.node_id, current_user)
-        service = get_knowledge_graph_service()
-        subgraph = service.expand_node_subgraph(
+        service = get_async_graph_service()
+        subgraph = await service.expand_node_subgraph(
             node_id=request.node_id,
             hops=request.hops,
             max_nodes=request.max_nodes,

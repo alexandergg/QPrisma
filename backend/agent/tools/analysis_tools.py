@@ -6,6 +6,7 @@ LangGraph tools for content analysis: related content exploration,
 entity timelines, and moment comparison.
 """
 
+import asyncio
 import logging
 from typing import Annotated, Any
 
@@ -38,9 +39,6 @@ async def get_related_content(
         from services.graph_search_service import get_graph_search_service
 
         search_service = get_graph_search_service()
-
-        if not search_service.graph_service.is_connected:
-            search_service.graph_service.connect()
 
         search_response = await search_service.hybrid_search(
             query_text=topic,
@@ -139,10 +137,10 @@ async def get_entity_timeline(
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
 
-        appearances = kg.find_entity_appearances(media_id, entity_name, user_id=user_id)
+        appearances = await asyncio.to_thread(
+            lambda: kg.find_entity_appearances(media_id, entity_name, user_id=user_id)
+        )
         visual_records = appearances.get("visual", [])
         audio_records = appearances.get("audio", [])
 
@@ -252,11 +250,11 @@ async def compare_moments(
         from services.knowledge_graph import get_knowledge_graph_service
 
         kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
 
         # Batched retrieval: 2 queries total instead of 2 per timestamp
-        moments_data = kg.get_moments_context(media_id, timestamps, window=5.0)
+        moments_data = await asyncio.to_thread(
+            lambda: kg.get_moments_context(media_id, timestamps, window=5.0)
+        )
 
         comparison = []
         truncated_fields: list[str] = []

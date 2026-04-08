@@ -9,6 +9,7 @@ Provides:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import Callable
@@ -154,6 +155,120 @@ def neo4j_write_retry(
         return wrapper  # type: ignore[return-value]
 
     return decorator
+
+
+# =========================================================================
+# Async retry decorators (for FastAPI request path via async facade)
+# =========================================================================
+
+
+def async_neo4j_read_retry(
+    max_retries: int = 3,
+    base_delay: float = 0.5,
+    backoff_factor: float = 2.0,
+    max_delay: float = 8.0,
+) -> Callable[[F], F]:
+    """Async retry decorator for Neo4j read operations.
+
+    Same backoff logic as :func:`neo4j_read_retry` but uses
+    ``asyncio.sleep`` instead of ``time.sleep``.
+    """
+
+    def decorator(fn: F) -> F:
+        @wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exc: Exception | None = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return await fn(*args, **kwargs)
+                except Exception as exc:
+                    last_exc = exc
+                    if isinstance(exc, PERMANENT_EXCEPTIONS) or not is_transient(exc):
+                        logger.error(
+                            "Neo4j async read permanent failure in %s: %s",
+                            fn.__qualname__,
+                            exc,
+                        )
+                        raise
+                    if attempt < max_retries:
+                        delay = min(base_delay * (backoff_factor**attempt), max_delay)
+                        logger.warning(
+                            "Neo4j async read transient failure in %s (attempt %d/%d), "
+                            "retrying in %.1fs: %s",
+                            fn.__qualname__,
+                            attempt + 1,
+                            max_retries + 1,
+                            delay,
+                            exc,
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        logger.error(
+                            "Neo4j async read exhausted retries in %s after %d attempts: %s",
+                            fn.__qualname__,
+                            max_retries + 1,
+                            exc,
+                        )
+            raise last_exc  # type: ignore[misc]
+
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
+
+
+def async_neo4j_write_retry(
+    max_retries: int = 1,
+    base_delay: float = 1.0,
+) -> Callable[[F], F]:
+    """Async retry decorator for idempotent Neo4j write operations.
+
+    Same logic as :func:`neo4j_write_retry` but uses ``asyncio.sleep``.
+    """
+
+    def decorator(fn: F) -> F:
+        @wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exc: Exception | None = None
+            for attempt in range(max_retries + 1):
+                try:
+                    return await fn(*args, **kwargs)
+                except Exception as exc:
+                    last_exc = exc
+                    if isinstance(exc, PERMANENT_EXCEPTIONS) or not is_transient(exc):
+                        logger.error(
+                            "Neo4j async write permanent failure in %s: %s",
+                            fn.__qualname__,
+                            exc,
+                        )
+                        raise
+                    if attempt < max_retries:
+                        logger.warning(
+                            "Neo4j async write transient failure in %s (attempt %d/%d), "
+                            "retrying in %.1fs: %s",
+                            fn.__qualname__,
+                            attempt + 1,
+                            max_retries + 1,
+                            base_delay,
+                            exc,
+                        )
+                        await asyncio.sleep(base_delay)
+                    else:
+                        logger.error(
+                            "Neo4j async write exhausted retries in %s after %d attempts: %s",
+                            fn.__qualname__,
+                            max_retries + 1,
+                            exc,
+                        )
+            raise last_exc  # type: ignore[misc]
+
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
+
+
+# =========================================================================
+# Synchronous error-handling helper
+# =========================================================================
 
 
 def execute_with_error_handling(

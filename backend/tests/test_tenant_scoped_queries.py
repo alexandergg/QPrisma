@@ -232,7 +232,8 @@ def test_calculate_graph_scores_batches_expansion_and_paths():
 
 
 @pytest.mark.unit
-def test_find_similar_across_videos_adds_user_filter_without_video_id_list():
+@pytest.mark.asyncio
+async def test_find_similar_across_videos_adds_user_filter_without_video_id_list():
     session = MagicMock()
     session.run.side_effect = [
         _iterable_result(
@@ -245,7 +246,7 @@ def test_find_similar_across_videos_adds_user_filter_without_video_id_list():
     svc.graph_service = MagicMock()
     svc.graph_service.get_session = _session_context(session)
 
-    results = svc.find_similar_across_videos("node-1", user_id="user-1")
+    results = await svc.find_similar_across_videos("node-1", user_id="user-1")
 
     assert results == []
     search_query = session.run.call_args_list[1].args[0]
