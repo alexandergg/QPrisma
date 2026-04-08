@@ -105,7 +105,27 @@ async def get_graph_stats(current_user: User = Depends(get_current_user)):
     try:
         service = get_async_graph_service()
         scoped_user_id = None if current_user.is_superuser else current_user.id
+
+        # Cache stats with short TTL (120s) — aggregate data, no per-video invalidation
+        try:
+            from services.cache_service import get_cache_service
+
+            cache = await get_cache_service()
+            stats_key = f"stats:{scoped_user_id or 'global'}"
+            cached = await cache.get_graph_query(stats_key)
+            if cached:
+                return GraphStats(**cached)
+        except Exception:
+            cache = None
+
         stats = await service.get_stats(user_id=scoped_user_id)
+
+        if cache is not None:
+            try:
+                await cache.set_graph_query(stats_key, stats.model_dump(mode="json"), ttl=120)
+            except Exception:
+                logger.debug("Failed to cache stats", exc_info=True)
+
         return stats
     except Exception as e:
         logger.error(f"Failed to get graph stats: {e}", exc_info=True)
@@ -245,6 +265,16 @@ async def generate_embeddings(
             video_id=request.video_id,
         )
 
+        # Invalidate cached graph data after embedding mutation
+        if request.video_id:
+            try:
+                from services.cache_service import get_cache_service
+
+                cache = await get_cache_service()
+                await cache.invalidate_video(request.video_id)
+            except Exception:
+                logger.debug("Cache invalidation failed on embedding gen", exc_info=True)
+
         return GenerateEmbeddingsResponse(
             node_type=request.node_type.value,
             embeddings_generated=count,
@@ -369,17 +399,39 @@ async def get_video_graph(video_id: str, current_user: User = Depends(get_curren
         get_media_or_404(video_id, current_user)
         svc: GraphRouteService = get_graph_route_service()
         scoped_user_id = None if current_user.is_superuser else current_user.id
+
+        # Cache video graph data (10min TTL, video_id visible for invalidation)
+        cache = None
+        cache_key = f"video_graph:{video_id}:{scoped_user_id or 'global'}"
+        try:
+            from services.cache_service import get_cache_service
+
+            cache = await get_cache_service()
+            cached = await cache.get_graph_query(cache_key)
+            if cached:
+                return cached
+        except Exception:
+            cache = None
+
         data = svc.get_video_graph_data(video_id, user_id=scoped_user_id)
 
         if data.error:
             raise not_found_error("Video", video_id)
 
-        return {
+        result = {
             "video": data.video,
             "scenes": data.scenes,
             "total_scenes": data.total_scenes,
             "graph_stats": data.graph_stats,
         }
+
+        if cache is not None:
+            try:
+                await cache.set_graph_query(cache_key, result)
+            except Exception:
+                logger.debug("Failed to cache video graph data", exc_info=True)
+
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -398,6 +450,15 @@ async def delete_video_graph(video_id: str, current_user: User = Depends(get_cur
         get_media_or_404(video_id, current_user)
         service = get_async_graph_service()
         deleted_count = await service.delete_video_graph(video_id)
+
+        # Invalidate cached graph data for this video
+        try:
+            from services.cache_service import get_cache_service
+
+            cache = await get_cache_service()
+            await cache.invalidate_video(video_id)
+        except Exception:
+            logger.debug("Cache invalidation failed on delete", exc_info=True)
 
         return {
             "status": "success",
@@ -451,6 +512,15 @@ async def process_video_hierarchy(
         result = await hierarchy_service.process_video_hierarchy(
             video_path=request.video_path, video_metadata=video_metadata
         )
+
+        # Invalidate cached graph data after hierarchy mutation
+        try:
+            from services.cache_service import get_cache_service
+
+            cache = await get_cache_service()
+            await cache.invalidate_video(request.video_id)
+        except Exception:
+            logger.debug("Cache invalidation failed on hierarchy process", exc_info=True)
 
         return ProcessHierarchyResponse(
             video_id=result["video_id"],

@@ -12,6 +12,8 @@ Inspired by VideoRAG for intelligent multimedia content retrieval.
 """
 
 import asyncio
+import hashlib
+import json
 import logging
 from datetime import UTC, datetime
 
@@ -99,6 +101,35 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 weights = {k: v / total for k, v in weights.items()}
             return weights
         return self.weights
+
+    @staticmethod
+    def _build_search_cache_key(
+        query_text: str,
+        node_types: list[NodeType],
+        video_id: str | None,
+        video_ids: list[str] | None,
+        user_id: str | None,
+        time_range: tuple[float, float] | None,
+        limit: int,
+        expansion_hops: int,
+        use_reranking: bool,
+        query_intent: str | None,
+    ) -> str:
+        """Build a deterministic cache key from all result-affecting params."""
+        parts = {
+            "q": query_text,
+            "nt": sorted(t.value for t in node_types),
+            "vid": video_id or "",
+            "vids": sorted(video_ids) if video_ids else [],
+            "uid": user_id or "",
+            "tr": list(time_range) if time_range else None,
+            "lim": limit,
+            "eh": expansion_hops,
+            "rr": use_reranking,
+            "qi": query_intent or "",
+        }
+        raw = json.dumps(parts, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
     # =========================================================================
     # Vector Index Management
@@ -332,6 +363,31 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 NodeType.COMMUNITY,
             ]
 
+        # --- Cache lookup (before embedding to save OpenAI API cost) ---
+        cache_key = self._build_search_cache_key(
+            query_text=query_text,
+            node_types=node_types,
+            video_id=effective_video_id,
+            video_ids=effective_video_ids,
+            user_id=user_id,
+            time_range=time_range,
+            limit=limit,
+            expansion_hops=expansion_hops,
+            use_reranking=use_reranking,
+            query_intent=query_intent,
+        )
+        try:
+            from services.cache_service import get_cache_service
+
+            cache = await get_cache_service()
+            cached = await cache.get_search_result(cache_key)
+            if cached:
+                logger.debug("hybrid_search cache HIT for key=%s", cache_key[:12])
+                return GraphSearchResponse(**cached)
+        except Exception:
+            # Cache unavailable — proceed without it
+            cache = None
+
         # 1. Generate query embedding
         embedding_start = datetime.now(UTC)
         query_embedding = await self.embedding_service.generate_embedding(query_text)
@@ -434,7 +490,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             for r in final_results
         ]
 
-        return GraphSearchResponse(
+        response = GraphSearchResponse(
             query=query_text,
             total_results=len(search_results),
             results=search_results,
@@ -450,6 +506,17 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 "videos": self._count_by_video(final_results),
             },
         )
+
+        # --- Cache store (fire-and-forget, don't block response) ---
+        if cache is not None:
+            try:
+                await cache.set_search_result(
+                    cache_key, response.model_dump(mode="json")
+                )
+            except Exception:
+                logger.debug("Failed to cache search result", exc_info=True)
+
+        return response
 
     # =========================================================================
     # Cross-Video Search

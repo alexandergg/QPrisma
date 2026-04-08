@@ -210,8 +210,6 @@ def get_async_graph_service():
     return get_async_knowledge_graph_facade()
 
 
-_graph_search_service = None
-
 _faster_whisper_transcriber = None
 
 
@@ -255,19 +253,16 @@ def get_faster_whisper_transcriber():
 
 
 def get_graph_search_service():
-    """Get or create Graph Search Service (VideoRAG-style hybrid search)."""
-    global _graph_search_service
-    if _graph_search_service is None:
-        from services.graph_search_service import GraphSearchService
+    """Get or create Graph Search Service (VideoRAG-style hybrid search).
 
-        _graph_search_service = GraphSearchService()
-        _graph_search_service.graph_service = get_knowledge_graph_service()
-        # Initialize vector indexes on first use
-        try:
-            _graph_search_service.initialize_vector_indexes()
-        except Exception as e:
-            logger.warning(f"Failed to initialize vector indexes (Neo4j may not be connected): {e}")
-    return _graph_search_service
+    Delegates to the canonical service-layer singleton to avoid dual-instance
+    initialization with different lifecycle paths.
+    """
+    from services.graph_search_service import (
+        get_graph_search_service as _canonical_getter,
+    )
+
+    return _canonical_getter()
 
 
 _graph_route_service = None

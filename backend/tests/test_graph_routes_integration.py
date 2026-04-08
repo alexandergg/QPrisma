@@ -471,7 +471,7 @@ class TestGetVideoGraph:
             patch(f"{_P}.get_media_or_404", return_value=_mock_media()),
             patch(f"{_P}.get_graph_route_service", return_value=svc),
         ):
-            resp = authenticated_client.get("/graph/video/vid-1")
+            resp = authenticated_client.get("/graph/video/vid-error-1")
         assert resp.status_code == 404
 
     def test_service_error_returns_500(self, authenticated_client):
@@ -481,7 +481,7 @@ class TestGetVideoGraph:
             patch(f"{_P}.get_media_or_404", return_value=_mock_media()),
             patch(f"{_P}.get_graph_route_service", return_value=svc),
         ):
-            resp = authenticated_client.get("/graph/video/vid-1")
+            resp = authenticated_client.get("/graph/video/vid-err-500")
         assert resp.status_code == 500
 
 

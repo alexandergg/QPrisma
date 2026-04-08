@@ -70,6 +70,7 @@ class CacheType(str, Enum):
     VIDEO_METADATA = "video_metadata"  # Video metadata
     SEARCH_RESULT = "search_result"  # Search results
     JOB_STATUS = "job_status"  # Processing job status
+    GRAPH_QUERY = "graph_query"  # Graph query results (video data, stats)
 
 
 @dataclass
@@ -84,6 +85,7 @@ class CacheConfig:
             CacheType.VIDEO_METADATA: 3600,  # 1 hour - metadata may be updated
             CacheType.SEARCH_RESULT: 300,  # 5 min - results change with indexing
             CacheType.JOB_STATUS: 3600,  # 1 hour - job states
+            CacheType.GRAPH_QUERY: 600,  # 10 min - graph reads
         }
     )
 
@@ -646,6 +648,34 @@ class CacheService:
             return await self._set_raw(key, data, ttl)
         except Exception as e:
             logger.error(f"Failed to cache search result: {e}")
+            return False
+
+    # =========================================================================
+    # Graph Query Cache
+    # =========================================================================
+
+    async def get_graph_query(self, query_hash: str) -> dict[str, Any] | None:
+        """Retrieve cached graph query result."""
+        key = self._make_key(CacheType.GRAPH_QUERY, query_hash)
+        data = await self._get_raw(key)
+        if data:
+            try:
+                return json.loads(data)
+            except json.JSONDecodeError:
+                return None
+        return None
+
+    async def set_graph_query(
+        self, query_hash: str, result: dict[str, Any], ttl: int | None = None
+    ) -> bool:
+        """Save graph query result to cache."""
+        key = self._make_key(CacheType.GRAPH_QUERY, query_hash)
+        ttl = ttl or self._get_ttl(CacheType.GRAPH_QUERY)
+        try:
+            data = json.dumps(result).encode()
+            return await self._set_raw(key, data, ttl)
+        except Exception as e:
+            logger.error(f"Failed to cache graph query: {e}")
             return False
 
     # =========================================================================

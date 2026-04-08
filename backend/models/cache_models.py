@@ -31,6 +31,7 @@ class CacheTypeEnum(str, Enum):
     VIDEO_METADATA = "video_metadata"
     SEARCH_RESULT = "search_result"
     JOB_STATUS = "job_status"
+    GRAPH_QUERY = "graph_query"
 
 
 # =============================================================================
@@ -47,6 +48,7 @@ class CacheTTLConfig(BaseModel):
     video_metadata_ttl: int = Field(default=3600, description="TTL for video metadata (1 hour)")
     search_result_ttl: int = Field(default=300, description="TTL for search results (5 min)")
     job_status_ttl: int = Field(default=3600, description="TTL for job status (1 hour)")
+    graph_query_ttl: int = Field(default=600, description="TTL for graph queries (10 min)")
 
 
 class CacheSettings(BaseModel):
