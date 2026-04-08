@@ -542,20 +542,31 @@ class GraphSearchQueryMixin:
 
     # --- Fetch a single node ---
 
-    def _get_node_by_id(self, node_id: str, node_type: NodeType) -> dict | None:
-        """Fetch a single node by ID."""
+    def _get_node_by_id(
+        self, node_id: str, node_type: NodeType, user_id: str | None = None
+    ) -> dict | None:
+        """Fetch a single node by ID.
+
+        Args:
+            user_id: When provided, verify ownership before returning.
+        """
         label = node_type.value
+        user_filter = " AND n.user_id = $user_id" if user_id else ""
         query = f"""
             MATCH (n:{label} {{id: $node_id}})
+            WHERE true{user_filter}
             RETURN n
         """
+        params: dict = {"node_id": node_id}
+        if user_id:
+            params["user_id"] = user_id
         try:
             with self.graph_service.get_session() as session:
-                result = session.run(query, node_id=node_id)
+                result = session.run(query, **params)
                 record = result.single()
                 if record:
                     node_data = dict(record["n"])
-                    node_data.pop("embedding", None)  # Remove large embedding
+                    node_data.pop("embedding", None)
                     return node_data
         except Exception as e:
             logger.warning(f"Failed to get node {node_id}: {e}")

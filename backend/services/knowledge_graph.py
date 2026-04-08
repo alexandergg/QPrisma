@@ -413,9 +413,14 @@ class KnowledgeGraphService:
         """Create multiple Entity nodes in a single batch."""
         return self.nodes.create_entities_batch(entities)
 
-    def get_entity_by_name(self, name: str, entity_type: EntityType | None = None) -> dict | None:
+    def get_entity_by_name(
+        self,
+        name: str,
+        entity_type: EntityType | None = None,
+        user_id: str | None = None,
+    ) -> dict | None:
         """Look up an entity by its normalized name."""
-        return self.nodes.get_entity_by_name(name, entity_type)
+        return self.nodes.get_entity_by_name(name, entity_type, user_id=user_id)
 
     def create_audio_segment(self, segment: AudioSegmentNode) -> str:
         """Create an AudioSegment (transcript) node and connect it to its Video."""
@@ -445,9 +450,9 @@ class KnowledgeGraphService:
     # Agent-facing query façade
     # -----------------------------------------------------------------
 
-    def get_video_summary_data(self, video_id: str) -> dict | None:
+    def get_video_summary_data(self, video_id: str, user_id: str | None = None) -> dict | None:
         """Return video summary, title, topics, and duration."""
-        return self.nodes.get_video_summary_data(video_id)
+        return self.nodes.get_video_summary_data(video_id, user_id=user_id)
 
     def get_transcript_segments(
         self,
@@ -458,9 +463,11 @@ class KnowledgeGraphService:
         """Retrieve ordered transcript segments, optionally within a time range."""
         return self.nodes.get_transcript_segments(video_id, start_time, end_time)
 
-    def get_nearest_frame(self, video_id: str, timestamp: float) -> dict | None:
+    def get_nearest_frame(
+        self, video_id: str, timestamp: float, user_id: str | None = None
+    ) -> dict | None:
         """Return the single frame closest to *timestamp*."""
-        return self.nodes.get_nearest_frame(video_id, timestamp)
+        return self.nodes.get_nearest_frame(video_id, timestamp, user_id=user_id)
 
     def get_frames_in_window(
         self,
@@ -486,9 +493,11 @@ class KnowledgeGraphService:
         """Return the scene that contains *timestamp*."""
         return self.nodes.get_scene_at_timestamp(video_id, timestamp)
 
-    def find_entity_appearances(self, video_id: str, entity_name: str) -> dict[str, list[dict]]:
+    def find_entity_appearances(
+        self, video_id: str, entity_name: str, user_id: str | None = None
+    ) -> dict[str, list[dict]]:
         """Find visual and audio appearances of an entity."""
-        return self.nodes.find_entity_appearances(video_id, entity_name)
+        return self.nodes.find_entity_appearances(video_id, entity_name, user_id=user_id)
 
     def get_moments_context(
         self,
@@ -635,9 +644,9 @@ class KnowledgeGraphService:
         user_id: str | None = None,
     ) -> ExpandContextNodes:
         """Expand the context of a node for RAG."""
-        if user_id is None:
-            return self.expander.expand_context(node_id, hops, relation_types, max_nodes)
-        return self.expander.expand_context(node_id, hops, relation_types, max_nodes, user_id)
+        return self.expander.expand_context(
+            node_id, hops, relation_types, max_nodes, user_id=user_id
+        )
 
     def get_entity_timeline(self, entity_name: str, video_id: str) -> list[dict]:
         """Retrieve the appearance timeline of an entity within a video."""
@@ -651,9 +660,7 @@ class KnowledgeGraphService:
         user_id: str | None = None,
     ) -> list[dict]:
         """Retrieve entities related to a given entity."""
-        if user_id is None:
-            return self.expander.get_related_entities(entity_id, relation_types, limit)
-        return self.expander.get_related_entities(entity_id, relation_types, limit, user_id)
+        return self.expander.get_related_entities(entity_id, relation_types, limit, user_id=user_id)
 
     def find_common_entities(
         self,
@@ -663,19 +670,19 @@ class KnowledgeGraphService:
         user_id: str | None = None,
     ) -> list[dict]:
         """Find entities that appear in multiple videos."""
-        if user_id is None:
-            return self.expander.find_common_entities(video_ids, entity_type, limit)
-        return self.expander.find_common_entities(video_ids, entity_type, limit, user_id)
+        return self.expander.find_common_entities(video_ids, entity_type, limit, user_id=user_id)
 
     def get_video_topics(self, video_ids: list[str], user_id: str | None = None) -> list[dict]:
         """Get topics and summaries for multiple videos."""
-        if user_id is None:
-            return self.expander.get_video_topics(video_ids)
-        return self.expander.get_video_topics(video_ids, user_id)
+        return self.expander.get_video_topics(video_ids, user_id=user_id)
 
-    def get_stats(self) -> GraphStats:
-        """Retrieve statistics for the Knowledge Graph."""
-        return self.expander.get_stats()
+    def get_stats(self, user_id: str | None = None) -> GraphStats:
+        """Retrieve statistics for the Knowledge Graph.
+
+        Args:
+            user_id: Scope to this user. None returns global (superuser).
+        """
+        return self.expander.get_stats(user_id=user_id)
 
     # =========================================================================
     # Multimodal Search (Visual + Audio)
@@ -820,9 +827,10 @@ class KnowledgeGraphService:
         node_id: str,
         hops: int = 1,
         max_nodes: int = 50,
+        user_id: str | None = None,
     ) -> SubgraphResult:
         """Expand a single node's neighborhood, returning nodes + relationships."""
-        return self.expander.expand_node_subgraph(node_id, hops, max_nodes)
+        return self.expander.expand_node_subgraph(node_id, hops, max_nodes, user_id=user_id)
 
     def delete_video_graph(self, video_id: str) -> int:
         """Delete the entire subgraph for a video."""

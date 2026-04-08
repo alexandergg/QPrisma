@@ -104,7 +104,8 @@ async def get_graph_stats(current_user: User = Depends(get_current_user)):
     """
     try:
         service = get_knowledge_graph_service()
-        stats = service.get_stats()
+        scoped_user_id = None if current_user.is_superuser else current_user.id
+        stats = service.get_stats(user_id=scoped_user_id)
         return stats
     except Exception as e:
         logger.error(f"Failed to get graph stats: {e}", exc_info=True)
@@ -834,6 +835,7 @@ async def expand_subgraph(
             node_id=request.node_id,
             hops=request.hops,
             max_nodes=request.max_nodes,
+            user_id=current_user.id,
         )
 
         raw_nodes = subgraph.get("nodes", [])

@@ -55,12 +55,18 @@ class GraphExpander:
     ) -> ExpandContextNodes:
         """Expand the context of a node for RAG.
 
-        Uses ``apoc.path.expandConfig`` with ``YIELD path`` so that hop
-        distance is derived directly from the expansion — no separate
-        ``shortestPath`` traversal needed.
-
-        Returns related nodes up to *hops* away, grouped by distance.
+        Args:
+            user_id: Required for user-facing calls. Only None for
+                     superuser / system contexts.
         """
+        # Always apply user_id filter when provided (fail-closed)
+        user_filter_start = "WHERE start.user_id = $user_id" if user_id else ""
+        user_filter_path = (
+            "AND node.user_id = $user_id "
+            "AND all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)"
+            if user_id
+            else ""
+        )
         if relation_types:
             rel_types = "|".join(r.value for r in relation_types)
             rel_filter = rel_types
@@ -69,7 +75,7 @@ class GraphExpander:
 
         cypher = f"""
         MATCH (start {{id: $node_id}})
-        {"WHERE start.user_id = $user_id" if user_id else ""}
+        {user_filter_start}
         CALL apoc.path.expandConfig(start, {{
             maxLevel: $hops,
             relationshipFilter: '{rel_filter}',
@@ -78,7 +84,7 @@ class GraphExpander:
         }}) YIELD path
         WITH path, last(nodes(path)) AS node, length(path) AS distance
         WHERE distance > 0
-        {"AND node.user_id = $user_id AND all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)" if user_id else ""}
+        {user_filter_path}
         RETURN node, distance
         ORDER BY distance
         """
@@ -251,48 +257,85 @@ class GraphExpander:
     # Statistics
     # =====================================================================
 
-    def get_stats(self) -> GraphStats:
-        """Retrieve statistics for the Knowledge Graph."""
-        cypher = """
-        CALL {
-            MATCH (n) RETURN count(n) as total_nodes
-        }
-        CALL {
-            MATCH ()-[r]->() RETURN count(r) as total_relations
-        }
-        CALL {
-            MATCH (v:Video) RETURN count(v) as total_videos
-        }
-        CALL {
-            MATCH (f:Frame) RETURN count(f) as total_frames
-        }
-        CALL {
-            MATCH (e:Entity) RETURN count(e) as total_entities
-        }
-        RETURN total_nodes, total_relations, total_videos, total_frames, total_entities
-        """
+    def get_stats(self, user_id: str | None = None) -> GraphStats:
+        """Retrieve statistics for the Knowledge Graph.
 
-        nodes_by_type_cypher = """
-        MATCH (n)
-        RETURN labels(n)[0] as label, count(n) as count
+        Args:
+            user_id: Scope counts to this user. When None (superuser),
+                     returns global counts across all users.
         """
-
-        relations_by_type_cypher = """
-        MATCH ()-[r]->()
-        RETURN type(r) as type, count(r) as count
-        """
+        if user_id:
+            cypher = """
+            CALL {
+                MATCH (n) WHERE n.user_id = $user_id RETURN count(n) as total_nodes
+            }
+            CALL {
+                MATCH (a)-[r]->(b)
+                WHERE a.user_id = $user_id
+                RETURN count(r) as total_relations
+            }
+            CALL {
+                MATCH (v:Video) WHERE v.user_id = $user_id
+                RETURN count(v) as total_videos
+            }
+            CALL {
+                MATCH (f:Frame) WHERE f.user_id = $user_id
+                RETURN count(f) as total_frames
+            }
+            CALL {
+                MATCH (e:Entity) WHERE e.user_id = $user_id
+                RETURN count(e) as total_entities
+            }
+            RETURN total_nodes, total_relations, total_videos,
+                   total_frames, total_entities
+            """
+            nodes_by_type_cypher = """
+            MATCH (n) WHERE n.user_id = $user_id
+            RETURN labels(n)[0] as label, count(n) as count
+            """
+            relations_by_type_cypher = """
+            MATCH (a)-[r]->(b) WHERE a.user_id = $user_id
+            RETURN type(r) as type, count(r) as count
+            """
+            params: dict = {"user_id": user_id}
+        else:
+            cypher = """
+            CALL {
+                MATCH (n) RETURN count(n) as total_nodes
+            }
+            CALL {
+                MATCH ()-[r]->() RETURN count(r) as total_relations
+            }
+            CALL {
+                MATCH (v:Video) RETURN count(v) as total_videos
+            }
+            CALL {
+                MATCH (f:Frame) RETURN count(f) as total_frames
+            }
+            CALL {
+                MATCH (e:Entity) RETURN count(e) as total_entities
+            }
+            RETURN total_nodes, total_relations, total_videos,
+                   total_frames, total_entities
+            """
+            nodes_by_type_cypher = """
+            MATCH (n)
+            RETURN labels(n)[0] as label, count(n) as count
+            """
+            relations_by_type_cypher = """
+            MATCH ()-[r]->()
+            RETURN type(r) as type, count(r) as count
+            """
+            params = {}
 
         with self._get_session() as session:
-            # General statistics
-            result = session.run(cypher)
+            result = session.run(cypher, **params)
             record = result.single()
 
-            # Nodes by type
-            nodes_result = session.run(nodes_by_type_cypher)
+            nodes_result = session.run(nodes_by_type_cypher, **params)
             nodes_by_type = {r["label"]: r["count"] for r in nodes_result}
 
-            # Relations by type
-            rels_result = session.run(relations_by_type_cypher)
+            rels_result = session.run(relations_by_type_cypher, **params)
             relations_by_type = {r["type"]: r["count"] for r in rels_result}
 
             total_nodes = record["total_nodes"]
@@ -512,36 +555,46 @@ class GraphExpander:
         node_id: str,
         hops: int = 1,
         max_nodes: int = 50,
+        user_id: str | None = None,
     ) -> SubgraphResult:
         """
         Expand a single node's neighborhood, returning nodes + relationships.
 
         Used for progressive lazy-load expansion in the graph viewer.
+
+        Args:
+            user_id: Defense-in-depth filter. Route already validates
+                     ownership via get_graph_node_media_or_404().
         """
-        cypher = """
+        user_filter = "AND start.user_id = $user_id" if user_id else ""
+        cypher = f"""
         MATCH (start)
-        WHERE start.id = $node_id OR start.video_id = $node_id
-        CALL apoc.path.subgraphAll(start, {
+        WHERE start.id = $node_id {user_filter}
+        CALL apoc.path.subgraphAll(start, {{
             maxLevel: $hops,
             limit: $max_nodes
-        }) YIELD nodes, relationships
+        }}) YIELD nodes, relationships
         RETURN
-            [n IN nodes | {
+            [n IN nodes | {{
                 id: coalesce(n.id, n.video_id, elementId(n)),
                 labels: labels(n),
                 properties: properties(n)
-            }] AS nodes,
-            [r IN relationships | {
+            }}] AS nodes,
+            [r IN relationships | {{
                 id: elementId(r),
                 start: coalesce(startNode(r).id, startNode(r).video_id, elementId(startNode(r))),
                 end: coalesce(endNode(r).id, endNode(r).video_id, elementId(endNode(r))),
                 type: type(r),
                 properties: properties(r)
-            }] AS relationships
+            }}] AS relationships
         """
 
+        params: dict = {"node_id": node_id, "hops": hops, "max_nodes": max_nodes}
+        if user_id:
+            params["user_id"] = user_id
+
         with self._get_session() as session:
-            result = session.run(cypher, node_id=node_id, hops=hops, max_nodes=max_nodes)
+            result = session.run(cypher, **params)
             record = result.single()
 
             if not record:

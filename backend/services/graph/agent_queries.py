@@ -22,15 +22,23 @@ class AgentQueryMixin:
     # agent tool files.  They keep the same query semantics but centralise
     # the statements for testability and reuse.
 
-    def get_video_summary_data(self, video_id: str) -> dict | None:
-        """Return video summary, title, topics, and duration in one query."""
-        query = """
+    def get_video_summary_data(self, video_id: str, user_id: str | None = None) -> dict | None:
+        """Return video summary, title, topics, and duration in one query.
+
+        Args:
+            user_id: Defense-in-depth filter (agent entry validates ownership).
+        """
+        user_filter = "AND v.user_id = $user_id" if user_id else ""
+        query = f"""
         MATCH (v:Video)
-        WHERE v.video_id = $video_id
+        WHERE v.video_id = $video_id {user_filter}
         RETURN v.summary AS summary, v.title AS title,
                v.topics AS topics, v.duration_seconds AS duration
         """
-        return self._execute_query(query, {"video_id": video_id}, single=True)
+        params: dict = {"video_id": video_id}
+        if user_id:
+            params["user_id"] = user_id
+        return self._execute_query(query, params, single=True)
 
     def get_transcript_segments(
         self,
@@ -105,18 +113,26 @@ class AgentQueryMixin:
             {"video_id": video_id, "start_time": eff_start, "end_time": eff_end},
         )
 
-    def get_nearest_frame(self, video_id: str, timestamp: float) -> dict | None:
-        """Return the single frame closest to *timestamp*."""
-        query = """
+    def get_nearest_frame(
+        self, video_id: str, timestamp: float, user_id: str | None = None
+    ) -> dict | None:
+        """Return the single frame closest to *timestamp*.
+
+        Args:
+            user_id: Defense-in-depth filter (agent entry validates ownership).
+        """
+        user_filter = "AND f.user_id = $user_id" if user_id else ""
+        query = f"""
         MATCH (f:Frame)
-        WHERE f.video_id = $video_id
+        WHERE f.video_id = $video_id {user_filter}
         RETURN f.timestamp AS timestamp, f.description AS description
         ORDER BY abs(f.timestamp - $timestamp)
         LIMIT 1
         """
-        return self._execute_query(
-            query, {"video_id": video_id, "timestamp": timestamp}, single=True
-        )
+        params: dict = {"video_id": video_id, "timestamp": timestamp}
+        if user_id:
+            params["user_id"] = user_id
+        return self._execute_query(query, params, single=True)
 
     def get_frames_in_window(
         self,
@@ -275,31 +291,41 @@ class AgentQueryMixin:
             query, {"video_id": video_id, "timestamp": timestamp}, single=True
         )
 
-    def find_entity_appearances(self, video_id: str, entity_name: str) -> dict[str, list[dict]]:
+    def find_entity_appearances(
+        self, video_id: str, entity_name: str, user_id: str | None = None
+    ) -> dict[str, list[dict]]:
         """Find visual and audio appearances of an entity.
 
         Returns ``{"visual": [...], "audio": [...]}``.
+
+        Args:
+            user_id: Defense-in-depth filter (agent entry validates ownership).
         """
-        visual_query = """
+        user_filter_entity = "AND e.user_id = $user_id" if user_id else ""
+        user_filter_audio = "AND a.user_id = $user_id" if user_id else ""
+        visual_query = f"""
         MATCH (e:Entity)<-[:CONTAINS]-(f:Frame)
         WHERE e.video_id = $video_id
           AND toLower(e.name) CONTAINS toLower($entity_name)
+          {user_filter_entity}
         RETURN e.name AS name, e.entity_type AS entity_type,
                f.timestamp AS timestamp, f.description AS description
         ORDER BY f.timestamp
         """
-        visual = self._execute_query(
-            visual_query, {"video_id": video_id, "entity_name": entity_name}
-        )
+        params: dict = {"video_id": video_id, "entity_name": entity_name}
+        if user_id:
+            params["user_id"] = user_id
+        visual = self._execute_query(visual_query, params)
 
-        audio_query = """
+        audio_query = f"""
         MATCH (a:AudioSegment)
         WHERE a.video_id = $video_id
           AND toLower(a.text) CONTAINS toLower($entity_name)
+          {user_filter_audio}
         RETURN a.start_time AS timestamp, a.text AS text
         ORDER BY a.start_time
         """
-        audio = self._execute_query(audio_query, {"video_id": video_id, "entity_name": entity_name})
+        audio = self._execute_query(audio_query, params)
 
         return {"visual": visual, "audio": audio}
 

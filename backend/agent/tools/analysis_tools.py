@@ -124,6 +124,7 @@ async def get_entity_timeline(
     ] = "any",
     include_context: Annotated[bool, "Include surrounding context for each appearance"] = True,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
+    user_id: Annotated[str | None, InjectedState("user_id")] = None,
 ) -> dict[str, Any]:
     """
     Build a complete chronological timeline of all appearances of an entity
@@ -141,7 +142,7 @@ async def get_entity_timeline(
         if not kg.is_connected:
             kg.connect()
 
-        appearances = kg.find_entity_appearances(media_id, entity_name)
+        appearances = kg.find_entity_appearances(media_id, entity_name, user_id=user_id)
         visual_records = appearances.get("visual", [])
         audio_records = appearances.get("audio", [])
 

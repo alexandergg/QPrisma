@@ -339,6 +339,7 @@ async def describe_scene(
         "If omitted, uses the primary (first) video.",
     ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
+    user_id: Annotated[str | None, InjectedState("user_id")] = None,
 ) -> dict[str, Any]:
     """
     Point-in-time visual lookup — shows what is happening at a specific timestamp
@@ -364,7 +365,7 @@ async def describe_scene(
                 recovery="Try get_video_info for basic metadata from database.",
             )
 
-        frame = kg.get_nearest_frame(effective_id, timestamp)
+        frame = kg.get_nearest_frame(effective_id, timestamp, user_id=user_id)
 
         if not frame:
             return {

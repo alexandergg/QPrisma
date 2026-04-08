@@ -140,22 +140,37 @@ class EntityOpsMixin:
             record = result.single()
             return record["created"]
 
-    def get_entity_by_name(self, name: str, entity_type: EntityType | None = None) -> dict | None:
-        """Look up an entity by its normalized name."""
+    def get_entity_by_name(
+        self,
+        name: str,
+        entity_type: EntityType | None = None,
+        user_id: str | None = None,
+    ) -> dict | None:
+        """Look up an entity by its normalized name.
+
+        Args:
+            user_id: When provided, restrict to entities owned by this user.
+        """
         normalized = name.lower().strip()
+        user_filter = " AND e.user_id = $user_id" if user_id else ""
 
         if entity_type:
-            query = """
-            MATCH (e:Entity {normalized_name: $name, entity_type: $type})
+            query = f"""
+            MATCH (e:Entity {{normalized_name: $name, entity_type: $type}})
+            WHERE true{user_filter}
             RETURN e
             """
-            params = {"name": normalized, "type": entity_type.value}
+            params: dict = {"name": normalized, "type": entity_type.value}
         else:
-            query = """
-            MATCH (e:Entity {normalized_name: $name})
+            query = f"""
+            MATCH (e:Entity {{normalized_name: $name}})
+            WHERE true{user_filter}
             RETURN e
             """
             params = {"name": normalized}
+
+        if user_id:
+            params["user_id"] = user_id
 
         return self._execute_query(query, params, single=True, unpack_key="e")
 

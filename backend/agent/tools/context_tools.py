@@ -318,6 +318,7 @@ async def get_summary(
         "If omitted, uses the primary (first) video.",
     ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
+    user_id: Annotated[str | None, InjectedState("user_id")] = None,
 ) -> dict[str, Any]:
     """
     Get a single synopsis summary of the video with title, topics, and duration.
@@ -345,7 +346,7 @@ async def get_summary(
                 recovery="Try get_video_info for basic metadata from database.",
             )
 
-        record = kg.get_video_summary_data(effective_id)
+        record = kg.get_video_summary_data(effective_id, user_id=user_id)
 
         if not record or not record.get("summary"):
             return {
