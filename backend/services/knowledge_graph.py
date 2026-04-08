@@ -712,7 +712,7 @@ class KnowledgeGraphService:
 
         filters = []
         if video_id:
-            filters.append("(v.video_id = $video_id OR v.id = $video_id)")
+            filters.append("(v.video_id = $video_id)")
         if user_id:
             filters.append("v.user_id = $user_id")
         scoped_filter = f"AND {' AND '.join(filters)}" if filters else ""

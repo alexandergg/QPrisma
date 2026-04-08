@@ -20,65 +20,49 @@ from services.batch_processor import BatchProcessor
 class TestProcessingRoutesErrorSanitization:
     """Verify processing route 500s never expose internal details."""
 
-    def test_ffmpeg_process_hides_error_details(self, authenticated_client):
-        mock_processor = MagicMock()
-        mock_db = MagicMock()
-        mock_media = MagicMock()
-        mock_media.media_type = "video"
-        mock_media.blob_name = "test.mp4"
-        mock_db.get_media.return_value = mock_media
-
-        with (
-            patch("api.routes.processing_routes.get_video_processor", return_value=mock_processor),
-            patch("api.routes.processing_routes.get_database_service", return_value=mock_db),
-            patch(
-                "fastapi.BackgroundTasks.add_task",
-                side_effect=RuntimeError("secret DB connection string leaked"),
-            ),
-        ):
-            resp = authenticated_client.post("/process/video/ffmpeg?media_id=m1&preset=balanced")
-
-        assert resp.status_code == 500
-        body = resp.json()
-        assert "secret" not in body.get("detail", "")
-        assert "leaked" not in body.get("detail", "")
-        assert body["detail"] == "Processing operation failed"
+    def test_ffmpeg_endpoint_removed(self, authenticated_client):
+        """POST /process/video/ffmpeg was removed — verify 404/405."""
+        resp = authenticated_client.post("/process/video/ffmpeg?media_id=m1&preset=balanced")
+        assert resp.status_code in (404, 405)
 
     def test_batch_status_hides_error_details(self, authenticated_client):
         mock_processor = MagicMock()
 
         with (
-            patch("api.routes.processing_routes.get_video_processor", return_value=mock_processor),
+            patch("api.routes.batch_routes.get_video_processor", return_value=mock_processor),
             patch(
                 "services.batch_processor.BatchProcessor.check_batch_status",
                 side_effect=RuntimeError("Azure SDK internal error with key=abc123"),
             ),
         ):
-            resp = authenticated_client.get("/batch/status?batch_id=bid_1")
+            resp = authenticated_client.get("/batch/status/bid_1")
 
         assert resp.status_code == 500
         body = resp.json()
         assert "Azure SDK" not in body.get("detail", "")
         assert "abc123" not in body.get("detail", "")
-        assert body["detail"] == "Processing operation failed"
+        assert body["detail"] == "Batch operation failed"
 
     def test_batch_cancel_hides_error_details(self, authenticated_client):
         mock_processor = MagicMock()
+        mock_db = MagicMock()
+        mock_db.get_batch_job_by_azure_id.return_value = MagicMock(status="in_progress")
 
         with (
-            patch("api.routes.processing_routes.get_video_processor", return_value=mock_processor),
+            patch("api.routes.batch_routes.get_video_processor", return_value=mock_processor),
+            patch("api.routes.batch_routes.get_database_service", return_value=mock_db),
             patch.object(
                 BatchProcessor,
                 "cancel_batch",
                 new=AsyncMock(side_effect=RuntimeError("internal cancel error")),
             ),
         ):
-            resp = authenticated_client.post("/batch/cancel?batch_id=bid_1")
+            resp = authenticated_client.post("/batch/cancel/bid_1")
 
         assert resp.status_code == 500
         body = resp.json()
         assert "internal cancel" not in body.get("detail", "")
-        assert body["detail"] == "Processing operation failed"
+        assert body["detail"] == "Batch operation failed"
 
     def test_pipeline_preview_hides_error_details(self, authenticated_client):
         mock_processor = MagicMock()
@@ -94,20 +78,10 @@ class TestProcessingRoutesErrorSanitization:
         assert "/usr/local/bin/ffmpeg" not in body.get("detail", "")
         assert body["detail"] == "Processing operation failed"
 
-    def test_search_hides_error_details(self, authenticated_client):
-        with patch(
-            "api.routes.chat_routes.get_graph_search_service",
-            side_effect=RuntimeError("Neo4j connection refused at bolt://localhost:7687"),
-        ):
-            resp = authenticated_client.post(
-                "/search",
-                json={"query": "test"},
-            )
-
-        assert resp.status_code == 500
-        body_str = str(resp.json())
-        assert "Neo4j" not in body_str
-        assert "bolt://" not in body_str
+    def test_search_endpoint_removed(self, authenticated_client):
+        """POST /search was removed — verify 404/405."""
+        resp = authenticated_client.post("/search", json={"query": "test"})
+        assert resp.status_code in (404, 405)
 
 
 # =============================================================================
@@ -205,29 +179,13 @@ class TestCacheRoutesErrorSanitization:
 class TestJobsRoutesErrorSanitization:
     """Verify jobs route 500s never expose internal details."""
 
-    def test_submit_job_hides_error(self, authenticated_client):
-        mock_celery = MagicMock()
-
-        with (
-            patch("api.routes.jobs_routes.get_celery_app", return_value=mock_celery),
-            patch(
-                "tasks.video_tasks.process_video_pipeline",
-                create=True,
-            ) as mock_task,
-        ):
-            mock_task.apply_async.side_effect = RuntimeError(
-                "Celery broker amqp://user:pass@host unreachable"
-            )
-            resp = authenticated_client.post(
-                "/jobs/submit",
-                json={"video_id": "v1", "blob_name": "v1.mp4"},
-            )
-
-        assert resp.status_code == 500
-        body = resp.json()
-        assert "amqp://" not in body.get("detail", "")
-        assert "pass" not in body.get("detail", "")
-        assert body["detail"] == "Processing operation failed"
+    def test_submit_endpoint_removed(self, authenticated_client):
+        """POST /jobs/submit was removed — verify 404/405."""
+        resp = authenticated_client.post(
+            "/jobs/submit",
+            json={"video_id": "v1", "blob_name": "v1.mp4"},
+        )
+        assert resp.status_code in (404, 405)
 
     def test_get_job_status_hides_error(self, authenticated_client):
         mock_celery = MagicMock()

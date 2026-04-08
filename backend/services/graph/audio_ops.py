@@ -25,7 +25,7 @@ class AudioOpsMixin:
         """Create an AudioSegment (transcript) node and connect it to its Video."""
         query = """
         MATCH (v:Video)
-        WHERE v.video_id = $video_id OR v.id = $video_id
+        WHERE v.video_id = $video_id
         CREATE (a:AudioSegment {
             id: $id,
             video_id: $video_id,
@@ -85,7 +85,7 @@ class AudioOpsMixin:
         MERGE (a:AudioSegment {id: seg.id})
         WITH a, seg
         OPTIONAL MATCH (v:Video)
-        WHERE v.video_id = seg.video_id OR v.id = seg.video_id
+        WHERE v.video_id = seg.video_id
         SET a.video_id = seg.video_id,
             a.user_id = COALESCE(seg.user_id, v.user_id),
             a.start_time = seg.start_time,
@@ -141,7 +141,7 @@ class AudioOpsMixin:
         """Retrieve all transcript segments for a video."""
         query = """
         MATCH (v:Video)-[:HAS_TRANSCRIPT]->(a:AudioSegment)
-        WHERE v.video_id = $video_id OR v.id = $video_id
+        WHERE v.video_id = $video_id
         RETURN a.id as id, a.start_time as start_time, a.end_time as end_time,
                a.text as text, a.language as language, a.confidence as confidence
         ORDER BY a.start_time
@@ -165,7 +165,7 @@ class AudioOpsMixin:
         if video_id:
             query = """
             MATCH (v:Video)-[:HAS_TRANSCRIPT]->(a:AudioSegment)
-            WHERE (v.video_id = $video_id OR v.id = $video_id)
+            WHERE (v.video_id = $video_id)
               AND toLower(a.text) CONTAINS toLower($query_text)
             RETURN a.id as id, a.video_id as video_id,
                    a.start_time as start_time, a.end_time as end_time,

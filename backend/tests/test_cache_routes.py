@@ -28,7 +28,7 @@ def _mock_cache_service():
     mock.clear_all = AsyncMock(return_value=True)
     mock.invalidate_video = AsyncMock(return_value=3)
     mock.invalidate_by_pattern = AsyncMock(return_value=2)
-    mock.config = MagicMock(key_prefix="qprisma", similarity_threshold=0.9, max_memory_items=500)
+    mock.config = MagicMock(key_prefix="qprisma", similarity_threshold=8, max_memory_items=500)
     mock.redis_url = "redis://localhost:6379"
     return mock
 
@@ -116,3 +116,47 @@ class TestCacheHealthNoAuth:
         body = resp.json()
         assert body["status"] == "healthy"
         assert body["connected"] is True
+
+
+# =============================================================================
+# Config endpoint — auth required, credentials redacted
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestCacheConfigSecurity:
+    def test_config_requires_auth(self, client, _override_cache):
+        resp = client.get("/cache/config")
+        assert resp.status_code in (401, 403)
+
+    def test_config_authenticated_succeeds(self, authenticated_client, _override_cache):
+        resp = authenticated_client.get("/cache/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["enabled"] is True
+        assert body["key_prefix"] == "qprisma"
+
+    def test_config_does_not_expose_redis_url(self, authenticated_client, _override_cache):
+        resp = authenticated_client.get("/cache/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "redis_url" not in body
+        assert "redis" not in str(body).lower() or "redis" in body.get("key_prefix", "").lower()
+
+
+# =============================================================================
+# Removed endpoints — must return 404/405
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestCacheJobEndpointsRemoved:
+    """Verify that internal-only job status endpoints are no longer exposed."""
+
+    def test_get_job_status_removed(self, client, _override_cache):
+        resp = client.get("/cache/job/test-job-123")
+        assert resp.status_code in (404, 405)
+
+    def test_put_job_status_removed(self, client, _override_cache):
+        resp = client.put("/cache/job/test-job-123?progress=50&stage=processing")
+        assert resp.status_code in (404, 405)

@@ -107,16 +107,24 @@ class ProcessVideoGraphResponse(BaseModel):
 
 
 class HybridSearchRequest(BaseModel):
-    """Request for hybrid search (vector + graph + fulltext)."""
+    """Request for hybrid search (vector + graph + fulltext).
+
+    This is the primary search endpoint combining multiple relevance signals.
+    Supports all filters previously available in advanced search.
+    """
 
     query: str
     node_types: list[NodeType] | None = None
     video_id: str | None = None
+    video_ids: list[str] | None = None
+    entity_types: list[EntityType] | None = None
     time_start: float | None = None
     time_end: float | None = None
     limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
     expansion_hops: int = Field(default=2, ge=1, le=4)
     use_reranking: bool = True
+    use_graph_expansion: bool = True
 
 
 class CrossVideoSearchRequest(BaseModel):

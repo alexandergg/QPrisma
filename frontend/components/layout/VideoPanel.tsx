@@ -15,30 +15,7 @@ import {
 import { formatTime } from '@/lib/utils';
 import { VideoPanelTabs } from './VideoPanelTabs';
 import type { TabType } from './VideoPanelTabs';
-
-interface Scene {
-  scene_id: number;
-  start_time: number;
-  end_time: number;
-  duration?: number;
-  title?: string;
-  summary?: string;
-}
-
-interface Chapter {
-  chapter_id: number;
-  title: string;
-  start_time: number;
-  end_time: number;
-  scene_ids?: number[];
-}
-
-interface TranscriptSegment {
-  id: number;
-  start: number;
-  end: number;
-  text: string;
-}
+import type { Scene, Chapter, TranscriptSegment } from '@/types';
 
 export interface CitationMarker {
   timestamp: number;

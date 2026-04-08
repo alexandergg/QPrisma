@@ -6,30 +6,7 @@ import { ChevronLeft } from 'lucide-react';
 import Sidebar, { ChatMode } from './Sidebar';
 import VideoPanel from './VideoPanel';
 import { useAuth } from '@/contexts/AuthContext';
-
-interface Scene {
-  scene_id: number;
-  start_time: number;
-  end_time: number;
-  duration?: number;
-  summary?: string;
-}
-
-interface Chapter {
-  chapter_id: number;
-  title: string;
-  start_time: number;
-  end_time: number;
-  duration?: number;
-  scene_ids?: number[];
-}
-
-interface TranscriptSegment {
-  id: number;
-  start: number;
-  end: number;
-  text: string;
-}
+import type { Scene, Chapter, TranscriptSegment } from '@/types';
 
 interface VideoData {
   url?: string;

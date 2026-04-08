@@ -23,7 +23,6 @@ from api.dependencies import (
 )
 from core.exceptions import internal_error, not_found_error
 from models.graph_models import (
-    GraphSearchQuery,
     GraphSearchResponse,
     GraphStats,
     NodeType,
@@ -36,11 +35,9 @@ from models.graph_route_schemas import (
     DrillDownSearchRequest,
     DrillDownSearchResponse,
     EmbeddingStatsResponse,
-    EntitySearchRequest,
     EntityTimelineRequest,
     EntityTimelineResponse,
     ExpandSubgraphRequest,
-    FrameSearchRequest,
     GenerateEmbeddingsRequest,
     GenerateEmbeddingsResponse,
     GraphHealthResponse,
@@ -119,109 +116,6 @@ async def get_graph_stats(current_user: User = Depends(get_current_user)):
 # =============================================================================
 
 
-@router.post("/search/entities")
-async def search_entities(
-    request: EntitySearchRequest, current_user: User = Depends(get_current_user)
-):
-    """
-    Full-text search of entities in the Knowledge Graph.
-
-    Supports filters by entity type and video.
-    """
-    try:
-        if request.video_id:
-            get_media_or_404(request.video_id, current_user)
-
-        service = get_knowledge_graph_service()
-        results = service.search_entities(
-            query_text=request.query,
-            entity_types=request.entity_types,
-            video_id=request.video_id,
-            user_id=current_user.id,
-            limit=request.limit,
-        )
-
-        return {
-            "query": request.query,
-            "total_results": len(results),
-            "results": results,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Entity search failed: {e}", exc_info=True)
-        raise internal_error() from e
-
-
-@router.post("/search/frames")
-async def search_frames(
-    request: FrameSearchRequest, current_user: User = Depends(get_current_user)
-):
-    """
-    Full-text search in frame descriptions.
-
-    Supports filters by video and temporal range.
-    """
-    try:
-        if request.video_id:
-            get_media_or_404(request.video_id, current_user)
-
-        service = get_knowledge_graph_service()
-        time_range = GraphRouteService.build_time_range(request.time_start, request.time_end)
-
-        results = service.search_frames_by_description(
-            query_text=request.query,
-            video_id=request.video_id,
-            user_id=current_user.id,
-            time_range=time_range,
-            limit=request.limit,
-        )
-
-        return {
-            "query": request.query,
-            "total_results": len(results),
-            "results": results,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Frame search failed: {e}", exc_info=True)
-        raise internal_error() from e
-
-
-@router.post("/search/advanced", response_model=GraphSearchResponse)
-async def advanced_graph_search(
-    query: GraphSearchQuery, current_user: User = Depends(get_current_user)
-):
-    """
-    Advanced search with graph expansion.
-
-    Combines:
-    - Vector search (if embeddings available)
-    - Full-text search
-    - Context expansion in the graph
-    """
-    try:
-        if query.video_ids:
-            for video_id in query.video_ids:
-                get_media_or_404(video_id, current_user)
-
-        svc: GraphRouteService = get_graph_route_service()
-        result = svc.advanced_search(query, user_id=current_user.id)
-
-        if result.error:
-            logger.error(f"Advanced search error: {result.error}")
-            raise internal_error()
-
-        return result.response
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Advanced search failed: {e}", exc_info=True)
-        raise internal_error() from e
-
-
 # =============================================================================
 # Hybrid Search Endpoints (Graph-Enhanced Retrieval)
 # =============================================================================
@@ -241,10 +135,16 @@ async def hybrid_search(
     - **Temporal relevance**: Temporal proximity in the video
 
     Includes re-ranking with expanded context for better results.
+    Supports filtering by video_id, video_ids, entity_types, node_types,
+    time range, and graph expansion configuration.
     """
     try:
+        # Validate video ownership for all referenced videos
         if request.video_id:
             get_media_or_404(request.video_id, current_user)
+        if request.video_ids:
+            for video_id in request.video_ids:
+                get_media_or_404(video_id, current_user)
 
         search_service = get_graph_search_service()
         time_range = GraphRouteService.build_time_range(request.time_start, request.time_end)
@@ -253,10 +153,11 @@ async def hybrid_search(
             query_text=request.query,
             node_types=request.node_types,
             video_id=request.video_id,
+            video_ids=request.video_ids,
             user_id=current_user.id,
             time_range=time_range,
             limit=request.limit,
-            expansion_hops=request.expansion_hops,
+            expansion_hops=request.expansion_hops if request.use_graph_expansion else 0,
             use_reranking=request.use_reranking,
         )
 

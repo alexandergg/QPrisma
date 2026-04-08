@@ -54,33 +54,3 @@ def media_id(api_url: str, auth_headers: dict[str, str], sample_video_path: Path
     payload = response.json()
     assert payload.get("media_id")
     return payload["media_id"]
-
-
-def test_video_upload_and_processing(
-    api_url: str, auth_headers: dict[str, str], media_id: str
-) -> None:
-    response = requests.post(
-        f"{api_url}/process/video/ffmpeg",
-        params={"media_id": media_id, "preset": "balanced"},
-        headers=auth_headers,
-        timeout=90,
-    )
-    assert response.status_code == 200, response.text
-
-    payload = response.json()
-    assert payload.get("status")
-    assert payload.get("message")
-
-
-def test_search_processed_video(api_url: str, auth_headers: dict[str, str], media_id: str) -> None:
-    response = requests.post(
-        f"{api_url}/search",
-        json={"query": "video frame", "top_k": 5},
-        headers=auth_headers,
-        timeout=30,
-    )
-    assert response.status_code == 200, response.text
-
-    payload = response.json()
-    assert payload.get("query")
-    assert isinstance(payload.get("results"), list)

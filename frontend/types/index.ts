@@ -28,6 +28,8 @@ export interface Chapter {
   duration?: number;
   scene_ids?: number[];
   scene_count?: number;
+  themes?: string[];
+  summary?: string;
 }
 
 export interface VideoStructure {

@@ -348,7 +348,7 @@ class GraphExpander:
         # Collect the Video root node first
         cypher_video = """
         MATCH (v:Video)
-        WHERE v.video_id = $video_id OR v.id = $video_id
+        WHERE v.video_id = $video_id
         RETURN {
             id: coalesce(v.id, v.video_id, elementId(v)),
             labels: labels(v),
@@ -361,7 +361,7 @@ class GraphExpander:
         _label_cypher: dict[str, str] = {
             "Chapter": f"""
                 MATCH (v:Video)-[:CONTAINS*1..{depth}]->(n:Chapter)
-                WHERE v.video_id = $video_id OR v.id = $video_id
+                WHERE v.video_id = $video_id
                 RETURN DISTINCT {{
                     id: coalesce(n.id, elementId(n)),
                     labels: labels(n),
@@ -371,7 +371,7 @@ class GraphExpander:
             """,
             "Scene": f"""
                 MATCH (v:Video)-[:CONTAINS*1..{depth}]->(n:Scene)
-                WHERE v.video_id = $video_id OR v.id = $video_id
+                WHERE v.video_id = $video_id
                 RETURN DISTINCT {{
                     id: coalesce(n.id, elementId(n)),
                     labels: labels(n),
@@ -381,7 +381,7 @@ class GraphExpander:
             """,
             "Frame": f"""
                 MATCH (v:Video)-[:CONTAINS*1..{depth}]->(n:Frame)
-                WHERE v.video_id = $video_id OR v.id = $video_id
+                WHERE v.video_id = $video_id
                 WITH n ORDER BY n.timestamp
                 WITH collect(n) AS frames
                 WITH frames, size(frames) AS total
@@ -400,7 +400,7 @@ class GraphExpander:
             """,
             "AudioSegment": f"""
                 MATCH (v:Video)-[:HAS_TRANSCRIPT|CONTAINS*1..{depth}]->(n:AudioSegment)
-                WHERE v.video_id = $video_id OR v.id = $video_id
+                WHERE v.video_id = $video_id
                 WITH n ORDER BY n.start_time
                 With collect(n) AS segs
                 With segs, size(segs) AS total
@@ -419,7 +419,7 @@ class GraphExpander:
             """,
             "Entity": f"""
                 MATCH (v:Video)-[*1..{depth}]->(n:Entity)
-                WHERE v.video_id = $video_id OR v.id = $video_id
+                WHERE v.video_id = $video_id
                 RETURN DISTINCT {{
                     id: coalesce(n.id, elementId(n)),
                     labels: labels(n),
@@ -693,7 +693,7 @@ class GraphExpander:
         # Delete the Video node itself
         cypher = """
         MATCH (v:Video)
-        WHERE v.video_id = $video_id OR v.id = $video_id
+        WHERE v.video_id = $video_id
         DETACH DELETE v
         RETURN count(v) AS deleted
         """

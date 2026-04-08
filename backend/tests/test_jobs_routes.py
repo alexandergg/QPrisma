@@ -4,44 +4,20 @@ Tests for api/routes/jobs_routes.py
 Covers job submission, status, cancellation, and listing.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 
 @pytest.mark.unit
-class TestSubmitJob:
-    def test_requires_auth(self, client):
-        resp = client.post("/jobs/submit", json={"video_id": "v1", "blob_name": "v1.mp4"})
-        assert resp.status_code in (401, 403)
+class TestSubmitJobRemoved:
+    """POST /jobs/submit was removed — verify 404/405."""
 
-    def test_no_celery_returns_503(self, authenticated_client):
-        with patch("api.routes.jobs_routes.get_celery_app", return_value=None):
-            resp = authenticated_client.post(
-                "/jobs/submit",
-                json={"video_id": "v1", "blob_name": "v1.mp4"},
-            )
-        assert resp.status_code == 503
-
-    def test_success(self, authenticated_client):
-        mock_celery = MagicMock()
-        mock_result = MagicMock()
-        mock_result.id = "job_abc123"
-
-        with (
-            patch("api.routes.jobs_routes.get_celery_app", return_value=mock_celery),
-            patch("tasks.video_tasks.process_video_pipeline", create=True) as mock_task,
-        ):
-            mock_task.apply_async.return_value = mock_result
-            resp = authenticated_client.post(
-                "/jobs/submit",
-                json={"video_id": "v1", "blob_name": "v1.mp4"},
-            )
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["status"] == "pending"
-        assert "job_id" in body
+    def test_submit_endpoint_gone(self, authenticated_client):
+        resp = authenticated_client.post(
+            "/jobs/submit", json={"video_id": "v1", "blob_name": "v1.mp4"}
+        )
+        assert resp.status_code in (404, 405)
 
 
 @pytest.mark.unit

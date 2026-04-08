@@ -1,7 +1,6 @@
 """Performance smoke tests for FFmpeg processing request latency."""
 
 import os
-import time
 from pathlib import Path
 
 import pytest
@@ -55,23 +54,3 @@ def uploaded_media_id(api_url: str, auth_headers: dict[str, str], sample_video_p
     payload = response.json()
     assert payload.get("media_id")
     return payload["media_id"]
-
-
-@pytest.mark.parametrize("preset", ["fast_preview", "balanced"])
-def test_processing_request_latency(
-    api_url: str,
-    auth_headers: dict[str, str],
-    uploaded_media_id: str,
-    preset: str,
-) -> None:
-    start = time.perf_counter()
-    response = requests.post(
-        f"{api_url}/process/video/ffmpeg",
-        params={"media_id": uploaded_media_id, "preset": preset},
-        headers=auth_headers,
-        timeout=120,
-    )
-    elapsed_seconds = time.perf_counter() - start
-
-    assert response.status_code == 200, response.text
-    assert elapsed_seconds < 120

@@ -73,22 +73,12 @@ class TestChat:
 
 
 @pytest.mark.unit
-class TestSearch:
-    def test_requires_auth(self, client):
-        resp = client.post("/search", json={"query": "test"})
-        assert resp.status_code in (401, 403)
+class TestSearchRemoved:
+    """POST /search was removed — verify endpoint returns 404/405."""
 
-    def test_search_success(self, authenticated_client, mock_graph_search_service):
-        with patch(
-            "api.routes.chat_routes.get_graph_search_service",
-            return_value=mock_graph_search_service,
-        ):
-            resp = authenticated_client.post("/search", json={"query": "people talking"})
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["query"] == "people talking"
-        assert "results" in body
+    def test_search_endpoint_removed(self, authenticated_client):
+        resp = authenticated_client.post("/search", json={"query": "test"})
+        assert resp.status_code in (404, 405)
 
 
 @pytest.mark.unit

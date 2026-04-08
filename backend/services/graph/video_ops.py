@@ -74,10 +74,10 @@ class VideoOpsMixin:
             return record["id"]
 
     def get_video_node(self, video_id: str) -> dict | None:
-        """Retrieve a Video node by its video_id (or legacy id)."""
+        """Retrieve a Video node by its video_id."""
         query = """
         MATCH (v:Video)
-        WHERE v.video_id = $video_id OR v.id = $video_id
+        WHERE v.video_id = $video_id
         RETURN v
         """
         return self._execute_query(query, {"video_id": video_id}, single=True, unpack_key="v")
@@ -115,7 +115,7 @@ class VideoOpsMixin:
         """
         query = """
         MATCH (v:Video)
-        WHERE v.video_id = $media_id OR v.id = $media_id
+        WHERE v.video_id = $media_id
         RETURN v.summary as summary, v.topics as topics
         """
         record = self._execute_query(query, {"media_id": video_id}, single=True)
@@ -230,7 +230,7 @@ class VideoOpsMixin:
         """Retrieve all scenes for a video, ordered by start time."""
         query = """
         MATCH (v:Video)-[:CONTAINS]->(s:Scene)
-        WHERE v.video_id = $video_id OR v.id = $video_id
+        WHERE v.video_id = $video_id
         RETURN s
         ORDER BY s.start_time
         """
@@ -249,7 +249,7 @@ class VideoOpsMixin:
         """Retrieve all frames for a video together with their descriptions."""
         query = """
         MATCH (v:Video)-[:CONTAINS*1..2]->(f:Frame)
-        WHERE v.video_id = $video_id OR v.id = $video_id
+        WHERE v.video_id = $video_id
         RETURN DISTINCT f.id as id, f.timestamp as timestamp, f.frame_number as frame_number,
                f.description as description, f.scene_id as scene_id
         ORDER BY f.timestamp

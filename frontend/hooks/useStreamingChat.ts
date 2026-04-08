@@ -141,17 +141,6 @@ export function useStreamingChat(options: UseStreamingChatOptions): UseStreaming
       const messageText = content.trim();
       if (!messageText) return;
 
-      // Diagnostic: log videoId to help debug "no video loaded" issues
-      if (typeof window !== 'undefined') {
-        console.log('[useStreamingChat] handleSend called', {
-          videoId,
-          videoName,
-          mode,
-          sessionId,
-          hasVideoIds: !!videoIds?.length,
-        });
-      }
-
       setLastSubmittedPrompt(messageText);
 
       const controller = new AbortController();

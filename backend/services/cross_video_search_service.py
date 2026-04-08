@@ -122,7 +122,7 @@ LIMIT $max_videos
 
 _VIDEO_METADATA = """
 MATCH (v:Video)
-WHERE (v.video_id = $vid OR v.id = $vid) AND v.user_id = $user_id
+WHERE v.video_id = $vid AND v.user_id = $user_id
 RETURN v.title as title, v.summary as summary, v.topics as topics,
        v.duration_seconds as duration
 LIMIT 1

@@ -8,36 +8,7 @@ import {
 } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
 import { SummaryView, ChaptersList, ScenesList } from './ChapterNavigationViews';
-
-interface Scene {
-  scene_id: number;
-  start_time: number;
-  end_time: number;
-  duration: number;
-  title?: string;
-  summary?: string;
-  detected_objects?: string[];
-  transcript_segment?: string;
-}
-
-interface Chapter {
-  chapter_id: number;
-  title: string;
-  start_time: number;
-  end_time: number;
-  duration: number;
-  scene_ids: number[];
-  themes?: string[];
-  summary?: string;
-}
-
-interface VideoStructure {
-  scenes: Scene[];
-  chapters: Chapter[];
-  video_summary?: string;
-  video_title?: string;
-  key_topics?: string[];
-}
+import type { VideoStructure } from '@/types';
 
 interface ChapterNavigationProps {
   structure: VideoStructure;

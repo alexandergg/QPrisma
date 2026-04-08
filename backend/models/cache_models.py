@@ -80,6 +80,16 @@ class CacheSettings(BaseModel):
     }
 
 
+class CacheConfigResponse(BaseModel):
+    """Cache configuration response (credentials redacted for security)."""
+
+    enabled: bool = Field(description="Whether the cache is enabled")
+    key_prefix: str = Field(description="Cache key prefix")
+    similarity_threshold: int = Field(description="Frame similarity threshold (0-64)")
+    max_memory_items: int = Field(description="Max items in memory cache")
+    ttl: CacheTTLConfig = Field(default_factory=CacheTTLConfig)
+
+
 # =============================================================================
 # Metrics
 # =============================================================================

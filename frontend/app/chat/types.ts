@@ -1,26 +1,5 @@
-export interface Scene {
-  scene_id: number;
-  start_time: number;
-  end_time: number;
-  duration?: number;
-  summary?: string;
-}
-
-export interface Chapter {
-  chapter_id: number;
-  title: string;
-  start_time: number;
-  end_time: number;
-  duration?: number;
-  scene_ids?: number[];
-}
-
-export interface TranscriptSegment {
-  id: number;
-  start: number;
-  end: number;
-  text: string;
-}
+export type { Scene, Chapter, TranscriptSegment } from '@/types';
+import type { Scene, Chapter, TranscriptSegment } from '@/types';
 
 export interface VideoData {
   id: string;

@@ -41,48 +41,6 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class ProcessingConfig(BaseModel):
-    """Configuration for video processing"""
-
-    max_frames: int = Field(default=100, ge=1, le=500, description="Maximum frames to extract")
-    custom_prompt: str | None = Field(default=None, description="Custom prompt for analysis")
-    use_cache: bool = Field(default=True, description="Use cache for similar frames")
-    transcribe_audio: bool = Field(default=True, description="Transcribe audio with Whisper")
-    index_content: bool = Field(default=True, description="Index for search (Knowledge Graph)")
-    priority: int = Field(default=5, ge=1, le=10, description="Job priority (1-10)")
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "max_frames": 100,
-                "custom_prompt": None,
-                "use_cache": True,
-                "transcribe_audio": True,
-                "index_content": True,
-                "priority": 5,
-            }
-        }
-    }
-
-
-class JobSubmitRequest(BaseModel):
-    """Request to submit a processing job"""
-
-    video_id: str = Field(description="Unique video ID")
-    blob_name: str = Field(description="Blob name in Azure Storage")
-    config: ProcessingConfig | None = Field(default=None, description="Processing configuration")
-
-
-class JobSubmitResponse(BaseModel):
-    """Response when submitting a job"""
-
-    job_id: str = Field(description="Job ID for tracking")
-    video_id: str
-    status: JobStatus
-    message: str
-    estimated_time_seconds: int | None = Field(default=None, description="Estimated time")
-
-
 class JobStatusResponse(BaseModel):
     """Detailed job status"""
 
@@ -139,59 +97,6 @@ def celery_state_to_job_status(state: str) -> JobStatus:
 # =============================================================================
 # Endpoints
 # =============================================================================
-
-
-@router.post(
-    "/submit",
-    response_model=JobSubmitResponse,
-    summary="Submit video for async processing",
-    description="""
-    Submits a video to the Celery processing queue.
-    Returns immediately with a job_id for tracking.
-
-    Processing includes:
-    1. Video download
-    2. Frame extraction
-    3. Analysis with GPT-4V
-    4. Embedding generation
-    5. Audio transcription (optional)
-    6. Indexing for search (Knowledge Graph)
-    """,
-)
-async def submit_job(request: JobSubmitRequest, current_user: User = Depends(get_current_user)):
-    """Submits a processing job to Celery"""
-    celery_app = get_celery_app()
-    if not celery_app:
-        raise service_unavailable("Celery not available. Make sure the worker is running.")
-
-    try:
-        from tasks.video_tasks import process_video_pipeline
-
-        # Prepare configuration
-        config = request.config.model_dump() if request.config else {}
-
-        # Submit task to Celery
-        result = process_video_pipeline.apply_async(
-            args=[request.video_id, request.blob_name, config], priority=config.get("priority", 5)
-        )
-
-        # Estimate time (rough approximation)
-        max_frames = config.get("max_frames", 20)
-        estimated_time = max_frames * 3 + 30  # ~3 sec/frame + overhead
-
-        logger.info(f"Job submitted: {result.id} for video {request.video_id}")
-
-        return JobSubmitResponse(
-            job_id=result.id,
-            video_id=request.video_id,
-            status=JobStatus.PENDING,
-            message="Job submitted to processing queue",
-            estimated_time_seconds=estimated_time,
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to submit job: {e}", exc_info=True)
-        raise internal_error(detail="Processing operation failed") from e
 
 
 @router.get(

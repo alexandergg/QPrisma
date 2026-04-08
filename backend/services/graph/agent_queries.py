@@ -26,7 +26,7 @@ class AgentQueryMixin:
         """Return video summary, title, topics, and duration in one query."""
         query = """
         MATCH (v:Video)
-        WHERE v.video_id = $video_id OR v.id = $video_id
+        WHERE v.video_id = $video_id
         RETURN v.summary AS summary, v.title AS title,
                v.topics AS topics, v.duration_seconds AS duration
         """

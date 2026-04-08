@@ -13,26 +13,7 @@ import {
 } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
 import { ChapterMiniGraph } from './ChapterMiniGraph';
-import type { GraphNode, GraphRelationship, GraphVisualizationData } from '@/types';
-
-/* ── Local types ────────────────────────────────────────────────────────── */
-
-interface Scene {
-  scene_id: number;
-  start_time: number;
-  end_time: number;
-  duration?: number;
-  title?: string;
-  summary?: string;
-}
-
-interface Chapter {
-  chapter_id: number;
-  title: string;
-  start_time: number;
-  end_time: number;
-  scene_ids?: number[];
-}
+import type { GraphNode, GraphRelationship, GraphVisualizationData, Scene, Chapter } from '@/types';
 
 /* ── Props ──────────────────────────────────────────────────────────────── */
 

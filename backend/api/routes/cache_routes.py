@@ -14,11 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.dependencies import get_current_user
 from models.cache_models import (
     CacheBackend,
+    CacheConfigResponse,
     CacheInvalidateRequest,
     CacheInvalidateResponse,
     CacheMetricsResponse,
-    CacheSettings,
-    JobStatusCache,
 )
 from models.user import User
 from services.cache_service import CacheService, get_cache_service
@@ -199,65 +198,23 @@ async def invalidate_video_cache(
 
 
 # =============================================================================
-# Job Status Endpoints
-# =============================================================================
-
-
-@router.get(
-    "/job/{job_id}",
-    response_model=JobStatusCache | None,
-    summary="Get job status from cache",
-    description="Retrieves the status of a processing job from the cache.",
-)
-async def get_job_status(job_id: str, cache: CacheService = Depends(get_cache)):
-    """Gets job status from cache"""
-    status = await cache.get_job_status(job_id)
-
-    if not status:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found in cache")
-
-    return status
-
-
-@router.put(
-    "/job/{job_id}",
-    summary="Update job status in cache",
-    description="Updates the status of a processing job in the cache.",
-)
-async def update_job_status(
-    job_id: str,
-    progress: int,
-    stage: str,
-    message: str | None = None,
-    cache: CacheService = Depends(get_cache),
-):
-    """Updates job status in cache"""
-    success = await cache.update_job_progress(
-        job_id=job_id, progress=progress, stage=stage, message=message
-    )
-
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to update job status")
-
-    return {"message": "Job status updated", "job_id": job_id, "progress": progress}
-
-
-# =============================================================================
 # Configuration
 # =============================================================================
 
 
 @router.get(
     "/config",
-    response_model=CacheSettings,
+    response_model=CacheConfigResponse,
     summary="Get cache configuration",
-    description="Returns the current configuration of the cache system.",
+    description="Returns the current cache configuration (connection strings redacted).",
 )
-async def get_cache_config(cache: CacheService = Depends(get_cache)):
-    """Gets current cache configuration"""
-    return CacheSettings(
+async def get_cache_config(
+    current_user: User = Depends(get_current_user),
+    cache: CacheService = Depends(get_cache),
+):
+    """Gets current cache configuration (auth required, credentials redacted)."""
+    return CacheConfigResponse(
         enabled=True,
-        redis_url=cache.redis_url,
         key_prefix=cache.config.key_prefix,
         similarity_threshold=cache.config.similarity_threshold,
         max_memory_items=cache.config.max_memory_items,

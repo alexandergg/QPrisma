@@ -15,31 +15,7 @@ import { formatTime } from '@/lib/utils';
 import { apiClient } from '@/lib/api';
 import { DynamicKnowledgeGraphViewer } from '@/lib/dynamic';
 import { ChapterDetailModal } from '@/components/chapters/ChapterDetailModal';
-import type { GraphVisualizationData, GraphNode } from '@/types';
-
-interface Scene {
-  scene_id: number;
-  start_time: number;
-  end_time: number;
-  duration?: number;
-  title?: string;
-  summary?: string;
-}
-
-interface Chapter {
-  chapter_id: number;
-  title: string;
-  start_time: number;
-  end_time: number;
-  scene_ids?: number[];
-}
-
-interface TranscriptSegment {
-  id: number;
-  start: number;
-  end: number;
-  text: string;
-}
+import type { GraphVisualizationData, GraphNode, Scene, Chapter, TranscriptSegment } from '@/types';
 
 export type TabType = 'chapters' | 'transcript' | 'graph';
 

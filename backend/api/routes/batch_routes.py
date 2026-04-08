@@ -118,7 +118,7 @@ async def cancel_batch_job(
                 status_code=400, detail=f"Cannot cancel job with status: {batch_job.status}"
             )
 
-        batch_proc.cancel_batch(azure_batch_id)
+        await batch_proc.cancel_batch(azure_batch_id)
 
         db.update_batch_job_by_azure_id(
             azure_batch_id,
