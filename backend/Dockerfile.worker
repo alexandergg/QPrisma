@@ -24,7 +24,7 @@ COPY core/ ./core/
 COPY models/ ./models/
 COPY services/ ./services/
 COPY tasks/ ./tasks/
-COPY evaluation/ ./evaluation/
+COPY evaluation_foundry/ ./evaluation_foundry/
 
 # Instalar uv y dependencias
 RUN pip install --no-cache-dir uv && \
