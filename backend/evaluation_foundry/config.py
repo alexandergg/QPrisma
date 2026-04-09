@@ -28,6 +28,8 @@ AGENT_EVALUATORS: list[str] = [
     "builtin.intent_resolution",
     "builtin.tool_call_accuracy",
     "builtin.tool_call_success",
+    "builtin.tool_selection",
+    "builtin.tool_output_utilization",
 ]
 
 SAFETY_EVALUATORS: list[str] = [

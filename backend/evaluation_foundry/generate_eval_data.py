@@ -39,6 +39,7 @@ from evaluation_foundry.data.query_templates import (
     ALL_SAFETY_TEMPLATES,
     QueryTemplate,
 )
+from evaluation_foundry.tool_definitions import TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,8 @@ def _build_query(
     template: QueryTemplate,
     media_ids: list[str],
     user_id: str | None,
+    *,
+    include_tool_definitions: bool = False,
 ) -> dict | None:
     """Convert a template into a Foundry data row, or None if requirements unmet."""
     # Check requirements
@@ -109,6 +112,8 @@ def _build_query(
     row: dict = {"query": prefix + template.text}
     if template.ground_truth:
         row["ground_truth"] = template.ground_truth
+    if include_tool_definitions:
+        row["tool_definitions"] = TOOL_DEFINITIONS
 
     return row
 
@@ -119,13 +124,20 @@ def generate_data_file(
     evaluators: list[str],
     media_ids: list[str],
     user_id: str | None,
+    *,
+    include_tool_definitions: bool = False,
 ) -> dict:
     """Generate a single Foundry evaluation data file structure."""
     rows: list[dict] = []
     skipped = 0
 
     for template in templates:
-        row = _build_query(template, media_ids, user_id)
+        row = _build_query(
+            template,
+            media_ids,
+            user_id,
+            include_tool_definitions=include_tool_definitions,
+        )
         if row is None:
             skipped += 1
             continue
@@ -138,11 +150,16 @@ def generate_data_file(
         skipped,
     )
 
+    # Map tool_definitions from data items to the evaluator input when present.
+    data_mapping: dict[str, str] = {}
+    if include_tool_definitions:
+        data_mapping["tool_definitions"] = "{{item.tool_definitions}}"
+
     return {
         "name": name,
         "evaluators": evaluators,
         "data": rows,
-        "data_mapping": {},
+        "data_mapping": data_mapping,
         "evaluator_parameters": {},
     }
 
@@ -185,13 +202,14 @@ def main() -> int:
     if not user_id:
         logger.warning("EVAL_USER_ID not set — multi-video and user-scoped queries will be skipped")
 
-    # Generate general evaluation data
+    # Generate general evaluation data (includes tool_definitions for tool evaluators)
     general = generate_data_file(
         name="qprisma-general-eval",
         templates=ALL_GENERAL_TEMPLATES,
         evaluators=GENERAL_EVAL_EVALUATORS,
         media_ids=media_ids,
         user_id=user_id,
+        include_tool_definitions=True,
     )
 
     # Generate safety evaluation data
