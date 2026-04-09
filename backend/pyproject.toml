@@ -52,8 +52,6 @@ dependencies = [
     "PyJWT[crypto]>=2.9.0,<3.0.0",
     # Rate Limiting
     "slowapi>=0.1.9,<1.0.0",
-    "yt-dlp>=2026.3.17",
-    "datasets>=4.8.4",
     # Telemetry / Tracing (Azure Monitor + OpenTelemetry)
     "azure-monitor-opentelemetry>=1.6.0,<2.0.0",
     "opentelemetry-instrumentation-openai-v2>=2.0.0,<3.0.0",
@@ -76,7 +74,7 @@ requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["api", "agent", "core", "models", "services", "tasks", "evaluation"]
+packages = ["api", "agent", "core", "models", "services", "tasks", "evaluation_foundry"]
 
 [tool.uv]
 dev-dependencies = [
@@ -139,7 +137,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["api", "services", "models", "tasks", "core", "evaluation"]
+known-first-party = ["api", "services", "models", "tasks", "core", "evaluation_foundry"]
 
 # =============================================================================
 # Black Configuration
@@ -208,7 +206,7 @@ source = ["api", "services", "models", "core", "agent", "tasks"]
 branch = true
 omit = [
     "tests/*",
-    "evaluation/*",
+    "evaluation_foundry/*",
     "*/__pycache__/*",
 ]
 

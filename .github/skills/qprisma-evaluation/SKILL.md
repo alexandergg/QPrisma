@@ -5,58 +5,70 @@ description: Run QPrisma Video-MME benchmark evaluation against a remote API dep
 
 # QPrisma Evaluation Skill
 
-Use this skill to run Video-MME (CVPR 2025) evaluation against a QPrisma API deployment.
+Use this skill to run Azure AI Foundry evaluation against the QPrisma hosted agent.
 
-## Prerequisites
+## Overview
 
-- `yt-dlp` installed (`pip install yt-dlp`) for video downloading
-- `httpx` installed (included in backend dependencies)
-- QPrisma API credentials (email/password)
-- Environment variables or CLI flags for API URL and credentials
+QPrisma's agent (`qprisma-video-agent`) is evaluated using the `microsoft/ai-agent-evals`
+GitHub Action with built-in and custom evaluators.
 
-## Common runs
+## CI/CD Workflow
 
-### Quick test (12 short videos)
+The evaluation runs automatically via `.github/workflows/evaluate-agent.yml`:
+- **After deploy**: Triggers after `Deploy Hosted Agent` succeeds
+- **Weekly**: Monday 06:00 UTC for regression monitoring
+- **Manual**: `workflow_dispatch` with optional version override
 
-```bash
-cd backend
-python -m evaluation.run_video_mme_eval \
-  --api-url $QPRISMA_API_URL \
-  --subset short --max-videos 12
-```
+## Local Commands
 
-### Re-run with indexed videos (skip upload)
+### Generate evaluation data (dry-run)
 
 ```bash
 cd backend
-python -m evaluation.run_video_mme_eval --skip-upload --subset short
+python -m evaluation_foundry.generate_eval_data --dry-run
 ```
 
-### Full Video-MME benchmark
+### Generate with real media IDs
 
 ```bash
 cd backend
-python -m evaluation.run_video_mme_eval --subset all --max-videos 900
+export EVAL_MEDIA_ID_1=<uuid>
+export EVAL_MEDIA_ID_2=<uuid>
+export EVAL_USER_ID=<entra-oid>
+python -m evaluation_foundry.generate_eval_data --output-dir ./eval-output
 ```
 
-## Environment variables
+### Register custom evaluators (dry-run)
 
-| Variable | Description | Default/Example |
-|----------|-------------|-----------------|
-| `QPRISMA_API_URL` | QPrisma API base URL | https://ca-qprisma-api-dev.lemoncoast-87c1f692.westeurope.azurecontainerapps.io |
-| `QPRISMA_EVAL_EMAIL` | Auth email | user@example.com |
-| `QPRISMA_EVAL_PASSWORD` | Auth password | stringst |
+```bash
+cd backend
+python -m evaluation_foundry.register_evaluators --dry-run
+```
 
-## Pipeline phases
+### Resolve agent version
 
-1. **Setup** — authenticate, health check, load benchmark data
-2. **Video Preparation** — discover indexed videos, download missing via yt-dlp, upload, wait for processing
-3. **Evaluation** — run QPrisma agent + direct-search baseline on each question
-4. **Reporting** — compute accuracy (by category/tier/domain), efficiency metrics, generate markdown report
+```bash
+export AZURE_AI_PROJECT_ENDPOINT=https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
+python scripts/resolve_agent_version.py
+```
 
-## Reporting
+## GitHub Variables & Secrets
 
-- Results saved to `evaluation/results/video_mme/`
-- `EVALUATION_REPORT.md` — human-readable report with accuracy tables
-- `metrics.json` — machine-readable metrics
-- Per-question JSON results with resume support
+| Variable/Secret | Type | Description |
+|-----------------|------|-------------|
+| `EVAL_MEDIA_ID_1` | Variable | UUID of test video 1 (already indexed) |
+| `EVAL_MEDIA_ID_2` | Variable | UUID of test video 2 (already indexed) |
+| `EVAL_USER_ID` | Secret | Entra Object ID of the user who uploaded the videos |
+| `FOUNDRY_PROJECT_ENDPOINT` | Variable | AI Foundry project endpoint URL |
+
+## Evaluators
+
+### Built-in (Azure AI Foundry)
+- **Quality**: Coherence, Fluency, Response Completeness
+- **RAG**: Groundedness, Relevance
+- **Agent**: Task Adherence, Task Completion, Tool Call Accuracy, Tool Selection
+- **Safety**: Violence, Hate/Unfairness, Sexual, Self-Harm, Indirect Attack
+
+### Custom (QPrisma-specific)
+- **Temporal Specificity**: Evaluates timestamp/temporal reference quality (1-5 scale)
+- **Source Grounding**: Evaluates video evidence citation quality (1-5 scale)

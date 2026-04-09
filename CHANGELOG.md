@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Azure AI Foundry Evaluation
+- **Foundry evaluation pipeline**: New `evaluation_foundry/` module replaces the unfinished `evaluation/` module. Uses Azure AI Foundry's `microsoft/ai-agent-evals` GitHub Action with Agent Target mode against the deployed hosted agent.
+- **61 evaluation query templates**: General chat (15), video-scoped (22), multi-video (5), and safety (19) queries with automatic QPRISMA_CONTEXT injection for video-specific tests.
+- **Custom evaluators**: Two prompt-based LLM judge evaluators — Temporal Specificity (timestamp quality) and Source Grounding (video evidence citation).
+- **CI/CD evaluation workflow**: `.github/workflows/evaluate-agent.yml` runs automatically after deployment, weekly for regression monitoring, and on-demand via `workflow_dispatch`.
+- **Data generation CLI**: `python -m evaluation_foundry.generate_eval_data` generates Foundry-compatible JSON data files from environment-configured test media.
+- **Agent version resolver**: `scripts/resolve_agent_version.py` dynamically resolves the latest deployed agent version for evaluation.
+
 #### Foundry Conversations API Integration
 - **Server-side conversation management**: Replaced broken `previous_response_id` chaining with Foundry Conversations API (`conversations.create()` + `conversation=conv.id`). Agent now maintains full server-side message history across turns.
 - **Automatic conversation lifecycle**: First message creates a new Foundry conversation; the conversation ID is returned to the frontend via the initial SSE task event and reused on subsequent messages.
@@ -26,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - **Mem0 dependency removed**: `mem0ai` package, `Mem0MemoryService`, `Mem0Settings`, and all related configuration/tests deleted. Foundry Memory Store replaces Mem0 for long-term memory.
 - **Frontend conversation dead code**: Removed localStorage-based conversation management (`conversations.ts`, `ConversationsList.tsx`) and cleaned conversation state from 8 frontend files. Sidebar, chat pages, and hooks no longer track or persist conversations client-side.
+- **Old evaluation module removed**: Entire `backend/evaluation/` directory (~30 files) including Video-MME pipeline, custom LLM judges, metric calculators, and test adapters. Replaced by Azure AI Foundry evaluation. Legacy report preserved at `docs/legacy-video-mme-evaluation-report.md`.
+- **Evaluation-only dependencies removed**: `yt-dlp` and `datasets` packages no longer required.
 
 ## [1.1.0] - 2026-04-02
 

@@ -165,7 +165,7 @@ backend/
   services/      # Business logic services
   models/        # Pydantic/DB models
   tasks/         # Celery workers
-  evaluation/    # Video-MME benchmark evaluation pipeline
+  evaluation_foundry/  # Azure AI Foundry evaluation (data, custom evaluators)
 frontend/
   app/           # Next.js App Router
   components/    # React components
@@ -246,22 +246,24 @@ For full details, see [docs/INFRASTRUCTURE.md](./docs/INFRASTRUCTURE.md).
 
 ## Evaluation
 
-QPrisma uses the [Video-MME](https://video-mme.github.io/) benchmark (CVPR 2025) for automated evaluation against a remote API deployment.
+QPrisma uses **Azure AI Foundry** for automated agent evaluation. The hosted agent (`qprisma-video-agent`) is evaluated using the `microsoft/ai-agent-evals` GitHub Action with built-in and custom evaluators.
+
+**Triggers**: Runs automatically after agent deployment, weekly for regression monitoring, and on-demand via `workflow_dispatch`.
+
+**Evaluators**:
+- **Built-in**: Coherence, fluency, groundedness, task adherence, tool call accuracy, safety (6 categories)
+- **Custom**: Temporal specificity (video timestamp quality), source grounding (video evidence citation)
 
 ```bash
+# Generate evaluation data files locally (dry-run)
 cd backend
-export QPRISMA_API_URL=https://your-api.azurecontainerapps.io
-export QPRISMA_EVAL_EMAIL=your_email
-export QPRISMA_EVAL_PASSWORD=your_password
+python -m evaluation_foundry.generate_eval_data --dry-run
 
-# Quick test (12 short videos)
-python -m evaluation.run_video_mme_eval --subset short --max-videos 12
-
-# Re-run with already indexed videos
-python -m evaluation.run_video_mme_eval --skip-upload --subset short
+# Register custom evaluators with Foundry
+python -m evaluation_foundry.register_evaluators --dry-run
 ```
 
-The pipeline automatically discovers indexed videos, downloads missing ones via yt-dlp, uploads them, waits for processing, and runs the full evaluation with accuracy and efficiency metrics.
+See `.github/workflows/evaluate-agent.yml` for the full CI/CD evaluation pipeline.
 
 ## Documentation
 

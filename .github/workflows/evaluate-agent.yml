@@ -1,0 +1,182 @@
+name: Evaluate Agent
+
+run-name: Evaluate QPrisma Video Agent
+
+on:
+  # Primary: runs after Deploy Hosted Agent completes successfully
+  workflow_run:
+    workflows: ["Deploy Hosted Agent"]
+    types: [completed]
+    branches: [main]
+
+  # Manual trigger for on-demand evaluation
+  workflow_dispatch:
+    inputs:
+      agent-version:
+        description: 'Agent version override (e.g., "2"). Leave empty to auto-resolve.'
+        required: false
+        type: string
+
+  # Weekly regression monitoring
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-eval
+  cancel-in-progress: true
+
+env:
+  AGENT_NAME: qprisma-video-agent
+  FOUNDRY_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+
+jobs:
+  # ------------------------------------------------------------------
+  # Gate: skip if the triggering deploy workflow failed
+  # ------------------------------------------------------------------
+  gate:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - run: echo "Evaluation triggered — proceeding"
+
+  # ------------------------------------------------------------------
+  # Job 1: Generate evaluation data files from templates + env config
+  # ------------------------------------------------------------------
+  generate-data:
+    runs-on: ubuntu-latest
+    needs: gate
+    environment: dev
+    outputs:
+      general-path: ${{ steps.gen.outputs.general-path }}
+      safety-path: ${{ steps.gen.outputs.safety-path }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate evaluation data
+        id: gen
+        working-directory: backend
+        env:
+          EVAL_MEDIA_ID_1: ${{ vars.EVAL_MEDIA_ID_1 }}
+          EVAL_MEDIA_ID_2: ${{ vars.EVAL_MEDIA_ID_2 }}
+          EVAL_USER_ID: ${{ secrets.EVAL_USER_ID }}
+        run: |
+          python -m evaluation_foundry.generate_eval_data \
+            --output-dir "${{ runner.temp }}/eval-data"
+
+          echo "general-path=${{ runner.temp }}/eval-data/general-eval.json" >> $GITHUB_OUTPUT
+          echo "safety-path=${{ runner.temp }}/eval-data/safety-eval.json" >> $GITHUB_OUTPUT
+
+      - name: Upload eval data artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-data
+          path: ${{ runner.temp }}/eval-data/
+          retention-days: 30
+
+  # ------------------------------------------------------------------
+  # Job 2: Resolve agent version
+  # ------------------------------------------------------------------
+  resolve-version:
+    runs-on: ubuntu-latest
+    needs: gate
+    environment: dev
+    outputs:
+      agent-id: ${{ steps.resolve.outputs.agent_id }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install SDK
+        run: pip install "azure-ai-projects==2.0.0b3" "azure-identity>=1.25.0"
+
+      - name: Resolve agent version
+        id: resolve
+        env:
+          AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          AGENT_NAME: ${{ env.AGENT_NAME }}
+        run: |
+          if [ -n "${{ inputs.agent-version }}" ]; then
+            AGENT_ID="${AGENT_NAME}:${{ inputs.agent-version }}"
+            echo "Using manual override: ${AGENT_ID}"
+            echo "agent_id=${AGENT_ID}" >> $GITHUB_OUTPUT
+          else
+            python scripts/resolve_agent_version.py
+          fi
+
+  # ------------------------------------------------------------------
+  # Job 3: Quality evaluation (general queries)
+  # ------------------------------------------------------------------
+  evaluate-quality:
+    runs-on: ubuntu-latest
+    needs: [generate-data, resolve-version]
+    environment: dev
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Download eval data
+        uses: actions/download-artifact@v4
+        with:
+          name: eval-data
+          path: ${{ runner.temp }}/eval-data
+
+      - name: Run quality evaluation
+        uses: microsoft/ai-agent-evals@v3-beta
+        with:
+          azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
+          data-path: ${{ runner.temp }}/eval-data/general-eval.json
+          deployment-name: gpt-4o
+
+  # ------------------------------------------------------------------
+  # Job 4: Safety evaluation (adversarial queries)
+  # ------------------------------------------------------------------
+  evaluate-safety:
+    runs-on: ubuntu-latest
+    needs: [generate-data, resolve-version]
+    environment: dev
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Download eval data
+        uses: actions/download-artifact@v4
+        with:
+          name: eval-data
+          path: ${{ runner.temp }}/eval-data
+
+      - name: Run safety evaluation
+        uses: microsoft/ai-agent-evals@v3-beta
+        with:
+          azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
+          data-path: ${{ runner.temp }}/eval-data/safety-eval.json
+          deployment-name: gpt-4o
