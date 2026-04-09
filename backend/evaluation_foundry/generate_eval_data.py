@@ -142,6 +142,8 @@ def generate_data_file(
         "name": name,
         "evaluators": evaluators,
         "data": rows,
+        "data_mapping": {},
+        "evaluator_parameters": {},
     }
 
 

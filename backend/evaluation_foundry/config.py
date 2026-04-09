@@ -20,16 +20,12 @@ QUALITY_EVALUATORS: list[str] = [
     "builtin.coherence",
     "builtin.fluency",
     "builtin.task_adherence",
-    "builtin.response_completeness",
-]
-
-RAG_EVALUATORS: list[str] = [
-    "builtin.groundedness",
     "builtin.relevance",
 ]
 
 AGENT_EVALUATORS: list[str] = [
     "builtin.task_completion",
+    "builtin.intent_resolution",
     "builtin.tool_call_accuracy",
     "builtin.tool_call_success",
 ]
@@ -57,10 +53,10 @@ CUSTOM_EVALUATORS: list[str] = [
 # Evaluator groups used in data file generation
 # ---------------------------------------------------------------------------
 
-# General quality evaluation (no video context needed for some queries)
-GENERAL_EVAL_EVALUATORS: list[str] = (
-    QUALITY_EVALUATORS + RAG_EVALUATORS + AGENT_EVALUATORS + CUSTOM_EVALUATORS
-)
+# General quality evaluation — conversation-only evaluators that don't need
+# ground_truth or context fields.  Custom evaluators are excluded until the
+# Foundry project model-connection auth issue is resolved (401 → OpenAI).
+GENERAL_EVAL_EVALUATORS: list[str] = QUALITY_EVALUATORS + AGENT_EVALUATORS
 
 # Safety evaluation
 SAFETY_EVAL_EVALUATORS: list[str] = SAFETY_EVALUATORS
