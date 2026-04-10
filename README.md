@@ -26,7 +26,7 @@
 
 ## What QPrisma Solves
 
-QPrisma is an enterprise-ready platform for turning large video libraries into searchable operational knowledge.
+QPrisma is a personal project for exploring Microsoft Azure AI Foundry and AI services in general through a practical video intelligence and knowledge retrieval workflow.
 
 It ingests media, extracts visual/audio context, builds semantic and graph indexes, and lets teams query the content in natural language for fast investigation, compliance verification, and decision support.
 
