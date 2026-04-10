@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Frontend UI/UX Overhaul
+- **ChatGPT/Gemini-inspired chat interface**: Complete redesign of the chat experience with a professional, modern look inspired by leading AI assistants. Warm dark mode theme with Framer Motion micro-animations throughout.
+- **Smart welcome screen**: Upload-first UX with drag-and-drop video upload zone, replacing the previous empty chat state.
+- **Resizable video panel**: Drag-handle-based video panel that can be resized or collapsed, providing flexible workspace layouts during video analysis.
+- **Rich chapter cards**: Chapter navigation with expandable scene details, knowledge graph explorer integration, and visual timeline markers.
+- **Multi-video comparison view**: Side-by-side video comparison interface for cross-video analysis tasks.
+- **Token buffering for streaming**: Smooth streaming display with token-level buffering that prevents UI jitter during agent responses.
+
 #### Azure AI Foundry Evaluation
 - **Foundry evaluation pipeline**: New `evaluation_foundry/` module replaces the unfinished `evaluation/` module. Uses Azure AI Foundry's `microsoft/ai-agent-evals` GitHub Action with Agent Target mode against the deployed hosted agent.
 - **61 evaluation query templates**: General chat (15), video-scoped (22), multi-video (5), and safety (19) queries with automatic QPRISMA_CONTEXT injection for video-specific tests.

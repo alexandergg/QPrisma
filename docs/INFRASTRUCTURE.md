@@ -99,7 +99,7 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 | Deployment | Model | SKU | Capacity |
 |------------|-------|-----|----------|
 | `gpt-4o` | GPT-4o | GlobalStandard | 450K TPM |
-| `gpt-5.1-chat` | GPT-5.1-chat | GlobalStandard | 1M TPM |
+| `gpt-5.2-chat` | GPT-5.2-chat | GlobalStandard | 1M TPM |
 | `text-embedding-3-large` | text-embedding-3-large | GlobalStandard | 350K TPM |
 | `whisper` | Whisper | Standard | 3 RPM |
 | `gpt-4o-batch` | GPT-4o (Batch) | GlobalBatch | 200M tokens (conditional) |
@@ -116,7 +116,7 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 
 ## CI/CD Pipeline
 
-QPrisma uses 4 GitHub Actions workflows that form a connected pipeline:
+QPrisma uses **11 GitHub Actions workflows** that form a connected pipeline for continuous integration, infrastructure provisioning, application deployment, AI model management, and release automation:
 
 ```
 ┌──────────┐     ┌────────────────────┐     ┌──────────────┐
@@ -124,9 +124,20 @@ QPrisma uses 4 GitHub Actions workflows that form a connected pipeline:
 │ (PR/push)│     │ (main push)        │     │ (auto-trigger)│
 └──────────┘     └────────────────────┘     └──────────────┘
 
-┌──────────────────┐
-│ deploy-infra.yml │  (independent, triggers on infra/** changes)
-└──────────────────┘
+┌──────────────────┐     ┌─────────────────────┐     ┌──────────────────────┐
+│ deploy-infra.yml │     │ deploy-ai-foundry   │     │ deploy-hosted-agent  │
+│ (infra/** push)  │     │ (AI model updates)  │     │ (agent deployment)   │
+└──────────────────┘     └─────────────────────┘     └──────────────────────┘
+
+┌──────────────────┐     ┌──────────────┐     ┌──────────────────┐
+│ evaluate-agent   │     │ release.yml  │────▶│ version-bump.yml │
+│ (agent evals)    │     │ (GitHub rel) │     │ (bump versions)  │
+└──────────────────┘     └──────────────┘     └──────────────────┘
+
+┌──────────┐     ┌───────────────────────┐
+│ codeql   │     │ copilot-setup-steps   │
+│ (SAST)   │     │ (Copilot agent setup) │
+└──────────┘     └───────────────────────┘
 ```
 
 ### 1. CI Pipeline (`ci.yml`)
@@ -241,6 +252,45 @@ After all apps are deployed:
 1. Verify API health (`/health` returns 200)
 2. Verify Frontend loads (`/` returns 200)
 3. Output deployment summary with FQDNs to GitHub Step Summary
+
+### 5. AI Foundry Deployment (`deploy-ai-foundry.yml`)
+
+**Triggers**: Manual dispatch
+**Purpose**: Deploys or updates Azure AI Foundry model deployments independently of the main infrastructure pipeline.
+
+Handles model deployments (GPT-4o, GPT-5.2-chat, text-embedding-3-large, Whisper, GPT-4o-batch) with capacity and SKU configuration.
+
+### 6. Hosted Agent Deployment (`deploy-hosted-agent.yml`)
+
+**Triggers**: Manual dispatch
+**Purpose**: Deploys the QPrisma agent as a hosted AI agent on Azure, including the agent container and configuration.
+
+### 7. Agent Evaluation (`evaluate-agent.yml`)
+
+**Triggers**: Manual dispatch, Schedule (configurable)
+**Purpose**: Runs the QPrisma evaluation pipeline using Azure AI Foundry evaluators against a deployed agent endpoint.
+
+Uses the `evaluation_foundry/` module to execute Video-MME benchmark evaluations and report quality metrics.
+
+### 8. Release (`release.yml`)
+
+**Triggers**: Push of version tags (`v*`)
+**Purpose**: Creates GitHub Releases with auto-generated release notes from the changelog.
+
+### 9. Version Bump (`version-bump.yml`)
+
+**Triggers**: Manual dispatch
+**Purpose**: Bumps version numbers across the project (backend `pyproject.toml`, frontend `package.json`, `CITATION.cff`) and creates a version tag.
+
+### 10. Code Security Scanning (`codeql.yml`)
+
+**Triggers**: Push to `main`, Pull Requests to `main`, Weekly schedule
+**Purpose**: Runs GitHub CodeQL static analysis for JavaScript/TypeScript and Python to detect security vulnerabilities and code quality issues.
+
+### 11. Copilot Setup Steps (`copilot-setup-steps.yml`)
+
+**Triggers**: Used by GitHub Copilot agents
+**Purpose**: Provides environment setup steps (Python, Node.js, dependencies) for GitHub Copilot coding agents operating on the repository.
 
 ---
 

@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.135+-009688.svg)](https://fastapi.tiangolo.com/)
 [![Azure OpenAI](https://img.shields.io/badge/Azure-OpenAI-0078D4)](https://azure.microsoft.com/en-us/products/ai-services/openai-service)
 
 <p align="center">
@@ -86,7 +86,7 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 
 QPrisma includes multiple layers of security hardening:
 
-- **JWT authentication** on all REST, WebSocket (query param + first-message), and cache endpoints
+- **Microsoft Entra ID authentication** (MSAL v5 popup flow) on all REST, WebSocket, and cache endpoints — replaced JWT-only auth in v1.1.0
 - **Token revocation** via Redis-backed JTI denylist and `POST /auth/logout`
 - **Rate limiting** (slowapi) on auth, A2A, and media endpoints
 - **Security headers** middleware (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, etc.)
@@ -94,8 +94,8 @@ QPrisma includes multiple layers of security hardening:
 - **Error sanitization** — no internal details leaked in API error responses
 - **Non-root Docker containers** (`appuser`, UID 1001)
 - **Parameterized credentials** in docker-compose (`${VAR:-default}`)
-- **CI security scanning** with `pip-audit` and `npm audit`
-- **CI/CD least-privilege permissions** scoped per workflow
+- **CI security scanning** with `pip-audit`, `npm audit`, and CodeQL
+- **CI/CD least-privilege permissions** scoped per workflow with OIDC federated credentials
 
 ## Quick Start (Local)
 
@@ -204,6 +204,8 @@ The `scripts/` directory contains utilities for development and maintenance:
 | `deploy_agent.py` | Deploy QPrisma hosted agent to Microsoft AI Foundry |
 | `setup_entra_apps.ps1` | Set up Entra ID (Azure AD) applications for authentication |
 | `migrate_entra_auth.sql` | Database migration for Entra ID authentication |
+| `setup_memory_store.py` | Provision Foundry Memory Store for long-term agent memory |
+| `resolve_agent_version.py` | Resolve the current agent version for deployment tagging |
 
 ### Resetting all data
 
@@ -237,10 +239,17 @@ QPrisma includes production-oriented Azure deployment assets:
 
 | Workflow | Purpose |
 |---|---|
-| `ci.yml` | Backend + frontend quality checks |
-| `build-and-push.yml` | Build and push container images |
-| `deploy-infra.yml` | Provision/update Azure infrastructure |
-| `deploy-app.yml` | Deploy application revisions with health checks |
+| `ci.yml` | Backend + frontend quality checks (lint, typecheck, test) |
+| `build-and-push.yml` | Build and push container images to ACR |
+| `deploy-infra.yml` | Provision/update Azure infrastructure (Bicep) |
+| `deploy-app.yml` | Deploy application revisions with health checks and rollback |
+| `deploy-ai-foundry.yml` | Deploy AI Foundry resources and model deployments |
+| `deploy-hosted-agent.yml` | Deploy QPrisma hosted agent to AI Foundry |
+| `evaluate-agent.yml` | Run automated agent evaluation with custom evaluators |
+| `release.yml` | Create GitHub Releases from version tags |
+| `version-bump.yml` | Bump version across pyproject.toml, package.json, CITATION.cff |
+| `codeql.yml` | CodeQL security analysis |
+| `copilot-setup-steps.yml` | Copilot development environment setup |
 
 For full details, see [docs/INFRASTRUCTURE.md](./docs/INFRASTRUCTURE.md).
 
@@ -270,6 +279,7 @@ See `.github/workflows/evaluate-agent.yml` for the full CI/CD evaluation pipelin
 - [API Documentation](./API_DOCUMENTATION.md)
 - [Architecture Deep Dive](./docs/ARCHITECTURE.md)
 - [Backend Technical Architecture](./docs/BACKEND_ARCHITECTURE.md)
+- [Memory Architecture](./docs/MEMORY_ARCHITECTURE.md)
 - [Infrastructure Guide](./docs/INFRASTRUCTURE.md)
 - [Testing Guide](./TESTING.md)
 - [Contributing Guide](./CONTRIBUTING.md)
