@@ -25,11 +25,10 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Resolve and install deps only — no project build (PYTHONPATH handles imports)
-COPY pyproject.toml ./
+# Install deps from pre-compiled lock file for reproducible builds.
+# To regenerate: cd backend && uv pip compile pyproject.toml --extra hosted --prerelease=allow --python-version 3.11 -o agent/hosted/requirements-hosted.txt
+COPY agent/hosted/requirements-hosted.txt /tmp/requirements.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip compile pyproject.toml --extra hosted --prerelease=allow \
-        --python-version 3.11 --no-header -o /tmp/requirements.txt && \
     uv pip install --system -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
 
