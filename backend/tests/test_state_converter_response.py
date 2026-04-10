@@ -154,12 +154,19 @@ if "azure.ai.agentserver" not in sys.modules:
         "azure.ai.agentserver.langgraph.models"
     ]
 
-    # Register in sys.modules; preserve existing azure/azure.ai namespace packages
-    if "azure" not in sys.modules:
+    # Register in sys.modules; preserve existing azure/azure.ai namespace packages.
+    # Import the real packages first (if installed) so namespace resolution
+    # for sibling packages like azure.identity continues to work.
+    try:
+        import azure  # noqa: F811
+    except ImportError:
         sys.modules["azure"] = _make_mod("azure")
-    if "azure.ai" not in sys.modules:
-        sys.modules["azure.ai"] = _make_mod("azure.ai")
-    sys.modules["azure"].ai = sys.modules["azure.ai"]
+    try:
+        import azure.ai  # noqa: F811, F401
+    except ImportError:
+        if "azure.ai" not in sys.modules:
+            sys.modules["azure.ai"] = _make_mod("azure.ai")
+            sys.modules["azure"].ai = sys.modules["azure.ai"]
     sys.modules["azure.ai"].agentserver = _agentserver_mods["azure.ai.agentserver"]
     sys.modules.update(_agentserver_mods)
 
