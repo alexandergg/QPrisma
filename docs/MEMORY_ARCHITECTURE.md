@@ -1,62 +1,62 @@
 # Memory Architecture (QPrisma)
 
-Esta guía define **qué guarda cada capa** y cuál es la **fuente de verdad** para conversaciones del agente.
+This guide defines **what each layer stores** and which is the **source of truth** for agent conversations.
 
-## Capas de memoria
+## Memory Layers
 
 1. **LangGraph Checkpointer (Backend)**
-   - Uso: estado operativo del grafo por conversación (`thread_id`), historial útil, reanudación tras fallos/interrupts.
-   - Alcance: por hilo de conversación.
-   - Persistencia: saver productivo (PostgreSQL/Redis) según disponibilidad.
-   - **Fuente de verdad conversacional**.
+   - Purpose: per-conversation graph operational state (`thread_id`), working history, and resumption after failures/interrupts.
+   - Scope: per conversation thread.
+   - Persistence: production saver (PostgreSQL/Redis) based on availability.
+   - **Conversational source of truth**.
 
-2. **Foundry Memory Store (Memoria semántica)**
-   - Uso: memoria de largo plazo (preferencias, hechos resumidos, señales persistentes).
-   - Alcance: cross-thread por usuario (scoped por Entra ID `{tid}_{oid}`).
-   - Persistencia: Azure AI Foundry Memory Store.
-   - No sustituye al checkpointer; complementa contexto.
-   - **Estado**: el servicio (`FoundryMemoryService`) está disponible como singleton pero **no se invoca automáticamente** en el grafo del agente todavía. La integración automática en nodos del grafo es trabajo futuro.
+2. **Foundry Memory Store (Semantic Memory)**
+   - Purpose: long-term memory (preferences, summarized facts, persistent signals).
+   - Scope: cross-thread per user (scoped by Entra ID `{tid}_{oid}`).
+   - Persistence: Azure AI Foundry Memory Store.
+   - Does not replace the checkpointer; it complements context.
+   - **Status**: the service (`FoundryMemoryService`) is available as a singleton but is **not automatically invoked** in the agent graph yet. Automatic integration into graph nodes is future work.
 
 3. **A2A Task Store**
-   - Uso: estado de tareas A2A (`taskId`, estado, artifacts, history de task).
-   - Alcance: ciclo de vida de tareas/progreso.
-   - Estado actual: en memoria de proceso (in-memory).
-   - Objetivo recomendado: persistente para multi-instancia/restarts.
+   - Purpose: A2A task state (`taskId`, status, artifacts, task history).
+   - Scope: task lifecycle and progress.
+   - Current state: persistent PostgreSQL-backed storage when the DB health check is healthy, with automatic fallback to in-process memory when persistence is unavailable.
+   - Operational note: multi-instance and restart durability depend on the PostgreSQL-backed store being available; the in-memory fallback is best-effort only.
 
-> **Nota**: no hay persistencia de mensajes en el cliente (localStorage). La UI no almacena conversaciones localmente; todo el estado conversacional reside en el backend.
+> **Note**: there is no client-side message persistence (localStorage). The UI does not store conversations locally; all conversational state resides in the backend.
 
-## Fuente de verdad y reconciliación
+## Source of Truth and Reconciliation
 
-- Conversación: **Backend checkpointer**.
-- Conocimiento semántico de usuario: **Foundry Memory Store** (cuando se habilite la integración automática).
-- Si hay conflicto, prevalece backend (checkpointer/task state).
+- Conversation: **Backend checkpointer**.
+- User semantic knowledge: **Foundry Memory Store** (once automatic integration is enabled).
+- In case of conflict, the backend prevails (checkpointer/task state).
 
-## Mapeo de IDs recomendado
+## Recommended ID Mapping
 
-- `contextId` (A2A): en la primera petición es un UUID generado por el cliente. El backend lo reemplaza por el **Foundry conversation ID** devuelto por la API de Conversations, y lo envía de vuelta al cliente en el evento SSE inicial del task. A partir de ahí, `contextId` porta el Foundry conversation ID para continuidad.
-- `taskId` (A2A): identidad de ejecución/progreso, no identidad primaria de conversación.
+- `contextId` (A2A): on the first request this is a client-generated UUID. The backend replaces it with the **Foundry conversation ID** returned by the Conversations API and sends it back to the client in the initial SSE event of the task. From that point on, `contextId` carries the Foundry conversation ID for continuity.
+- `taskId` (A2A): execution/progress identity, not the primary conversation identity.
 
-## Flujo por turno
+## Per-Turn Flow
 
-1. Cliente envía mensaje con `contextId` (UUID en el primer turno, Foundry conversation ID en turnos siguientes).
-2. Backend resuelve o crea un Foundry conversation ID a partir de `contextId`.
-3. Ejecuta la llamada al Foundry Hosted Agent (Responses API con `conversation=conv_id`).
-4. Recupera memoria semántica (Foundry Memory Store) relevante para el prompt _(futuro — servicio disponible pero no invocado automáticamente)_.
-5. Stream de eventos A2A SSE con `contextId` = Foundry conversation ID.
-6. Persiste checkpoint de super-steps.
+1. Client sends a message with `contextId` (UUID on the first turn, Foundry conversation ID on subsequent turns).
+2. Backend resolves or creates a Foundry conversation ID from `contextId`.
+3. Executes the call to the Foundry Hosted Agent (Responses API with `conversation=conv_id`).
+4. Retrieves relevant semantic memory (Foundry Memory Store) for the prompt _(future — service available but not automatically invoked)_.
+5. Streams A2A SSE events with `contextId` = Foundry conversation ID.
+6. Persists super-step checkpoint.
 
-## Latencia y calidad
+## Latency and Quality
 
-- El costo extra del checkpointer suele ser menor que el tiempo LLM/retrieval.
-- Para minimizar impacto:
-  - co-ubicar API + DB,
-  - pool de conexiones,
-  - estado compacto (no payloads grandes en checkpoint),
-  - métricas p50/p95 por fase.
+- The checkpointer overhead is typically smaller than LLM/retrieval time.
+- To minimize impact:
+  - co-locate API + DB,
+  - use connection pooling,
+  - keep state compact (avoid large payloads in checkpoints),
+  - track p50/p95 metrics per phase.
 
-## Políticas operativas recomendadas
+## Recommended Operational Policies
 
-- Retención por entorno (dev/stage/prod).
-- Borrado por usuario/conversación (GDPR) usando `delete_thread`.
-- Cifrado en reposo del estado sensible cuando aplique.
-- Trazabilidad con `contextId`, `taskId`, `thread_id` en logs/metrics.
+- Retention policies per environment (dev/stage/prod).
+- Per-user/conversation deletion (GDPR) using `delete_thread`.
+- Encryption at rest for sensitive state where applicable.
+- Traceability via `contextId`, `taskId`, `thread_id` in logs/metrics.

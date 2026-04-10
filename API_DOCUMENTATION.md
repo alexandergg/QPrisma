@@ -13,48 +13,61 @@ Production: https://your-domain.com
 
 ## Authentication
 
-QPrisma uses JWT (JSON Web Tokens) for authentication.
+QPrisma uses **Microsoft Entra ID** (formerly Azure AD) for authentication via the MSAL v5 popup flow. The frontend acquires tokens using `@azure/msal-browser`, and the backend validates them against the configured tenant and audience.
 
-### Login
-```http
-POST /auth/login
-Content-Type: application/json
+### Authentication Flow
 
-{
-  "email": "user@example.com",
-  "password": "your-password"
-}
+```
+┌──────────┐     ┌──────────────┐     ┌──────────────┐
+│ Frontend │────▶│  Entra ID    │────▶│   Backend    │
+│ (MSAL)   │◀────│  (OAuth2)    │     │  (Validate)  │
+└──────────┘     └──────────────┘     └──────────────┘
 ```
 
-**Response:**
-```json
-{
-  "access_token": "eyJhbGc...",
-  "token_type": "bearer",
-  "expires_in": 86400
-}
-```
+1. The frontend initiates an **MSAL popup login** against the configured Entra ID tenant.
+2. On success, the browser receives an **access token** scoped to the QPrisma API.
+3. The token is sent as a `Bearer` token in the `Authorization` header on every API request.
+4. The backend validates the token signature, issuer, audience, and expiry using **PyJWT** with `jwt.PyJWKClient`.
 
 ### Using Authentication
-Include the token in the Authorization header:
+
+Include the Entra ID access token in the Authorization header:
 ```http
-Authorization: Bearer eyJhbGc...
+Authorization: Bearer eyJ0eXAiOiJKV1Qi...
 ```
 
-### Logout (Token Revocation)
-```http
-POST /auth/logout
-Authorization: Bearer eyJhbGc...
-```
+### Token Details
 
-**Response:**
-```json
-{
-  "message": "Successfully logged out"
-}
-```
+| Property | Value |
+|----------|-------|
+| Token type | OAuth 2.0 access token (JWT) |
+| Issuer | `https://login.microsoftonline.com/{tenant_id}/v2.0` |
+| Audience | QPrisma API Application ID URI |
+| Lifetime | Configurable (default ~1 hour, managed by Entra ID) |
 
-Revokes the JWT so it can no longer be used. Tokens are added to a Redis-backed JTI denylist.
+### User Provisioning
+
+On first login, the backend automatically provisions the user from the Entra ID token claims (`oid`, `preferred_username`, `name`). No explicit `/auth/register` call is needed.
+
+### WebSocket Authentication
+
+WebSocket authentication is endpoint-specific:
+- **`/ws/jobs/*` and `/ws/user/*`**: pass the Entra ID access token as a query parameter on the connection URL, for example `?token=<access_token>`.
+- **`/ws/all`**: connect first, then immediately send an auth message in the following format:
+  ```json
+  {"type":"auth","token":"<access_token>"}
+  ```
+
+### Auth Endpoints
+
+The authentication routes currently exposed by the backend are:
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/auth/me` | Get the current user profile from token claims |
+| GET | `/auth/config` | Get frontend authentication configuration for Entra ID/MSAL |
+
+> **Note**: Authentication uses Entra ID access tokens. There are no documented local email/password login or logout endpoints in the current backend routes.
 
 ## A2A Protocol (Agent-to-Agent)
 
@@ -685,6 +698,102 @@ The Knowledge Graph backend follows a layered architecture:
 
 All Neo4j access is funneled through `KnowledgeGraphService.execute_query()`, ensuring centralized retry handling and error classification. Direct `_driver.session()` usage is confined to `knowledge_graph.py`.
 
+### Cache Management
+
+#### Cache Health
+```http
+GET /cache/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "redis_connected": true,
+  "memory_cache_entries": 42
+}
+```
+
+#### Cache Metrics
+```http
+GET /cache/metrics
+```
+
+**Response:**
+```json
+{
+  "connected": true,
+  "backend": "redis",
+  "hits": 15420,
+  "misses": 3210,
+  "errors": 0,
+  "hit_rate": "82.79%",
+  "bytes_saved": 0,
+  "api_calls_saved": 12300,
+  "estimated_cost_saved": "$1.23"
+}
+```
+
+#### Cache Health (Public)
+```http
+GET /cache/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "backend": "redis",
+  "connected": true,
+  "message": "Cache operational"
+}
+```
+
+#### Invalidate Cache
+```http
+POST /cache/invalidate
+Content-Type: application/json
+
+{
+  "patterns": ["media:*", "search:video-uuid:*"]
+}
+```
+
+> `GET /cache/health` is public (no auth required). All other cache endpoints (`/cache/metrics`, `/cache/invalidate`, `/cache/config`, etc.) require authentication.
+
+### Video Structure
+
+#### Get Video Structure
+```http
+GET /media/{media_id}/structure
+```
+
+Returns the scene and chapter structure for a processed video.
+
+**Response:**
+```json
+{
+  "media_id": "uuid",
+  "chapters": [
+    {
+      "id": "chapter-1",
+      "title": "Introduction",
+      "summary": "Overview of the quarterly report",
+      "start_time": 0.0,
+      "end_time": 45.5,
+      "scenes": [
+        {
+          "scene_index": 0,
+          "start_time": 0.0,
+          "end_time": 22.3,
+          "description": "Opening title sequence"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### Batch Processing (Azure OpenAI Batch API)
 
 #### Submit Batch Job
@@ -736,9 +845,9 @@ GET /batch/status/{batch_id}
 
 ### Authentication
 
-All WebSocket endpoints require JWT authentication via either:
-- **Query parameter**: `?token=<JWT>` on the connection URL
-- **First message**: send `{"token": "<JWT>"}` immediately after connecting
+All WebSocket endpoints require Entra ID token authentication via either:
+- **Query parameter**: `?token=<access_token>` on the connection URL
+- **First message**: send `{"token": "<access_token>"}` immediately after connecting
 
 ### Real-time Processing Updates
 
@@ -767,15 +876,26 @@ ws.onmessage = (event) => {
 
 ## Error Responses
 
-All errors follow this format:
+All errors follow this structured format:
 
 ```json
 {
-  "detail": "Error message",
-  "status_code": 400,
-  "error_type": "ValidationError"
+  "error": {
+    "code": "MEDIA_NOT_FOUND",
+    "message": "Media with id 'abc-123' not found",
+    "context": {
+      "resource_type": "media",
+      "resource_id": "abc-123"
+    }
+  }
 }
 ```
+
+Structured error codes are generated by factory functions in `core/exceptions.py`:
+- `not_found_error(resource, id)` → 404
+- `access_denied_error(resource, id)` → 403
+- `validation_error(message)` → 400
+- `service_unavailable_error(service)` → 503
 
 **Common Status Codes:**
 - `400`: Bad Request - Invalid input
@@ -797,7 +917,7 @@ Rate limits are enforced per-IP via slowapi:
 - **Upload endpoint**: 20 uploads/minute
 - **Standard endpoints**: 100 requests/minute
 
-> **Cache endpoints**: Cache management endpoints (`/cache/*`) require JWT authentication. Health and config endpoints are open; mutation endpoints (invalidate, reset metrics) require auth.
+> **Cache endpoints**: Cache management endpoints (`/cache/*`) require Entra ID authentication. Health and config endpoints are open; mutation endpoints (invalidate, reset metrics) require auth.
 
 Rate limit headers:
 ```http
