@@ -26,9 +26,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Install deps from pre-compiled lock file for reproducible builds.
-# Regenerate with:
-#   cd backend && uv pip compile pyproject.toml --extra hosted --prerelease=allow \
-#       --python-version 3.11 --no-header -o agent/hosted/requirements-hosted.txt
+# To regenerate: cd backend && uv pip compile pyproject.toml --extra hosted --prerelease=allow --python-version 3.11 -o agent/hosted/requirements-hosted.txt
 COPY agent/hosted/requirements-hosted.txt /tmp/requirements.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system -r /tmp/requirements.txt && \
