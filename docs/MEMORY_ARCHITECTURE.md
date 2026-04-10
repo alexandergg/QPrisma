@@ -20,8 +20,8 @@ This guide defines **what each layer stores** and which is the **source of truth
 3. **A2A Task Store**
    - Purpose: A2A task state (`taskId`, status, artifacts, task history).
    - Scope: task lifecycle and progress.
-   - Current state: in-process memory (in-memory).
-   - Recommended target: persistent storage for multi-instance/restart support.
+   - Current state: persistent PostgreSQL-backed storage when the DB health check is healthy, with automatic fallback to in-process memory when persistence is unavailable.
+   - Operational note: multi-instance and restart durability depend on the PostgreSQL-backed store being available; the in-memory fallback is best-effort only.
 
 > **Note**: there is no client-side message persistence (localStorage). The UI does not store conversations locally; all conversational state resides in the backend.
 

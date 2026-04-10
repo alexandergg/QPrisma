@@ -1,6 +1,6 @@
 # QPrisma Backend — Technical Architecture Documentation
 
-> **Version**: 1.0.0 | **Python**: 3.11+ | **Framework**: FastAPI + LangGraph + Celery
+> **Backend version**: 1.1.0 | **Python**: 3.11+ | **Framework**: FastAPI + LangGraph + Celery
 > **Last updated**: February 2026
 
 ---
@@ -88,26 +88,25 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 
 ```
 backend/
-├── main.py                          # FastAPI app entry point
 ├── api/
+│   ├── main.py                      # FastAPI app entry point
 │   ├── dependencies.py              # Shared dependency providers
 │   └── routes/
 │       ├── a2a_agent_cards.py        # A2A agent card endpoints
 │       ├── a2a_message_routes.py     # A2A message handling
 │       ├── a2a_task_routes.py        # A2A task management
-│       ├── admin_routes.py           # Admin operations
-│       ├── auth_routes.py            # Auth endpoints (login/callback)
+│       ├── auth_routes.py            # Auth endpoints (me/config)
+│       ├── batch_routes.py           # Batch processing operations
+│       ├── cache_routes.py           # Cache management endpoints
 │       ├── chat_routes.py            # Chat/conversation endpoints
+│       ├── chunked_upload_routes.py  # Chunked file upload handling
 │       ├── graph_routes.py           # Knowledge graph queries
-│       ├── health_routes.py          # Health checks
-│       ├── highlight_routes.py       # Video highlight endpoints
+│       ├── jobs_routes.py            # Job status tracking
 │       ├── media_routes.py           # Media CRUD operations
-│       ├── memory_routes.py          # Memory management
-│       ├── search_routes.py          # Search endpoints
+│       ├── processing_routes.py      # Media processing endpoints
+│       ├── storage_routes.py         # Storage management
 │       ├── structure_routes.py       # Scene/chapter generation
-│       ├── task_routes.py            # Task status tracking
-│       ├── upload_routes.py          # File upload handling
-│       ├── user_routes.py            # User profile management
+│       ├── websocket_manager.py      # WebSocket connection manager
 │       └── websocket_routes.py       # WebSocket connections
 ├── agent/
 │   ├── graph.py                     # LangGraph workflow definition
@@ -1374,63 +1373,24 @@ QPrisma implements Google's Agent-to-Agent (A2A) protocol for interoperability w
 
 | Module | Endpoints | Description |
 |---|---|---|
-| `a2a_agent_cards.py` | `GET /.well-known/agent.json` | Agent card discovery |
-| `a2a_message_routes.py` | `POST /a2a/messages` | Message exchange |
-| `a2a_task_routes.py` | `GET/POST /a2a/tasks` | Task lifecycle management |
+| `a2a_agent_cards.py` | `GET /.well-known/agent-card.json` | Agent card discovery |
+| `a2a_message_routes.py` | `POST /a2a/message:send`, `POST /a2a/message:stream` | Message exchange |
+| `a2a_task_routes.py` | `GET /a2a/tasks/{id}`, `POST /a2a/tasks/{id}:cancel`, `POST /a2a/tasks/{id}:subscribe` | Task lifecycle management |
 
 ### Agent Card
 
 ```python
-@router.get("/.well-known/agent.json")
+@router.get("/.well-known/agent-card.json", response_model=AgentCard)
 async def get_agent_card():
-    """ Return A2A agent card for service discovery."""
-    return {
-        "name": "QPrisma Video Analyst",
-        "description": "AI agent for multimedia analysis and Q&A",
-        "url": settings.app.base_url,
-        "version": "1.0.0",
-        "capabilities": {
-            "streaming": True,
-            "pushNotifications": False,
-        },
-        "skills": [
-            {
-                "id": "video-analysis",
-                "name": "Video Analysis",
-                "description": "Analyze video content, transcripts, and scenes",
-            },
-            {
-                "id": "knowledge-search",
-                "name": "Knowledge Search",
-                "description": "Search across video knowledge graphs",
-            },
-        ],
-        "authentication": {
-            "schemes": ["bearer"],
-        },
-    }
+    """Agent Card discovery endpoint."""
+    return get_video_agent_card()
 ```
 
 ### A2A Message Handling
 
 ```python
-@router.post("/a2a/messages")
-async def handle_a2a_message(
-    request: A2AMessageRequest,
-    auth: Annotated[dict, Depends(validate_a2a_auth)],
-):
-    """ Process incoming A2A message and route to agent."""
-    a2a_service = get_a2a_service()
-    response = await a2a_service.process_message(
-        message=request.message,
-        sender=request.sender,
-        task_id=request.task_id,
-    )
-    return A2AMessageResponse(
-        message=response.content,
-        task_id=response.task_id,
-        status=response.status,
-    )
+# POST /a2a/message:send  — synchronous message exchange
+# POST /a2a/message:stream — message exchange with SSE streaming
 ```
 
 ---

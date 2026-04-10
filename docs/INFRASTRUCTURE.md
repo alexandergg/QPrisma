@@ -255,14 +255,14 @@ After all apps are deployed:
 
 ### 5. AI Foundry Deployment (`deploy-ai-foundry.yml`)
 
-**Triggers**: Manual dispatch
+**Triggers**: Push to `main` (path-filtered), Manual dispatch
 **Purpose**: Deploys or updates Azure AI Foundry model deployments independently of the main infrastructure pipeline.
 
 Handles model deployments (GPT-4o, GPT-5.2-chat, text-embedding-3-large, Whisper, GPT-4o-batch) with capacity and SKU configuration.
 
 ### 6. Hosted Agent Deployment (`deploy-hosted-agent.yml`)
 
-**Triggers**: Manual dispatch
+**Triggers**: Push to `main` (path-filtered), Manual dispatch
 **Purpose**: Deploys the QPrisma agent as a hosted AI agent on Azure, including the agent container and configuration.
 
 ### 7. Agent Evaluation (`evaluate-agent.yml`)

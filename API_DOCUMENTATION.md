@@ -27,7 +27,7 @@ QPrisma uses **Microsoft Entra ID** (formerly Azure AD) for authentication via t
 1. The frontend initiates an **MSAL popup login** against the configured Entra ID tenant.
 2. On success, the browser receives an **access token** scoped to the QPrisma API.
 3. The token is sent as a `Bearer` token in the `Authorization` header on every API request.
-4. The backend validates the token signature, issuer, audience, and expiry using `microsoft-identity-abstractions`.
+4. The backend validates the token signature, issuer, audience, and expiry using **PyJWT** with `jwt.PyJWKClient`.
 
 ### Using Authentication
 
@@ -51,21 +51,23 @@ On first login, the backend automatically provisions the user from the Entra ID 
 
 ### WebSocket Authentication
 
-WebSocket connections accept the Entra ID token via:
-- **Query parameter**: `?token=<access_token>` on the connection URL
-- **First message**: send `{"token": "<access_token>"}` immediately after connecting
+WebSocket authentication is endpoint-specific:
+- **`/ws/jobs/*` and `/ws/user/*`**: pass the Entra ID access token as a query parameter on the connection URL, for example `?token=<access_token>`.
+- **`/ws/all`**: connect first, then immediately send an auth message in the following format:
+  ```json
+  {"type":"auth","token":"<access_token>"}
+  ```
 
-### Legacy Endpoints
+### Auth Endpoints
 
-The following endpoints exist for backward compatibility and local development:
+The authentication routes currently exposed by the backend are:
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| POST | `/auth/login` | Email/password login (dev-only, disabled in production) |
-| GET | `/auth/me` | Get current user profile from token claims |
-| POST | `/auth/logout` | Revoke token (adds JTI to Redis denylist) |
+| GET | `/auth/me` | Get the current user profile from token claims |
+| GET | `/auth/config` | Get frontend authentication configuration for Entra ID/MSAL |
 
-> **Note**: In production, `allow_dev_autologin` is rejected by config validators. All authentication flows use Entra ID.
+> **Note**: Authentication uses Entra ID access tokens. There are no documented local email/password login or logout endpoints in the current backend routes.
 
 ## A2A Protocol (Agent-to-Agent)
 
@@ -720,10 +722,30 @@ GET /cache/metrics
 **Response:**
 ```json
 {
+  "connected": true,
+  "backend": "redis",
   "hits": 15420,
   "misses": 3210,
-  "hit_rate": 0.828,
-  "savings_estimate_seconds": 4620
+  "errors": 0,
+  "hit_rate": "82.79%",
+  "bytes_saved": 0,
+  "api_calls_saved": 12300,
+  "estimated_cost_saved": "$1.23"
+}
+```
+
+#### Cache Health (Public)
+```http
+GET /cache/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "backend": "redis",
+  "connected": true,
+  "message": "Cache operational"
 }
 ```
 
@@ -737,13 +759,13 @@ Content-Type: application/json
 }
 ```
 
-> Cache endpoints require authentication. Health and metrics are read-only; mutation endpoints (invalidate) require auth.
+> `GET /cache/health` is public (no auth required). All other cache endpoints (`/cache/metrics`, `/cache/invalidate`, `/cache/config`, etc.) require authentication.
 
 ### Video Structure
 
 #### Get Video Structure
 ```http
-GET /structure/{media_id}
+GET /media/{media_id}/structure
 ```
 
 Returns the scene and chapter structure for a processed video.

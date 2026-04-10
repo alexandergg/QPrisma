@@ -86,8 +86,8 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 
 QPrisma includes multiple layers of security hardening:
 
-- **Microsoft Entra ID authentication** (MSAL v5 popup flow) on all REST, WebSocket, and cache endpoints — replaced JWT-only auth in v1.1.0
-- **Token revocation** via Redis-backed JTI denylist and `POST /auth/logout`
+- **Microsoft Entra ID authentication** (MSAL v5 popup flow) on protected REST and WebSocket endpoints; some operational endpoints remain public, including `GET /cache/health`
+- **Token/session invalidation** is handled by Microsoft Entra ID and the client-side MSAL token lifecycle; there is no backend `POST /auth/logout` route or Redis-backed JTI denylist
 - **Rate limiting** (slowapi) on auth, A2A, and media endpoints
 - **Security headers** middleware (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, etc.)
 - **Dev autologin guard** — `allow_dev_autologin` is rejected in production/staging by config validators
