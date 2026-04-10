@@ -4,7 +4,7 @@
 
 
 [![OpenSSF Best Practices](https://bestpractices.coreinfrastructure.org/projects/1/badge)](https://bestpractices.coreinfrastructure.org/projects/1)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg)](./LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135+-009688.svg)](https://fastapi.tiangolo.com/)
@@ -293,7 +293,7 @@ Contributions are welcome. Please review [CONTRIBUTING.md](./CONTRIBUTING.md) be
 
 ## License
 
-This project is licensed under the [MIT License](./LICENSE).
+This project is licensed under a [Proprietary License](./LICENSE). Commercial use, distribution, and derivative works are not permitted.
 
 ## Disclaimer
 
