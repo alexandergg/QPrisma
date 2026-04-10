@@ -37,10 +37,11 @@ if "azure.ai.agentserver" not in sys.modules:
             self.status = status
 
     class _FunctionToolCallOutputItemResource(_ItemResource):
-        def __init__(self, *, call_id, output, id):
+        def __init__(self, *, call_id, output, id, status="completed"):
             self.call_id = call_id
             self.output = output
             self.id = id
+            self.status = status
 
     class _ResponsesAssistantMessageItemResource(_ItemResource):
         def __init__(self, *, content, id, status="completed"):
@@ -542,3 +543,72 @@ class TestRealisticQPrismaFlow:
         assert len(func_outputs) == 2
         assert len(assistant_msgs) == 1
         assert {fc.call_id for fc in func_calls} == {"c1", "c2"}
+
+
+# ---------------------------------------------------------------------------
+# Test: status field present on all emitted items
+# ---------------------------------------------------------------------------
+
+
+class TestStatusFieldPresent:
+    """Verify all emitted items include status='completed'.
+
+    The Foundry Responses API requires `status` on every item.  A missing
+    `status` on FunctionToolCallOutputItemResource caused 100% failure for
+    any evaluation query that triggered tool calls.
+    """
+
+    def test_tool_output_has_status_completed(self, converter):
+        """FunctionToolCallOutputItemResource must have status='completed'."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_msg = AIMessage(
+            content="",
+            tool_calls=[{"name": "search_video", "id": "call_s1", "args": {"q": "test"}}],
+        )
+        tool_msg = ToolMessage(content="result", tool_call_id="call_s1")
+        output = [
+            {"call_model": {"messages": [ai_msg]}},
+            {"tools": {"messages": [tool_msg]}},
+        ]
+        items = converter.convert(output)
+        func_outputs = [i for i in items if isinstance(i, pm.FunctionToolCallOutputItemResource)]
+        assert len(func_outputs) == 1
+        assert func_outputs[0].status == "completed"
+
+    def test_all_items_have_status(self, converter):
+        """Every item in a full flow must carry status='completed'."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        output = [
+            {"restore_media_context": {}},
+            {
+                "call_model": {
+                    "messages": [
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {"name": "search", "id": "c1", "args": {}},
+                                {"name": "get_frame", "id": "c2", "args": {}},
+                            ],
+                        )
+                    ]
+                }
+            },
+            {
+                "tools": {
+                    "messages": [
+                        ToolMessage(content="found it", tool_call_id="c1"),
+                        ToolMessage(content="frame ok", tool_call_id="c2"),
+                    ]
+                }
+            },
+            {"call_model": {"messages": [AIMessage(content="Here's the answer.")]}},
+        ]
+        items = converter.convert(output)
+        assert len(items) == 5  # 2 FTC + 2 FTCO + 1 AM
+        for item in items:
+            assert hasattr(item, "status"), f"{type(item).__name__} missing 'status'"
+            assert item.status == "completed", (
+                f"{type(item).__name__} has status={item.status!r}, expected 'completed'"
+            )
