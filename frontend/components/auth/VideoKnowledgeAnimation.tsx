@@ -1,12 +1,16 @@
 'use client';
 
+import { useId } from 'react';
+
 /**
  * Video Knowledge Network — decorative SVG animation for the auth hero panel.
  *
  * Combines floating video-frame rectangles, knowledge-graph connections,
- * pulsing nodes, and an AI scan beam.  Pure CSS animation — no JS runtime cost.
+ * pulsing nodes, and an AI scan beam.  CSS-only animation (no requestAnimationFrame) —
+ * all motion uses compositor-friendly CSS keyframes.
  */
 export default function VideoKnowledgeAnimation() {
+  const gradientId = useId();
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
       <svg
@@ -16,7 +20,7 @@ export default function VideoKnowledgeAnimation() {
         fill="none"
       >
         <defs>
-          <linearGradient id="scanGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="transparent" />
             <stop offset="20%" stopColor="rgba(167,139,250,0.3)" />
             <stop offset="50%" stopColor="rgba(139,92,246,0.5)" />
@@ -80,7 +84,7 @@ export default function VideoKnowledgeAnimation() {
 
         {/* ── AI scan beam ── */}
         <rect className="vk-scan" x="0" y="-3" width="600" height="3" rx="1.5"
-          fill="url(#scanGrad)" />
+          fill={`url(#${gradientId})`} />
       </svg>
     </div>
   );

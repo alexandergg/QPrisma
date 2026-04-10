@@ -232,11 +232,13 @@ export default function AuthPage() {
             <button
               type="button"
               disabled
-              title="GitHub OAuth coming soon"
-              className="flex-1 flex items-center justify-center gap-2 py-3 border border-[var(--border)] rounded-[var(--radius-lg)] transition-all duration-150 text-sm font-medium text-[var(--foreground)] opacity-50 cursor-not-allowed"
+              className="flex-1 flex flex-col items-center justify-center gap-1 py-3 border border-[var(--border)] rounded-[var(--radius-lg)] transition-all duration-150 text-sm font-medium text-[var(--foreground)] opacity-50 cursor-not-allowed"
             >
-              <GitHubIcon />
-              GitHub
+              <span className="flex items-center gap-2">
+                <GitHubIcon />
+                GitHub
+              </span>
+              <span className="text-[10px] text-[var(--text-tertiary)]">Coming soon</span>
             </button>
             <button
               type="button"
