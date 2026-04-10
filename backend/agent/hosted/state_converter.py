@@ -106,16 +106,30 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
     """
 
     def convert(self, output: list[dict[str, Any]]) -> list[project_models.ItemResource]:
-        """Two-pass conversion: emit items, then drop orphaned tool outputs."""
+        """Two-pass conversion: emit items, then drop orphaned tool outputs.
+
+        Falls back to the default base-class converter if the custom logic
+        produces zero items from a non-empty output (defensive safety net).
+        """
         if not isinstance(output, list):
             logger.error("Expected output to be a list, got %s", type(output))
             raise ValueError(f"Invalid output format. Expected a list, got {type(output)}.")
 
+        logger.debug(
+            "QPrismaNonStreamResponseConverter: output has %d steps, types=%s",
+            len(output),
+            [type(s).__name__ for s in output[:5]],
+        )
+
         # Pass 1 — convert all steps into candidate items
         items: list[project_models.ItemResource] = []
         emitted_call_ids: set[str] = set()
+        self._conversion_errors = 0
 
         for step in output:
+            if not isinstance(step, dict):
+                logger.warning("Skipping non-dict step of type %s", type(step).__name__)
+                continue
             for node_name, node_output in step.items():
                 for item in self._convert_node_output_multi(node_name, node_output):
                     items.append(item)
@@ -137,6 +151,42 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 continue
             result.append(item)
 
+        # Fallback: if custom conversion produced nothing from non-empty input
+        # AND conversion errors occurred, delegate to the default base-class
+        # converter for v38-like behavior.  We only fall back when errors were
+        # observed — intentional filtering (orphan drops, node skips) should
+        # NOT trigger the fallback.
+        if not result and output and self._conversion_errors > 0:
+            logger.warning(
+                "Custom converter produced 0 items from %d steps with %d "
+                "conversion errors — falling back to default base-class converter",
+                len(output),
+                self._conversion_errors,
+            )
+            try:
+                result = super().convert(output)
+                logger.info("Base-class fallback produced %d items", len(result))
+            except Exception:
+                logger.exception("Base-class fallback also failed")
+                raise
+
+        logger.debug(
+            "QPrismaNonStreamResponseConverter: produced %d items "
+            "(tool_calls=%d, tool_outputs=%d, messages=%d)",
+            len(result),
+            sum(1 for i in result if isinstance(i, project_models.FunctionToolCallItemResource)),
+            sum(
+                1
+                for i in result
+                if isinstance(i, project_models.FunctionToolCallOutputItemResource)
+            ),
+            sum(
+                1
+                for i in result
+                if isinstance(i, project_models.ResponsesAssistantMessageItemResource)
+            ),
+        )
+
         return result
 
     def _convert_node_output_multi(
@@ -152,13 +202,32 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
 
         message_arr = node_output.get("messages") if isinstance(node_output, dict) else None
         if not message_arr or not isinstance(message_arr, Collection):
+            logger.debug(
+                "Node '%s': no messages key or not a collection (output type=%s, keys=%s)",
+                node_name,
+                type(node_output).__name__,
+                list(node_output.keys()) if isinstance(node_output, dict) else "N/A",
+            )
             return
 
         for message in message_arr:
             try:
-                yield from self._convert_single_message(message)
-            except Exception as e:
-                logger.error("Error converting %s: %s", type(message).__name__, e)
+                items = list(self._convert_single_message(message))
+                if isinstance(message, lc_messages.AIMessage) and not items:
+                    logger.warning(
+                        "AIMessage from node '%s' yielded 0 items " "(content=%s, tool_calls=%d)",
+                        node_name,
+                        repr(str(message.content)[:100]) if message.content else "empty",
+                        len(message.tool_calls) if message.tool_calls else 0,
+                    )
+                yield from items
+            except Exception:
+                self._conversion_errors += 1
+                logger.exception(
+                    "Error converting %s from node '%s'",
+                    type(message).__name__,
+                    node_name,
+                )
 
     def _convert_single_message(self, message: Any) -> Iterable[project_models.ItemResource]:
         """Convert one LangChain message to zero or more Responses API items."""
@@ -202,7 +271,10 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
         if isinstance(message, lc_messages.ToolMessage):
             content = message.content
             if not isinstance(content, str):
-                content = str(content)
+                try:
+                    content = json.dumps(content, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    content = str(content)
             yield project_models.FunctionToolCallOutputItemResource(
                 call_id=message.tool_call_id,
                 output=content,

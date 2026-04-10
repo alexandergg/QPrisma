@@ -107,7 +107,7 @@ describe('ChatInput', () => {
 
   it('shows loading state and changes aria-label', () => {
     render(<ChatInput {...defaultProps} value="x" isLoading={true} />);
-    expect(screen.getByLabelText('Sending message')).toBeInTheDocument();
+    expect(screen.getByLabelText('Stop response')).toBeInTheDocument();
   });
 
   it('shows cancel button when loading and onCancel provided', () => {

@@ -6,10 +6,169 @@ orphan-output guarding, and node-level filtering for the Foundry Responses API.
 
 from __future__ import annotations
 
+import json
+import sys
+import types
+from enum import Enum
 from unittest.mock import MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
+# ---------------------------------------------------------------------------
+# Mock azure.ai.agentserver SDK when the pre-release package is unavailable
+# ---------------------------------------------------------------------------
+# The azure-ai-agentserver-langgraph SDK is a pre-release (>=1.0.0b17) and
+# may not be installed in CI test environments.  state_converter.py has
+# top-level imports from this package, so we register lightweight stub
+# modules in sys.modules before any fixture triggers those imports.
+
+if "azure.ai.agentserver" not in sys.modules:
+
+    class _ItemResource:
+        """Base class for Responses API item resources."""
+
+    class _FunctionToolCallItemResource(_ItemResource):
+        def __init__(self, *, call_id, name, arguments, id, status="completed"):
+            self.call_id = call_id
+            self.name = name
+            self.arguments = arguments
+            self.id = id
+            self.status = status
+
+    class _FunctionToolCallOutputItemResource(_ItemResource):
+        def __init__(self, *, call_id, output, id):
+            self.call_id = call_id
+            self.output = output
+            self.id = id
+
+    class _ResponsesAssistantMessageItemResource(_ItemResource):
+        def __init__(self, *, content, id, status="completed"):
+            self.content = content
+            self.id = id
+            self.status = status
+
+    class _ResponsesMessageRole(Enum):
+        ASSISTANT = "assistant"
+        USER = "user"
+
+    class _LanggraphRunContext:
+        pass
+
+    class _GraphInputArguments(dict):
+        pass
+
+    class _ResponseAPIDefaultConverter:
+        def __init__(self, *, graph=None, create_non_stream_response_converter=None):
+            self._graph = graph
+            self._create_non_stream_response_converter = create_non_stream_response_converter
+
+        def _create_human_in_the_loop_helper(self, context):
+            return MagicMock()
+
+        async def convert_request(self, context):
+            return {"input": {}, "config": {}}
+
+    class _ResponseAPIMessagesNonStreamResponseConverter:
+        def __init__(self, context, hitl_helper):
+            self.context = context
+            self.hitl_helper = hitl_helper
+
+        def convert(self, output):
+            return []
+
+        def convert_MessageContent(self, content, *, role=None):
+            return content
+
+    def _extract_function_call(tool_call):
+        """Extract (name, call_id, arguments_json) from a LangChain tool_call dict."""
+        name = tool_call.get("name", "")
+        call_id = tool_call.get("id", "")
+        args = tool_call.get("args", {})
+        return name, call_id, json.dumps(args, ensure_ascii=False)
+
+    _INTERRUPT_NODE_NAME = "__interrupt__"
+
+    def _make_mod(name, attrs=None):
+        mod = types.ModuleType(name)
+        mod.__path__ = []  # mark as package so sub-imports work
+        mod.__package__ = name
+        if attrs:
+            for k, v in attrs.items():
+                setattr(mod, k, v)
+        return mod
+
+    _projects_mod = _make_mod(
+        "azure.ai.agentserver.core.models.projects",
+        {
+            "ItemResource": _ItemResource,
+            "FunctionToolCallItemResource": _FunctionToolCallItemResource,
+            "FunctionToolCallOutputItemResource": _FunctionToolCallOutputItemResource,
+            "ResponsesAssistantMessageItemResource": _ResponsesAssistantMessageItemResource,
+            "ResponsesMessageRole": _ResponsesMessageRole,
+        },
+    )
+
+    _agentserver_mods = {
+        "azure.ai.agentserver": _make_mod("azure.ai.agentserver"),
+        "azure.ai.agentserver.core": _make_mod("azure.ai.agentserver.core"),
+        "azure.ai.agentserver.core.models": _make_mod(
+            "azure.ai.agentserver.core.models", {"projects": _projects_mod}
+        ),
+        "azure.ai.agentserver.core.models.projects": _projects_mod,
+        "azure.ai.agentserver.langgraph": _make_mod(
+            "azure.ai.agentserver.langgraph",
+            {"LanggraphRunContext": _LanggraphRunContext},
+        ),
+        "azure.ai.agentserver.langgraph.models": _make_mod("azure.ai.agentserver.langgraph.models"),
+        "azure.ai.agentserver.langgraph.models.response_api_converter": _make_mod(
+            "azure.ai.agentserver.langgraph.models.response_api_converter",
+            {"GraphInputArguments": _GraphInputArguments},
+        ),
+        "azure.ai.agentserver.langgraph.models.response_api_default_converter": _make_mod(
+            "azure.ai.agentserver.langgraph.models.response_api_default_converter",
+            {"ResponseAPIDefaultConverter": _ResponseAPIDefaultConverter},
+        ),
+        "azure.ai.agentserver.langgraph.models.response_api_non_stream_response_converter": _make_mod(
+            "azure.ai.agentserver.langgraph.models.response_api_non_stream_response_converter",
+            {
+                "INTERRUPT_NODE_NAME": _INTERRUPT_NODE_NAME,
+                "ResponseAPIMessagesNonStreamResponseConverter": _ResponseAPIMessagesNonStreamResponseConverter,
+            },
+        ),
+        "azure.ai.agentserver.langgraph.models.utils": _make_mod(
+            "azure.ai.agentserver.langgraph.models.utils",
+            {"extract_function_call": _extract_function_call},
+        ),
+    }
+
+    # Wire parent→child submodule attributes
+    _agentserver_mods["azure.ai.agentserver"].core = _agentserver_mods["azure.ai.agentserver.core"]
+    _agentserver_mods["azure.ai.agentserver"].langgraph = _agentserver_mods[
+        "azure.ai.agentserver.langgraph"
+    ]
+    _agentserver_mods["azure.ai.agentserver.core"].models = _agentserver_mods[
+        "azure.ai.agentserver.core.models"
+    ]
+    _agentserver_mods["azure.ai.agentserver.langgraph"].models = _agentserver_mods[
+        "azure.ai.agentserver.langgraph.models"
+    ]
+
+    # Register in sys.modules; preserve existing azure/azure.ai namespace packages.
+    # Import the real packages first (if installed) so namespace resolution
+    # for sibling packages like azure.identity continues to work.
+    try:
+        import azure  # noqa: F811
+    except ImportError:
+        sys.modules["azure"] = _make_mod("azure")
+    try:
+        import azure.ai  # noqa: F811, F401
+    except ImportError:
+        if "azure.ai" not in sys.modules:
+            sys.modules["azure.ai"] = _make_mod("azure.ai")
+            sys.modules["azure"].ai = sys.modules["azure.ai"]
+    sys.modules["azure.ai"].agentserver = _agentserver_mods["azure.ai.agentserver"]
+    sys.modules.update(_agentserver_mods)
 
 # ---------------------------------------------------------------------------
 # Lightweight stubs for azure.ai.agentserver types

@@ -52,9 +52,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: gate
     environment: dev
-    outputs:
-      general-path: ${{ steps.gen.outputs.general-path }}
-      safety-path: ${{ steps.gen.outputs.safety-path }}
     steps:
       - uses: actions/checkout@v6
 
@@ -72,9 +69,6 @@ jobs:
         run: |
           python -m evaluation_foundry.generate_eval_data \
             --output-dir "${{ runner.temp }}/eval-data"
-
-          echo "general-path=${{ runner.temp }}/eval-data/general-eval.json" >> $GITHUB_OUTPUT
-          echo "safety-path=${{ runner.temp }}/eval-data/safety-eval.json" >> $GITHUB_OUTPUT
 
       - name: Upload eval data artifacts
         uses: actions/upload-artifact@v4
@@ -124,7 +118,7 @@ jobs:
           fi
 
   # ------------------------------------------------------------------
-  # Job 3: Quality evaluation (general queries)
+  # Job 3: Quality evaluation (text quality — coherence, fluency, etc.)
   # ------------------------------------------------------------------
   evaluate-quality:
     runs-on: ubuntu-latest
@@ -181,7 +175,7 @@ jobs:
         with:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
-          data-path: ${{ runner.temp }}/eval-data/general-eval.json
+          data-path: ${{ runner.temp }}/eval-data/quality-eval.json
           deployment-name: gpt-4o
 
       - name: Cleanup token refresh
@@ -196,7 +190,72 @@ jobs:
           exit 1
 
   # ------------------------------------------------------------------
-  # Job 4: Safety evaluation (adversarial queries)
+  # Job 4: Agent/tool evaluation (tool selection, accuracy, etc.)
+  # ------------------------------------------------------------------
+  evaluate-agent:
+    runs-on: ubuntu-latest
+    needs: [generate-data, resolve-version]
+    environment: dev
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup long-lived OIDC token refresh
+        run: |
+          TOKEN_FILE="${RUNNER_TEMP}/oidc-token"
+
+          curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
+            | jq -r '.value' > "$TOKEN_FILE"
+
+          (
+            while true; do
+              sleep 240
+              curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
+                | jq -r '.value' > "${TOKEN_FILE}.tmp" 2>/dev/null \
+                && mv "${TOKEN_FILE}.tmp" "$TOKEN_FILE"
+            done
+          ) &
+          echo "TOKEN_REFRESH_PID=$!" >> "$GITHUB_ENV"
+
+          echo "AZURE_FEDERATED_TOKEN_FILE=$TOKEN_FILE" >> "$GITHUB_ENV"
+          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> "$GITHUB_ENV"
+          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
+
+      - name: Download eval data
+        uses: actions/download-artifact@v4
+        with:
+          name: eval-data
+          path: ${{ runner.temp }}/eval-data
+
+      - name: Run agent evaluation
+        id: eval-agent
+        continue-on-error: true
+        uses: microsoft/ai-agent-evals@v3-beta
+        with:
+          azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
+          data-path: ${{ runner.temp }}/eval-data/agent-eval.json
+          deployment-name: gpt-4o
+
+      - name: Cleanup token refresh
+        if: always()
+        run: kill "$TOKEN_REFRESH_PID" 2>/dev/null || true
+
+      - name: Report evaluation outcome
+        if: steps.eval-agent.outcome == 'failure'
+        run: |
+          echo "::warning::Agent evaluation action failed. Results may still be available in the Azure AI Foundry portal."
+          echo "Check: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations"
+          exit 1
+
+  # ------------------------------------------------------------------
+  # Job 5: Safety evaluation (adversarial queries)
   # ------------------------------------------------------------------
   evaluate-safety:
     runs-on: ubuntu-latest

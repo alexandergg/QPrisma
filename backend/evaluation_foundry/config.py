@@ -55,10 +55,13 @@ CUSTOM_EVALUATORS: list[str] = [
 # Evaluator groups used in data file generation
 # ---------------------------------------------------------------------------
 
-# General quality evaluation — conversation-only evaluators that don't need
-# ground_truth or context fields.  Custom evaluators are excluded until the
-# Foundry project model-connection auth issue is resolved (401 → OpenAI).
-GENERAL_EVAL_EVALUATORS: list[str] = QUALITY_EVALUATORS + AGENT_EVALUATORS
+# Text-quality evaluation — conversational quality evaluators that only need
+# query + response.  No tool_definitions required.
+QUALITY_EVAL_EVALUATORS: list[str] = QUALITY_EVALUATORS
+
+# Agent/tool evaluation — evaluators that assess tool selection & execution.
+# These require tool_definitions in the data file.
+AGENT_EVAL_EVALUATORS: list[str] = AGENT_EVALUATORS
 
 # Safety evaluation
 SAFETY_EVAL_EVALUATORS: list[str] = SAFETY_EVALUATORS
@@ -72,5 +75,6 @@ ENV_USER_ID = "EVAL_USER_ID"
 # ---------------------------------------------------------------------------
 # Output file names
 # ---------------------------------------------------------------------------
-GENERAL_EVAL_FILE = "general-eval.json"
+QUALITY_EVAL_FILE = "quality-eval.json"
+AGENT_EVAL_FILE = "agent-eval.json"
 SAFETY_EVAL_FILE = "safety-eval.json"
