@@ -109,12 +109,14 @@ def _flatten_tool_definitions(definitions: list[dict]) -> list[dict]:
     for tool_def in definitions:
         fn = tool_def.get("function")
         if fn and isinstance(fn, dict):
-            flat.append({
-                "type": tool_def.get("type", "function"),
-                "name": fn["name"],
-                "description": fn.get("description", ""),
-                "parameters": fn.get("parameters", {}),
-            })
+            flat.append(
+                {
+                    "type": tool_def.get("type", "function"),
+                    "name": fn["name"],
+                    "description": fn.get("description", ""),
+                    "parameters": fn.get("parameters", {}),
+                }
+            )
         else:
             # Already flat or unknown format — pass through
             flat.append(tool_def)

@@ -128,9 +128,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
 
         for step in output:
             if not isinstance(step, dict):
-                logger.warning(
-                    "Skipping non-dict step of type %s", type(step).__name__
-                )
+                logger.warning("Skipping non-dict step of type %s", type(step).__name__)
                 continue
             for node_name, node_output in step.items():
                 for item in self._convert_node_output_multi(node_name, node_output):
@@ -177,8 +175,16 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
             "(tool_calls=%d, tool_outputs=%d, messages=%d)",
             len(result),
             sum(1 for i in result if isinstance(i, project_models.FunctionToolCallItemResource)),
-            sum(1 for i in result if isinstance(i, project_models.FunctionToolCallOutputItemResource)),
-            sum(1 for i in result if isinstance(i, project_models.ResponsesAssistantMessageItemResource)),
+            sum(
+                1
+                for i in result
+                if isinstance(i, project_models.FunctionToolCallOutputItemResource)
+            ),
+            sum(
+                1
+                for i in result
+                if isinstance(i, project_models.ResponsesAssistantMessageItemResource)
+            ),
         )
 
         return result
@@ -209,8 +215,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 items = list(self._convert_single_message(message))
                 if isinstance(message, lc_messages.AIMessage) and not items:
                     logger.warning(
-                        "AIMessage from node '%s' yielded 0 items "
-                        "(content=%s, tool_calls=%d)",
+                        "AIMessage from node '%s' yielded 0 items " "(content=%s, tool_calls=%d)",
                         node_name,
                         repr(str(message.content)[:100]) if message.content else "empty",
                         len(message.tool_calls) if message.tool_calls else 0,
