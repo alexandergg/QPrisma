@@ -279,6 +279,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 call_id=message.tool_call_id,
                 output=content,
                 id=self.context.agent_run.id_generator.generate_function_output_id(),
+                status="completed",
             )
             return
 
