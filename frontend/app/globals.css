@@ -252,6 +252,66 @@ body {
 }
 
 /* ==========================================================================
+   Video Knowledge Network — Auth Animation
+   ========================================================================== */
+
+.vk-frame-a { animation: vk-drift-a 22s ease-in-out infinite; }
+.vk-frame-b { animation: vk-drift-b 26s ease-in-out infinite; }
+.vk-frame-c { animation: vk-drift-c 20s ease-in-out infinite; }
+
+@keyframes vk-drift-a {
+  0%, 100% { transform: translate(0, 0); }
+  33% { transform: translate(8px, -12px); }
+  66% { transform: translate(-5px, 7px); }
+}
+@keyframes vk-drift-b {
+  0%, 100% { transform: translate(0, 0); }
+  33% { transform: translate(-10px, 8px); }
+  66% { transform: translate(6px, -6px); }
+}
+@keyframes vk-drift-c {
+  0%, 100% { transform: translate(0, 0); }
+  33% { transform: translate(6px, 10px); }
+  66% { transform: translate(-8px, -5px); }
+}
+
+.vk-node {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: vk-node-pulse 4s ease-in-out infinite;
+}
+@keyframes vk-node-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.35; }
+  50% { transform: scale(1.6); opacity: 0.85; }
+}
+
+.vk-line {
+  stroke-dasharray: 8 6;
+  animation: vk-line-flow 5s linear infinite;
+}
+@keyframes vk-line-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -28; }
+}
+
+.vk-scan {
+  animation: vk-scan-sweep 10s ease-in-out infinite;
+}
+@keyframes vk-scan-sweep {
+  0% { transform: translateY(-10px); opacity: 0; }
+  5% { opacity: 1; }
+  95% { opacity: 1; }
+  100% { transform: translateY(710px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vk-frame-a, .vk-frame-b, .vk-frame-c,
+  .vk-node, .vk-line, .vk-scan {
+    animation: none !important;
+  }
+}
+
+/* ==========================================================================
    Chat UI — Streaming Cursor
    ========================================================================== */
 
