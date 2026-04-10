@@ -170,6 +170,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 logger.info("Base-class fallback produced %d items", len(result))
             except Exception:
                 logger.exception("Base-class fallback also failed")
+                raise
 
         logger.debug(
             "QPrismaNonStreamResponseConverter: produced %d items "
