@@ -578,8 +578,6 @@ class TestStatusFieldPresent:
 
     def test_all_items_have_status(self, converter):
         """Every item in a full flow must carry status='completed'."""
-        from azure.ai.agentserver.core.models import projects as pm
-
         output = [
             {"restore_media_context": {}},
             {
@@ -609,6 +607,6 @@ class TestStatusFieldPresent:
         assert len(items) == 5  # 2 FTC + 2 FTCO + 1 AM
         for item in items:
             assert hasattr(item, "status"), f"{type(item).__name__} missing 'status'"
-            assert item.status == "completed", (
-                f"{type(item).__name__} has status={item.status!r}, expected 'completed'"
-            )
+            assert (
+                item.status == "completed"
+            ), f"{type(item).__name__} has status={item.status!r}, expected 'completed'"
