@@ -27,10 +27,12 @@ import sys
 from pathlib import Path
 
 from evaluation_foundry.config import (
+    AGENT_EVAL_EVALUATORS,
+    AGENT_EVAL_FILE,
     ENV_MEDIA_ID_PREFIX,
     ENV_USER_ID,
-    GENERAL_EVAL_EVALUATORS,
-    GENERAL_EVAL_FILE,
+    QUALITY_EVAL_EVALUATORS,
+    QUALITY_EVAL_FILE,
     SAFETY_EVAL_EVALUATORS,
     SAFETY_EVAL_FILE,
 )
@@ -84,6 +86,42 @@ def _get_user_id() -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Tool-definitions format transform
+# ---------------------------------------------------------------------------
+
+
+def _flatten_tool_definitions(definitions: list[dict]) -> list[dict]:
+    """Convert OpenAI Chat Completions tool format to Foundry evaluator format.
+
+    The canonical ``TOOL_DEFINITIONS`` use the OpenAI nested schema::
+
+        {"type": "function", "function": {"name": "...", "description": "...", ...}}
+
+    The Foundry evaluator (``tool_call_accuracy``, etc.) expects ``name`` at the
+    root level::
+
+        {"type": "function", "name": "...", "description": "...", "parameters": {...}}
+
+    This function performs that flattening at data-generation time so the
+    canonical definitions remain in standard OpenAI format.
+    """
+    flat: list[dict] = []
+    for tool_def in definitions:
+        fn = tool_def.get("function")
+        if fn and isinstance(fn, dict):
+            flat.append({
+                "type": tool_def.get("type", "function"),
+                "name": fn["name"],
+                "description": fn.get("description", ""),
+                "parameters": fn.get("parameters", {}),
+            })
+        else:
+            # Already flat or unknown format — pass through
+            flat.append(tool_def)
+    return flat
+
+
+# ---------------------------------------------------------------------------
 # Data file generation
 # ---------------------------------------------------------------------------
 
@@ -113,7 +151,7 @@ def _build_query(
     if template.ground_truth:
         row["ground_truth"] = template.ground_truth
     if include_tool_definitions:
-        row["tool_definitions"] = TOOL_DEFINITIONS
+        row["tool_definitions"] = _flatten_tool_definitions(TOOL_DEFINITIONS)
 
     return row
 
@@ -202,11 +240,20 @@ def main() -> int:
     if not user_id:
         logger.warning("EVAL_USER_ID not set — multi-video and user-scoped queries will be skipped")
 
-    # Generate general evaluation data (includes tool_definitions for tool evaluators)
-    general = generate_data_file(
-        name="qprisma-general-eval",
+    # Generate text-quality evaluation data (no tool_definitions needed)
+    quality = generate_data_file(
+        name="qprisma-quality-eval",
         templates=ALL_GENERAL_TEMPLATES,
-        evaluators=GENERAL_EVAL_EVALUATORS,
+        evaluators=QUALITY_EVAL_EVALUATORS,
+        media_ids=media_ids,
+        user_id=user_id,
+    )
+
+    # Generate agent/tool evaluation data (includes flattened tool_definitions)
+    agent = generate_data_file(
+        name="qprisma-agent-eval",
+        templates=ALL_GENERAL_TEMPLATES,
+        evaluators=AGENT_EVAL_EVALUATORS,
         media_ids=media_ids,
         user_id=user_id,
         include_tool_definitions=True,
@@ -222,24 +269,29 @@ def main() -> int:
     )
 
     if args.dry_run:
-        print(json.dumps({"general": general, "safety": safety}, indent=2))
+        print(json.dumps({"quality": quality, "agent": agent, "safety": safety}, indent=2))
         return 0
 
     # Write files
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    general_path = args.output_dir / GENERAL_EVAL_FILE
-    general_path.write_text(json.dumps(general, indent=2) + "\n", encoding="utf-8")
-    logger.info("Wrote %s (%d queries)", general_path, len(general["data"]))
+    quality_path = args.output_dir / QUALITY_EVAL_FILE
+    quality_path.write_text(json.dumps(quality, indent=2) + "\n", encoding="utf-8")
+    logger.info("Wrote %s (%d queries)", quality_path, len(quality["data"]))
+
+    agent_path = args.output_dir / AGENT_EVAL_FILE
+    agent_path.write_text(json.dumps(agent, indent=2) + "\n", encoding="utf-8")
+    logger.info("Wrote %s (%d queries)", agent_path, len(agent["data"]))
 
     safety_path = args.output_dir / SAFETY_EVAL_FILE
     safety_path.write_text(json.dumps(safety, indent=2) + "\n", encoding="utf-8")
     logger.info("Wrote %s (%d queries)", safety_path, len(safety["data"]))
 
     # Summary
-    total = len(general["data"]) + len(safety["data"])
+    total = len(quality["data"]) + len(agent["data"]) + len(safety["data"])
     print(f"\n✅ Generated {total} evaluation queries:")
-    print(f"   General: {len(general['data'])} queries → {general_path}")
+    print(f"   Quality: {len(quality['data'])} queries → {quality_path}")
+    print(f"   Agent:   {len(agent['data'])} queries → {agent_path}")
     print(f"   Safety:  {len(safety['data'])} queries → {safety_path}")
 
     return 0
