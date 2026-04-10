@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Sparkles, Brain, Zap } from 'lucide-react';
+import VideoKnowledgeAnimation from '@/components/auth/VideoKnowledgeAnimation';
 
 /* ── Static data ───────────────────────────────────────────────── */
 
@@ -11,21 +12,6 @@ const features = [
   { Icon: Sparkles, title: 'AI Video Analysis', desc: 'Understand every frame, word, and concept' },
   { Icon: Brain, title: 'Natural Language Search', desc: 'Ask anything about your videos' },
   { Icon: Zap, title: 'Knowledge Graphs', desc: 'See connections across your content' },
-];
-
-const particles = [
-  { top: '8%', left: '15%', size: 3, delay: 0 },
-  { top: '22%', left: '78%', size: 2, delay: 1.2 },
-  { top: '35%', left: '42%', size: 2.5, delay: 0.6 },
-  { top: '52%', left: '88%', size: 2, delay: 2.1 },
-  { top: '65%', left: '25%', size: 3, delay: 1.8 },
-  { top: '78%', left: '62%', size: 2, delay: 0.3 },
-  { top: '88%', left: '35%', size: 2.5, delay: 2.5 },
-  { top: '15%', left: '55%', size: 2, delay: 1.5 },
-  { top: '45%', left: '12%', size: 3, delay: 0.9 },
-  { top: '72%', left: '92%', size: 2, delay: 1.1 },
-  { top: '30%', left: '68%', size: 2, delay: 2.8 },
-  { top: '92%', left: '78%', size: 2.5, delay: 0.4 },
 ];
 
 /* ── SVG Icons (inline, no external deps) ──────────────────────── */
@@ -60,18 +46,9 @@ function MicrosoftIcon() {
   );
 }
 
-/* ── Shared input class ────────────────────────────────────────── */
-
-const inputClass =
-  'w-full px-4 py-3 bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-lg)] text-[var(--foreground)] placeholder:text-[var(--text-tertiary)] focus:ring-2 focus:ring-[var(--violet-6)]/50 focus:border-[var(--violet-6)] outline-none transition-all duration-200';
-
 /* ── Component ─────────────────────────────────────────────────── */
 
 export default function AuthPage() {
-  const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -85,22 +62,7 @@ export default function AuthPage() {
   }, [isAuthenticated, router]);
 
   // Authentication is handled exclusively via MSAL (Azure AD).
-  // The email/password form fields are a visual placeholder that is part of
-  // the cinematic login design — submitting the form triggers MSAL SSO.
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      await login();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign-in failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOAuthLogin = async () => {
+  const handleLogin = async () => {
     setError('');
     setLoading(true);
     try {
@@ -134,23 +96,8 @@ export default function AuthPage() {
           }}
         />
 
-        {/* Particle dots */}
-        <div className="absolute inset-0">
-          {particles.map((p, i) => (
-            <span
-              key={i}
-              className="absolute rounded-full bg-white/20"
-              style={{
-                top: p.top,
-                left: p.left,
-                width: p.size,
-                height: p.size,
-                animation: `particle-pulse 4s ease-in-out infinite`,
-                animationDelay: `${p.delay}s`,
-              }}
-            />
-          ))}
-        </div>
+        {/* Video Knowledge Network animation */}
+        <VideoKnowledgeAnimation />
 
         {/* Content */}
         <div
@@ -208,26 +155,74 @@ export default function AuthPage() {
         </div>
       </div>
 
-      {/* ─── Right Panel — Auth Form ─── */}
+      {/* ─── Right Panel — Sign In ─── */}
       <div className="w-full md:w-[45%] bg-[var(--background)] flex items-center justify-center px-6 py-12 md:px-10 lg:px-16">
         <div className="w-full max-w-[420px]" style={{ animation: 'fade-in-up 0.6s ease-out 0.15s both' }}>
           {/* Header */}
           <div className="mb-8">
             <h2 className="text-[26px] font-bold text-[var(--foreground)] tracking-tight">
-              {activeTab === 'login' ? 'Welcome back' : 'Get started'}
+              Welcome back
             </h2>
             <p className="text-[var(--text-secondary)] mt-1.5 text-[15px]">
-              {activeTab === 'login'
-                ? 'Sign in to continue to QPrisma'
-                : 'Create your account to get started'}
+              Sign in to continue to QPrisma
             </p>
           </div>
 
-          {/* OAuth buttons */}
-          <div className="flex gap-3 mb-6">
+          {/* Error */}
+          {error && (
+            <div className="bg-[var(--rose-3)]/50 border border-[var(--rose-7)]/30 text-[var(--rose-8)] px-4 py-3 rounded-[var(--radius-lg)] mb-5 text-sm flex items-start gap-2">
+              <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              {error}
+            </div>
+          )}
+
+          {/* Primary sign-in button */}
+          <button
+            type="button"
+            onClick={handleLogin}
+            disabled={loading}
+            className="w-full bg-[var(--foreground)] text-[var(--surface)] py-3.5 rounded-[var(--radius-lg)] font-semibold hover:opacity-90 active:scale-[0.99] transition-all duration-150 shadow-[var(--shadow-md)] text-[15px] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg
+                  className="animate-spin h-[18px] w-[18px]"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                Signing in…
+              </span>
+            ) : (
+              'Sign in with SSO'
+            )}
+          </button>
+
+          {/* Divider */}
+          <div className="flex items-center gap-4 my-6">
+            <div className="flex-1 h-px bg-[var(--border)]" />
+            <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-wider font-medium">
+              or
+            </span>
+            <div className="flex-1 h-px bg-[var(--border)]" />
+          </div>
+
+          {/* Alternative OAuth providers */}
+          <div className="flex gap-3">
             <button
               type="button"
-              onClick={handleOAuthLogin}
+              onClick={handleLogin}
               disabled={loading}
               className="flex-1 flex items-center justify-center gap-2 py-3 border border-[var(--border)] rounded-[var(--radius-lg)] hover:bg-[var(--surface-elevated)] active:scale-[0.98] transition-all duration-150 text-sm font-medium text-[var(--foreground)] disabled:opacity-50"
             >
@@ -245,7 +240,7 @@ export default function AuthPage() {
             </button>
             <button
               type="button"
-              onClick={handleOAuthLogin}
+              onClick={handleLogin}
               disabled={loading}
               className="flex-1 flex items-center justify-center gap-2 py-3 border border-[var(--border)] rounded-[var(--radius-lg)] hover:bg-[var(--surface-elevated)] active:scale-[0.98] transition-all duration-150 text-sm font-medium text-[var(--foreground)] disabled:opacity-50"
             >
@@ -254,167 +249,13 @@ export default function AuthPage() {
             </button>
           </div>
 
-          {/* Divider */}
-          <div className="flex items-center gap-4 mb-6">
-            <div className="flex-1 h-px bg-[var(--border)]" />
-            <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-wider font-medium">
-              or continue with
-            </span>
-            <div className="flex-1 h-px bg-[var(--border)]" />
-          </div>
-
-          {/* Login / Register tabs */}
-          <div className="bg-[var(--surface-elevated)] rounded-[var(--radius-lg)] p-1 flex mb-6">
-            <button
-              type="button"
-              onClick={() => { setActiveTab('login'); setError(''); }}
-              className={`flex-1 py-2.5 text-sm font-medium rounded-[var(--radius-md)] transition-all duration-200 ${
-                activeTab === 'login'
-                  ? 'bg-[var(--surface)] text-[var(--foreground)] shadow-[var(--shadow-xs)]'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => { setActiveTab('register'); setError(''); }}
-              className={`flex-1 py-2.5 text-sm font-medium rounded-[var(--radius-md)] transition-all duration-200 ${
-                activeTab === 'register'
-                  ? 'bg-[var(--surface)] text-[var(--foreground)] shadow-[var(--shadow-xs)]'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--foreground)]'
-              }`}
-            >
-              Create Account
-            </button>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div className="bg-[var(--rose-3)]/50 border border-[var(--rose-7)]/30 text-[var(--rose-8)] px-4 py-3 rounded-[var(--radius-lg)] mb-5 text-sm flex items-start gap-2">
-              <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <line x1="12" y1="8" x2="12" y2="12" />
-                <line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              {error}
-            </div>
-          )}
-
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {activeTab === 'register' && (
-              <div>
-                <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe"
-                  className={inputClass}
-                  autoComplete="name"
-                />
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-[var(--foreground)] mb-1.5">
-                Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className={inputClass}
-                autoComplete="email"
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-sm font-medium text-[var(--foreground)]">
-                  Password
-                </label>
-                {activeTab === 'login' && (
-                  <button
-                    type="button"
-                    className="text-xs text-[var(--violet-9)] hover:text-[var(--violet-10)] font-medium transition-colors"
-                  >
-                    Forgot password?
-                  </button>
-                )}
-              </div>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className={inputClass}
-                autoComplete={activeTab === 'login' ? 'current-password' : 'new-password'}
-              />
-            </div>
-
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[var(--foreground)] text-[var(--surface)] py-3.5 rounded-[var(--radius-lg)] font-semibold hover:opacity-90 active:scale-[0.99] transition-all duration-150 shadow-[var(--shadow-md)] text-[15px] disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg
-                    className="animate-spin h-[18px] w-[18px]"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
-                  </svg>
-                  {activeTab === 'login' ? 'Signing in…' : 'Creating account…'}
-                </span>
-              ) : (
-                activeTab === 'login' ? 'Sign in with SSO' : 'Create Account with SSO'
-              )}
-            </button>
-          </form>
-
-          {/* Toggle prompt */}
-          <p className="text-center text-sm text-[var(--text-secondary)] mt-6">
-            {activeTab === 'login' ? (
-              <>
-                Don&apos;t have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => { setActiveTab('register'); setError(''); }}
-                  className="text-[var(--violet-9)] hover:text-[var(--violet-10)] font-semibold transition-colors"
-                >
-                  Sign up
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => { setActiveTab('login'); setError(''); }}
-                  className="text-[var(--violet-9)] hover:text-[var(--violet-10)] font-semibold transition-colors"
-                >
-                  Sign in
-                </button>
-              </>
-            )}
+          {/* SSO note */}
+          <p className="text-center text-[var(--text-tertiary)] text-xs mt-8">
+            Authentication is managed by your organization&apos;s SSO
           </p>
 
           {/* Footer */}
-          <p className="text-center text-[var(--text-tertiary)] text-xs mt-8">
+          <p className="text-center text-[var(--text-tertiary)] text-xs mt-3">
             Powered by Azure AI &amp; OpenAI
           </p>
         </div>
