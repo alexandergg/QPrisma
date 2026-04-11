@@ -822,9 +822,8 @@ class TestToolOutputTruncation:
     """Oversized tool outputs are truncated to ``_MAX_TOOL_OUTPUT_CHARS``."""
 
     def test_large_output_truncated(self, converter):
-        from azure.ai.agentserver.core.models import projects as pm
-
         from agent.hosted.state_converter import _MAX_TOOL_OUTPUT_CHARS
+        from azure.ai.agentserver.core.models import projects as pm
 
         ai_msg = AIMessage(
             content="",
@@ -900,9 +899,8 @@ class TestTruncationEnforcesLimit:
     """Truncated output must not exceed ``_MAX_TOOL_OUTPUT_CHARS``."""
 
     def test_truncated_length_within_limit(self, converter):
-        from azure.ai.agentserver.core.models import projects as pm
-
         from agent.hosted.state_converter import _MAX_TOOL_OUTPUT_CHARS
+        from azure.ai.agentserver.core.models import projects as pm
 
         ai_msg = AIMessage(
             content="",
