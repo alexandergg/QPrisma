@@ -131,6 +131,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
         items: list[project_models.ItemResource] = []
         emitted_call_ids: set[str] = set()
         self._conversion_errors = 0
+        self._attempted_tool_conversions = False
 
         for step in output:
             if not isinstance(step, dict):
@@ -157,24 +158,16 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 continue
             result.append(item)
 
+        # Compute orphans_dropped before fallback (which may replace `result`)
+        orphans_dropped = len(items) - len(result)
+
         # Fallback: if custom conversion produced nothing from non-empty input
         # AND conversion errors occurred, delegate to the default base-class
         # converter — but ONLY when no tool-call or tool-output items were
         # attempted.  If the converter dropped all items due to malformed
         # tool calls, falling back to super().convert() would recreate the
         # same invalid serialized items and re-trigger Foundry 400 errors.
-        has_tool_messages = any(
-            isinstance(msg, lc_messages.ToolMessage)
-            for step in output
-            if isinstance(step, dict)
-            for node_output in step.values()
-            for msg in (
-                node_output.get("messages", [])
-                if isinstance(node_output, dict)
-                else (node_output if isinstance(node_output, list) else [])
-            )
-        )
-        if not result and output and self._conversion_errors > 0 and not has_tool_messages:
+        if not result and output and self._conversion_errors > 0 and not self._attempted_tool_conversions:
             logger.warning(
                 "Custom converter produced 0 items from %d steps with %d "
                 "conversion errors — falling back to default base-class converter",
@@ -190,8 +183,8 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
         elif not result and output and self._conversion_errors > 0:
             logger.warning(
                 "Custom converter produced 0 items from %d steps with %d "
-                "conversion errors (tool messages present — skipping fallback "
-                "to avoid re-triggering invalid format errors)",
+                "conversion errors (tool conversions attempted — skipping "
+                "fallback to avoid re-triggering invalid format errors)",
                 len(output),
                 self._conversion_errors,
             )
@@ -219,7 +212,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
             tool_output_count,
             message_count,
             self._conversion_errors,
-            len(items) - len(result),
+            orphans_dropped,
         )
 
         # Warn on mismatched tool call/output counts (orphan indicator)
@@ -299,6 +292,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
 
         if isinstance(message, lc_messages.AIMessage):
             if message.tool_calls:
+                self._attempted_tool_conversions = True
                 # Emit ALL tool calls (fixes default which only emits the first)
                 for tool_call in message.tool_calls:
                     try:
@@ -363,6 +357,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
             return
 
         if isinstance(message, lc_messages.ToolMessage):
+            self._attempted_tool_conversions = True
             # Validate call_id — drop if missing (can't match to a tool call)
             if not message.tool_call_id:
                 logger.warning(

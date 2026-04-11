@@ -759,8 +759,8 @@ class TestToolOutputMissingCallId:
             content="",
             tool_calls=[{"name": "search", "id": "call_a", "args": {}}],
         )
-        # ToolMessage with tool_call_id="" (empty string evaluates as falsy)
-        tool_msg = ToolMessage(content="result", tool_call_id="")
+        # ToolMessage with tool_call_id=None (use model_construct to bypass validation)
+        tool_msg = ToolMessage.model_construct(content="result", tool_call_id=None, type="tool")
         output = [
             {"call_model": {"messages": [ai_msg]}},
             {"tools": {"messages": [tool_msg]}},
