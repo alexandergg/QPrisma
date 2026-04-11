@@ -782,7 +782,9 @@ class TestToolOutputNoneContent:
         )
         # Use model_construct to bypass LangChain validation that coerces None→"None"
         tool_msg = ToolMessage.model_construct(
-            content=None, tool_call_id="call_c", type="tool",
+            content=None,
+            tool_call_id="call_c",
+            type="tool",
         )
         output = [
             {"call_model": {"messages": [ai_msg]}},
@@ -802,7 +804,9 @@ class TestToolOutputNoneContent:
         )
         # Use model_construct so LangChain doesn't coerce dict to str()
         tool_msg = ToolMessage.model_construct(
-            content={"results": [1, 2]}, tool_call_id="call_d", type="tool",
+            content={"results": [1, 2]},
+            tool_call_id="call_d",
+            type="tool",
         )
         output = [
             {"call_model": {"messages": [ai_msg]}},
@@ -818,8 +822,9 @@ class TestToolOutputTruncation:
     """Oversized tool outputs are truncated to ``_MAX_TOOL_OUTPUT_CHARS``."""
 
     def test_large_output_truncated(self, converter):
-        from agent.hosted.state_converter import _MAX_TOOL_OUTPUT_CHARS
         from azure.ai.agentserver.core.models import projects as pm
+
+        from agent.hosted.state_converter import _MAX_TOOL_OUTPUT_CHARS
 
         ai_msg = AIMessage(
             content="",
@@ -838,7 +843,6 @@ class TestToolOutputTruncation:
         assert "[truncated" in func_outputs[0].output
 
     def test_small_output_not_truncated(self, converter):
-        from agent.hosted.state_converter import _MAX_TOOL_OUTPUT_CHARS
         from azure.ai.agentserver.core.models import projects as pm
 
         ai_msg = AIMessage(
@@ -896,8 +900,9 @@ class TestTruncationEnforcesLimit:
     """Truncated output must not exceed ``_MAX_TOOL_OUTPUT_CHARS``."""
 
     def test_truncated_length_within_limit(self, converter):
-        from agent.hosted.state_converter import _MAX_TOOL_OUTPUT_CHARS
         from azure.ai.agentserver.core.models import projects as pm
+
+        from agent.hosted.state_converter import _MAX_TOOL_OUTPUT_CHARS
 
         ai_msg = AIMessage(
             content="",

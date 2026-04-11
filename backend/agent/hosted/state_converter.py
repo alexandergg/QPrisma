@@ -167,7 +167,12 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
         # attempted.  If the converter dropped all items due to malformed
         # tool calls, falling back to super().convert() would recreate the
         # same invalid serialized items and re-trigger Foundry 400 errors.
-        if not result and output and self._conversion_errors > 0 and not self._attempted_tool_conversions:
+        if (
+            not result
+            and output
+            and self._conversion_errors > 0
+            and not self._attempted_tool_conversions
+        ):
             logger.warning(
                 "Custom converter produced 0 items from %d steps with %d "
                 "conversion errors — falling back to default base-class converter",
@@ -196,9 +201,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
             1 for i in result if isinstance(i, project_models.FunctionToolCallOutputItemResource)
         )
         message_count = sum(
-            1
-            for i in result
-            if isinstance(i, project_models.ResponsesAssistantMessageItemResource)
+            1 for i in result if isinstance(i, project_models.ResponsesAssistantMessageItemResource)
         )
 
         # Elevated to INFO when tool calls are present (the failure-prone path)
@@ -301,8 +304,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                         # Validate required fields — drop if unfixable
                         if not call_id:
                             logger.warning(
-                                "Dropping tool call with missing call_id "
-                                "(name=%r, raw=%s)",
+                                "Dropping tool call with missing call_id " "(name=%r, raw=%s)",
                                 name,
                                 repr(tool_call)[:200],
                             )
@@ -310,8 +312,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                             continue
                         if not name:
                             logger.warning(
-                                "Dropping tool call with missing name "
-                                "(call_id=%r, raw=%s)",
+                                "Dropping tool call with missing name " "(call_id=%r, raw=%s)",
                                 call_id,
                                 repr(tool_call)[:200],
                             )
@@ -361,8 +362,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
             # Validate call_id — drop if missing (can't match to a tool call)
             if not message.tool_call_id:
                 logger.warning(
-                    "Dropping tool output with missing tool_call_id "
-                    "(name=%r, content_len=%d)",
+                    "Dropping tool output with missing tool_call_id " "(name=%r, content_len=%d)",
                     getattr(message, "name", None),
                     len(str(message.content)) if message.content else 0,
                 )
@@ -388,8 +388,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 )
                 content = content[: _MAX_TOOL_OUTPUT_CHARS - len(suffix)] + suffix
                 logger.warning(
-                    "Truncated tool output for call_id=%s "
-                    "(original=%d chars, limit=%d)",
+                    "Truncated tool output for call_id=%s " "(original=%d chars, limit=%d)",
                     message.tool_call_id,
                     original_len,
                     _MAX_TOOL_OUTPUT_CHARS,

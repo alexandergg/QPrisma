@@ -59,17 +59,13 @@ class TestFormatContext:
         assert ctx == {"media_id": MEDIA_ID_1, "user_id": USER_ID}
 
     def test_media_ids_list(self):
-        result = _format_context(
-            None, USER_ID, media_ids=[MEDIA_ID_1, MEDIA_ID_2]
-        )
+        result = _format_context(None, USER_ID, media_ids=[MEDIA_ID_1, MEDIA_ID_2])
         ctx = _extract_context(result + "dummy")
         assert ctx["media_ids"] == [MEDIA_ID_1, MEDIA_ID_2]
         assert ctx["user_id"] == USER_ID
 
     def test_all_fields(self):
-        result = _format_context(
-            MEDIA_ID_1, USER_ID, media_ids=[MEDIA_ID_1, MEDIA_ID_2]
-        )
+        result = _format_context(MEDIA_ID_1, USER_ID, media_ids=[MEDIA_ID_1, MEDIA_ID_2])
         ctx = _extract_context(result + "dummy")
         assert ctx["media_id"] == MEDIA_ID_1
         assert ctx["media_ids"] == [MEDIA_ID_1, MEDIA_ID_2]
@@ -116,9 +112,7 @@ class TestBuildQuery:
 
     def test_multi_video_query_skipped_when_no_user(self):
         t = QueryTemplate(text="Compare all videos", needs_user=True)
-        row = _build_query(
-            t, media_id=None, user_id=None, media_ids=[MEDIA_ID_1]
-        )
+        row = _build_query(t, media_id=None, user_id=None, media_ids=[MEDIA_ID_1])
         assert row is None
 
     def test_ground_truth_included(self):
@@ -129,9 +123,7 @@ class TestBuildQuery:
 
     def test_tool_definitions_included(self):
         t = QueryTemplate(text="Test?")
-        row = _build_query(
-            t, media_id=None, user_id=None, include_tool_definitions=True
-        )
+        row = _build_query(t, media_id=None, user_id=None, include_tool_definitions=True)
         assert row is not None
         assert "tool_definitions" in row
         assert isinstance(row["tool_definitions"], list)
@@ -175,9 +167,7 @@ class TestGenerateDataFile:
             media_ids=[MEDIA_ID_1, MEDIA_ID_2],
             user_id=USER_ID,
         )
-        multi_rows = [
-            r for r in result["data"] if "Cross-video search" in r["query"]
-        ]
+        multi_rows = [r for r in result["data"] if "Cross-video search" in r["query"]]
         assert len(multi_rows) == 1
         ctx = _extract_context(multi_rows[0]["query"])
         assert ctx is not None
@@ -217,12 +207,8 @@ class TestGenerateDataFile:
         )
         # 3 templates × 2 videos = 6 rows
         assert len(result["data"]) == 6
-        v1_count = sum(
-            1 for r in result["data"] if MEDIA_ID_1 in r["query"]
-        )
-        v2_count = sum(
-            1 for r in result["data"] if MEDIA_ID_2 in r["query"]
-        )
+        v1_count = sum(1 for r in result["data"] if MEDIA_ID_1 in r["query"])
+        v2_count = sum(1 for r in result["data"] if MEDIA_ID_2 in r["query"])
         assert v1_count == 3
         assert v2_count == 3
 

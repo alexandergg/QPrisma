@@ -353,7 +353,7 @@ def main() -> int:
     print(f"   Agent:   {len(agent['data'])} queries → {agent_path}")
     print(f"   Safety:  {len(safety['data'])} queries → {safety_path}")
     if media_ids:
-        print(f"\n   Videos under test:")
+        print("\n   Videos under test:")
         for i, mid in enumerate(media_ids, 1):
             print(f"     {i}. {mid}")
 
