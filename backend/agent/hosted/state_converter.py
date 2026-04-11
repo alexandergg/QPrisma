@@ -88,6 +88,12 @@ _NODES_TO_SKIP = frozenset({"restore_media_context"})
 conversation history for context injection) rather than new agent output.
 Emitting these would replay the entire history as new response items."""
 
+_MAX_TOOL_OUTPUT_CHARS = 50_000
+"""Maximum character length for tool output strings.  Video tools
+(``get_transcript``, ``describe_scene``, ``get_entity_graph``) can produce
+very large JSON payloads.  Outputs exceeding this limit are truncated to
+prevent oversized responses that the Foundry API may reject."""
+
 
 class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConverter):
     """Convert LangGraph ``stream_mode="updates"`` output to Responses API items.
@@ -125,6 +131,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
         items: list[project_models.ItemResource] = []
         emitted_call_ids: set[str] = set()
         self._conversion_errors = 0
+        self._attempted_tool_conversions = False
 
         for step in output:
             if not isinstance(step, dict):
@@ -151,12 +158,21 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 continue
             result.append(item)
 
+        # Compute orphans_dropped before fallback (which may replace `result`)
+        orphans_dropped = len(items) - len(result)
+
         # Fallback: if custom conversion produced nothing from non-empty input
         # AND conversion errors occurred, delegate to the default base-class
-        # converter for v38-like behavior.  We only fall back when errors were
-        # observed — intentional filtering (orphan drops, node skips) should
-        # NOT trigger the fallback.
-        if not result and output and self._conversion_errors > 0:
+        # converter — but ONLY when no tool-call or tool-output items were
+        # attempted.  If the converter dropped all items due to malformed
+        # tool calls, falling back to super().convert() would recreate the
+        # same invalid serialized items and re-trigger Foundry 400 errors.
+        if (
+            not result
+            and output
+            and self._conversion_errors > 0
+            and not self._attempted_tool_conversions
+        ):
             logger.warning(
                 "Custom converter produced 0 items from %d steps with %d "
                 "conversion errors — falling back to default base-class converter",
@@ -169,23 +185,47 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
             except Exception:
                 logger.exception("Base-class fallback also failed")
                 raise
+        elif not result and output and self._conversion_errors > 0:
+            logger.warning(
+                "Custom converter produced 0 items from %d steps with %d "
+                "conversion errors (tool conversions attempted — skipping "
+                "fallback to avoid re-triggering invalid format errors)",
+                len(output),
+                self._conversion_errors,
+            )
 
-        logger.debug(
-            "QPrismaNonStreamResponseConverter: produced %d items "
-            "(tool_calls=%d, tool_outputs=%d, messages=%d)",
-            len(result),
-            sum(1 for i in result if isinstance(i, project_models.FunctionToolCallItemResource)),
-            sum(
-                1
-                for i in result
-                if isinstance(i, project_models.FunctionToolCallOutputItemResource)
-            ),
-            sum(
-                1
-                for i in result
-                if isinstance(i, project_models.ResponsesAssistantMessageItemResource)
-            ),
+        tool_call_count = sum(
+            1 for i in result if isinstance(i, project_models.FunctionToolCallItemResource)
         )
+        tool_output_count = sum(
+            1 for i in result if isinstance(i, project_models.FunctionToolCallOutputItemResource)
+        )
+        message_count = sum(
+            1 for i in result if isinstance(i, project_models.ResponsesAssistantMessageItemResource)
+        )
+
+        # Elevated to INFO when tool calls are present (the failure-prone path)
+        log_fn = logger.info if tool_call_count > 0 else logger.debug
+        log_fn(
+            "QPrismaNonStreamResponseConverter: produced %d items "
+            "(tool_calls=%d, tool_outputs=%d, messages=%d, "
+            "conversion_errors=%d, orphans_dropped=%d)",
+            len(result),
+            tool_call_count,
+            tool_output_count,
+            message_count,
+            self._conversion_errors,
+            orphans_dropped,
+        )
+
+        # Warn on mismatched tool call/output counts (orphan indicator)
+        if tool_call_count != tool_output_count and tool_call_count > 0:
+            logger.warning(
+                "Tool call/output count mismatch: %d calls vs %d outputs "
+                "— orphaned items may have been dropped",
+                tool_call_count,
+                tool_output_count,
+            )
 
         return result
 
@@ -230,23 +270,72 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 )
 
     def _convert_single_message(self, message: Any) -> Iterable[project_models.ItemResource]:
-        """Convert one LangChain message to zero or more Responses API items."""
+        """Convert one LangChain message to zero or more Responses API items.
+
+        Applies defensive validation:
+
+        * **Tool calls** — ``extract_function_call`` can return ``None`` for
+          ``name``, ``call_id``, or ``argument``.  ``FunctionToolCallItemResource``
+          silently omits ``None`` fields during serialization, producing items
+          that are missing required fields and get rejected by Foundry with
+          HTTP 400 "invalid format".  We therefore **drop** tool calls whose
+          ``name`` or ``call_id`` is ``None`` (unfixable), while defaulting a
+          missing ``arguments`` to ``"{}"`` (empty args is semantically valid).
+        * **Tool outputs** — dropped when ``tool_call_id`` is ``None`` (no way
+          to match it to a tool call).  Content is coerced to a string and
+          truncated to ``_MAX_TOOL_OUTPUT_CHARS`` to guard against oversized
+          payloads.
+        * **Per-item isolation** — each tool call is converted inside its own
+          ``try/except`` so a single malformed call does not discard the rest
+          of the message's items.
+        """
         # Filter out input-side messages — they shouldn't appear in agent output
         if isinstance(message, lc_messages.HumanMessage | lc_messages.SystemMessage):
             return
 
         if isinstance(message, lc_messages.AIMessage):
             if message.tool_calls:
+                self._attempted_tool_conversions = True
                 # Emit ALL tool calls (fixes default which only emits the first)
                 for tool_call in message.tool_calls:
-                    name, call_id, argument = extract_function_call(tool_call)
-                    yield project_models.FunctionToolCallItemResource(
-                        call_id=call_id,
-                        name=name,
-                        arguments=argument,
-                        id=self.context.agent_run.id_generator.generate_function_call_id(),
-                        status="completed",
-                    )
+                    try:
+                        name, call_id, argument = extract_function_call(tool_call)
+
+                        # Validate required fields — drop if unfixable
+                        if not call_id:
+                            logger.warning(
+                                "Dropping tool call with missing call_id " "(name=%r, raw=%s)",
+                                name,
+                                repr(tool_call)[:200],
+                            )
+                            self._conversion_errors += 1
+                            continue
+                        if not name:
+                            logger.warning(
+                                "Dropping tool call with missing name " "(call_id=%r, raw=%s)",
+                                call_id,
+                                repr(tool_call)[:200],
+                            )
+                            self._conversion_errors += 1
+                            continue
+
+                        # arguments can safely default to empty JSON object
+                        if not argument:
+                            argument = "{}"
+
+                        yield project_models.FunctionToolCallItemResource(
+                            call_id=call_id,
+                            name=name,
+                            arguments=argument,
+                            id=self.context.agent_run.id_generator.generate_function_call_id(),
+                            status="completed",
+                        )
+                    except Exception:
+                        self._conversion_errors += 1
+                        logger.exception(
+                            "Failed to convert tool call: %s",
+                            repr(tool_call)[:300],
+                        )
                 # If the AIMessage also has text content alongside tool calls, emit it
                 if message.content and str(message.content).strip():
                     yield project_models.ResponsesAssistantMessageItemResource(
@@ -269,12 +358,42 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
             return
 
         if isinstance(message, lc_messages.ToolMessage):
+            self._attempted_tool_conversions = True
+            # Validate call_id — drop if missing (can't match to a tool call)
+            if not message.tool_call_id:
+                logger.warning(
+                    "Dropping tool output with missing tool_call_id " "(name=%r, content_len=%d)",
+                    getattr(message, "name", None),
+                    len(str(message.content)) if message.content else 0,
+                )
+                self._conversion_errors += 1
+                return
+
             content = message.content
-            if not isinstance(content, str):
+            # Coerce to string
+            if content is None:
+                content = "{}"
+            elif not isinstance(content, str):
                 try:
                     content = json.dumps(content, ensure_ascii=False)
                 except (TypeError, ValueError):
                     content = str(content)
+
+            # Truncate oversized tool outputs (reserve room for suffix)
+            if len(content) > _MAX_TOOL_OUTPUT_CHARS:
+                original_len = len(content)
+                suffix = (
+                    f"\n[truncated — original {original_len:,} chars "
+                    f"exceeded {_MAX_TOOL_OUTPUT_CHARS:,} char limit]"
+                )
+                content = content[: _MAX_TOOL_OUTPUT_CHARS - len(suffix)] + suffix
+                logger.warning(
+                    "Truncated tool output for call_id=%s " "(original=%d chars, limit=%d)",
+                    message.tool_call_id,
+                    original_len,
+                    _MAX_TOOL_OUTPUT_CHARS,
+                )
+
             yield project_models.FunctionToolCallOutputItemResource(
                 call_id=message.tool_call_id,
                 output=content,

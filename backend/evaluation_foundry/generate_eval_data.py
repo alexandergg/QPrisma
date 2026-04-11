@@ -52,11 +52,28 @@ logger = logging.getLogger(__name__)
 CONTEXT_PREFIX = "[QPRISMA_CONTEXT:{ctx}]\n"
 
 
-def _format_context(media_id: str | None, user_id: str | None) -> str:
-    """Build the QPRISMA_CONTEXT prefix string."""
-    parts: dict[str, str] = {}
+def _format_context(
+    media_id: str | None,
+    user_id: str | None,
+    *,
+    media_ids: list[str] | None = None,
+) -> str:
+    """Build the QPRISMA_CONTEXT prefix string.
+
+    Parameters
+    ----------
+    media_id:
+        Single video UUID for single-video queries.
+    user_id:
+        Entra Object-ID of the video owner.
+    media_ids:
+        Full list of video UUIDs for multi-video / cross-video queries.
+    """
+    parts: dict[str, str | list[str]] = {}
     if media_id:
         parts["media_id"] = media_id
+    if media_ids:
+        parts["media_ids"] = media_ids
     if user_id:
         parts["user_id"] = user_id
     if not parts:
@@ -130,14 +147,25 @@ def _flatten_tool_definitions(definitions: list[dict]) -> list[dict]:
 
 def _build_query(
     template: QueryTemplate,
-    media_ids: list[str],
+    media_id: str | None,
     user_id: str | None,
     *,
+    media_ids: list[str] | None = None,
     include_tool_definitions: bool = False,
 ) -> dict | None:
-    """Convert a template into a Foundry data row, or None if requirements unmet."""
-    # Check requirements
-    if template.needs_media and not media_ids:
+    """Convert a template into a Foundry data row, or ``None`` if unmet.
+
+    Parameters
+    ----------
+    media_id:
+        Targeted video UUID for this specific row (single-video queries).
+    user_id:
+        Entra Object-ID of the video owner.
+    media_ids:
+        Full list of available video UUIDs — included in the context
+        envelope for multi-video queries (``needs_user=True``).
+    """
+    if template.needs_media and not media_id:
         logger.warning("Skipping query (needs media_id): %s", template.text[:60])
         return None
     if template.needs_user and not user_id:
@@ -145,9 +173,10 @@ def _build_query(
         return None
 
     # Build context prefix
-    ctx_media = media_ids[0] if template.needs_media else None
+    ctx_media = media_id if template.needs_media else None
     ctx_user = user_id if (template.needs_user or template.needs_media) else None
-    prefix = _format_context(ctx_media, ctx_user)
+    ctx_media_ids = media_ids if template.needs_user else None
+    prefix = _format_context(ctx_media, ctx_user, media_ids=ctx_media_ids)
 
     row: dict = {"query": prefix + template.text}
     if template.ground_truth:
@@ -167,21 +196,43 @@ def generate_data_file(
     *,
     include_tool_definitions: bool = False,
 ) -> dict:
-    """Generate a single Foundry evaluation data file structure."""
+    """Generate a single Foundry evaluation data file structure.
+
+    Video-specific templates (``needs_media=True``) are expanded across
+    **all** available ``media_ids`` so that every configured test video
+    receives independent evaluation coverage.
+    """
     rows: list[dict] = []
     skipped = 0
 
     for template in templates:
-        row = _build_query(
-            template,
-            media_ids,
-            user_id,
-            include_tool_definitions=include_tool_definitions,
-        )
-        if row is None:
-            skipped += 1
-            continue
-        rows.append(row)
+        if template.needs_media and media_ids:
+            # Expand video-specific queries: one row per configured video
+            for mid in media_ids:
+                row = _build_query(
+                    template,
+                    media_id=mid,
+                    user_id=user_id,
+                    media_ids=media_ids,
+                    include_tool_definitions=include_tool_definitions,
+                )
+                if row is None:
+                    skipped += 1
+                else:
+                    rows.append(row)
+        else:
+            # General or multi-video (needs_user only) templates — single row
+            row = _build_query(
+                template,
+                media_id=None,
+                user_id=user_id,
+                media_ids=media_ids,
+                include_tool_definitions=include_tool_definitions,
+            )
+            if row is None:
+                skipped += 1
+            else:
+                rows.append(row)
 
     logger.info(
         "Generated %d queries for '%s' (%d skipped due to missing config)",
@@ -239,6 +290,12 @@ def main() -> int:
 
     if not media_ids:
         logger.warning("No EVAL_MEDIA_ID_* variables set — video-specific queries will be skipped")
+    elif len(media_ids) < 2:
+        logger.warning(
+            "Only %d video configured — multi-video/cross-video templates will run "
+            "but won't exercise the intended cross-video agent path (needs ≥2 videos)",
+            len(media_ids),
+        )
     if not user_id:
         logger.warning("EVAL_USER_ID not set — multi-video and user-scoped queries will be skipped")
 
@@ -291,10 +348,14 @@ def main() -> int:
 
     # Summary
     total = len(quality["data"]) + len(agent["data"]) + len(safety["data"])
-    print(f"\n✅ Generated {total} evaluation queries:")
+    print(f"\n✅ Generated {total} evaluation queries across {len(media_ids)} video(s):")
     print(f"   Quality: {len(quality['data'])} queries → {quality_path}")
     print(f"   Agent:   {len(agent['data'])} queries → {agent_path}")
     print(f"   Safety:  {len(safety['data'])} queries → {safety_path}")
+    if media_ids:
+        print("\n   Videos under test:")
+        for i, mid in enumerate(media_ids, 1):
+            print(f"     {i}. {mid}")
 
     return 0
 
