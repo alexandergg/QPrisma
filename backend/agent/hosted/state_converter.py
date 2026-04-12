@@ -79,7 +79,9 @@ def _extract_qprisma_context(text: str) -> tuple[dict[str, Any], str]:
         return {}, text
 
     if not isinstance(metadata, dict):
-        logger.warning("QPRISMA_CONTEXT payload is not a JSON object (got %s)", type(metadata).__name__)
+        logger.warning(
+            "QPRISMA_CONTEXT payload is not a JSON object (got %s)", type(metadata).__name__
+        )
         return {}, text
 
     # Expect a closing ']' immediately after the JSON object

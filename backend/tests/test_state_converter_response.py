@@ -978,7 +978,9 @@ class TestNoAssistantMessageOnToolCallTurn:
         items = converter.convert(output)
 
         # Should NOT contain an assistant message for the intermediate "Let me search..." text
-        assistant_msgs = [i for i in items if isinstance(i, pm.ResponsesAssistantMessageItemResource)]
+        assistant_msgs = [
+            i for i in items if isinstance(i, pm.ResponsesAssistantMessageItemResource)
+        ]
         func_calls = [i for i in items if isinstance(i, pm.FunctionToolCallItemResource)]
         func_outputs = [i for i in items if isinstance(i, pm.FunctionToolCallOutputItemResource)]
 
@@ -1006,7 +1008,9 @@ class TestNoAssistantMessageOnToolCallTurn:
         ]
         items = converter.convert(output)
 
-        assistant_msgs = [i for i in items if isinstance(i, pm.ResponsesAssistantMessageItemResource)]
+        assistant_msgs = [
+            i for i in items if isinstance(i, pm.ResponsesAssistantMessageItemResource)
+        ]
         assert len(assistant_msgs) == 1  # only final answer
 
 
