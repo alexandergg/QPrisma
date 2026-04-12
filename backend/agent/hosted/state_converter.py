@@ -32,6 +32,7 @@ Usage::
 
 import json
 import logging
+import re
 from collections.abc import Collection, Iterable
 from typing import Any
 
@@ -51,8 +52,7 @@ from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
 
-_CONTEXT_PREFIX = "[QPRISMA_CONTEXT:"
-"""Literal prefix that wraps the JSON context envelope."""
+_CONTEXT_PREFIX = "[QPRISMA_CONTEXT:"  # Literal prefix that wraps the JSON context envelope
 
 _json_decoder = json.JSONDecoder()
 
@@ -76,6 +76,10 @@ def _extract_qprisma_context(text: str) -> tuple[dict[str, Any], str]:
         metadata, json_end = _json_decoder.raw_decode(text, json_start)
     except (json.JSONDecodeError, ValueError):
         logger.warning("QPRISMA_CONTEXT prefix found but JSON is malformed")
+        return {}, text
+
+    if not isinstance(metadata, dict):
+        logger.warning("QPRISMA_CONTEXT payload is not a JSON object (got %s)", type(metadata).__name__)
         return {}, text
 
     # Expect a closing ']' immediately after the JSON object
@@ -107,7 +111,7 @@ very large JSON payloads.  Outputs exceeding this limit are truncated to
 prevent oversized responses that the Foundry API may reject."""
 
 # Control characters to strip from tool output (keep \t, \n, \r which are valid in JSON)
-_CONTROL_CHAR_RE = __import__("re").compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 def _sanitize_tool_output(content: str) -> str:

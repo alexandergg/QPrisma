@@ -88,6 +88,9 @@ def _parse_qprisma_context_from_messages(
             except (json.JSONDecodeError, ValueError):
                 return {}, None
 
+            if not isinstance(metadata, dict):
+                return {}, None
+
             # Expect closing ']' after JSON
             if json_end >= len(text) or text[json_end] != "]":
                 return {}, None
