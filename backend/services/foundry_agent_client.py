@@ -411,7 +411,7 @@ class FoundryAgentClient:
         """Prepend QPrisma context for the hosted agent to parse."""
         if not metadata:
             return message
-        return f"[QPRISMA_CONTEXT:{json.dumps(metadata)}]\n{message}"
+        return f'[QPRISMA_CONTEXT:{json.dumps(metadata, separators=(",", ":"))}]\n{message}'
 
 
 # ---------------------------------------------------------------------------

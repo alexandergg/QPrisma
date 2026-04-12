@@ -8,7 +8,6 @@ Uses shared base implementation with video-specific configuration.
 
 import json
 import logging
-import re
 from typing import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -60,9 +59,11 @@ def _resolve_video_titles(media_ids: list[str]) -> dict[str, str]:
     return titles
 
 
-# Regex for QPRISMA_CONTEXT prefix (same as state_converter but kept local for
-# defense-in-depth — this fallback runs even if the converter didn't strip it).
-_CONTEXT_RE = re.compile(r"^\[QPRISMA_CONTEXT:(.*?)\]\n?", re.DOTALL)
+# Defense-in-depth parser for QPRISMA_CONTEXT prefix.  Uses
+# json.JSONDecoder.raw_decode() to handle nested JSON correctly
+# (e.g. media_ids arrays) without regex fragility.
+_CONTEXT_PREFIX = "[QPRISMA_CONTEXT:"
+_json_decoder = json.JSONDecoder()
 
 
 def _parse_qprisma_context_from_messages(
@@ -77,17 +78,30 @@ def _parse_qprisma_context_from_messages(
     for i in range(len(messages) - 1, -1, -1):
         msg = messages[i]
         if isinstance(msg, HumanMessage) and isinstance(msg.content, str):
-            match = _CONTEXT_RE.match(msg.content)
-            if match:
-                try:
-                    metadata = json.loads(match.group(1))
-                except (json.JSONDecodeError, TypeError):
-                    return {}, None
-                cleaned = msg.content[match.end() :]
-                new_messages = list(messages)
-                new_messages[i] = HumanMessage(content=cleaned)
-                return metadata, new_messages
-            break  # only check the last HumanMessage
+            text = msg.content
+            if not text.startswith(_CONTEXT_PREFIX):
+                break  # only check the last HumanMessage
+
+            json_start = len(_CONTEXT_PREFIX)
+            try:
+                metadata, json_end = _json_decoder.raw_decode(text, json_start)
+            except (json.JSONDecodeError, ValueError):
+                return {}, None
+
+            if not isinstance(metadata, dict):
+                return {}, None
+
+            # Expect closing ']' after JSON
+            if json_end >= len(text) or text[json_end] != "]":
+                return {}, None
+
+            rest_start = json_end + 1
+            if rest_start < len(text) and text[rest_start] == "\n":
+                rest_start += 1
+
+            new_messages = list(messages)
+            new_messages[i] = HumanMessage(content=text[rest_start:])
+            return metadata, new_messages
     return {}, None
 
 

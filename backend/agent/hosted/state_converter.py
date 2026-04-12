@@ -52,30 +52,48 @@ from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
 
-# Regex that matches the context prefix at the start of a message.
-# Group 1 captures the JSON payload.
-_CONTEXT_RE = re.compile(r"^\[QPRISMA_CONTEXT:(.*?)\]\n?", re.DOTALL)
+_CONTEXT_PREFIX = "[QPRISMA_CONTEXT:"  # Literal prefix that wraps the JSON context envelope
+
+_json_decoder = json.JSONDecoder()
 
 
 def _extract_qprisma_context(text: str) -> tuple[dict[str, Any], str]:
     """Parse ``[QPRISMA_CONTEXT:{...}]`` from the beginning of *text*.
 
+    Uses :meth:`json.JSONDecoder.raw_decode` instead of a regex so that
+    nested JSON structures (e.g. ``media_ids: [...]``) are handled
+    correctly regardless of inner brackets.
+
     Returns:
         A tuple of (parsed metadata dict, cleaned message text).
         If no prefix is found, returns ({}, original text).
     """
-    match = _CONTEXT_RE.match(text)
-    if not match:
+    if not text.startswith(_CONTEXT_PREFIX):
         return {}, text
 
+    json_start = len(_CONTEXT_PREFIX)
     try:
-        metadata = json.loads(match.group(1))
-    except (json.JSONDecodeError, TypeError):
+        metadata, json_end = _json_decoder.raw_decode(text, json_start)
+    except (json.JSONDecodeError, ValueError):
         logger.warning("QPRISMA_CONTEXT prefix found but JSON is malformed")
         return {}, text
 
-    cleaned = text[match.end() :]
-    return metadata, cleaned
+    if not isinstance(metadata, dict):
+        logger.warning(
+            "QPRISMA_CONTEXT payload is not a JSON object (got %s)", type(metadata).__name__
+        )
+        return {}, text
+
+    # Expect a closing ']' immediately after the JSON object
+    if json_end >= len(text) or text[json_end] != "]":
+        logger.warning("QPRISMA_CONTEXT: missing closing ']' after JSON payload")
+        return {}, text
+
+    rest_start = json_end + 1  # skip ']'
+    if rest_start < len(text) and text[rest_start] == "\n":
+        rest_start += 1  # skip optional newline
+
+    return metadata, text[rest_start:]
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +111,14 @@ _MAX_TOOL_OUTPUT_CHARS = 50_000
 (``get_transcript``, ``describe_scene``, ``get_entity_graph``) can produce
 very large JSON payloads.  Outputs exceeding this limit are truncated to
 prevent oversized responses that the Foundry API may reject."""
+
+# Control characters to strip from tool output (keep \t, \n, \r which are valid in JSON)
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _sanitize_tool_output(content: str) -> str:
+    """Remove null bytes and control characters that could break JSON serialization."""
+    return _CONTROL_CHAR_RE.sub("", content)
 
 
 class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConverter):
@@ -218,6 +244,11 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
             orphans_dropped,
         )
 
+        # Log item sequence at DEBUG for diagnosing format issues
+        if logger.isEnabledFor(logging.DEBUG):
+            type_seq = [type(i).__name__ for i in result]
+            logger.debug("Item sequence: %s", type_seq)
+
         # Warn on mismatched tool call/output counts (orphan indicator)
         if tool_call_count != tool_output_count and tool_call_count > 0:
             logger.warning(
@@ -336,16 +367,14 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                             "Failed to convert tool call: %s",
                             repr(tool_call)[:300],
                         )
-                # If the AIMessage also has text content alongside tool calls, emit it
-                if message.content and str(message.content).strip():
-                    yield project_models.ResponsesAssistantMessageItemResource(
-                        content=self.convert_MessageContent(
-                            message.content,
-                            role=project_models.ResponsesMessageRole.ASSISTANT,
-                        ),
-                        id=self.context.agent_run.id_generator.generate_message_id(),
-                        status="completed",
-                    )
+                # NOTE: Do NOT emit an assistant message here even if the
+                # AIMessage has text content alongside tool_calls (e.g.
+                # "Let me search…").  The Responses API treats tool-call
+                # turns and assistant-message turns as mutually exclusive —
+                # mixing them causes Foundry to reject the response with
+                # HTTP 400 "invalid format".  The SDK base converter
+                # follows the same pattern.  The final answer (an AIMessage
+                # without tool_calls) is always emitted separately.
             else:
                 yield project_models.ResponsesAssistantMessageItemResource(
                     content=self.convert_MessageContent(
@@ -378,6 +407,9 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                     content = json.dumps(content, ensure_ascii=False)
                 except (TypeError, ValueError):
                     content = str(content)
+
+            # Sanitize control characters that could break Foundry serialization
+            content = _sanitize_tool_output(content)
 
             # Truncate oversized tool outputs (reserve room for suffix)
             if len(content) > _MAX_TOOL_OUTPUT_CHARS:
