@@ -418,7 +418,9 @@ class TestNodeFiltering:
 
 class TestContentPlusToolCalls:
     def test_text_plus_tool_calls(self, converter):
-        """AIMessage with both text content and tool_calls → both emitted."""
+        """AIMessage with both text content and tool_calls → only tool calls
+        emitted (no interleaved assistant message — Foundry requires mutual
+        exclusivity between function calls and assistant messages)."""
         from azure.ai.agentserver.core.models import projects as pm
 
         ai_msg = AIMessage(
@@ -432,7 +434,7 @@ class TestContentPlusToolCalls:
             i for i in items if isinstance(i, pm.ResponsesAssistantMessageItemResource)
         ]
         assert len(func_calls) == 1
-        assert len(assistant_msgs) == 1
+        assert len(assistant_msgs) == 0
 
     def test_whitespace_only_content_not_emitted(self, converter):
         """AIMessage with whitespace-only content + tool_calls → only tool calls."""
@@ -941,3 +943,158 @@ class TestFallbackSkippedForToolMessages:
         # All items should be dropped — no fallback to base converter
         assert items == []
         assert converter._conversion_errors > 0
+
+
+# ---------------------------------------------------------------------------
+# Test: AIMessage with tool_calls AND text content → NO assistant message
+# ---------------------------------------------------------------------------
+
+
+class TestNoAssistantMessageOnToolCallTurn:
+    """Verify that AIMessage with both tool_calls and text content emits
+    ONLY FunctionToolCallItemResource items — no interleaved assistant message.
+    This was the PRIMARY root cause of Foundry HTTP 400 errors."""
+
+    def test_tool_calls_with_content_no_assistant_message(self, converter):
+        """AIMessage with 'Let me search...' + tool_calls → only function calls emitted."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_msg = AIMessage(
+            content="Let me search for that information...",
+            tool_calls=[
+                {"name": "search_video", "id": "call_1", "args": {"query": "test"}},
+                {"name": "get_transcript", "id": "call_2", "args": {"media_id": "v1"}},
+            ],
+        )
+        tool_msg1 = ToolMessage(content="search result", tool_call_id="call_1")
+        tool_msg2 = ToolMessage(content="transcript data", tool_call_id="call_2")
+        final = AIMessage(content="Here is the summary.")
+
+        output = [
+            {"call_model": {"messages": [ai_msg]}},
+            {"tools": {"messages": [tool_msg1, tool_msg2]}},
+            {"call_model": {"messages": [final]}},
+        ]
+        items = converter.convert(output)
+
+        # Should NOT contain an assistant message for the intermediate "Let me search..." text
+        assistant_msgs = [i for i in items if isinstance(i, pm.ResponsesAssistantMessageItemResource)]
+        func_calls = [i for i in items if isinstance(i, pm.FunctionToolCallItemResource)]
+        func_outputs = [i for i in items if isinstance(i, pm.FunctionToolCallOutputItemResource)]
+
+        assert len(func_calls) == 2
+        assert len(func_outputs) == 2
+        # Only the final answer should be an assistant message
+        assert len(assistant_msgs) == 1
+        assert "summary" in assistant_msgs[0].content.lower()
+
+    def test_tool_calls_with_whitespace_content_no_message(self, converter):
+        """AIMessage with whitespace-only content + tool_calls → still no assistant message."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_msg = AIMessage(
+            content="   \n  ",
+            tool_calls=[{"name": "search", "id": "call_x", "args": {}}],
+        )
+        tool_msg = ToolMessage(content="result", tool_call_id="call_x")
+        final = AIMessage(content="Done.")
+
+        output = [
+            {"call_model": {"messages": [ai_msg]}},
+            {"tools": {"messages": [tool_msg]}},
+            {"call_model": {"messages": [final]}},
+        ]
+        items = converter.convert(output)
+
+        assistant_msgs = [i for i in items if isinstance(i, pm.ResponsesAssistantMessageItemResource)]
+        assert len(assistant_msgs) == 1  # only final answer
+
+
+# ---------------------------------------------------------------------------
+# Test: QPRISMA_CONTEXT extraction with nested brackets (multi-video)
+# ---------------------------------------------------------------------------
+
+
+class TestContextExtractionNestedBrackets:
+    """Verify that _extract_qprisma_context handles JSON with nested arrays/objects."""
+
+    def test_multi_video_media_ids_array(self):
+        from agent.hosted.state_converter import _extract_qprisma_context
+
+        text = '[QPRISMA_CONTEXT:{"media_ids":["id1","id2"],"user_id":"u1"}]\nQuery text'
+        metadata, clean_query = _extract_qprisma_context(text)
+        assert metadata == {"media_ids": ["id1", "id2"], "user_id": "u1"}
+        assert clean_query == "Query text"
+
+    def test_single_video_simple(self):
+        from agent.hosted.state_converter import _extract_qprisma_context
+
+        text = '[QPRISMA_CONTEXT:{"media_id":"v1","user_id":"u1"}]\nWhat is this?'
+        metadata, clean_query = _extract_qprisma_context(text)
+        assert metadata == {"media_id": "v1", "user_id": "u1"}
+        assert clean_query == "What is this?"
+
+    def test_no_prefix_returns_empty(self):
+        from agent.hosted.state_converter import _extract_qprisma_context
+
+        text = "Just a plain query"
+        metadata, clean_query = _extract_qprisma_context(text)
+        assert metadata == {}
+        assert clean_query == "Just a plain query"
+
+    def test_nested_objects_in_context(self):
+        from agent.hosted.state_converter import _extract_qprisma_context
+
+        text = '[QPRISMA_CONTEXT:{"media_id":"v1","opts":{"lang":"en"}}]\nQuery'
+        metadata, clean_query = _extract_qprisma_context(text)
+        assert metadata == {"media_id": "v1", "opts": {"lang": "en"}}
+        assert clean_query == "Query"
+
+    def test_malformed_json_returns_empty(self):
+        from agent.hosted.state_converter import _extract_qprisma_context
+
+        text = "[QPRISMA_CONTEXT:{bad json}]\nQuery"
+        metadata, clean_query = _extract_qprisma_context(text)
+        assert metadata == {}
+        assert clean_query == "[QPRISMA_CONTEXT:{bad json}]\nQuery"
+
+    def test_compact_json_no_spaces(self):
+        """Compact JSON (from generate_eval_data) parses correctly."""
+        from agent.hosted.state_converter import _extract_qprisma_context
+
+        text = '[QPRISMA_CONTEXT:{"media_id":"fc7e2e08","user_id":"f9156056"}]\nSummarize.'
+        metadata, clean_query = _extract_qprisma_context(text)
+        assert metadata["media_id"] == "fc7e2e08"
+        assert clean_query == "Summarize."
+
+
+# ---------------------------------------------------------------------------
+# Test: Content sanitization strips control characters
+# ---------------------------------------------------------------------------
+
+
+class TestContentSanitization:
+    """Verify _sanitize_tool_output strips control chars but keeps \\n, \\t."""
+
+    def test_strips_null_bytes(self):
+        from agent.hosted.state_converter import _sanitize_tool_output
+
+        assert _sanitize_tool_output("hello\x00world") == "helloworld"
+
+    def test_keeps_newlines_and_tabs(self):
+        from agent.hosted.state_converter import _sanitize_tool_output
+
+        text = "line1\nline2\ttab"
+        assert _sanitize_tool_output(text) == text
+
+    def test_strips_mixed_control_chars(self):
+        from agent.hosted.state_converter import _sanitize_tool_output
+
+        text = "abc\x01\x02\x03def\x7fghi\n\tjkl"
+        assert _sanitize_tool_output(text) == "abcdefghi\n\tjkl"
+
+    def test_clean_string_unchanged(self):
+        from agent.hosted.state_converter import _sanitize_tool_output
+
+        text = '{"result": "all good", "count": 42}'
+        assert _sanitize_tool_output(text) == text
