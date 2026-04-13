@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.config import settings
@@ -69,12 +69,46 @@ class DatabaseService:
         """
         try:
             Base.metadata.create_all(bind=self.engine)
+            self._run_migrations()
             self._initialized = True
             logger.info("PostgreSQL database initialized successfully")
             return True
         except SQLAlchemyError as e:
             logger.error(f"Failed to initialize database: {e}")
             return False
+
+    def _run_migrations(self) -> None:
+        """Run lightweight schema migrations for columns added after initial table creation.
+
+        Uses SQLAlchemy inspect to check for missing columns, then adds them.
+        Works with both PostgreSQL and SQLite (for tests).
+        """
+        from sqlalchemy import inspect as sa_inspect
+
+        migrations: list[tuple[str, str, str]] = [
+            # (table_name, column_name, column_type_sql)
+            ("media", "upload_session", "JSON"),
+        ]
+        with self.engine.begin() as conn:
+            inspector = sa_inspect(conn)
+            applied = 0
+            for table, column, col_type in migrations:
+                existing = {c["name"] for c in inspector.get_columns(table)}
+                if column not in existing:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+                        applied += 1
+                    except (OperationalError, ProgrammingError) as e:
+                        # Column may already exist due to concurrent replica startup
+                        logger.info(
+                            "Column %s.%s already exists (concurrent migration): %s",
+                            table,
+                            column,
+                            e,
+                        )
+            logger.info(
+                "Schema migrations checked (%d applied, %d total)", applied, len(migrations)
+            )
 
     def health_check(self) -> dict[str, Any]:
         """Check database connectivity."""

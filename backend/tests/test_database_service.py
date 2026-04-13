@@ -5,7 +5,8 @@ Uses SQLite in-memory for fast, isolated tests of CRUD operations.
 """
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -37,6 +38,43 @@ class TestDatabaseInit:
         result = db_service.initialize()
         assert result is True
         assert db_service._initialized is True
+
+    def test_migration_adds_missing_column(self):
+        """Pre-create media table without upload_session, run initialize(), assert column added."""
+        service = object.__new__(DatabaseService)
+        service.database_url = "sqlite://"
+        service.engine = create_engine("sqlite://")
+        service.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=service.engine)
+        service._initialized = False
+
+        # Create a minimal media table WITHOUT the upload_session column
+        with service.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE media ("
+                    "id TEXT PRIMARY KEY, "
+                    "user_id TEXT, "
+                    "blob_name TEXT, "
+                    "media_type TEXT"
+                    ")"
+                )
+            )
+            # Also create users table so create_all doesn't fail on FK
+            conn.execute(text("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT)"))
+
+        # Verify upload_session is missing before migration
+        with service.engine.connect() as conn:
+            cols = {c["name"] for c in sa_inspect(conn).get_columns("media")}
+        assert "upload_session" not in cols
+
+        # Run initialize which triggers _run_migrations
+        result = service.initialize()
+        assert result is True
+
+        # Verify upload_session now exists
+        with service.engine.connect() as conn:
+            cols = {c["name"] for c in sa_inspect(conn).get_columns("media")}
+        assert "upload_session" in cols
 
     def test_health_check(self, db_service):
         result = db_service.health_check()
