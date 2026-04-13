@@ -918,9 +918,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     whisper_backend = _settings.azure.whisper_backend
 
                     audio_path = _thread_audio.extract_audio_from_video(temp_path)
-                    transcription = asyncio.run(
-                        _thread_audio.transcribe_audio(audio_path)
-                    )
+                    transcription = asyncio.run(_thread_audio.transcribe_audio(audio_path))
 
                     chunked = transcription.get("chunked", False)
                     chunk_count = transcription.get("chunk_count", 1 if not chunked else 0)
@@ -928,9 +926,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     full_text = transcription.get("text", "")
                     analysis: dict = {}
                     if full_text and len(full_text.strip()) > 50:
-                        analysis = asyncio.run(
-                            _thread_audio.analyze_transcription(full_text)
-                        )
+                        analysis = asyncio.run(_thread_audio.analyze_transcription(full_text))
 
                     transcription_data = {
                         "text": full_text,
@@ -969,9 +965,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             if _transcription_thread_result[0] is not None:
                 transcription_result_parallel = _transcription_thread_result[0]
             elif _transcription_thread_error[0] is not None:
-                logger.warning(
-                    f"Parallel transcription failed: {_transcription_thread_error[0]}"
-                )
+                logger.warning(f"Parallel transcription failed: {_transcription_thread_error[0]}")
 
             if not batch_success:
                 raise Exception(f"Batch job timeout or failed: {vision_batch_id}")
@@ -1413,6 +1407,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         transcript_embed_error = None
 
         if transcript_indexed > 0:
+
             def _run_transcript_embeddings():
                 nonlocal transcript_embed_error
                 try:
@@ -1433,9 +1428,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     if indexed_texts:
                         segment_texts = [t for _, t in indexed_texts]
                         transcript_embeddings = asyncio.run(
-                            _video_processor.generate_embeddings_batch(
-                                segment_texts, batch_size=16
-                            )
+                            _video_processor.generate_embeddings_batch(segment_texts, batch_size=16)
                         )
 
                         emb_stored = 0
@@ -1463,9 +1456,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     transcript_embed_error = str(e)
                     logger.warning(f"Transcript embedding generation failed: {e}")
 
-            transcript_embed_thread = threading.Thread(
-                target=_run_transcript_embeddings
-            )
+            transcript_embed_thread = threading.Thread(target=_run_transcript_embeddings)
             transcript_embed_thread.start()
             logger.info("Started transcript embeddings in background thread")
 
@@ -1693,9 +1684,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         if transcript_embed_thread is not None:
             transcript_embed_thread.join()
             if transcript_embed_error:
-                processing_warnings.append(
-                    f"Transcript embedding error: {transcript_embed_error}"
-                )
+                processing_warnings.append(f"Transcript embedding error: {transcript_embed_error}")
 
         # 9c. Community detection (post-graph-indexing)
         communities_created = 0

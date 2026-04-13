@@ -408,8 +408,7 @@ Respond in JSON format:
             )
         except* (APIError, APIConnectionError, RateLimitError) as eg:
             logger.error(
-                f"Chapter summarization failed (API errors): "
-                f"{[str(e) for e in eg.exceptions]}"
+                f"Chapter summarization failed (API errors): " f"{[str(e) for e in eg.exceptions]}"
             )
             raise
         except* Exception as eg:
