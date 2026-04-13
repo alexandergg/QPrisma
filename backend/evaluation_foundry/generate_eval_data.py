@@ -57,6 +57,7 @@ def _format_context(
     user_id: str | None,
     *,
     media_ids: list[str] | None = None,
+    response_mode: str | None = None,
 ) -> str:
     """Build the QPRISMA_CONTEXT prefix string.
 
@@ -68,6 +69,10 @@ def _format_context(
         Entra Object-ID of the video owner.
     media_ids:
         Full list of video UUIDs for multi-video / cross-video queries.
+    response_mode:
+        Optional response mode hint for the hosted agent converter.
+        ``"final_answer"`` strips tool items from the response, making it
+        compatible with Foundry's evaluation save pipeline.
     """
     parts: dict[str, str | list[str]] = {}
     if media_id:
@@ -76,6 +81,8 @@ def _format_context(
         parts["media_ids"] = media_ids
     if user_id:
         parts["user_id"] = user_id
+    if response_mode:
+        parts["response_mode"] = response_mode
     if not parts:
         return ""
     return CONTEXT_PREFIX.format(ctx=json.dumps(parts, separators=(",", ":")))
@@ -152,6 +159,7 @@ def _build_query(
     *,
     media_ids: list[str] | None = None,
     include_tool_definitions: bool = False,
+    response_mode: str | None = None,
 ) -> dict | None:
     """Convert a template into a Foundry data row, or ``None`` if unmet.
 
@@ -164,6 +172,8 @@ def _build_query(
     media_ids:
         Full list of available video UUIDs — included in the context
         envelope for multi-video queries (``needs_user=True``).
+    response_mode:
+        Optional response mode hint passed through to the context envelope.
     """
     if template.needs_media and not media_id:
         logger.warning("Skipping query (needs media_id): %s", template.text[:60])
@@ -176,7 +186,9 @@ def _build_query(
     ctx_media = media_id if template.needs_media else None
     ctx_user = user_id if (template.needs_user or template.needs_media) else None
     ctx_media_ids = media_ids if template.needs_user else None
-    prefix = _format_context(ctx_media, ctx_user, media_ids=ctx_media_ids)
+    prefix = _format_context(
+        ctx_media, ctx_user, media_ids=ctx_media_ids, response_mode=response_mode
+    )
 
     row: dict = {"query": prefix + template.text}
     if template.ground_truth:
@@ -195,12 +207,21 @@ def generate_data_file(
     user_id: str | None,
     *,
     include_tool_definitions: bool = False,
+    response_mode: str | None = None,
 ) -> dict:
     """Generate a single Foundry evaluation data file structure.
 
     Video-specific templates (``needs_media=True``) are expanded across
     **all** available ``media_ids`` so that every configured test video
     receives independent evaluation coverage.
+
+    Parameters
+    ----------
+    response_mode:
+        When set (e.g. ``"final_answer"``), the response mode is embedded
+        in every QPRISMA_CONTEXT envelope so the hosted agent converter
+        strips tool items from responses, avoiding Foundry "invalid format"
+        errors during evaluation.
     """
     rows: list[dict] = []
     skipped = 0
@@ -215,6 +236,7 @@ def generate_data_file(
                     user_id=user_id,
                     media_ids=media_ids,
                     include_tool_definitions=include_tool_definitions,
+                    response_mode=response_mode,
                 )
                 if row is None:
                     skipped += 1
@@ -228,6 +250,7 @@ def generate_data_file(
                 user_id=user_id,
                 media_ids=media_ids,
                 include_tool_definitions=include_tool_definitions,
+                response_mode=response_mode,
             )
             if row is None:
                 skipped += 1
@@ -306,6 +329,7 @@ def main() -> int:
         evaluators=QUALITY_EVAL_EVALUATORS,
         media_ids=media_ids,
         user_id=user_id,
+        response_mode="final_answer",
     )
 
     # Generate agent/tool evaluation data (includes flattened tool_definitions)
@@ -316,6 +340,7 @@ def main() -> int:
         media_ids=media_ids,
         user_id=user_id,
         include_tool_definitions=True,
+        response_mode="final_answer",
     )
 
     # Generate safety evaluation data
@@ -325,6 +350,7 @@ def main() -> int:
         evaluators=SAFETY_EVAL_EVALUATORS,
         media_ids=media_ids,
         user_id=user_id,
+        response_mode="final_answer",
     )
 
     if args.dry_run:

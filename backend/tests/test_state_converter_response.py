@@ -1102,3 +1102,225 @@ class TestContentSanitization:
 
         text = '{"result": "all good", "count": 42}'
         assert _sanitize_tool_output(text) == text
+
+
+# ---------------------------------------------------------------------------
+# Test: response_mode="final_answer" strips tool items
+# ---------------------------------------------------------------------------
+
+
+class TestFinalAnswerResponseMode:
+    """Verify that response_mode='final_answer' strips tool-call and
+    tool-output items, keeping only assistant messages.
+
+    This mode allows Foundry's evaluation pipeline to save responses
+    without encountering 'invalid format' errors from tool-related items.
+    """
+
+    @pytest.fixture()
+    def final_answer_converter(self):
+        """Converter in final_answer mode."""
+        from agent.hosted.state_converter import QPrismaNonStreamResponseConverter
+
+        ctx = _make_context()
+        hitl = _make_hitl_helper()
+        return QPrismaNonStreamResponseConverter(ctx, hitl, response_mode="final_answer")
+
+    def test_strips_tool_items_keeps_assistant(self, final_answer_converter):
+        """Multi-tool response → only the final assistant message survives."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_tool_msg = AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "search_video", "id": "call_1", "args": {"query": "summary"}},
+                {"name": "get_summary", "id": "call_2", "args": {}},
+            ],
+        )
+        tool_out_1 = ToolMessage(content="search results...", tool_call_id="call_1")
+        tool_out_2 = ToolMessage(content="video summary...", tool_call_id="call_2")
+        final_msg = AIMessage(content="Here is the summary of the video.")
+
+        output = [
+            {"call_model": {"messages": [ai_tool_msg]}},
+            {"tools": {"messages": [tool_out_1, tool_out_2]}},
+            {"call_model": {"messages": [final_msg]}},
+        ]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        assert items[0].content == "Here is the summary of the video."
+
+    def test_assistant_only_response_unchanged(self, final_answer_converter):
+        """Response with only an assistant message → preserved as-is."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        output = [{"call_model": {"messages": [AIMessage(content="I can help!")]}}]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        assert items[0].content == "I can help!"
+
+    def test_full_mode_preserves_all_items(self, converter):
+        """Default 'full' mode keeps tool-call and tool-output items."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_tool_msg = AIMessage(
+            content="",
+            tool_calls=[{"name": "search_video", "id": "call_1", "args": {}}],
+        )
+        tool_out = ToolMessage(content="results", tool_call_id="call_1")
+        final_msg = AIMessage(content="Done.")
+
+        output = [
+            {"call_model": {"messages": [ai_tool_msg]}},
+            {"tools": {"messages": [tool_out]}},
+            {"call_model": {"messages": [final_msg]}},
+        ]
+        items = converter.convert(output)
+
+        tool_calls = [i for i in items if isinstance(i, pm.FunctionToolCallItemResource)]
+        tool_outputs = [i for i in items if isinstance(i, pm.FunctionToolCallOutputItemResource)]
+        messages = [i for i in items if isinstance(i, pm.ResponsesAssistantMessageItemResource)]
+        assert len(tool_calls) == 1
+        assert len(tool_outputs) == 1
+        assert len(messages) == 1
+
+    def test_empty_output_returns_empty(self, final_answer_converter):
+        """Empty graph output → empty result even in final_answer mode."""
+        items = final_answer_converter.convert([])
+        assert items == []
+
+    def test_invalid_mode_falls_back_to_full(self):
+        """Unknown response_mode values fall back to 'full' (all items)."""
+        from agent.hosted.state_converter import QPrismaNonStreamResponseConverter
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ctx = _make_context()
+        hitl = _make_hitl_helper()
+        conv = QPrismaNonStreamResponseConverter(ctx, hitl, response_mode="unknown_mode")
+
+        ai_tool_msg = AIMessage(
+            content="",
+            tool_calls=[{"name": "search_video", "id": "call_1", "args": {}}],
+        )
+        tool_out = ToolMessage(content="results", tool_call_id="call_1")
+        final_msg = AIMessage(content="Answer.")
+
+        output = [
+            {"call_model": {"messages": [ai_tool_msg]}},
+            {"tools": {"messages": [tool_out]}},
+            {"call_model": {"messages": [final_msg]}},
+        ]
+        items = conv.convert(output)
+        # Should behave like 'full' mode — all items present
+        assert any(isinstance(i, pm.FunctionToolCallItemResource) for i in items)
+        assert any(isinstance(i, pm.FunctionToolCallOutputItemResource) for i in items)
+        assert any(isinstance(i, pm.ResponsesAssistantMessageItemResource) for i in items)
+
+
+# ---------------------------------------------------------------------------
+# Test: QPrismaStateConverter response_mode integration
+# ---------------------------------------------------------------------------
+
+
+class TestStateConverterResponseMode:
+    """Verify QPrismaStateConverter reads response_mode from QPRISMA_CONTEXT
+    and env var, and passes it through to the response converter."""
+
+    def test_env_var_default(self, monkeypatch):
+        """QPRISMA_RESPONSE_MODE env var sets the default mode."""
+        from agent.hosted.state_converter import QPrismaStateConverter
+
+        monkeypatch.setenv("QPRISMA_RESPONSE_MODE", "final_answer")
+        conv = QPrismaStateConverter(graph=MagicMock())
+        assert conv._default_response_mode == "final_answer"
+
+    def test_invalid_env_var_falls_back(self, monkeypatch):
+        """Invalid QPRISMA_RESPONSE_MODE env var → 'full'."""
+        from agent.hosted.state_converter import QPrismaStateConverter
+
+        monkeypatch.setenv("QPRISMA_RESPONSE_MODE", "invalid")
+        conv = QPrismaStateConverter(graph=MagicMock())
+        assert conv._default_response_mode == "full"
+
+    def test_no_env_var_defaults_to_full(self, monkeypatch):
+        """No QPRISMA_RESPONSE_MODE env var → 'full'."""
+        from agent.hosted.state_converter import QPrismaStateConverter
+
+        monkeypatch.delenv("QPRISMA_RESPONSE_MODE", raising=False)
+        conv = QPrismaStateConverter(graph=MagicMock())
+        assert conv._default_response_mode == "full"
+
+    @pytest.mark.asyncio
+    async def test_context_response_mode_override(self, monkeypatch):
+        """response_mode in QPRISMA_CONTEXT overrides env var default via convert_request()."""
+        from agent.hosted.state_converter import QPrismaStateConverter, _request_response_mode
+
+        monkeypatch.delenv("QPRISMA_RESPONSE_MODE", raising=False)
+        conv = QPrismaStateConverter(graph=MagicMock())
+
+        # Patch the parent convert_request to return a message with QPRISMA_CONTEXT
+        from unittest.mock import AsyncMock
+
+        msg_text = '[QPRISMA_CONTEXT:{"media_id":"v1","response_mode":"final_answer"}]\nSummarize.'
+        super_result = {
+            "input": {"messages": [HumanMessage(content=msg_text)]},
+            "config": {},
+        }
+        monkeypatch.setattr(
+            "agent.hosted.state_converter.ResponseAPIDefaultConverter.convert_request",
+            AsyncMock(return_value=super_result),
+        )
+
+        mock_context = MagicMock()
+        result = await conv.convert_request(mock_context)
+
+        # The ContextVar should be set to the per-query override
+        assert _request_response_mode.get() == "final_answer"
+        # response_mode should be popped from the injected state
+        assert "response_mode" not in result["input"]
+
+    def test_context_extraction_preserves_response_mode(self):
+        """_extract_qprisma_context preserves response_mode in metadata.
+
+        The actual pop happens later in convert_request(), not in extraction.
+        """
+        from agent.hosted.state_converter import _extract_qprisma_context
+
+        text = '[QPRISMA_CONTEXT:{"media_id":"v1","user_id":"u1","response_mode":"final_answer"}]\nQuery'
+        metadata, clean = _extract_qprisma_context(text)
+        # response_mode is preserved by extraction (not popped here)
+        assert metadata.get("response_mode") == "final_answer"
+        assert metadata.get("media_id") == "v1"
+        assert clean == "Query"
+
+    @pytest.mark.asyncio
+    async def test_convert_request_pops_response_mode(self, monkeypatch):
+        """convert_request() pops response_mode from metadata before injecting state."""
+        from unittest.mock import AsyncMock
+
+        from agent.hosted.state_converter import QPrismaStateConverter
+
+        monkeypatch.delenv("QPRISMA_RESPONSE_MODE", raising=False)
+        conv = QPrismaStateConverter(graph=MagicMock())
+
+        msg_text = '[QPRISMA_CONTEXT:{"media_id":"v1","user_id":"u1","response_mode":"final_answer"}]\nQuery'
+        super_result = {
+            "input": {"messages": [HumanMessage(content=msg_text)]},
+            "config": {},
+        }
+        monkeypatch.setattr(
+            "agent.hosted.state_converter.ResponseAPIDefaultConverter.convert_request",
+            AsyncMock(return_value=super_result),
+        )
+
+        result = await conv.convert_request(MagicMock())
+
+        # response_mode should NOT appear in the graph input state
+        assert "response_mode" not in result["input"]
+        # Other fields should be injected normally
+        assert result["input"]["media_id"] == "v1"
+        assert result["input"]["user_id"] == "u1"
