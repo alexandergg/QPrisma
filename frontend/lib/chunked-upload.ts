@@ -9,8 +9,7 @@
  */
 
 import { getAuthHeaders } from '@/lib/api';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { API_URL } from '@/lib/config';
 
 // =============================================================================
 // Types
