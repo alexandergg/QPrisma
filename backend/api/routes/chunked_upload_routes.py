@@ -7,6 +7,7 @@ High-performance upload endpoints for large files (1GB+) using:
 - Progress tracking and resumable uploads
 """
 
+import base64
 import logging
 import uuid
 from contextlib import suppress
@@ -112,8 +113,6 @@ def generate_block_id(index: int) -> str:
 
     Block IDs must be base64-encoded and have consistent length.
     """
-    import base64
-
     # Format: 6-digit padded index for sorting + 8 random chars for uniqueness
     block_id = f"{index:06d}-{uuid.uuid4().hex[:8]}"
     return base64.b64encode(block_id.encode()).decode()
@@ -278,9 +277,13 @@ async def commit_chunked_upload(
             blob=request.blob_name,
         )
 
-        # Commit the block list
-        # Azure requires BlobBlock objects for the commit
-        block_list = [BlobBlock(block_id=bid) for bid in request.block_ids]
+        # Commit the block list.
+        # Block IDs arrive already base64-encoded (as used in frontend PUT URLs).
+        # The Azure SDK's commit_block_list internally base64-encodes BlobBlock.id,
+        # so we must decode first to avoid double-encoding.
+        block_list = [
+            BlobBlock(block_id=base64.b64decode(bid).decode()) for bid in request.block_ids
+        ]
 
         blob_client.commit_block_list(
             block_list=block_list,
