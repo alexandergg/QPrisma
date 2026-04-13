@@ -13,6 +13,7 @@ This approach provides:
 - Key topic extraction for categorization
 """
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -102,7 +103,8 @@ Respond in JSON format:
 }}"""
 
         try:
-            response = self.client.chat.completions.create(
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
                 model=self.deployment,
                 messages=[
                     {
@@ -182,7 +184,8 @@ Respond in JSON format:
 }}"""
 
         try:
-            response = self.client.chat.completions.create(
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
                 model=self.deployment,
                 messages=[
                     {
@@ -263,7 +266,8 @@ Respond in JSON format:
 }}"""
 
         try:
-            response = self.client.chat.completions.create(
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
                 model=self.deployment,
                 messages=[
                     {
@@ -365,7 +369,7 @@ Respond in JSON format:
             scene_results: list[dict[str, Any]] = await map_concurrent(
                 _summarize_one,
                 structure.scenes,
-                max_concurrency=5,
+                max_concurrency=10,
                 task_name_prefix="scene-summarize",
             )
         except* (APIError, APIConnectionError, RateLimitError) as eg:
@@ -390,9 +394,29 @@ Respond in JSON format:
 
         logger.info("Completed scene summarization")
 
-        # Step 2: Summarize chapters
-        for chapter in structure.chapters:
+        # Step 2: Summarize chapters with bounded concurrency
+        async def _summarize_one_chapter(chapter: dict) -> tuple[dict, dict[str, Any]]:
             result = await self.summarize_chapter(chapter, structure.scenes, config)
+            return chapter, result
+
+        try:
+            chapter_results: list[tuple[dict, dict[str, Any]]] = await map_concurrent(
+                _summarize_one_chapter,
+                structure.chapters,
+                max_concurrency=5,
+                task_name_prefix="chapter-summarize",
+            )
+        except* (APIError, APIConnectionError, RateLimitError) as eg:
+            logger.error(
+                f"Chapter summarization failed (API errors): "
+                f"{[str(e) for e in eg.exceptions]}"
+            )
+            raise
+        except* Exception as eg:
+            logger.error(f"Chapter summarization failed: {[str(e) for e in eg.exceptions]}")
+            raise
+
+        for chapter, result in chapter_results:
             chapter["summary"] = result.get("summary", "")
             chapter["title"] = result.get("title", f"Part {chapter['chapter_id'] + 1}")
             chapter["themes"] = result.get("themes", [])
