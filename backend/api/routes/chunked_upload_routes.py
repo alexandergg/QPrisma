@@ -15,7 +15,6 @@ from datetime import UTC, datetime, timedelta
 from azure.storage.blob import (
     BlobBlock,
     BlobSasPermissions,
-    BlobType,
 )
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -285,7 +284,6 @@ async def commit_chunked_upload(
 
         blob_client.commit_block_list(
             block_list=block_list,
-            blob_type=BlobType.BLOCKBLOB,
         )
 
         # Get final blob properties
