@@ -892,8 +892,64 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             _transcription_thread_error: list = [None]
 
             def _run_transcription_parallel():
+                """Run transcription with a dedicated client (thread-safe)."""
                 try:
-                    _transcription_thread_result[0] = transcribe_audio_task(temp_path, job_id)
+                    from openai import AsyncAzureOpenAI as _AsyncClient
+
+                    from core.azure_credentials import build_openai_client_kwargs
+                    from core.config import settings as _settings
+                    from services.audio_processor import AudioProcessor
+
+                    # Build a thread-local client + processor so the async
+                    # connection pool and asyncio.Semaphore are never shared
+                    # with the main thread's event loop.
+                    _kw = build_openai_client_kwargs(
+                        endpoint=_settings.azure.openai_endpoint,
+                        api_key=_settings.azure.openai_api_key,
+                        api_version=_settings.azure.openai_api_version,
+                        use_managed_identity=_settings.azure.use_managed_identity,
+                    )
+                    _thread_client = _AsyncClient(**_kw)
+                    _thread_audio = AudioProcessor(
+                        _thread_client,
+                        rate_limit_rpm=_settings.azure.openai_whisper_rpm,
+                    )
+
+                    whisper_backend = _settings.azure.whisper_backend
+
+                    audio_path = _thread_audio.extract_audio_from_video(temp_path)
+                    transcription = asyncio.run(
+                        _thread_audio.transcribe_audio(audio_path)
+                    )
+
+                    chunked = transcription.get("chunked", False)
+                    chunk_count = transcription.get("chunk_count", 1 if not chunked else 0)
+
+                    full_text = transcription.get("text", "")
+                    analysis: dict = {}
+                    if full_text and len(full_text.strip()) > 50:
+                        analysis = asyncio.run(
+                            _thread_audio.analyze_transcription(full_text)
+                        )
+
+                    transcription_data = {
+                        "text": full_text,
+                        "language": transcription.get("language"),
+                        "duration": transcription.get("duration"),
+                        "segments": transcription.get("segments", []),
+                        "words": transcription.get("words", []),
+                    }
+
+                    _transcription_thread_result[0] = {
+                        "transcription": transcription_data,
+                        "analysis": analysis,
+                        "success": True,
+                        "error": None,
+                        "whisper_backend": whisper_backend,
+                        "chunked": chunked,
+                        "chunk_count": chunk_count,
+                        "parallel_transcription": True,
+                    }
                 except Exception as exc:
                     _transcription_thread_error[0] = exc
 
@@ -909,7 +965,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
             # Always join the transcription thread — reuse its result
             # regardless of batch success/failure
-            transcription_thread.join(timeout=120)
+            transcription_thread.join()
             if _transcription_thread_result[0] is not None:
                 transcription_result_parallel = _transcription_thread_result[0]
             elif _transcription_thread_error[0] is not None:
@@ -1635,10 +1691,8 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
 
         # Wait for transcript embeddings background thread to finish
         if transcript_embed_thread is not None:
-            transcript_embed_thread.join(timeout=120)
-            if transcript_embed_thread.is_alive():
-                logger.warning("Transcript embeddings thread did not finish in time")
-            elif transcript_embed_error:
+            transcript_embed_thread.join()
+            if transcript_embed_error:
                 processing_warnings.append(
                     f"Transcript embedding error: {transcript_embed_error}"
                 )
