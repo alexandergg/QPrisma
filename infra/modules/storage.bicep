@@ -7,6 +7,9 @@ param location string = resourceGroup().location
 @description('Resource tags')
 param tags object = {}
 
+@description('Allowed origins for blob CORS (e.g., frontend FQDN)')
+param corsAllowedOrigins array = []
+
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: name
   location: location
@@ -28,7 +31,15 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   name: 'default'
   properties: {
     cors: {
-      corsRules: []
+      corsRules: empty(corsAllowedOrigins) ? [] : [
+        {
+          allowedOrigins: corsAllowedOrigins
+          allowedMethods: ['PUT']
+          allowedHeaders: ['x-ms-blob-type', 'Content-Type', 'Content-Length']
+          exposedHeaders: ['ETag']
+          maxAgeInSeconds: 3600
+        }
+      ]
     }
   }
 }
