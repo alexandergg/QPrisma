@@ -829,6 +829,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
         )
 
         frame_analyses = []
+        transcription_result_parallel = None
         try:
             # Use Batch API for frame analysis (50% savings)
             import base64
@@ -872,21 +873,101 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             )
             logger.info(f"Batch job created: {vision_batch_id}")
 
-            # Wait for completion
+            # Run batch wait and audio transcription concurrently.
+            # Transcription only needs temp_path — no dependency on batch results.
+            # Use a plain thread (not asyncio.to_thread) to avoid cross-loop
+            # issues with shared async state and to prevent duplicate
+            # transcription if the batch wait fails.
+            import threading
+
             update_job_status(
                 job_id,
                 "processing",
                 35,
                 "batch_wait",
-                "Waiting for Batch API (typically 3-5 min)...",
+                "Waiting for Batch API + transcribing audio in parallel...",
             )
-            success = asyncio.run(
+
+            _transcription_thread_result: list = [None]
+            _transcription_thread_error: list = [None]
+
+            def _run_transcription_parallel():
+                """Run transcription with a dedicated client (thread-safe)."""
+                try:
+                    from openai import AsyncAzureOpenAI as _AsyncClient
+
+                    from core.azure_credentials import build_openai_client_kwargs
+                    from core.config import settings as _settings
+                    from services.audio_processor import AudioProcessor
+
+                    # Build a thread-local client + processor so the async
+                    # connection pool and asyncio.Semaphore are never shared
+                    # with the main thread's event loop.
+                    _kw = build_openai_client_kwargs(
+                        endpoint=_settings.azure.openai_endpoint,
+                        api_key=_settings.azure.openai_api_key,
+                        api_version=_settings.azure.openai_api_version,
+                        use_managed_identity=_settings.azure.use_managed_identity,
+                    )
+                    _thread_client = _AsyncClient(**_kw)
+                    _thread_audio = AudioProcessor(
+                        _thread_client,
+                        rate_limit_rpm=_settings.azure.openai_whisper_rpm,
+                    )
+
+                    whisper_backend = _settings.azure.whisper_backend
+
+                    audio_path = _thread_audio.extract_audio_from_video(temp_path)
+                    transcription = asyncio.run(_thread_audio.transcribe_audio(audio_path))
+
+                    chunked = transcription.get("chunked", False)
+                    chunk_count = transcription.get("chunk_count", 1 if not chunked else 0)
+
+                    full_text = transcription.get("text", "")
+                    analysis: dict = {}
+                    if full_text and len(full_text.strip()) > 50:
+                        analysis = asyncio.run(_thread_audio.analyze_transcription(full_text))
+
+                    transcription_data = {
+                        "text": full_text,
+                        "language": transcription.get("language"),
+                        "duration": transcription.get("duration"),
+                        "segments": transcription.get("segments", []),
+                        "words": transcription.get("words", []),
+                    }
+
+                    _transcription_thread_result[0] = {
+                        "transcription": transcription_data,
+                        "analysis": analysis,
+                        "success": True,
+                        "error": None,
+                        "whisper_backend": whisper_backend,
+                        "chunked": chunked,
+                        "chunk_count": chunk_count,
+                        "parallel_transcription": True,
+                    }
+                except Exception as exc:
+                    _transcription_thread_error[0] = exc
+
+            transcription_thread = threading.Thread(target=_run_transcription_parallel)
+            transcription_thread.start()
+
+            # Batch wait runs on the main path
+            batch_success = asyncio.run(
                 batch_proc.wait_for_batch_completion(
                     vision_batch_id, check_interval=30, max_wait_time=1800
                 )
             )
 
-            if not success:
+            # Always join the transcription thread — reuse its result
+            # regardless of batch success/failure
+            transcription_thread.join()
+            if _transcription_thread_result[0] is not None:
+                transcription_result_parallel = _transcription_thread_result[0]
+            elif _transcription_thread_error[0] is not None:
+                logger.warning(f"Parallel transcription failed: {_transcription_thread_error[0]}")
+
+            if not batch_success:
                 raise Exception(f"Batch job timeout or failed: {vision_batch_id}")
 
             # Get results
@@ -941,8 +1022,13 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 analysis["brightness"] = frame_data.get("brightness", 0.0)
                 frame_analyses.append(analysis)
 
-        # 5. Transcribe audio
-        transcription_result = transcribe_audio_task(temp_path, job_id)
+        # 5. Transcribe audio (already completed in parallel if batch succeeded,
+        # otherwise run sequentially now)
+        if transcription_result_parallel is not None:
+            transcription_result = transcription_result_parallel
+            logger.info("Using transcription result from parallel execution")
+        else:
+            transcription_result = transcribe_audio_task(temp_path, job_id)
 
         # 5b. Generate hierarchical summaries (scenes -> chapters -> video)
         video_summary = None
@@ -1314,54 +1400,65 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 logger.error(f"Transcript graph indexing failed: {e}", exc_info=True)
 
         # 8c. Generate and store embeddings for transcript segments
+        # Run in a background thread so it overlaps with 8d, 9a, 9b below.
+        import threading
+
+        transcript_embed_thread = None
+        transcript_embed_error = None
+
         if transcript_indexed > 0:
-            try:
-                update_job_status(
-                    job_id,
-                    "processing",
-                    88,
-                    "transcript_embeddings",
-                    "Generating transcript embeddings...",
-                )
 
-                from services.knowledge_graph import get_knowledge_graph_service
+            def _run_transcript_embeddings():
+                nonlocal transcript_embed_error
+                try:
+                    from services.knowledge_graph import get_knowledge_graph_service
 
-                graph = get_knowledge_graph_service()
-                if not graph.is_connected:
-                    graph.connect()
+                    graph = get_knowledge_graph_service()
+                    if not graph.is_connected:
+                        graph.connect()
 
-                # Collect transcript texts for embedding generation
-                transcript_data = transcription_result.get("transcription", {})
-                segments = transcript_data.get("segments", [])
-                segment_texts = [
-                    seg.get("text", "").strip() for seg in segments if seg.get("text", "").strip()
-                ]
+                    transcript_data = transcription_result.get("transcription", {})
+                    segments = transcript_data.get("segments", [])
+                    indexed_texts: list[tuple[int, str]] = []
+                    for orig_idx, seg in enumerate(segments):
+                        text = seg.get("text", "").strip()
+                        if text:
+                            indexed_texts.append((orig_idx, text))
 
-                if segment_texts:
-                    transcript_embeddings = asyncio.run(
-                        _video_processor.generate_embeddings_batch(segment_texts, batch_size=16)
-                    )
+                    if indexed_texts:
+                        segment_texts = [t for _, t in indexed_texts]
+                        transcript_embeddings = asyncio.run(
+                            _video_processor.generate_embeddings_batch(segment_texts, batch_size=16)
+                        )
 
-                    emb_stored = 0
-                    with graph.get_session() as session:
-                        for idx, emb in enumerate(transcript_embeddings):
-                            if emb:
-                                seg_id = f"{video_id}_audio_{idx}"
-                                coarse = emb[:512] if len(emb) >= 512 else emb
-                                session.run(
-                                    "MATCH (a:AudioSegment {id: $id}) "
-                                    "SET a.embedding = $embedding, "
-                                    "a.embedding_coarse = $coarse, "
-                                    "a.embedding_updated_at = datetime()",
-                                    id=seg_id,
-                                    embedding=emb,
-                                    coarse=coarse,
-                                )
-                                emb_stored += 1
+                        emb_stored = 0
+                        with graph.get_session() as session:
+                            for emb_idx, emb in enumerate(transcript_embeddings):
+                                if emb:
+                                    orig_seg_idx = indexed_texts[emb_idx][0]
+                                    seg_id = f"{video_id}_audio_{orig_seg_idx}"
+                                    coarse = emb[:512] if len(emb) >= 512 else emb
+                                    session.run(
+                                        "MATCH (a:AudioSegment {id: $id}) "
+                                        "SET a.embedding = $embedding, "
+                                        "a.embedding_coarse = $coarse, "
+                                        "a.embedding_updated_at = datetime()",
+                                        id=seg_id,
+                                        embedding=emb,
+                                        coarse=coarse,
+                                    )
+                                    emb_stored += 1
 
-                    logger.info(f"Stored {emb_stored} transcript embeddings for video {video_id}")
-            except Exception as e:
-                logger.warning(f"Transcript embedding generation skipped: {e}")
+                        logger.info(
+                            f"Stored {emb_stored} transcript embeddings for video {video_id}"
+                        )
+                except Exception as e:
+                    transcript_embed_error = str(e)
+                    logger.warning(f"Transcript embedding generation failed: {e}")
+
+            transcript_embed_thread = threading.Thread(target=_run_transcript_embeddings)
+            transcript_embed_thread.start()
+            logger.info("Started transcript embeddings in background thread")
 
         # 8d. Update Video node with summary and topics in Neo4j
         if video_summary or key_topics:
@@ -1439,7 +1536,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 logger.warning(f"Temporal chain creation skipped: {e}")
                 processing_warnings.append(f"Temporal chain error: {e}")
 
-        # 9b. Entity extraction from frame descriptions
+        # 9b. Entity extraction from frame descriptions (parallel across frames)
         entities_created = 0
         if graph_indexed and config.get("extract_entities", True):
             try:
@@ -1448,7 +1545,7 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                     "processing",
                     92,
                     "entity_extraction",
-                    "Extracting entities from frames...",
+                    "Extracting entities from frames (parallel)...",
                 )
                 from core.config import settings as _settings
                 from services.entity_extractor import get_entity_extractor
@@ -1457,34 +1554,84 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
                 extractor = get_entity_extractor()
                 graph = get_knowledge_graph_service()
 
-                entity_batch: list[tuple] = []
-                relation_batch: list[dict] = []
-                frame_ids_with_entities: list[str] = []
+                # Pre-initialize extractor client to avoid lazy-init race
+                # condition when multiple threads access it concurrently.
+                _ = extractor.client
 
-                for frame_node in frames_to_create:
-                    if not frame_node.description:
-                        continue
+                max_gleanings = _settings.processing.max_gleanings
+                frames_with_desc = [f for f in frames_to_create if f.description]
+
+                async def _extract_single_frame(frame_node):
+                    """Extract entities from one frame in a thread (sync→async bridge)."""
                     try:
-                        analysis = extractor.extract_from_description(
+                        analysis = await asyncio.to_thread(
+                            extractor.extract_from_description,
                             description=frame_node.description,
                             timestamp=frame_node.timestamp,
-                            max_gleanings=_settings.processing.max_gleanings,
+                            max_gleanings=max_gleanings,
                         )
                         entity_nodes = extractor.convert_to_entity_nodes(analysis, video_id)
-                        for entity_node in entity_nodes:
-                            entity_batch.append((entity_node, frame_node.id))
+                        frame_relations = []
                         if entity_nodes:
-                            frame_ids_with_entities.append(frame_node.id)
-                            # Collect semantic relations for this frame
                             frame_relations = extractor.convert_relations_for_graph(
                                 analysis, video_id, frame_node.id
                             )
-                            relation_batch.extend(frame_relations)
+                        return {
+                            "frame_id": frame_node.id,
+                            "entity_nodes": entity_nodes,
+                            "relations": frame_relations,
+                            "error": None,
+                        }
                     except Exception as frame_err:
                         logger.debug(
                             f"Entity extraction failed for frame {frame_node.id}: {frame_err}"
                         )
+                        return {
+                            "frame_id": frame_node.id,
+                            "entity_nodes": [],
+                            "relations": [],
+                            "error": str(frame_err),
+                        }
+
+                async def _extract_all_frames():
+                    """Run entity extraction across all frames with bounded concurrency."""
+                    sem = asyncio.Semaphore(8)
+
+                    async def _bounded(frame_node):
+                        async with sem:
+                            return await _extract_single_frame(frame_node)
+
+                    return await asyncio.gather(
+                        *[_bounded(f) for f in frames_with_desc],
+                        return_exceptions=True,
+                    )
+
+                extraction_results = asyncio.run(_extract_all_frames())
+
+                # Flatten results from parallel extraction
+                entity_batch: list[tuple] = []
+                relation_batch: list[dict] = []
+                frame_ids_with_entities: list[str] = []
+                extract_errors = 0
+
+                for result in extraction_results:
+                    if isinstance(result, Exception):
+                        extract_errors += 1
+                        logger.debug(f"Entity extraction task exception: {result}")
                         continue
+                    if result.get("error"):
+                        extract_errors += 1
+                        continue
+                    for entity_node in result["entity_nodes"]:
+                        entity_batch.append((entity_node, result["frame_id"]))
+                    if result["entity_nodes"]:
+                        frame_ids_with_entities.append(result["frame_id"])
+                        relation_batch.extend(result["relations"])
+
+                if extract_errors:
+                    logger.warning(
+                        f"Entity extraction: {extract_errors}/{len(frames_with_desc)} frames failed"
+                    )
 
                 if entity_batch:
                     entities_created = graph.create_entities_batch(entity_batch)
@@ -1532,6 +1679,12 @@ def process_video_pipeline(self, video_id: str, blob_name: str, config: dict | N
             except Exception as e:
                 logger.warning(f"Entity extraction skipped: {e}")
                 processing_warnings.append(f"Entity extraction error: {e}")
+
+        # Wait for transcript embeddings background thread to finish
+        if transcript_embed_thread is not None:
+            transcript_embed_thread.join()
+            if transcript_embed_error:
+                processing_warnings.append(f"Transcript embedding error: {transcript_embed_error}")
 
         # 9c. Community detection (post-graph-indexing)
         communities_created = 0
