@@ -81,6 +81,9 @@ class MediaModel(Base):
     processing_result = Column(JSON, nullable=True)  # frames_analyzed, etc.
     audio_data = Column(JSON, nullable=True)  # transcription data
 
+    # Chunked upload session (for resumability)
+    upload_session = Column(JSON, nullable=True)
+
     # Pipeline configuration
     optimized_pipeline = Column(Boolean, default=False)
     pipeline_config = Column(JSON, nullable=True)

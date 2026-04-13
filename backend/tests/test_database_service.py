@@ -232,6 +232,30 @@ class TestMediaCRUD:
         assert set(media_ids) >= {"media_scope_0", "media_scope_2"}
         assert "media_scope_1" not in media_ids
 
+    def test_create_and_update_upload_session(self, db_service):
+        upload_session = {"upload_id": "test-123", "total_blocks": 5, "blocks": []}
+
+        media = db_service.create_media(
+            {
+                "id": "media_upload_sess",
+                "user_id": "user_media_test",
+                "blob_name": "chunked.mp4",
+                "media_type": "video",
+                "upload_session": upload_session,
+            }
+        )
+        assert media.id == "media_upload_sess"
+
+        fetched = db_service.get_media("media_upload_sess")
+        assert fetched is not None
+        assert fetched.upload_session == upload_session
+
+        updated = db_service.update_media("media_upload_sess", {"upload_session": None})
+        assert updated.upload_session is None
+
+        refetched = db_service.get_media("media_upload_sess")
+        assert refetched.upload_session is None
+
 
 # =============================================================================
 # Job Operations
