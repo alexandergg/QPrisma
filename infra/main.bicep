@@ -107,6 +107,10 @@ module storage 'modules/storage.bicep' = {
     name: storageAccountName
     location: location
     tags: tags
+    corsAllowedOrigins: [
+      'https://${frontendFqdn}'
+      'http://localhost:3000'
+    ]
   }
 }
 
