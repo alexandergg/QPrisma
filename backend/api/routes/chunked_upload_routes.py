@@ -8,6 +8,7 @@ High-performance upload endpoints for large files (1GB+) using:
 """
 
 import base64
+import binascii
 import logging
 import uuid
 from contextlib import suppress
@@ -270,6 +271,18 @@ async def commit_chunked_upload(
 
     container_name = get_storage_container_name()
 
+    # Validate and decode block IDs before any storage operations.
+    # Block IDs arrive base64-encoded (as used in frontend PUT URLs).
+    # The Azure SDK's commit_block_list internally base64-encodes BlobBlock.id,
+    # so we must decode first to avoid double-encoding.
+    try:
+        decoded_ids = [base64.b64decode(bid, validate=True).decode() for bid in request.block_ids]
+    except (binascii.Error, UnicodeDecodeError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid base64 block ID: {e}",
+        ) from e
+
     try:
         # Get blob client
         blob_client = blob_service.get_blob_client(
@@ -277,13 +290,7 @@ async def commit_chunked_upload(
             blob=request.blob_name,
         )
 
-        # Commit the block list.
-        # Block IDs arrive already base64-encoded (as used in frontend PUT URLs).
-        # The Azure SDK's commit_block_list internally base64-encodes BlobBlock.id,
-        # so we must decode first to avoid double-encoding.
-        block_list = [
-            BlobBlock(block_id=base64.b64decode(bid).decode()) for bid in request.block_ids
-        ]
+        block_list = [BlobBlock(block_id=bid) for bid in decoded_ids]
 
         blob_client.commit_block_list(
             block_list=block_list,
