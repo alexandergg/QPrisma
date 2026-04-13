@@ -224,7 +224,7 @@ export interface A2ASendMessageRequest {
 // Helper Functions
 // ============================================================================
 
-async function getAuthHeaders(): Promise<HeadersInit> {
+export async function getAuthHeaders(): Promise<HeadersInit> {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };

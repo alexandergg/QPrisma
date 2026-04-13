@@ -8,7 +8,8 @@
  * - Automatic retry with exponential backoff
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { getAuthHeaders } from '@/lib/api';
+import { API_URL } from '@/lib/config';
 
 // =============================================================================
 // Types
@@ -85,17 +86,6 @@ interface CommitUploadResponse {
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-function getAuthHeaders(): HeadersInit {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
-}
 
 async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -210,7 +200,7 @@ export class ChunkedUploader {
   private async initializeUpload(): Promise<void> {
     const response = await fetch(`${API_URL}/upload/chunked/init`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       body: JSON.stringify({
         filename: this.file.name,
         file_size: this.file.size,
@@ -320,7 +310,7 @@ export class ChunkedUploader {
 
     const response = await fetch(`${API_URL}/upload/chunked/commit`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: await getAuthHeaders(),
       body: JSON.stringify({
         upload_id: this.uploadSession.upload_id,
         media_id: this.uploadSession.media_id,
@@ -384,7 +374,7 @@ export class ChunkedUploader {
     try {
       await fetch(`${API_URL}/upload/chunked/cancel/${this.uploadSession.media_id}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
+        headers: await getAuthHeaders(),
       });
     } catch {
       // Ignore errors during cancellation
