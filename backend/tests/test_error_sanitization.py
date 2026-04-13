@@ -278,7 +278,7 @@ class TestChunkedUploadErrorSanitization:
                     "upload_id": "u1",
                     "media_id": "m1",
                     "blob_name": "test.mp4",
-                    "block_ids": ["block1"],
+                    "block_ids": ["YmxvY2sx"],
                 },
             )
 
