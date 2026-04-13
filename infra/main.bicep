@@ -478,6 +478,12 @@ resource apiOpenAiUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 
 // Contributor (not User) so the worker can upload files and create batches
 // via the OpenAI Batch API (requires Microsoft.CognitiveServices/accounts/OpenAI/files/write)
+// NOTE: This replaced the previous 'Cognitive Services OpenAI User' (5e0bd9bd) assignment.
+// In incremental deployment mode, the old User role assignment is not auto-deleted.
+// It is harmless (RBAC is additive and Contributor is a superset), but for hygiene
+// remove the stale assignment manually after deploy:
+//   az role assignment delete --assignee <workerPrincipalId> \
+//     --role "Cognitive Services OpenAI User" --scope <aiFoundryResourceId>
 resource workerOpenAiContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(existingAiFoundry.id, workerContainerAppName, cognitiveServicesOpenAiContributorRoleId)
   scope: existingAiFoundry
