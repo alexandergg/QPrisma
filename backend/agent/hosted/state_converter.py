@@ -32,6 +32,7 @@ Usage::
 
 import json
 import logging
+import os
 import re
 from collections.abc import Collection, Iterable
 from typing import Any
@@ -115,6 +116,9 @@ prevent oversized responses that the Foundry API may reject."""
 # Control characters to strip from tool output (keep \t, \n, \r which are valid in JSON)
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
+# Valid response_mode values: "full" (default) or "final_answer" (eval-friendly)
+VALID_RESPONSE_MODES = frozenset({"full", "final_answer"})
+
 
 def _sanitize_tool_output(content: str) -> str:
     """Remove null bytes and control characters that could break JSON serialization."""
@@ -135,7 +139,22 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
        because it returns cleaned conversation history (input), not new output.
        As defense-in-depth, ``HumanMessage`` / ``SystemMessage`` from any node
        are also filtered since they represent input context, not agent output.
+
+    When ``response_mode="final_answer"``, the converter performs the full
+    internal conversion but strips all tool-call and tool-output items from the
+    final output, keeping only ``ResponsesAssistantMessageItemResource`` items.
+    This allows Foundry's evaluation pipeline to save the response without
+    encountering "invalid format" errors from tool-related items.
     """
+
+    def __init__(self, context, hitl_helper, *, response_mode: str = "full"):
+        super().__init__(context, hitl_helper)
+        if response_mode not in VALID_RESPONSE_MODES:
+            logger.warning(
+                "Unknown response_mode %r — falling back to 'full'", response_mode
+            )
+            response_mode = "full"
+        self._response_mode = response_mode
 
     def convert(self, output: list[dict[str, Any]]) -> list[project_models.ItemResource]:
         """Two-pass conversion: emit items, then drop orphaned tool outputs.
@@ -219,6 +238,23 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 len(output),
                 self._conversion_errors,
             )
+
+        # --- final_answer mode: strip tool items for eval-friendly output ---
+        if self._response_mode == "final_answer":
+            full_count = len(result)
+            result = [
+                item
+                for item in result
+                if isinstance(item, project_models.ResponsesAssistantMessageItemResource)
+            ]
+            stripped = full_count - len(result)
+            if stripped:
+                logger.info(
+                    "response_mode=final_answer: stripped %d tool items, "
+                    "kept %d assistant message(s)",
+                    stripped,
+                    len(result),
+                )
 
         tool_call_count = sum(
             1 for i in result if isinstance(i, project_models.FunctionToolCallItemResource)
@@ -448,6 +484,8 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
     Extends the default response-API converter with:
     - **Request**: extraction of the ``[QPRISMA_CONTEXT:...]`` envelope
     - **Response**: multi-tool-call support via ``QPrismaNonStreamResponseConverter``
+    - **response_mode**: per-query or env-var control over response item filtering
+      (``"full"`` = all items, ``"final_answer"`` = assistant messages only)
     """
 
     def __init__(self, graph):
@@ -455,13 +493,26 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
             graph=graph,
             create_non_stream_response_converter=self._create_qprisma_converter,
         )
+        self._default_response_mode = os.environ.get("QPRISMA_RESPONSE_MODE", "full")
+        if self._default_response_mode not in VALID_RESPONSE_MODES:
+            logger.warning(
+                "QPRISMA_RESPONSE_MODE=%r is invalid — falling back to 'full'",
+                self._default_response_mode,
+            )
+            self._default_response_mode = "full"
+        # Per-request override set during convert_request(); consumed by the
+        # factory callback.  Safe because Foundry processes requests
+        # sequentially per container.
+        self._current_response_mode: str = self._default_response_mode
 
     def _create_qprisma_converter(
         self, context: LanggraphRunContext
     ) -> QPrismaNonStreamResponseConverter:
         """Factory for the custom non-stream response converter."""
         hitl_helper = self._create_human_in_the_loop_helper(context)
-        return QPrismaNonStreamResponseConverter(context, hitl_helper)
+        return QPrismaNonStreamResponseConverter(
+            context, hitl_helper, response_mode=self._current_response_mode
+        )
 
     async def convert_request(self, context: LanggraphRunContext) -> GraphInputArguments:
         """Convert incoming request to LangGraph input with QPrisma context."""
@@ -509,7 +560,16 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
         metadata, cleaned_content = _extract_qprisma_context(content)
         if not metadata:
             logger.debug("No QPRISMA_CONTEXT prefix in user message")
+            self._current_response_mode = self._default_response_mode
             return result
+
+        # Extract response_mode override before stripping metadata from the message
+        query_response_mode = metadata.pop("response_mode", None)
+        if query_response_mode and query_response_mode in VALID_RESPONSE_MODES:
+            self._current_response_mode = query_response_mode
+            logger.info("QPrismaStateConverter: response_mode=%s (per-query)", query_response_mode)
+        else:
+            self._current_response_mode = self._default_response_mode
 
         # Replace the HumanMessage with the cleaned version
         messages[last_human_idx] = HumanMessage(content=cleaned_content)

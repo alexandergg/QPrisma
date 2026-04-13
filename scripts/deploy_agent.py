@@ -91,6 +91,8 @@ def build_environment_variables(
         **_optional_env("FOUNDRY_MEMORY_STORE_NAME", env=source),
         **_optional_env("FOUNDRY_MEMORY_CHAT_MODEL", env=source),
         **_optional_env("FOUNDRY_MEMORY_EMBEDDING_MODEL", env=source),
+        # --- Response mode (eval-friendly output) ---
+        **_optional_env("QPRISMA_RESPONSE_MODE", env=source),
     }
 
 
