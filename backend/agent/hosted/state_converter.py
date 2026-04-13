@@ -30,6 +30,7 @@ Usage::
     app = from_langgraph(graph, converter=converter)
 """
 
+import contextvars
 import json
 import logging
 import os
@@ -56,6 +57,13 @@ logger = logging.getLogger(__name__)
 _CONTEXT_PREFIX = "[QPRISMA_CONTEXT:"  # Literal prefix that wraps the JSON context envelope
 
 _json_decoder = json.JSONDecoder()
+
+# Async-safe per-request response mode.  Set during convert_request() and
+# read by _create_qprisma_converter() so overlapping async requests never
+# leak modes across each other.
+_request_response_mode: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "_request_response_mode", default="full"
+)
 
 
 def _extract_qprisma_context(text: str) -> tuple[dict[str, Any], str]:
@@ -500,22 +508,28 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
                 self._default_response_mode,
             )
             self._default_response_mode = "full"
-        # Per-request override set during convert_request(); consumed by the
-        # factory callback.  Safe because Foundry processes requests
-        # sequentially per container.
-        self._current_response_mode: str = self._default_response_mode
 
     def _create_qprisma_converter(
         self, context: LanggraphRunContext
     ) -> QPrismaNonStreamResponseConverter:
-        """Factory for the custom non-stream response converter."""
+        """Factory for the custom non-stream response converter.
+
+        Reads the response mode from the async-safe ``_request_response_mode``
+        ContextVar (set during ``convert_request``) so that overlapping
+        async requests never leak modes across each other.
+        """
         hitl_helper = self._create_human_in_the_loop_helper(context)
+        mode = _request_response_mode.get(self._default_response_mode)
         return QPrismaNonStreamResponseConverter(
-            context, hitl_helper, response_mode=self._current_response_mode
+            context, hitl_helper, response_mode=mode
         )
 
     async def convert_request(self, context: LanggraphRunContext) -> GraphInputArguments:
         """Convert incoming request to LangGraph input with QPrisma context."""
+        # Reset response mode to default at the start of every request so that
+        # early-return paths never inherit a stale override from a previous call.
+        _request_response_mode.set(self._default_response_mode)
+
         result = await super().convert_request(context)
         input_data = result["input"]
 
@@ -560,16 +574,13 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
         metadata, cleaned_content = _extract_qprisma_context(content)
         if not metadata:
             logger.debug("No QPRISMA_CONTEXT prefix in user message")
-            self._current_response_mode = self._default_response_mode
             return result
 
         # Extract response_mode override before stripping metadata from the message
         query_response_mode = metadata.pop("response_mode", None)
         if query_response_mode and query_response_mode in VALID_RESPONSE_MODES:
-            self._current_response_mode = query_response_mode
+            _request_response_mode.set(query_response_mode)
             logger.info("QPrismaStateConverter: response_mode=%s (per-query)", query_response_mode)
-        else:
-            self._current_response_mode = self._default_response_mode
 
         # Replace the HumanMessage with the cleaned version
         messages[last_human_idx] = HumanMessage(content=cleaned_content)

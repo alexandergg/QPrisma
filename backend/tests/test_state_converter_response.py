@@ -1237,7 +1237,6 @@ class TestStateConverterResponseMode:
         monkeypatch.setenv("QPRISMA_RESPONSE_MODE", "final_answer")
         conv = QPrismaStateConverter(graph=MagicMock())
         assert conv._default_response_mode == "final_answer"
-        assert conv._current_response_mode == "final_answer"
 
     def test_invalid_env_var_falls_back(self, monkeypatch):
         """Invalid QPRISMA_RESPONSE_MODE env var → 'full'."""
@@ -1257,43 +1256,71 @@ class TestStateConverterResponseMode:
 
     @pytest.mark.asyncio
     async def test_context_response_mode_override(self, monkeypatch):
-        """response_mode in QPRISMA_CONTEXT overrides env var default."""
+        """response_mode in QPRISMA_CONTEXT overrides env var default via convert_request()."""
+        from agent.hosted.state_converter import QPrismaStateConverter, _request_response_mode
+
+        monkeypatch.delenv("QPRISMA_RESPONSE_MODE", raising=False)
+        conv = QPrismaStateConverter(graph=MagicMock())
+
+        # Patch the parent convert_request to return a message with QPRISMA_CONTEXT
+        from unittest.mock import AsyncMock
+
+        msg_text = '[QPRISMA_CONTEXT:{"media_id":"v1","response_mode":"final_answer"}]\nSummarize.'
+        super_result = {
+            "input": {"messages": [HumanMessage(content=msg_text)]},
+            "config": {},
+        }
+        monkeypatch.setattr(
+            "agent.hosted.state_converter.ResponseAPIDefaultConverter.convert_request",
+            AsyncMock(return_value=super_result),
+        )
+
+        mock_context = MagicMock()
+        result = await conv.convert_request(mock_context)
+
+        # The ContextVar should be set to the per-query override
+        assert _request_response_mode.get() == "final_answer"
+        # response_mode should be popped from the injected state
+        assert "response_mode" not in result["input"]
+
+    def test_context_extraction_preserves_response_mode(self):
+        """_extract_qprisma_context preserves response_mode in metadata.
+
+        The actual pop happens later in convert_request(), not in extraction.
+        """
+        from agent.hosted.state_converter import _extract_qprisma_context
+
+        text = '[QPRISMA_CONTEXT:{"media_id":"v1","user_id":"u1","response_mode":"final_answer"}]\nQuery'
+        metadata, clean = _extract_qprisma_context(text)
+        # response_mode is preserved by extraction (not popped here)
+        assert metadata.get("response_mode") == "final_answer"
+        assert metadata.get("media_id") == "v1"
+        assert clean == "Query"
+
+    @pytest.mark.asyncio
+    async def test_convert_request_pops_response_mode(self, monkeypatch):
+        """convert_request() pops response_mode from metadata before injecting state."""
+        from unittest.mock import AsyncMock
+
         from agent.hosted.state_converter import QPrismaStateConverter
 
         monkeypatch.delenv("QPRISMA_RESPONSE_MODE", raising=False)
         conv = QPrismaStateConverter(graph=MagicMock())
 
-        # Simulate a request with response_mode in context
-        mock_context = MagicMock()
-        mock_context.response_input = MagicMock()
-        mock_context.response_input.input = [
-            MagicMock(
-                role="user",
-                content=[
-                    MagicMock(
-                        text='[QPRISMA_CONTEXT:{"media_id":"v1","response_mode":"final_answer"}]\nSummarize.'
-                    )
-                ],
-            )
-        ]
-        mock_context.response_input.instructions = None
-
-        # Mock convert_request to simulate the full path
-        from agent.hosted.state_converter import _extract_qprisma_context
-
-        metadata, clean = _extract_qprisma_context(
-            '[QPRISMA_CONTEXT:{"media_id":"v1","response_mode":"final_answer"}]\nSummarize.'
+        msg_text = '[QPRISMA_CONTEXT:{"media_id":"v1","user_id":"u1","response_mode":"final_answer"}]\nQuery'
+        super_result = {
+            "input": {"messages": [HumanMessage(content=msg_text)]},
+            "config": {},
+        }
+        monkeypatch.setattr(
+            "agent.hosted.state_converter.ResponseAPIDefaultConverter.convert_request",
+            AsyncMock(return_value=super_result),
         )
-        # Verify the context extraction preserves response_mode
-        assert metadata.get("response_mode") == "final_answer"
-        assert "response_mode" in metadata
 
-    def test_context_extraction_pops_response_mode(self):
-        """response_mode is popped from metadata (not passed to graph state)."""
-        from agent.hosted.state_converter import _extract_qprisma_context
+        result = await conv.convert_request(MagicMock())
 
-        text = '[QPRISMA_CONTEXT:{"media_id":"v1","user_id":"u1","response_mode":"final_answer"}]\nQuery'
-        metadata, clean = _extract_qprisma_context(text)
-        assert metadata.get("response_mode") == "final_answer"
-        assert metadata.get("media_id") == "v1"
-        assert clean == "Query"
+        # response_mode should NOT appear in the graph input state
+        assert "response_mode" not in result["input"]
+        # Other fields should be injected normally
+        assert result["input"]["media_id"] == "v1"
+        assert result["input"]["user_id"] == "u1"
