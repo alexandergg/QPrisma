@@ -98,7 +98,9 @@ def build_environment_variables(
 
 def _run_az(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603
-        ["az", *args], capture_output=True, text=True  # noqa: S607
+        ["az", *args],  # noqa: S607
+        capture_output=True,
+        text=True,
     )
 
 
@@ -208,13 +210,8 @@ def main() -> None:
     missing = [v for v in _CRITICAL_VARS if v not in environment_variables]
     if missing:
         print(f"WARNING: Missing critical env vars " f"for backend services: {missing}")
-        print(
-            "  The hosted agent will fall back to "
-            "localhost defaults and fail to connect."
-        )
-        print(
-            "  Ensure the deploy workflow resolves " "these from Azure infrastructure."
-        )
+        print("  The hosted agent will fall back to " "localhost defaults and fail to connect.")
+        print("  Ensure the deploy workflow resolves " "these from Azure infrastructure.")
 
     definition = ImageBasedHostedAgentDefinition(
         container_protocol_versions=[
@@ -243,10 +240,7 @@ def main() -> None:
                 ),
                 definition=definition,
             )
-            print(
-                f"Agent registered: {agent.name} "
-                f"(id: {agent.id}, version: {agent.version})"
-            )
+            print(f"Agent registered: {agent.name} " f"(id: {agent.id}, version: {agent.version})")
             break
         except HttpResponseError as e:
             last_error = e
@@ -270,8 +264,7 @@ def main() -> None:
     started = start_agent(agent.version)
     if not started:
         print(
-            "WARNING: Agent registered but auto-start failed. "
-            "Start manually in Foundry portal."
+            "WARNING: Agent registered but auto-start failed. " "Start manually in Foundry portal."
         )
         sys.exit(1)
 

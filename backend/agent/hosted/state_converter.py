@@ -158,9 +158,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
     def __init__(self, context, hitl_helper, *, response_mode: str = "full"):
         super().__init__(context, hitl_helper)
         if response_mode not in VALID_RESPONSE_MODES:
-            logger.warning(
-                "Unknown response_mode %r — falling back to 'full'", response_mode
-            )
+            logger.warning("Unknown response_mode %r — falling back to 'full'", response_mode)
             response_mode = "full"
         self._response_mode = response_mode
 
@@ -520,9 +518,7 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
         """
         hitl_helper = self._create_human_in_the_loop_helper(context)
         mode = _request_response_mode.get(self._default_response_mode)
-        return QPrismaNonStreamResponseConverter(
-            context, hitl_helper, response_mode=mode
-        )
+        return QPrismaNonStreamResponseConverter(context, hitl_helper, response_mode=mode)
 
     async def convert_request(self, context: LanggraphRunContext) -> GraphInputArguments:
         """Convert incoming request to LangGraph input with QPrisma context."""
