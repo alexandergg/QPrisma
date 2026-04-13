@@ -276,6 +276,9 @@ async def commit_chunked_upload(
     # The Azure SDK's commit_block_list internally base64-encodes BlobBlock.id,
     # so we must decode first to avoid double-encoding.
     try:
+        for bid in request.block_ids:
+            if len(bid) % 4 != 0:
+                raise binascii.Error(f"incorrect padding for block ID: {bid!r}")
         decoded_ids = [base64.b64decode(bid, validate=True).decode() for bid in request.block_ids]
     except (binascii.Error, UnicodeDecodeError) as e:
         raise HTTPException(
