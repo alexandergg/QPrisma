@@ -44,9 +44,7 @@ class TestDatabaseInit:
         service = object.__new__(DatabaseService)
         service.database_url = "sqlite://"
         service.engine = create_engine("sqlite://")
-        service.SessionLocal = sessionmaker(
-            autocommit=False, autoflush=False, bind=service.engine
-        )
+        service.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=service.engine)
         service._initialized = False
 
         # Create a minimal media table WITHOUT the upload_session column

@@ -100,8 +100,15 @@ class DatabaseService:
                         applied += 1
                     except (OperationalError, ProgrammingError) as e:
                         # Column may already exist due to concurrent replica startup
-                        logger.info("Column %s.%s already exists (concurrent migration): %s", table, column, e)
-            logger.info("Schema migrations checked (%d applied, %d total)", applied, len(migrations))
+                        logger.info(
+                            "Column %s.%s already exists (concurrent migration): %s",
+                            table,
+                            column,
+                            e,
+                        )
+            logger.info(
+                "Schema migrations checked (%d applied, %d total)", applied, len(migrations)
+            )
 
     def health_check(self) -> dict[str, Any]:
         """Check database connectivity."""
