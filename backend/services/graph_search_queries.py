@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from models.graph_models import NodeType
 
-logger= logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Compiled regex for Lucene special character escaping (Neo4j fulltext uses Lucene 9.x).
 # Neo4j fulltext indexes delegate query parsing to Apache Lucene, which
@@ -237,7 +237,8 @@ class GraphSearchQueryMixin:
             if "no such index" in err_str or "index not found" in err_str:
                 logger.info("Vector index '%s' does not exist — skipping", index_name)
             else:
-                logger.warning("Vector query on %s failed: %s", index_name, type(e).__name__)
+                logger.warning("Vector query on %s failed: %s — %s", index_name, type(e).__name__, str(e))
+                logger.debug("Vector query on %s traceback", index_name, exc_info=True)
 
         return results
 

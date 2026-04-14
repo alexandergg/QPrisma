@@ -498,6 +498,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             # --- candidate cap (after all node types merged) ---
             _cap = int(limit) * 6
             if len(_all) > _cap:
+                _pre_cap_count = len(_all)
                 # Use provisional blended score to preserve strong fulltext-only hits
                 for c in _all:
                     c.combined_score = 0.5 * c.vector_score + 0.5 * c.fulltext_score
@@ -505,7 +506,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 _all = _all[: int(limit) * 4]
                 logger.info(
                     "pipeline: capped candidates | from=%d to=%d",
-                    _cap,
+                    _pre_cap_count,
                     len(_all),
                 )
                 # Reset combined_score for proper weighted calculation below

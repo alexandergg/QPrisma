@@ -321,7 +321,8 @@ class GraphSearchScoringMixin:
                 result = session.run(q, **params)
                 return {record["node_id"]: record["path"] for record in result}
         except Exception as e:
-            logger.warning("Batch path lookup failed: %s", type(e).__name__)
+            logger.warning("Batch path lookup failed: %s — %s", type(e).__name__, str(e))
+            logger.debug("Batch path lookup traceback", exc_info=True)
             return None
 
     def _count_by_type(self, results: list[ScoredNode]) -> dict[str, int]:

@@ -489,7 +489,7 @@ class TestFindEntityFallback:
 class TestPipelineBehavior:
     """Tests for hybrid search pipeline resilience: fallbacks, caps, timeouts."""
 
-    def _make_scored_node(self, node_id, vector=0.8, fulltext=0.0, node_type="Frame"):
+    def _make_scored_node(self, node_id, vector=0.8, fulltext=0.0, node_type=NodeType.FRAME):
         """Helper to create a ScoredNode-like object."""
         from services.graph_search_queries import ScoredNode
 
@@ -501,7 +501,7 @@ class TestPipelineBehavior:
             graph_score=0.0,
             temporal_score=0.0,
             combined_score=0.0,
-            content=f"Content for {node_id}",
+            content={"text": f"Content for {node_id}"},
         )
 
     def test_candidate_cap_preserves_fulltext_hits(self):
