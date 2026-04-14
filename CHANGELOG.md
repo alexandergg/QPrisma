@@ -34,16 +34,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Long-term user memory**: New `FoundryMemoryService` wraps the Foundry Memory Store API for per-user semantic memory scoped by Entra ID (`{tid}_{oid}`). Supports auto-summarisation of conversation topics and extraction of user preferences.
 - **Memory provisioning script**: `scripts/setup_memory_store.py` for one-time idempotent memory store creation.
 
+#### Video Processing Pipeline Optimization
+- **Parallel pipeline stages**: Video processing pipeline parallelized across frame extraction, audio transcription, and embedding generation, achieving 40–60% faster ingestion for long-form videos. (#106)
+
+#### Agent Context Engineering
+- **`tool_meta()` detail_hint parameter**: New optional `detail_hint` field in tool metadata provides navigational cues for the LLM to drill down into specific scenes or entities, following Anthropic's "Compact Index + Lazy Detail Retrieval" pattern. (#120)
+- **Scene-first data hierarchy**: `list_chapters` and context tools now read scene node properties directly from Neo4j (title, description, detected objects) instead of fetching all frames. Eliminates the former 500-frame bottleneck for long videos. (#120)
+- **Progressive disclosure scene timeline**: Frontend scene timeline redesigned with expandable panels, collapsible scene groups, and on-demand detail retrieval. (#120)
+
+#### Hybrid Search Pipeline Hardening
+- **25-second pipeline budget**: `_sync_search_pipeline` enforces an end-to-end time budget with per-stage remaining-time propagation. Stages that exhaust the budget are skipped gracefully with partial results. (#122)
+- **Neo4j Query-level timeouts**: All 9 `session.run()` call sites in the search pipeline now use `neo4j.Query(cypher, timeout=remaining_s)` to prevent any single query from hanging the pipeline. (#122)
+- **Candidate capping**: When accumulated candidates exceed `limit × 6`, the pipeline trims to `limit × 4` using a blended provisional score `(0.5 × vector + 0.5 × fulltext)` to preserve strong fulltext-only matches. (#122)
+- **Adaptive graph expansion**: Graph connectivity scoring reduces `expansion_hops` from 2 → 1 when the candidate set exceeds 50, preventing combinatorial explosion. (#122)
+- **Entity timeline diagnostics**: `get_entity_timeline` now logs entity name length, type, and result counts for visual/audio appearances to aid debugging of missing entity extraction. (#122)
+
 ### Changed
 - Upgraded `azure-ai-projects` from `>=1.0.0b7` to `>=2.0.0` to access Conversations and Memory Store APIs.
 - `FoundryAgentClient.send_message()` / `send_streaming_message()` now accept `conversation_id` parameter instead of `thread_id`.
 - `A2AAgentExecutor` creates Foundry conversations before yielding the initial task, ensuring the frontend receives the Foundry conversation ID as `contextId`.
+- **Hybrid search intent-adaptive weights**: Search scoring weights are now selected per-query from 7 intent profiles (time-based, object, person, text, action, scene, event) instead of fixed weights. (#122)
+- **Worker OpenAI role upgrade**: Worker managed identity upgraded from OpenAI User to Contributor to enable Batch API access. (#113)
+- **MediaModel schema**: Added `upload_session` column to `MediaModel` for tracking chunked upload sessions. (#108)
+
+### Fixed
+- **Video Search timeout and fallback**: `search_video` and `find_entity` tools now enforce a 30-second `asyncio.wait_for()` timeout on hybrid search, falling back to a keyword-based Cypher search when the pipeline times out. (#121)
+- **CodeQL log injection**: Removed user-provided values from all log statements in the hybrid search pipeline; parameter counts use `int()`/`len()` to break the CodeQL taint chain. (#121)
+- **Chunked upload MSAL authentication**: Fixed MSAL token acquisition for chunked upload continuation requests. (#107)
+- **Block ID double base64 encoding**: Fixed block ID encoding in chunked upload to prevent double base64 encoding, with Python 3.11 compatibility for `b64decode(validate=True)`. (#112)
+- **`commit_block_list` blob type**: Fixed incorrect `blob_type` argument in `commit_block_list` call. (#111)
+- **Database auto-migration**: Fixed automatic database migration on startup to handle schema changes. (#109, #110)
 
 ### Removed
 - **Mem0 dependency removed**: `mem0ai` package, `Mem0MemoryService`, `Mem0Settings`, and all related configuration/tests deleted. Foundry Memory Store replaces Mem0 for long-term memory.
 - **Frontend conversation dead code**: Removed localStorage-based conversation management (`conversations.ts`, `ConversationsList.tsx`) and cleaned conversation state from 8 frontend files. Sidebar, chat pages, and hooks no longer track or persist conversations client-side.
 - **Old evaluation module removed**: Entire `backend/evaluation/` directory (~30 files) including Video-MME pipeline, custom LLM judges, metric calculators, and test adapters. Replaced by Azure AI Foundry evaluation. Legacy report preserved at `docs/legacy-video-mme-evaluation-report.md`.
 - **Evaluation-only dependencies removed**: `yt-dlp` and `datasets` packages no longer required.
+- **500-frame cap removed**: `MAX_FRAMES_FOR_CHAPTERS` and `MAX_FRAMES_FOR_STRUCTURE` constants removed from `context_tools.py` and `structure_service.py`. Scene properties are now read directly from Neo4j graph nodes. (#120)
+- **`_fallback_vector_search` removed**: Dead code full-table-scan fallback eliminated from `graph_search_queries.py`. Fulltext search now carries the pipeline when vector indexes are unavailable. (#122)
+- **`_get_path_to_video` removed**: Unused single-path method removed from `graph_search_scoring.py`, replaced by batch version `_batch_get_paths_to_video`. (#122)
+- **Frontend `.slice(0, 3)` caps removed**: Hardcoded source group and detected-object truncation removed from `CitationSection.tsx` and `ChapterNavigationViews.tsx`. (#120)
 
 ## [1.1.0] - 2026-04-02
 

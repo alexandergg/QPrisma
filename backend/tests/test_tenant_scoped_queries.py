@@ -117,6 +117,7 @@ def test_merge_fulltext_scores_uses_batch_node_fetch():
         video_id="vid-1",
         video_ids=None,
         user_id="user-1",
+        timeout_s=None,
     )
     assert [candidate.node_id for candidate in candidates] == ["n1", "n2"]
     assert candidates[0].fulltext_score == 1.0

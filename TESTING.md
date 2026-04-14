@@ -14,8 +14,13 @@ backend/
     ├── test_config.py       # Settings, validators, production guards
     ├── test_community_detection.py          # Community detection pipeline (Leiden/Louvain)
     ├── test_community_search_integration.py # Community search integration
+    ├── test_cross_video_search_service.py   # Multi-video cross-search service
     ├── test_graph_composition.py            # Knowledge graph service composition and delegation
+    ├── test_graph_search_caching.py         # Redis caching for hybrid search
+    ├── test_langgraph_agent.py              # Agent tool routing and dynamic binding
+    ├── test_search_tools.py                 # Search tool timeout, fallback, pipeline behavior
     ├── test_temporal_chains.py              # Dense temporal chains
+    ├── test_tool_meta.py                    # tool_meta/tool_error utility functions
     └── test_data/           # Test fixtures and sample data
 
 frontend/
@@ -52,6 +57,11 @@ frontend/
 | `test_retry.py` | Centralized retry with exponential backoff |
 | `test_concurrency.py` | TaskGroup-based structured concurrency |
 | `test_processing_metrics.py` | Pipeline observability and stage timing |
+| `test_langgraph_agent.py` | Agent graph construction, dynamic tool binding, `select_tools_for_query` keyword classification, subtitle keyword avoidance |
+| `test_search_tools.py` | Search tool timeout/fallback behavior, pipeline budget behavior, `_sync_search_pipeline` candidate capping |
+| `test_tool_meta.py` | `tool_meta()` / `tool_error()` structured response helpers, `detail_hint` parameter |
+| `test_graph_search_caching.py` | Redis cache integration for hybrid search results |
+| `test_cross_video_search_service.py` | Multi-video cross-search service, result aggregation |
 
 ## Backend Testing (Python)
 

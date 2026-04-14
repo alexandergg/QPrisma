@@ -427,15 +427,15 @@ def create_agent_graph(tools: list, checkpointer=None):
     return workflow.compile(checkpointer=checkpointer)
 ```
 
-### Tool Modules (16 tools across 5 modules)
+### Tool Modules (18 tools across 5 modules)
 
 | Module | Tools | Description |
 |---|---|---|
-| `search_tools.py` | `search_transcript`, `search_knowledge_graph`, `hybrid_search` | Content search tools |
-| `analysis_tools.py` | `analyze_scene`, `summarize_video`, `extract_entities`, `get_video_stats` | Analysis tools |
-| `context_tools.py` | `get_transcript_segment`, `get_scene_context`, `get_chapter_info` | Context retrieval |
-| `highlight_tools.py` | `create_highlight`, `list_highlights`, `get_highlight_details` | Highlight management |
-| `multi_video_tools.py` | `compare_videos`, `cross_video_search`, `aggregate_insights` | Multi-video tools |
+| `search_tools.py` | `search_video`, `find_entity`, `get_transcript`, `describe_scene` | Content search and scene description |
+| `context_tools.py` | `list_chapters`, `get_video_info`, `get_summary`, `get_scene_context`, `get_community_overview` | Context retrieval and video overview |
+| `analysis_tools.py` | `get_related_content`, `get_entity_timeline`, `compare_moments` | Analysis and temporal comparison |
+| `highlight_tools.py` | `find_highlights` | Highlight detection |
+| `multi_video_tools.py` | `search_across_videos`, `compare_videos`, `find_common_entities`, `get_library_overview` | Cross-video analysis |
 
 ### Tool Implementation Pattern
 
@@ -1091,7 +1091,7 @@ class EntityGraphService(BaseGraphService):
 
 ## 11. Hybrid Search System
 
-The search system combines vector similarity (PostgreSQL pgvector) with graph traversal (Neo4j) for comprehensive results.
+The search system combines Neo4j vector similarity, fulltext indexing, graph connectivity scoring, and temporal proximity into a unified pipeline with a 25-second time budget.
 
 ### Search Architecture
 
@@ -1101,39 +1101,134 @@ The search system combines vector similarity (PostgreSQL pgvector) with graph tr
                     └──────┬───────┘
                            │
                     ┌──────▼───────┐
-                    │   Embed      │
-                    │   Query      │
+                    │ Intent       │
+                    │ Classification│
+                    └──────┬───────┘
+                           │
+                    ┌──────▼───────┐
+                    │ Azure OpenAI │
+                    │ Embedding    │
                     └──────┬───────┘
                            │
               ┌────────────┼────────────┐
-              │            │            │
-       ┌──────▼─────┐ ┌───▼────┐ ┌─────▼──────┐
-       │  pgvector   │ │ Neo4j  │ │ Full-text  │
-       │  (vectors)  │ │(graph) │ │ (tsvector) │
-       └──────┬──────┘ └───┬────┘ └─────┬──────┘
-              │            │            │
-              └────────────┼────────────┘
-                           │
-                    ┌──────▼───────┐
-                    │   Rerank &   │
-                    │   Merge      │
-                    └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │   Results    │
-                    └──────────────┘
+              │                         │
+       ┌──────▼──────┐          ┌──────▼──────┐
+       │ Neo4j Vector │          │ Neo4j       │
+       │ Index Search │          │ Fulltext    │
+       │ (per type)   │          │ Search      │
+       └──────┬──────┘          └──────┬──────┘
+              │                         │
+              └────────┬────────────────┘
+                       │
+                ┌──────▼───────┐
+                │  Candidate   │
+                │  Merge & Cap │
+                └──────┬───────┘
+                       │
+              ┌────────┼────────┐
+              │                 │
+       ┌──────▼──────┐  ┌──────▼──────┐
+       │ Graph       │  │ Temporal    │
+       │ Connectivity│  │ Proximity   │
+       │ Scoring     │  │ Scoring     │
+       └──────┬──────┘  └──────┬──────┘
+              │                 │
+              └────────┬────────┘
+                       │
+                ┌──────▼───────┐
+                │ Intent-      │
+                │ Weighted     │
+                │ Reranking    │
+                └──────┬───────┘
+                       │
+                ┌──────▼───────┐
+                │   Results    │
+                └──────────────┘
 ```
+
+### Five Scoring Signals
+
+Each search candidate is scored across five independent signals, combined with intent-adaptive weights:
+
+| Signal | Default Weight | Source |
+|---|---|---|
+| Vector similarity | 0.35 | Neo4j vector index (text-embedding-3-large, 3072-dim) |
+| Fulltext relevance | 0.25 | Neo4j fulltext index (BM25-style) |
+| Graph connectivity | 0.25 | Path distance to video, entity co-occurrence |
+| Temporal proximity | 0.15 | Distance from query timestamp anchor |
+| Co-occurrence bonus | +0.1 | Entities appearing in same scene/frame |
+
+### Intent-Adaptive Weight Profiles
+
+The pipeline classifies query intent and selects from 7 weight profiles:
+
+| Profile | Vector | Fulltext | Graph | Temporal | When used |
+|---|---|---|---|---|---|
+| `time-based` | 0.20 | 0.15 | 0.20 | 0.45 | "What happens at 15:00?" |
+| `object` | 0.40 | 0.20 | 0.30 | 0.10 | "Find the laptop" |
+| `person` | 0.35 | 0.20 | 0.35 | 0.10 | "Show me Satya Nadella" |
+| `text` | 0.25 | 0.45 | 0.15 | 0.15 | "Search for Azure" |
+| `action` | 0.35 | 0.25 | 0.25 | 0.15 | "When does the demo start?" |
+| `scene` | 0.40 | 0.15 | 0.30 | 0.15 | "Describe the stage" |
+| `event` | 0.30 | 0.25 | 0.25 | 0.20 | "What was announced?" |
+
+### Pipeline Budget System
+
+The pipeline enforces a **25-second end-to-end deadline** (`_PIPELINE_BUDGET_S = 25.0`). Each stage receives the remaining budget as its timeout:
+
+```python
+deadline = time.monotonic() + _PIPELINE_BUDGET_S
+
+# Stage 1: Vector search (per node type)
+remaining = deadline - time.monotonic()
+vector_results = vector_search(..., timeout_s=remaining)
+
+# Stage 2: Fulltext search
+remaining = deadline - time.monotonic()
+fulltext_results = fulltext_search(..., timeout_s=remaining)
+
+# Stage 3: Graph expansion (skipped if <3s remaining)
+remaining = deadline - time.monotonic()
+if remaining > 3.0:
+    graph_scores = calculate_graph_scores(..., timeout_s=remaining)
+```
+
+### Neo4j Query Timeouts
+
+All Neo4j queries use `neo4j.Query` with a timeout parameter (not the `session.run(timeout=...)` kwarg, which is treated as a Cypher parameter):
+
+```python
+from neo4j import Query
+
+q = Query(cypher_text, timeout=remaining_s) if remaining_s else cypher_text
+session.run(q, **params)
+```
+
+This pattern is applied at all 9 `session.run()` sites across `graph_search_queries.py` and `graph_search_scoring.py`.
+
+### Candidate Capping
+
+When accumulated candidates exceed `limit × 6`, the pipeline trims to `limit × 4` using a blended provisional score:
+
+```python
+provisional = 0.5 * candidate["vector_score"] + 0.5 * candidate["fulltext_score"]
+```
+
+Capping happens **after** all node types have merged, not mid-loop. This preserves strong fulltext-only matches (vector_score=0) that would be lost by sorting on vector score alone.
+
+### Adaptive Graph Expansion
+
+Graph connectivity scoring (`_calculate_graph_scores`) reduces `expansion_hops` from 2 → 1 when the candidate set exceeds 50 items, preventing combinatorial explosion in the Neo4j path-finding queries.
+
+### Keyword Fallback
+
+Agent tools (`search_video`, `find_entity`) wrap `hybrid_search()` in a 30-second `asyncio.wait_for()`. On timeout, a keyword-based Cypher fallback executes a direct `CONTAINS` search against scene descriptions and entity names, returning partial results rather than nothing.
 
 ### GraphSearchService
 
 ```python
 class GraphSearchService:
-    """ Hybrid search combining vector similarity and graph traversal."""
-
-    def __init__(self):
-        self.embedding_service = get_embedding_service()
-        self.graph_service = get_base_graph_service()
-        self.cache = get_cache_service()
+    """Hybrid search combining vector, fulltext, graph, and temporal scoring."""
 
     async def hybrid_search(
         self,
@@ -1141,61 +1236,19 @@ class GraphSearchService:
         media_id: str | None = None,
         limit: int = 10,
     ) -> list[SearchResult]:
-        """ Execute hybrid search across vectors and graph."""
-        # Check cache first
-        cache_key = f"search:{hash(query)}:{media_id}:{limit}"
-        cached = await self.cache.get(cache_key)
-        if cached:
-            return cached
-
-        # Generate query embedding
-        query_embedding = await self.embedding_service.embed(query)
-
-        # Parallel search
-        vector_results, graph_results = await asyncio.gather(
-            self._vector_search(query_embedding, media_id, limit),
-            self._graph_search(query, media_id, limit),
-        )
-
-        # Merge and rerank results
-        merged = self._merge_results(vector_results, graph_results)
-        reranked = self._rerank(merged, query)[:limit]
-
-        # Cache results (5-minute TTL)
-        await self.cache.set(cache_key, reranked, ttl=300)
-
-        return reranked
-
-    async def _vector_search(
-        self, embedding: list[float], media_id: str | None, limit: int
-    ) -> list[SearchResult]:
-        """ Search using pgvector cosine similarity."""
-        query = """
-        SELECT id, content, media_id, timestamp,
-               1 - (embedding <=> :embedding) AS score
-        FROM transcript_segments
-        WHERE (:media_id IS NULL OR media_id = :media_id)
-        ORDER BY embedding <=> :embedding
-        LIMIT :limit
-        """
-        # Execute via SQLAlchemy...
-
-    async def _graph_search(
-        self, query: str, media_id: str | None, limit: int
-    ) -> list[SearchResult]:
-        """ Search using Neo4j full-text index and graph traversal."""
-        cypher = """
-        CALL db.index.fulltext.queryNodes('entityIndex', $query)
-        YIELD node, score
-        MATCH (node)-[:APPEARS_IN]->(s:Scene)<-[:HAS_SCENE]-(v:Video)
-        WHERE $media_id IS NULL OR v.id = $media_id
-        RETURN s.id AS id, s.description AS content,
-               v.id AS media_id, s.start_time AS timestamp,
-               score
-        ORDER BY score DESC
-        LIMIT $limit
-        """
-        # Execute via Neo4j driver...
+        """Execute hybrid search with 25s pipeline budget."""
+        # 1. Check Redis cache
+        # 2. Generate query embedding (Azure OpenAI)
+        # 3. Classify intent → select weight profile
+        # 4. Run _sync_search_pipeline via asyncio.to_thread()
+        #    - Vector search per node type (Frame, Entity, AudioSegment)
+        #    - Fulltext search with score merging
+        #    - Candidate capping
+        #    - Graph connectivity scoring (adaptive hops)
+        #    - Temporal proximity scoring
+        #    - Intent-weighted reranking
+        # 5. Cache results (5-minute TTL)
+        ...
 ```
 
 ---

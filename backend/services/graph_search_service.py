@@ -411,12 +411,31 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         # 2-7. Sync search pipeline — run in thread pool to avoid blocking event loop.
         # All Neo4j calls (vector_search, _fulltext_search, _calculate_graph_scores, etc.)
         # are sync and would block the event loop if called directly from this async method.
+        _PIPELINE_BUDGET_S = 25.0  # total time budget for the sync pipeline
+
         def _sync_search_pipeline() -> tuple:
+            _pipeline_start = datetime.now(UTC)
             _all: list[ScoredNode] = []
             _v_start = datetime.now(UTC)
             _ft_acc = 0.0
 
+            def _elapsed_s() -> float:
+                return (datetime.now(UTC) - _pipeline_start).total_seconds()
+
+            def _remaining_s() -> float:
+                return max(1.0, _PIPELINE_BUDGET_S - _elapsed_s())
+
             for nt in node_types:
+                if _elapsed_s() > _PIPELINE_BUDGET_S - 2.0:
+                    logger.warning(
+                        "pipeline: budget nearly exhausted, skipping remaining node types "
+                        "| elapsed_s=%.1f candidates=%d",
+                        _elapsed_s(),
+                        len(_all),
+                    )
+                    break
+
+                _nt_start = datetime.now(UTC)
                 _all.extend(
                     self.vector_search(
                         query_embedding=query_embedding,
@@ -426,7 +445,15 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                         video_ids=effective_video_ids,
                         user_id=user_id,
                         min_score=0.3,
+                        timeout_s=_remaining_s(),
                     )
+                )
+                _nt_vec_ms = (datetime.now(UTC) - _nt_start).total_seconds() * 1000
+                logger.info(
+                    "pipeline: vector done | node_type=%s candidates=%d ms=%.0f",
+                    nt.value,
+                    len(_all),
+                    _nt_vec_ms,
                 )
 
                 _ft_start = datetime.now(UTC)
@@ -437,8 +464,16 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                     video_id=effective_video_id,
                     video_ids=effective_video_ids,
                     user_id=user_id,
+                    timeout_s=_remaining_s(),
                 )
-                _ft_acc += (datetime.now(UTC) - _ft_start).total_seconds() * 1000
+                _ft_ms = (datetime.now(UTC) - _ft_start).total_seconds() * 1000
+                _ft_acc += _ft_ms
+                logger.info(
+                    "pipeline: fulltext done | node_type=%s ft_results=%d ms=%.0f",
+                    nt.value,
+                    len(ft_results),
+                    _ft_ms,
+                )
 
                 self._merge_fulltext_scores(
                     _all,
@@ -447,16 +482,63 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                     video_id=effective_video_id,
                     video_ids=effective_video_ids,
                     user_id=user_id,
+                    timeout_s=_remaining_s(),
                 )
 
             _v_time = (datetime.now(UTC) - _v_start).total_seconds() * 1000 - _ft_acc
+            logger.info(
+                "pipeline: retrieval complete | total_candidates=%d "
+                "vector_ms=%.0f fulltext_ms=%.0f elapsed_s=%.1f",
+                len(_all),
+                _v_time,
+                _ft_acc,
+                _elapsed_s(),
+            )
+
+            # --- candidate cap (after all node types merged) ---
+            _cap = int(limit) * 6
+            if len(_all) > _cap:
+                _pre_cap_count = len(_all)
+                # Use provisional blended score to preserve strong fulltext-only hits
+                for c in _all:
+                    c.combined_score = 0.5 * c.vector_score + 0.5 * c.fulltext_score
+                _all.sort(key=lambda x: x.combined_score, reverse=True)
+                _all = _all[: int(limit) * 4]
+                logger.info(
+                    "pipeline: capped candidates | from=%d to=%d",
+                    _pre_cap_count,
+                    len(_all),
+                )
+                # Reset combined_score for proper weighted calculation below
+                for c in _all:
+                    c.combined_score = 0.0
 
             if time_range:
                 _all = self._filter_by_time_range(_all, time_range)
 
+            # --- graph scoring (skip if budget nearly exhausted) ---
             _g_start = datetime.now(UTC)
-            self._calculate_graph_scores(_all, expansion_hops, user_id=user_id)
-            _g_time = (datetime.now(UTC) - _g_start).total_seconds() * 1000
+            if _elapsed_s() > _PIPELINE_BUDGET_S - 3.0:
+                logger.warning(
+                    "pipeline: skipping graph expansion (budget) | " "elapsed_s=%.1f candidates=%d",
+                    _elapsed_s(),
+                    len(_all),
+                )
+                for c in _all:
+                    c.graph_score = 0.0
+                    c.related_nodes = []
+                    c.path_to_video = []
+                _g_time = 0.0
+            else:
+                self._calculate_graph_scores(
+                    _all, expansion_hops, user_id=user_id, timeout_s=_remaining_s()
+                )
+                _g_time = (datetime.now(UTC) - _g_start).total_seconds() * 1000
+            logger.info(
+                "pipeline: graph scoring done | candidates=%d ms=%.0f",
+                len(_all),
+                _g_time,
+            )
 
             _t_start = datetime.now(UTC)
             self._calculate_temporal_scores(_all, time_range)
@@ -477,6 +559,11 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             _r_time = (datetime.now(UTC) - _r_start).total_seconds() * 1000
 
             _all.sort(key=lambda x: x.combined_score, reverse=True)
+            logger.info(
+                "pipeline: COMPLETE | results=%d total_elapsed_s=%.1f",
+                min(len(_all), int(limit)),
+                _elapsed_s(),
+            )
             return _all[:limit], _v_time, _ft_acc, _g_time, _t_time, _r_time
 
         (
