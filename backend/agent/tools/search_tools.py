@@ -18,6 +18,10 @@ from agent.utils.tool_meta import tool_error, tool_meta, truncate_with_notice
 
 logger = logging.getLogger(__name__)
 
+# Timeout for hybrid search (embedding + vector + fulltext + reranking).
+# Prevents indefinite hangs when Azure OpenAI embedding endpoint is slow.
+_HYBRID_SEARCH_TIMEOUT_S = 30.0
+
 
 @tool
 async def search_video(
@@ -41,112 +45,59 @@ async def search_video(
     When several videos are selected, use target_video_id to search a specific video.
     """
     effective_id = target_video_id or media_id
-    logger.info(f"search_video called with query='{query}', media_id='{effective_id}'")
+    logger.info(
+        "search_video called | query_len=%d has_media_id=%s", len(query), bool(effective_id)
+    )
 
     if not effective_id:
         logger.warning("search_video: No media_id provided via InjectedState")
         return tool_error("no_context", "No video context available. Please select a video first.")
 
     try:
-        from models.graph_models import NodeType
-        from services.graph_search_service import get_graph_search_service
-
-        search_service = get_graph_search_service()
-
-        # Determine node types
-        if content_type == "visual":
-            node_types = [NodeType.FRAME, NodeType.SCENE]
-        elif content_type == "audio":
-            node_types = [NodeType.AUDIO_SEGMENT]
-        else:
-            node_types = [
-                NodeType.FRAME,
-                NodeType.AUDIO_SEGMENT,
-                NodeType.ENTITY,
-                NodeType.COMMUNITY,
-            ]
-
-        search_response = await search_service.hybrid_search(
-            query_text=query,
-            node_types=node_types,
+        (
+            results,
+            total_found,
+            search_time_ms,
+            truncated_fields,
+            search_mode,
+        ) = await _hybrid_search_with_fallback(
+            query=query,
             video_id=effective_id,
-            limit=limit * 3,
-            expansion_hops=2,
-            use_reranking=True,
+            content_type=content_type,
+            limit=limit,
+            time_range_start=time_range_start,
+            time_range_end=time_range_end,
         )
 
-        results = []
-        truncated_fields: list[str] = []
+        logger.info(
+            "search_video completed | mode=%s results=%d total=%d time_ms=%.0f",
+            search_mode,
+            len(results),
+            total_found,
+            search_time_ms,
+        )
 
-        for r in search_response.results:
-            ts = get_timestamp_from_content(r.content)
-
-            if time_range_start is not None and ts < time_range_start:
-                continue
-            if time_range_end is not None and ts > time_range_end:
-                continue
-
-            if r.node_type == NodeType.FRAME:
-                desc, was_cut = truncate_with_notice(r.content.get("description", ""), 900)
-                if was_cut:
-                    truncated_fields.append("content")
-                results.append(
-                    {
-                        "timestamp": ts,
-                        "timestamp_formatted": format_timestamp(ts),
-                        "type": "visual",
-                        "content": desc,
-                        "score": round(r.combined_score, 3),
-                    }
-                )
-            elif r.node_type == NodeType.AUDIO_SEGMENT:
-                text, was_cut = truncate_with_notice(r.content.get("text", ""), 600)
-                if was_cut:
-                    truncated_fields.append("content")
-                results.append(
-                    {
-                        "timestamp": ts,
-                        "timestamp_formatted": format_timestamp(ts),
-                        "type": "audio",
-                        "content": text,
-                        "score": round(r.combined_score, 3),
-                    }
-                )
-            elif r.node_type == NodeType.ENTITY:
-                entity_desc = f"{r.content.get('type', 'entity')}: {r.content.get('name', '')}"
-                if r.content.get("description"):
-                    entity_desc += f" - {r.content['description'][:200]}"
-                if r.content.get("attributes"):
-                    attrs = r.content["attributes"]
-                    entity_desc += f" [{', '.join(f'{k}={v}' for k,v in attrs.items())}]"
-                results.append(
-                    {
-                        "timestamp": ts,
-                        "timestamp_formatted": format_timestamp(ts),
-                        "type": "entity",
-                        "content": entity_desc,
-                        "score": round(r.combined_score, 3),
-                    }
-                )
-
-            if len(results) >= limit:
-                break
-
-        return {
-            "query": query,
-            "total_found": search_response.total_results,
-            "results": results,
-            "search_time_ms": search_response.vector_search_time_ms,
-            "_meta": tool_meta(
-                result_count=len(results),
-                total_available=search_response.total_results,
-                truncated_fields=list(set(truncated_fields)) if truncated_fields else None,
-                detail_hint=(
-                    "Use get_scene_context(timestamp=<seconds>) to get full visual "
-                    "descriptions, detected objects, and audio around any result."
-                ),
+        meta_kwargs: dict[str, Any] = {
+            "result_count": len(results),
+            "total_available": total_found,
+            "detail_hint": (
+                "Use get_scene_context(timestamp=<seconds>) to get full visual "
+                "descriptions, detected objects, and audio around any result."
             ),
         }
+        if truncated_fields:
+            meta_kwargs["truncated_fields"] = list(set(truncated_fields))
+
+        payload: dict[str, Any] = {
+            "query": query,
+            "total_found": total_found,
+            "results": results,
+            "search_time_ms": search_time_ms,
+            "_meta": tool_meta(**meta_kwargs),
+        }
+        if search_mode == "keyword_fallback":
+            payload["search_mode"] = "keyword_fallback"
+        return payload
 
     except Exception as e:
         logger.error("search_video failed for %s: %s", effective_id, e)
@@ -170,59 +121,86 @@ async def find_entity(
     if not media_id:
         return tool_error("no_context", "No video context available.")
 
+    logger.info(
+        "find_entity called | entity_len=%d type_len=%d has_media_id=%s",
+        len(entity_name),
+        len(entity_type),
+        bool(media_id),
+    )
+
     try:
-        from models.graph_models import NodeType
-        from services.graph_search_service import get_graph_search_service
+        occurrences: list[dict[str, Any]] = []
+        search_mode = "hybrid"
 
-        search_service = get_graph_search_service()
+        # Try hybrid search with timeout, fall back to graph-only lookup
+        try:
+            from models.graph_models import NodeType
+            from services.graph_search_service import get_graph_search_service
 
-        search_response = await search_service.hybrid_search(
-            query_text=entity_name,
-            node_types=[NodeType.ENTITY, NodeType.FRAME, NodeType.AUDIO_SEGMENT],
-            video_id=media_id,
-            limit=20,
-            expansion_hops=2,
-            use_reranking=True,
-        )
-
-        occurrences = []
-        seen_timestamps: set[float] = set()
-
-        for r in search_response.results:
-            ts = get_timestamp_from_content(r.content)
-            ts_key = round(ts, 1)
-            if ts_key in seen_timestamps:
-                continue
-            seen_timestamps.add(ts_key)
-
-            context = ""
-            occurrence_type = "mentioned"
-
-            if r.node_type == NodeType.ENTITY:
-                if entity_type != "any" and r.content.get("type", "").lower() != entity_type:
-                    continue
-                context = f"Entity '{r.content.get('name')}' of type {r.content.get('type')}"
-                occurrence_type = "identified"
-            elif r.node_type == NodeType.FRAME:
-                context, _ = truncate_with_notice(r.content.get("description", ""), 500)
-                occurrence_type = "visible"
-            elif r.node_type == NodeType.AUDIO_SEGMENT:
-                context, _ = truncate_with_notice(r.content.get("text", ""), 500)
-                occurrence_type = "mentioned"
-
-            occurrences.append(
-                {
-                    "timestamp": ts,
-                    "timestamp_formatted": format_timestamp(ts),
-                    "occurrence_type": occurrence_type,
-                    "context": context,
-                    "confidence": round(r.combined_score, 3),
-                }
+            search_service = get_graph_search_service()
+            search_response = await asyncio.wait_for(
+                search_service.hybrid_search(
+                    query_text=entity_name,
+                    node_types=[NodeType.ENTITY, NodeType.FRAME, NodeType.AUDIO_SEGMENT],
+                    video_id=media_id,
+                    limit=20,
+                    expansion_hops=2,
+                    use_reranking=True,
+                ),
+                timeout=_HYBRID_SEARCH_TIMEOUT_S,
             )
 
-        occurrences.sort(key=lambda x: x["timestamp"])
+            seen_timestamps: set[float] = set()
+            for r in search_response.results:
+                ts = get_timestamp_from_content(r.content)
+                ts_key = round(ts, 1)
+                if ts_key in seen_timestamps:
+                    continue
+                seen_timestamps.add(ts_key)
 
+                context = ""
+                occurrence_type = "mentioned"
+
+                if r.node_type == NodeType.ENTITY:
+                    if entity_type != "any" and r.content.get("type", "").lower() != entity_type:
+                        continue
+                    context = f"Entity '{r.content.get('name')}' of type {r.content.get('type')}"
+                    occurrence_type = "identified"
+                elif r.node_type == NodeType.FRAME:
+                    context, _ = truncate_with_notice(r.content.get("description", ""), 500)
+                    occurrence_type = "visible"
+                elif r.node_type == NodeType.AUDIO_SEGMENT:
+                    context, _ = truncate_with_notice(r.content.get("text", ""), 500)
+                    occurrence_type = "mentioned"
+
+                occurrences.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "occurrence_type": occurrence_type,
+                        "context": context,
+                        "confidence": round(r.combined_score, 3),
+                    }
+                )
+
+        except (TimeoutError, Exception) as exc:
+            logger.warning(
+                "find_entity: hybrid search failed (%s), falling back to graph lookup",
+                type(exc).__name__,
+            )
+            search_mode = "graph_fallback"
+            occurrences = await _entity_graph_fallback(entity_name, media_id, entity_type)
+
+        occurrences.sort(key=lambda x: x["timestamp"])
         shown = occurrences[:10]
+
+        logger.info(
+            "find_entity completed | mode=%s entity_len=%d results=%d",
+            search_mode,
+            len(entity_name),
+            len(shown),
+        )
+
         return {
             "entity": entity_name,
             "entity_type": entity_type,
@@ -377,3 +355,323 @@ async def describe_scene(
     except Exception as e:
         logger.error("describe_scene failed for %s: %s", effective_id, e)
         return tool_error("query_error", f"Failed to describe scene: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers — hybrid search with timeout + keyword fallback
+# ---------------------------------------------------------------------------
+
+
+async def _hybrid_search_with_fallback(
+    *,
+    query: str,
+    video_id: str,
+    content_type: str = "all",
+    limit: int = 5,
+    time_range_start: float | None = None,
+    time_range_end: float | None = None,
+) -> tuple[list[dict[str, Any]], int, float, list[str], str]:
+    """Run hybrid search; on timeout/error fall back to keyword Cypher search.
+
+    Returns (results, total_found, search_time_ms, truncated_fields, search_mode).
+    """
+    from models.graph_models import NodeType
+
+    # --- attempt 1: hybrid search (vector + fulltext + graph + reranking) ---
+    try:
+        from services.graph_search_service import get_graph_search_service
+
+        search_service = get_graph_search_service()
+
+        if content_type == "visual":
+            node_types = [NodeType.FRAME]
+        elif content_type == "audio":
+            node_types = [NodeType.AUDIO_SEGMENT]
+        else:
+            node_types = [
+                NodeType.FRAME,
+                NodeType.AUDIO_SEGMENT,
+                NodeType.ENTITY,
+            ]
+
+        logger.info(
+            "hybrid_search_with_fallback: starting tier-1 | has_video_id=%s "
+            "node_type_count=%d content_type_len=%d limit=%d timeout=%.0fs",
+            bool(video_id),
+            len(node_types),
+            len(content_type) if content_type else 0,
+            limit,
+            _HYBRID_SEARCH_TIMEOUT_S,
+        )
+
+        search_response = await asyncio.wait_for(
+            search_service.hybrid_search(
+                query_text=query,
+                node_types=node_types,
+                video_id=video_id,
+                limit=limit * 3,
+                expansion_hops=2,
+                use_reranking=True,
+            ),
+            timeout=_HYBRID_SEARCH_TIMEOUT_S,
+        )
+
+        logger.info(
+            "hybrid_search_with_fallback: tier-1 returned | "
+            "raw_results=%d total=%d "
+            "embedding_ms=%.0f vector_ms=%.0f fulltext_ms=%.0f "
+            "graph_ms=%.0f reranking_ms=%.0f total_ms=%.0f",
+            len(search_response.results),
+            search_response.total_results,
+            search_response.embedding_time_ms,
+            search_response.vector_search_time_ms,
+            search_response.fulltext_search_time_ms,
+            search_response.graph_expansion_time_ms,
+            search_response.reranking_time_ms,
+            search_response.search_time_ms,
+        )
+
+        results: list[dict[str, Any]] = []
+        truncated_fields: list[str] = []
+
+        for r in search_response.results:
+            ts = get_timestamp_from_content(r.content)
+            if time_range_start is not None and ts < time_range_start:
+                continue
+            if time_range_end is not None and ts > time_range_end:
+                continue
+
+            if r.node_type == NodeType.FRAME:
+                desc, was_cut = truncate_with_notice(r.content.get("description", ""), 900)
+                if was_cut:
+                    truncated_fields.append("content")
+                results.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "type": "visual",
+                        "content": desc,
+                        "score": round(r.combined_score, 3),
+                    }
+                )
+            elif r.node_type == NodeType.AUDIO_SEGMENT:
+                text, was_cut = truncate_with_notice(r.content.get("text", ""), 600)
+                if was_cut:
+                    truncated_fields.append("content")
+                results.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "type": "audio",
+                        "content": text,
+                        "score": round(r.combined_score, 3),
+                    }
+                )
+            elif r.node_type == NodeType.ENTITY:
+                entity_desc = f"{r.content.get('type', 'entity')}: {r.content.get('name', '')}"
+                if r.content.get("description"):
+                    entity_desc += f" - {r.content['description'][:200]}"
+                if r.content.get("attributes"):
+                    attrs = r.content["attributes"]
+                    entity_desc += f" [{', '.join(f'{k}={v}' for k, v in attrs.items())}]"
+                results.append(
+                    {
+                        "timestamp": ts,
+                        "timestamp_formatted": format_timestamp(ts),
+                        "type": "entity",
+                        "content": entity_desc,
+                        "score": round(r.combined_score, 3),
+                    }
+                )
+
+            if len(results) >= limit:
+                break
+
+        logger.info(
+            "hybrid_search_with_fallback: tier-1 filtered | " "raw=%d accepted=%d (limit=%d)",
+            len(search_response.results),
+            len(results),
+            limit,
+        )
+
+        return (
+            results,
+            search_response.total_results,
+            search_response.search_time_ms,
+            truncated_fields,
+            "hybrid",
+        )
+
+    except TimeoutError:
+        logger.warning(
+            "search_video: hybrid search timed out after %.0fs, using keyword fallback",
+            _HYBRID_SEARCH_TIMEOUT_S,
+        )
+    except Exception as exc:
+        logger.warning(
+            "search_video: hybrid search failed (%s), using keyword fallback",
+            type(exc).__name__,
+        )
+
+    # --- attempt 2: keyword Cypher fallback (same pattern as working tools) ---
+    return await _keyword_search_fallback(
+        query=query,
+        video_id=video_id,
+        content_type=content_type,
+        limit=limit,
+        time_range_start=time_range_start,
+        time_range_end=time_range_end,
+    )
+
+
+async def _keyword_search_fallback(
+    *,
+    query: str,
+    video_id: str,
+    content_type: str = "all",
+    limit: int = 5,
+    time_range_start: float | None = None,
+    time_range_end: float | None = None,
+) -> tuple[list[dict[str, Any]], int, float, list[str], str]:
+    """Keyword-based Cypher search — no embeddings, no Redis, same pattern as working tools."""
+    from services.knowledge_graph import get_knowledge_graph_service
+
+    kg = get_knowledge_graph_service()
+
+    include_visual = content_type in ("all", "visual")
+    include_audio = content_type in ("all", "audio")
+
+    multimodal = await asyncio.to_thread(
+        kg.search_multimodal,
+        query_text=query,
+        video_id=video_id,
+        include_visual=include_visual,
+        include_audio=include_audio,
+        limit=limit * 2,
+    )
+
+    results: list[dict[str, Any]] = []
+    truncated_fields: list[str] = []
+
+    for item in multimodal.get("combined_timeline", []):
+        ts = item.get("timestamp", 0.0)
+        if time_range_start is not None and ts < time_range_start:
+            continue
+        if time_range_end is not None and ts > time_range_end:
+            continue
+
+        raw_content = item.get("content", "")
+        item_type = item.get("type", "visual")
+
+        if item_type == "visual":
+            desc, was_cut = truncate_with_notice(raw_content, 900)
+            if was_cut:
+                truncated_fields.append("content")
+            results.append(
+                {
+                    "timestamp": ts,
+                    "timestamp_formatted": format_timestamp(ts),
+                    "type": "visual",
+                    "content": desc,
+                    "score": 0.0,
+                }
+            )
+        elif item_type == "audio":
+            text, was_cut = truncate_with_notice(raw_content, 600)
+            if was_cut:
+                truncated_fields.append("content")
+            results.append(
+                {
+                    "timestamp": ts,
+                    "timestamp_formatted": format_timestamp(ts),
+                    "type": "audio",
+                    "content": text,
+                    "score": 0.0,
+                }
+            )
+
+        if len(results) >= limit:
+            break
+
+    total = multimodal.get("total_visual", 0) + multimodal.get("total_audio", 0)
+    return results, total, 0.0, truncated_fields, "keyword_fallback"
+
+
+async def _entity_graph_fallback(
+    entity_name: str,
+    media_id: str,
+    entity_type: str = "any",
+) -> list[dict[str, Any]]:
+    """Graph-only entity lookup — sync Cypher via to_thread, no embeddings."""
+    from services.knowledge_graph import get_knowledge_graph_service
+
+    kg = get_knowledge_graph_service()
+
+    raw = await asyncio.to_thread(
+        kg.find_entity_appearances,
+        video_id=media_id,
+        entity_name=entity_name,
+    )
+
+    occurrences: list[dict[str, Any]] = []
+    seen: set[float] = set()
+
+    for section in ("visual", "audio"):
+        for item in raw.get(section, []):
+            ts = item.get("timestamp", item.get("start_time", 0.0))
+            ts_key = round(ts, 1)
+            if ts_key in seen:
+                continue
+            seen.add(ts_key)
+
+            context = item.get("description", item.get("text", ""))
+            if len(context) > 500:
+                context = context[:497] + "..."
+
+            occ_type = "visible" if section == "visual" else "mentioned"
+
+            occurrences.append(
+                {
+                    "timestamp": ts,
+                    "timestamp_formatted": format_timestamp(ts),
+                    "occurrence_type": occ_type,
+                    "context": context,
+                    "confidence": 0.5,
+                }
+            )
+
+    # Also check direct entity search
+    entity_types_filter = None
+    if entity_type != "any":
+        from models.graph_models import EntityType
+
+        try:
+            entity_types_filter = [EntityType(entity_type)]
+        except ValueError:
+            pass  # Unknown entity type — skip filter, search all types
+
+    entities = await asyncio.to_thread(
+        kg.search_entities,
+        query_text=entity_name,
+        entity_types=entity_types_filter,
+        video_id=media_id,
+        limit=10,
+    )
+    for e in entities:
+        ent = e.get("entity", {})
+        ts = ent.get("first_seen", 0.0)
+        ts_key = round(ts, 1)
+        if ts_key in seen:
+            continue
+        seen.add(ts_key)
+        occurrences.append(
+            {
+                "timestamp": ts,
+                "timestamp_formatted": format_timestamp(ts),
+                "occurrence_type": "identified",
+                "context": f"Entity '{ent.get('name')}' of type {ent.get('entity_type', 'unknown')}",
+                "confidence": round(e.get("score", 0.5), 3),
+            }
+        )
+
+    return occurrences
