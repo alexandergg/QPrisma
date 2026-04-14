@@ -382,7 +382,7 @@ async def _hybrid_search_with_fallback(
         search_service = get_graph_search_service()
 
         if content_type == "visual":
-            node_types = [NodeType.FRAME, NodeType.SCENE]
+            node_types = [NodeType.FRAME]
         elif content_type == "audio":
             node_types = [NodeType.AUDIO_SEGMENT]
         else:
@@ -390,7 +390,6 @@ async def _hybrid_search_with_fallback(
                 NodeType.FRAME,
                 NodeType.AUDIO_SEGMENT,
                 NodeType.ENTITY,
-                NodeType.COMMUNITY,
             ]
 
         search_response = await asyncio.wait_for(
@@ -582,7 +581,7 @@ async def _entity_graph_fallback(
     occurrences: list[dict[str, Any]] = []
     seen: set[float] = set()
 
-    for section in ("visual_appearances", "audio_appearances"):
+    for section in ("visual", "audio"):
         for item in raw.get(section, []):
             ts = item.get("timestamp", item.get("start_time", 0.0))
             ts_key = round(ts, 1)
@@ -594,7 +593,7 @@ async def _entity_graph_fallback(
             if len(context) > 500:
                 context = context[:497] + "..."
 
-            occ_type = "visible" if section == "visual_appearances" else "mentioned"
+            occ_type = "visible" if section == "visual" else "mentioned"
 
             occurrences.append(
                 {
