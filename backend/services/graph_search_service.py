@@ -369,8 +369,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             len(query_text),
             len(node_types),
             bool(effective_video_id or effective_video_ids),
-            limit,
-            expansion_hops,
+            int(limit),
+            int(expansion_hops),
             bool(use_reranking),
         )
 
