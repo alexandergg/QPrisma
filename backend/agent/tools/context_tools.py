@@ -133,8 +133,7 @@ def _build_chapters(scene_list: list[dict], max_scenes_per_chapter: int = 5) -> 
                 "scene_id": s["scene_id"],
                 "title": s["title"],
                 "time_range": (
-                    f"{format_timestamp(s['start_time'])} - "
-                    f"{format_timestamp(s['end_time'])}"
+                    f"{format_timestamp(s['start_time'])} - " f"{format_timestamp(s['end_time'])}"
                 ),
             }
             for s in chunk

@@ -37,7 +37,9 @@ class StructureService:
     ) -> None:
         self.graph_service = graph_service
 
-    def _generate_scene_title(self, scene: dict, scene_frames: list[dict] | None = None) -> str | None:
+    def _generate_scene_title(
+        self, scene: dict, scene_frames: list[dict] | None = None
+    ) -> str | None:
         """Generate a scene title from scene properties, falling back to frames."""
         title = scene.get("title")
         if title:
@@ -64,7 +66,9 @@ class StructureService:
             return first_sentence.strip()
         return None
 
-    def _generate_scene_summary(self, scene: dict, scene_frames: list[dict] | None = None) -> str | None:
+    def _generate_scene_summary(
+        self, scene: dict, scene_frames: list[dict] | None = None
+    ) -> str | None:
         """Generate a scene summary from scene description, falling back to frames."""
         summary = scene.get("description")
         if summary:
