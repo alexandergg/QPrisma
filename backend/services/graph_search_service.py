@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from datetime import UTC, datetime
 
 from models.graph_models import (
@@ -28,6 +29,13 @@ from services.graph_search_scoring import GraphSearchScoringMixin
 from services.knowledge_graph import KnowledgeGraphService, get_knowledge_graph_service
 
 logger = logging.getLogger(__name__)
+
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def _sanitize_log_value(value: object, max_len: int = 200) -> str:
+    """Strip control characters and truncate to prevent log injection."""
+    return _CONTROL_CHAR_RE.sub("", str(value))[:max_len]
 
 
 class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
@@ -367,11 +375,11 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             "hybrid_search: START | query_len=%d node_types=%s "
             "video_id=%s limit=%d expansion_hops=%d reranking=%s",
             len(query_text),
-            [nt.value for nt in node_types],
-            effective_video_id or effective_video_ids,
+            _sanitize_log_value([nt.value for nt in node_types]),
+            _sanitize_log_value(effective_video_id or effective_video_ids),
             limit,
             expansion_hops,
-            use_reranking,
+            _sanitize_log_value(use_reranking),
         )
 
         # --- Cache lookup (before embedding to save OpenAI API cost) ---
