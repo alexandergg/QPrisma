@@ -45,7 +45,9 @@ async def search_video(
     When several videos are selected, use target_video_id to search a specific video.
     """
     effective_id = target_video_id or media_id
-    logger.info("search_video called | query_len=%d media_id='%s'", len(query), effective_id)
+    logger.info(
+        "search_video called | query_len=%d has_media_id=%s", len(query), bool(effective_id)
+    )
 
     if not effective_id:
         logger.warning("search_video: No media_id provided via InjectedState")
@@ -120,10 +122,10 @@ async def find_entity(
         return tool_error("no_context", "No video context available.")
 
     logger.info(
-        "find_entity called | entity_len=%d type_len=%d media_id='%s'",
+        "find_entity called | entity_len=%d type_len=%d has_media_id=%s",
         len(entity_name),
         len(entity_type),
-        media_id,
+        bool(media_id),
     )
 
     try:
