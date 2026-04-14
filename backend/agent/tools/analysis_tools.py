@@ -138,11 +138,33 @@ async def get_entity_timeline(
 
         kg = get_knowledge_graph_service()
 
+        logger.info(
+            "get_entity_timeline: querying | entity=%s type=%s media_id=%s",
+            entity_name[:50],
+            entity_type,
+            media_id,
+        )
+
         appearances = await asyncio.to_thread(
             lambda: kg.find_entity_appearances(media_id, entity_name, user_id=user_id)
         )
         visual_records = appearances.get("visual", [])
         audio_records = appearances.get("audio", [])
+
+        logger.info(
+            "get_entity_timeline: results | visual=%d audio=%d entity=%s",
+            len(visual_records),
+            len(audio_records),
+            entity_name[:50],
+        )
+
+        if not visual_records and not audio_records:
+            logger.warning(
+                "get_entity_timeline: 0 results for '%s' — entity extraction "
+                "may not have run or entity name may not match graph nodes. "
+                "Try a partial/case-insensitive match via find_entity instead.",
+                entity_name[:50],
+            )
 
         timeline = []
         seen_timestamps: set[float] = set()

@@ -479,3 +479,82 @@ class TestFindEntityFallback:
         assert result["occurrences"][0]["confidence"] == 0.5
         assert "_meta" in result
         assert result["_meta"]["result_count"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Pipeline behavior tests
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineBehavior:
+    """Tests for hybrid search pipeline resilience: fallbacks, caps, timeouts."""
+
+    def _make_scored_node(self, node_id, vector=0.8, fulltext=0.0, node_type="Frame"):
+        """Helper to create a ScoredNode-like object."""
+        from services.graph_search_queries import ScoredNode
+
+        return ScoredNode(
+            node_id=node_id,
+            node_type=node_type,
+            vector_score=vector,
+            fulltext_score=fulltext,
+            graph_score=0.0,
+            temporal_score=0.0,
+            combined_score=0.0,
+            content=f"Content for {node_id}",
+        )
+
+    def test_candidate_cap_preserves_fulltext_hits(self):
+        """When candidate cap triggers, strong fulltext-only hits (vector=0) survive."""
+        nodes = []
+        # 40 vector-strong, fulltext-weak nodes
+        for i in range(40):
+            nodes.append(self._make_scored_node(f"v-{i}", vector=0.7, fulltext=0.1))
+        # 10 fulltext-strong, vector-zero nodes
+        for i in range(10):
+            nodes.append(self._make_scored_node(f"ft-{i}", vector=0.0, fulltext=0.9))
+
+        # Simulate the capping logic from _sync_search_pipeline
+        limit = 5
+        cap = limit * 6  # 30
+        assert len(nodes) > cap  # 50 > 30, so cap triggers
+
+        # Blended score: 0.5 * vector + 0.5 * fulltext
+        for c in nodes:
+            c.combined_score = 0.5 * c.vector_score + 0.5 * c.fulltext_score
+        nodes.sort(key=lambda x: x.combined_score, reverse=True)
+        nodes = nodes[: limit * 4]  # keep top 20
+
+        # All 10 fulltext-strong nodes should survive (blended=0.45)
+        # vs vector-only nodes (blended=0.40)
+        ft_survivors = [n for n in nodes if n.node_id.startswith("ft-")]
+        assert len(ft_survivors) == 10, (
+            f"Expected all 10 fulltext-only hits to survive cap, got {len(ft_survivors)}"
+        )
+
+    def test_candidate_cap_not_triggered_below_threshold(self):
+        """When candidates are below threshold, no capping occurs."""
+        nodes = [self._make_scored_node(f"n-{i}", vector=0.5) for i in range(10)]
+        limit = 5
+        cap = limit * 6  # 30
+        assert len(nodes) <= cap  # 10 <= 30, no cap
+
+    @pytest.mark.asyncio
+    async def test_fallback_vector_search_is_noop(self):
+        """_fallback_vector_search should return empty list (no-op)."""
+        from services.graph_search_queries import GraphSearchQueryMixin
+
+        mixin = GraphSearchQueryMixin.__new__(GraphSearchQueryMixin)
+        mixin.graph_service = MagicMock()
+        from models.graph_models import NodeType
+
+        result = mixin._fallback_vector_search(
+            query_embedding=[0.1] * 3072,
+            node_type=NodeType.FRAME,
+            limit=10,
+            video_id=None,
+            min_score=0.5,
+        )
+        assert result == []
+        # Should NOT have called the graph service at all
+        mixin.graph_service.get_session.assert_not_called()

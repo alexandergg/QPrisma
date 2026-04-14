@@ -40,6 +40,7 @@ class GraphSearchScoringMixin:
         candidates: list[ScoredNode],
         expansion_hops: int,
         user_id: str | None = None,
+        timeout_s: float | None = None,
     ) -> None:
         """
         Calculate graph scores based on connectivity and expansion.
@@ -49,13 +50,24 @@ class GraphSearchScoringMixin:
         if not candidates:
             return
 
+        # Reduce expansion set for large candidate counts
+        if len(candidates) > 50:
+            expansion_hops = min(expansion_hops, 1)
+            logger.info(
+                "graph_scores: reduced hops to 1 for %d candidates",
+                len(candidates),
+            )
+
         candidate_ids = [candidate.node_id for candidate in candidates]
         expansions_by_node = self._batch_expand_context(
             candidate_ids,
             expansion_hops=expansion_hops,
             user_id=user_id,
+            timeout_s=timeout_s,
         )
-        paths_by_node = self._batch_get_paths_to_video(candidate_ids, user_id=user_id)
+        paths_by_node = self._batch_get_paths_to_video(
+            candidate_ids, user_id=user_id, timeout_s=timeout_s
+        )
 
         for candidate in candidates:
             expansion = expansions_by_node.get(candidate.node_id) if expansions_by_node else None
@@ -199,8 +211,11 @@ class GraphSearchScoringMixin:
         expansion_hops: int,
         user_id: str | None = None,
         max_nodes: int = 30,
+        timeout_s: float | None = None,
     ) -> dict[str, dict] | None:
         """Batch graph expansion for a set of node IDs."""
+        from neo4j import Query
+
         unique_node_ids = list(dict.fromkeys(node_ids))
         if not unique_node_ids:
             return {}
@@ -214,7 +229,7 @@ class GraphSearchScoringMixin:
                 "all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)"
             )
 
-        query = f"""
+        cypher = f"""
             UNWIND $node_ids AS node_id
             MATCH (start {{id: node_id}})
             {start_filter}
@@ -234,7 +249,8 @@ class GraphSearchScoringMixin:
 
         try:
             with self.graph_service.get_session() as session:
-                result = session.run(query, **params)
+                q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
+                result = session.run(q, **params)
                 expansions_by_node: dict[str, dict] = {}
                 for record in result:
                     related_nodes: list[dict] = []
@@ -266,8 +282,11 @@ class GraphSearchScoringMixin:
         self,
         node_ids: list[str],
         user_id: str | None = None,
+        timeout_s: float | None = None,
     ) -> dict[str, list[str]] | None:
         """Batch fetch the shortest path from each node up to a Video node."""
+        from neo4j import Query
+
         unique_node_ids = list(dict.fromkeys(node_ids))
         if not unique_node_ids:
             return {}
@@ -280,7 +299,7 @@ class GraphSearchScoringMixin:
               AND all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)
             """
 
-        query = f"""
+        cypher = f"""
             UNWIND $node_ids AS node_id
             MATCH (n {{id: node_id}})
             {node_filter}
@@ -298,37 +317,46 @@ class GraphSearchScoringMixin:
 
         try:
             with self.graph_service.get_session() as session:
-                result = session.run(query, **params)
+                q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
+                result = session.run(q, **params)
                 return {record["node_id"]: record["path"] for record in result}
         except Exception as e:
-            logger.warning("Batch path lookup failed: %s", e)
+            logger.warning("Batch path lookup failed: %s", type(e).__name__)
             return None
 
-    def _get_path_to_video(self, node_id: str, user_id: str | None = None) -> list[str]:
+    def _get_path_to_video(
+        self,
+        node_id: str,
+        user_id: str | None = None,
+        timeout_s: float | None = None,
+    ) -> list[str]:
         """Return the path from a node up to the root Video node."""
-        query = """
+        from neo4j import Query
+
+        cypher = """
             MATCH path = (n {id: $node_id})<-[:CONTAINS*]-(v:Video)
         """
         params = {"node_id": node_id}
         if user_id:
-            query += """
+            cypher += """
             WHERE v.user_id = $user_id
             """
             params["user_id"] = user_id
 
-        query += """
+        cypher += """
             RETURN [node in nodes(path) | node.id] as path
             LIMIT 1
         """
 
         try:
             with self.graph_service.get_session() as session:
-                result = session.run(query, **params)
+                q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
+                result = session.run(q, **params)
                 record = result.single()
                 if record:
                     return record["path"]
-        except (KeyError, AttributeError) as e:
-            logger.warning(f"Could not retrieve path for node {node_id}: {e}")
+        except (KeyError, AttributeError, Exception) as e:
+            logger.warning("Could not retrieve path for node: %s", type(e).__name__)
 
         return []
 

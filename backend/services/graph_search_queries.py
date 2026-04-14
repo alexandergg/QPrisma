@@ -95,6 +95,7 @@ class GraphSearchQueryMixin:
         video_ids: list[str] | None = None,
         user_id: str | None = None,
         min_score: float = 0.5,
+        timeout_s: float | None = None,
     ) -> list[ScoredNode]:
         """
         Two-pass Matryoshka vector search: coarse 512d filtering then full 3072d ranking.
@@ -119,6 +120,7 @@ class GraphSearchQueryMixin:
             video_ids=video_ids,
             user_id=user_id,
             min_score=max(min_score - 0.15, 0.1),  # Lower threshold for coarse
+            timeout_s=timeout_s,
         )
 
         if coarse_candidates:
@@ -134,6 +136,7 @@ class GraphSearchQueryMixin:
                 min_score=min_score,
                 full_index=full_index,
                 user_id=user_id,
+                timeout_s=timeout_s,
             )
 
             if reranked:
@@ -153,17 +156,17 @@ class GraphSearchQueryMixin:
             video_ids=video_ids,
             user_id=user_id,
             min_score=min_score,
+            timeout_s=timeout_s,
         )
 
+        # No further fallback — if neither index exists, fulltext search
+        # carries the pipeline. The old _fallback_vector_search did a full
+        # table scan pulling all 3072-dim embeddings which was catastrophic.
         if not results:
-            results = self._fallback_vector_search(
-                query_embedding,
-                node_type,
-                limit,
-                video_id,
-                min_score,
-                video_ids,
-                user_id,
+            logger.info(
+                "vector_search: no results for %s (indexes may not exist) — "
+                "fulltext search will cover this node type",
+                label,
             )
 
         return results
@@ -180,8 +183,11 @@ class GraphSearchQueryMixin:
         video_ids: list[str] | None = None,
         user_id: str | None = None,
         min_score: float = 0.5,
+        timeout_s: float | None = None,
     ) -> list[ScoredNode]:
         """Execute a vector index query and return scored nodes."""
+        from neo4j import Query
+
         filters = ["score >= $min_score"]
         params = {
             "index_name": index_name,
@@ -202,7 +208,7 @@ class GraphSearchQueryMixin:
             filters.append("node.user_id = $user_id")
             params["user_id"] = user_id
 
-        query = f"""
+        cypher = f"""
             CALL db.index.vector.queryNodes($index_name, $query_limit, $embedding)
             YIELD node, score
             WHERE {' AND '.join(filters)}
@@ -213,7 +219,8 @@ class GraphSearchQueryMixin:
         results = []
         try:
             with self.graph_service.get_session() as session:
-                result = session.run(query, **params)
+                q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
+                result = session.run(q, **params)
                 for record in result:
                     node_data = dict(record["node"])
                     node_data.pop("embedding", None)
@@ -230,7 +237,11 @@ class GraphSearchQueryMixin:
                         )
                     )
         except Exception as e:
-            logger.warning(f"Vector query on {index_name} failed: {e}")
+            err_str = str(e).lower()
+            if "no such index" in err_str or "index not found" in err_str:
+                logger.info("Vector index '%s' does not exist — skipping", index_name)
+            else:
+                logger.warning("Vector query on %s failed: %s", index_name, type(e).__name__)
 
         return results
 
@@ -245,8 +256,11 @@ class GraphSearchQueryMixin:
         min_score: float,
         full_index: str,
         user_id: str | None = None,
+        timeout_s: float | None = None,
     ) -> list[ScoredNode]:
         """Re-rank coarse candidates using full 3072d embeddings."""
+        from neo4j import Query
+
         label = node_type.value
         filters = ["n.id IN $ids", "n.embedding IS NOT NULL"]
         params = {
@@ -259,7 +273,7 @@ class GraphSearchQueryMixin:
             filters.append("n.user_id = $user_id")
             params["user_id"] = user_id
 
-        query = f"""
+        cypher = f"""
             MATCH (n:{label})
             WHERE {' AND '.join(filters)}
             WITH n,
@@ -273,10 +287,8 @@ class GraphSearchQueryMixin:
         results = []
         try:
             with self.graph_service.get_session() as session:
-                result = session.run(
-                    query,
-                    **params,
-                )
+                q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
+                result = session.run(q, **params)
                 for record in result:
                     node_data = dict(record["node"])
                     node_data.pop("embedding", None)
@@ -294,7 +306,9 @@ class GraphSearchQueryMixin:
                     )
         except Exception as e:
             # gds.similarity.cosine may not be available — fall back gracefully
-            logger.debug(f"Full embedding re-rank failed (GDS may not be installed): {e}")
+            logger.debug(
+                "Full embedding re-rank failed (GDS may not be installed): %s", type(e).__name__
+            )
 
         return results
 
@@ -310,63 +324,19 @@ class GraphSearchQueryMixin:
         video_ids: list[str] | None = None,
         user_id: str | None = None,
     ) -> list[ScoredNode]:
+        """Manual vector search — DISABLED.
+
+        Previously fetched ALL nodes with embeddings and computed cosine in
+        Python.  This was catastrophic for large videos (full table scan of
+        3072-dim vectors).  Fulltext search now carries the pipeline when
+        vector indexes are missing.
         """
-        Manual vector search used when the index is unavailable.
-        Less efficient but functional.
-        """
-        label = node_type.value
-
-        filters = ["n.embedding IS NOT NULL"]
-        params: dict = {}
-
-        if video_ids:
-            filters.append("n.video_id IN $video_ids")
-            params["video_ids"] = video_ids
-        elif video_id:
-            filters.append("n.video_id = $video_id")
-            params["video_id"] = video_id
-
-        if user_id:
-            filters.append("n.user_id = $user_id")
-            params["user_id"] = user_id
-
-        limit_clause = "LIMIT 1000" if not video_ids and not video_id else ""
-        query = f"""
-            MATCH (n:{label})
-            WHERE {' AND '.join(filters)}
-            RETURN n
-            {limit_clause}
-        """
-
-        results = []
-
-        with self.graph_service.get_session() as session:
-            result = session.run(query, **params)
-
-            for record in result:
-                node_data = dict(record["n"])
-                node_embedding = node_data.pop("embedding", None)
-                node_data.pop("embedding_coarse", None)
-
-                if node_embedding:
-                    score = self.embedding_service.compute_similarity(
-                        query_embedding, node_embedding
-                    )
-
-                    if score >= min_score:
-                        scored = ScoredNode(
-                            node_id=node_data.get("id"),
-                            node_type=node_type,
-                            content=node_data,
-                            vector_score=score,
-                            timestamp=node_data.get("timestamp") or node_data.get("start_time"),
-                            video_id=node_data.get("video_id"),
-                        )
-                        results.append(scored)
-
-        # Sort by score and limit
-        results.sort(key=lambda x: x.vector_score, reverse=True)
-        return results[:limit]
+        logger.warning(
+            "fallback_vector_search called for %s — returning empty "
+            "(create vector indexes to enable vector search)",
+            node_type.value,
+        )
+        return []
 
     # --- Full-text search ---
 
@@ -385,8 +355,11 @@ class GraphSearchQueryMixin:
         video_id: str | None,
         video_ids: list[str] | None = None,
         user_id: str | None = None,
+        timeout_s: float | None = None,
     ) -> list[tuple[str, float]]:
         """Full-text search with Lucene escaping; returns [(node_id, score)]."""
+        from neo4j import Query
+
         index_name = self._INDEX_BY_TYPE.get(node_type)
         if index_name is None:
             return []
@@ -414,7 +387,7 @@ class GraphSearchQueryMixin:
             filters.append("node.user_id = $user_id")
             params["user_id"] = user_id
 
-        query = f"""
+        cypher = f"""
             CALL db.index.fulltext.queryNodes($index_name, $query_text)
             YIELD node, score
             WHERE {' AND '.join(filters)}
@@ -424,10 +397,11 @@ class GraphSearchQueryMixin:
 
         try:
             with self.graph_service.get_session() as session:
-                result = session.run(query, **params)
+                q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
+                result = session.run(q, **params)
                 return [(r["id"], r["score"]) for r in result]
         except Exception as e:
-            logger.warning("Full-text search failed for %s: %s", index_name, e)
+            logger.warning("Full-text search failed for %s: %s", index_name, type(e).__name__)
             return []
 
     # --- Merge full-text scores into candidates ---
@@ -440,6 +414,7 @@ class GraphSearchQueryMixin:
         video_id: str | None = None,
         video_ids: list[str] | None = None,
         user_id: str | None = None,
+        timeout_s: float | None = None,
     ) -> None:
         """
         Merge full-text scores into existing candidates.
@@ -475,6 +450,7 @@ class GraphSearchQueryMixin:
                 video_id=video_id,
                 video_ids=video_ids,
                 user_id=user_id,
+                timeout_s=timeout_s,
             )
             for node_id in limited_node_ids:
                 node_data = node_data_by_id.get(node_id)
@@ -497,8 +473,11 @@ class GraphSearchQueryMixin:
         video_id: str | None = None,
         video_ids: list[str] | None = None,
         user_id: str | None = None,
+        timeout_s: float | None = None,
     ) -> dict[str, dict]:
         """Fetch multiple nodes of the same type in a single Cypher query."""
+        from neo4j import Query
+
         unique_node_ids = list(dict.fromkeys(node_ids))
         if not unique_node_ids:
             return {}
@@ -519,7 +498,7 @@ class GraphSearchQueryMixin:
             params["user_id"] = user_id
 
         where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
-        query = f"""
+        cypher = f"""
             UNWIND $node_ids AS node_id
             MATCH (n:{label} {{id: node_id}})
             {where_clause}
@@ -528,7 +507,8 @@ class GraphSearchQueryMixin:
 
         try:
             with self.graph_service.get_session() as session:
-                result = session.run(query, **params)
+                q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
+                result = session.run(q, **params)
                 nodes_by_id: dict[str, dict] = {}
                 for record in result:
                     node_data = dict(record["n"])
