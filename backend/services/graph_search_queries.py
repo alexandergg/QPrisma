@@ -237,7 +237,9 @@ class GraphSearchQueryMixin:
             if "no such index" in err_str or "index not found" in err_str:
                 logger.info("Vector index '%s' does not exist — skipping", index_name)
             else:
-                logger.warning("Vector query on %s failed: %s — %s", index_name, type(e).__name__, str(e))
+                logger.warning(
+                    "Vector query on %s failed: %s — %s", index_name, type(e).__name__, str(e)
+                )
                 logger.debug("Vector query on %s traceback", index_name, exc_info=True)
 
         return results

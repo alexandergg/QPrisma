@@ -528,9 +528,9 @@ class TestPipelineBehavior:
         # All 10 fulltext-strong nodes should survive (blended=0.45)
         # vs vector-only nodes (blended=0.40)
         ft_survivors = [n for n in nodes if n.node_id.startswith("ft-")]
-        assert len(ft_survivors) == 10, (
-            f"Expected all 10 fulltext-only hits to survive cap, got {len(ft_survivors)}"
-        )
+        assert (
+            len(ft_survivors) == 10
+        ), f"Expected all 10 fulltext-only hits to survive cap, got {len(ft_survivors)}"
 
     def test_candidate_cap_not_triggered_below_threshold(self):
         """When candidates are below threshold, no capping occurs."""
