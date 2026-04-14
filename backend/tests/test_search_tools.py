@@ -5,6 +5,7 @@ Tests for agent/tools/search_tools.py
 Tests for the 4 search tools: search_video, find_entity, get_transcript, describe_scene.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -353,3 +354,128 @@ class TestDescribeScene:
         assert result["timestamp"] == 55.0
         assert result["requested_timestamp"] == 50.0
         assert result["gap_seconds"] == 5.0
+
+
+# ---------------------------------------------------------------------------
+# _hybrid_search_with_fallback — timeout / fallback paths
+# ---------------------------------------------------------------------------
+
+
+class TestHybridSearchWithFallback:
+    """Tests for the keyword-fallback path when hybrid search times out or fails."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_triggers_keyword_fallback(self):
+        """When hybrid search times out, keyword fallback is used and results include score."""
+        from agent.tools.search_tools import search_video
+
+        mock_service = MagicMock()
+        mock_service.hybrid_search = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        mock_kg = MagicMock()
+        mock_kg.search_multimodal.return_value = {
+            "combined_timeline": [
+                {"timestamp": 10.0, "content": "A bright sunny day", "type": "visual"},
+                {"timestamp": 20.0, "content": "Bird sounds in the park", "type": "audio"},
+            ],
+            "total_visual": 1,
+            "total_audio": 1,
+        }
+
+        with (
+            patch(
+                "services.graph_search_service.get_graph_search_service",
+                return_value=mock_service,
+            ),
+            patch(
+                "services.knowledge_graph.get_knowledge_graph_service",
+                return_value=mock_kg,
+            ),
+        ):
+            result = await search_video.ainvoke({"query": "sunny", "media_id": "vid-1"})
+
+        assert result["search_mode"] == "keyword_fallback"
+        assert len(result["results"]) == 2
+        # Fallback results must include the score field for structural consistency
+        for r in result["results"]:
+            assert "score" in r
+
+    @pytest.mark.asyncio
+    async def test_exception_triggers_keyword_fallback(self):
+        """When hybrid search raises a non-timeout error, keyword fallback is used."""
+        from agent.tools.search_tools import search_video
+
+        mock_service = MagicMock()
+        mock_service.hybrid_search = AsyncMock(side_effect=RuntimeError("embedding failed"))
+
+        mock_kg = MagicMock()
+        mock_kg.search_multimodal.return_value = {
+            "combined_timeline": [
+                {"timestamp": 5.0, "content": "Fallback frame", "type": "visual"},
+            ],
+            "total_visual": 1,
+            "total_audio": 0,
+        }
+
+        with (
+            patch(
+                "services.graph_search_service.get_graph_search_service",
+                return_value=mock_service,
+            ),
+            patch(
+                "services.knowledge_graph.get_knowledge_graph_service",
+                return_value=mock_kg,
+            ),
+        ):
+            result = await search_video.ainvoke({"query": "test", "media_id": "vid-1"})
+
+        assert result["search_mode"] == "keyword_fallback"
+        assert len(result["results"]) == 1
+        assert result["results"][0]["score"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# find_entity — timeout / graph-fallback path
+# ---------------------------------------------------------------------------
+
+
+class TestFindEntityFallback:
+    """Tests for find_entity graph-fallback path when hybrid search fails."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_triggers_graph_fallback(self):
+        """When hybrid search times out, find_entity falls back to graph lookup."""
+        from agent.tools.search_tools import find_entity
+
+        mock_service = MagicMock()
+        mock_service.hybrid_search = AsyncMock(side_effect=asyncio.TimeoutError)
+
+        mock_kg = MagicMock()
+        mock_kg.find_entity_appearances.return_value = {
+            "visual": [
+                {
+                    "timestamp": 15.0,
+                    "description": "Person visible at center",
+                },
+            ],
+            "audio": [],
+        }
+        mock_kg.search_entities.return_value = []
+
+        with (
+            patch(
+                "services.graph_search_service.get_graph_search_service",
+                return_value=mock_service,
+            ),
+            patch(
+                "services.knowledge_graph.get_knowledge_graph_service",
+                return_value=mock_kg,
+            ),
+        ):
+            result = await find_entity.ainvoke({"entity_name": "Alice", "media_id": "vid-1"})
+
+        assert result["entity"] == "Alice"
+        assert len(result["occurrences"]) >= 1
+        assert result["occurrences"][0]["confidence"] == 0.5
+        assert "_meta" in result
+        assert result["_meta"]["result_count"] >= 1

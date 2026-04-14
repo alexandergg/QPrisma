@@ -387,6 +387,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             use_reranking=use_reranking,
             query_intent=query_intent,
         )
+        cache = None
         try:
             from services.cache_service import get_cache_service
 
@@ -396,7 +397,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 logger.info("hybrid_search: cache HIT | key=%s", cache_key[:12])
                 return GraphSearchResponse(**cached)
         except Exception:
-            # Cache unavailable — proceed without it
+            logger.debug("hybrid_search: cache unavailable, skipping", exc_info=True)
             cache = None
 
         logger.info("hybrid_search: cache MISS | proceeding to embedding")
@@ -539,7 +540,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             total_time,
         )
 
-        # --- Cache store (fire-and-forget, don't block response) ---
+        # --- Cache store (awaited so the result is persisted before return) ---
         if cache is not None:
             try:
                 await cache.set_search_result(cache_key, response.model_dump(mode="json"))

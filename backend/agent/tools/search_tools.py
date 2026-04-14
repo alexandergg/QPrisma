@@ -45,7 +45,7 @@ async def search_video(
     When several videos are selected, use target_video_id to search a specific video.
     """
     effective_id = target_video_id or media_id
-    logger.info("search_video called | query='%s' media_id='%s'", query, effective_id)
+    logger.info("search_video called | query_len=%d media_id='%s'", len(query), effective_id)
 
     if not effective_id:
         logger.warning("search_video: No media_id provided via InjectedState")
@@ -495,7 +495,7 @@ async def _hybrid_search_with_fallback(
         return (
             results,
             search_response.total_results,
-            search_response.vector_search_time_ms,
+            search_response.search_time_ms,
             truncated_fields,
             "hybrid",
         )
@@ -572,6 +572,7 @@ async def _keyword_search_fallback(
                     "timestamp_formatted": format_timestamp(ts),
                     "type": "visual",
                     "content": desc,
+                    "score": 0.0,
                 }
             )
         elif item_type == "audio":
@@ -584,6 +585,7 @@ async def _keyword_search_fallback(
                     "timestamp_formatted": format_timestamp(ts),
                     "type": "audio",
                     "content": text,
+                    "score": 0.0,
                 }
             )
 
@@ -645,7 +647,7 @@ async def _entity_graph_fallback(
         try:
             entity_types_filter = [EntityType(entity_type)]
         except ValueError:
-            pass
+            pass  # Unknown entity type — skip filter, search all types
 
     entities = await asyncio.to_thread(
         kg.search_entities,
