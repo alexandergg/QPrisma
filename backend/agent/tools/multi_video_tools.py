@@ -51,6 +51,11 @@ async def search_across_videos(
         data = asdict(result)
         data["_meta"] = tool_meta(
             result_count=sum(len(v.get("results", [])) for v in data.get("results", [])),
+            detail_hint=(
+                "Use search_video(query, target_video_id=<id>) for deeper search "
+                "within a specific video, or get_scene_context(timestamp=<start_seconds>, target_video_id=<id>) "
+                "for frame-level detail."
+            ),
         )
         return data
     except Exception as e:

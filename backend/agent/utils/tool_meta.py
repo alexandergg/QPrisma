@@ -15,8 +15,17 @@ def tool_meta(
     truncated_fields: list[str] | None = None,
     result_count: int | None = None,
     total_available: int | None = None,
+    detail_hint: str | None = None,
 ) -> dict:
-    """Build a ``_meta`` dict for a tool response."""
+    """Build a ``_meta`` dict for a tool response.
+
+    Parameters
+    ----------
+    detail_hint
+        Navigational cue telling the LLM how to retrieve deeper detail.
+        Example: ``"Use get_scene_context(timestamp=120) for frame-level
+        descriptions, detected objects, and audio for any scene."``
+    """
     meta: dict = {"source": source, "is_complete": is_complete}
     if truncated_fields:
         meta["truncated_fields"] = truncated_fields
@@ -24,6 +33,8 @@ def tool_meta(
         meta["result_count"] = result_count
     if total_available is not None and total_available != result_count:
         meta["total_available"] = total_available
+    if detail_hint:
+        meta["detail_hint"] = detail_hint
     return meta
 
 

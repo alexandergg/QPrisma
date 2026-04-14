@@ -63,7 +63,13 @@ async def find_highlights(
         )
 
         highlights = result.get("highlights", [])
-        result["_meta"] = tool_meta(result_count=len(highlights))
+        result["_meta"] = tool_meta(
+            result_count=len(highlights),
+            detail_hint=(
+                "Use get_scene_context(timestamp=<seconds>) to get full visual "
+                "descriptions and audio around any highlight moment."
+            ),
+        )
         return result
 
     except Exception as e:

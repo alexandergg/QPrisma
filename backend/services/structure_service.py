@@ -37,11 +37,21 @@ class StructureService:
     ) -> None:
         self.graph_service = graph_service
 
-    def _generate_scene_title(self, scene: dict, scene_frames: list[dict]) -> str | None:
-        """Generate a scene title from its first frame description."""
+    def _generate_scene_title(
+        self, scene: dict, scene_frames: list[dict] | None = None
+    ) -> str | None:
+        """Generate a scene title from scene properties, falling back to frames."""
         title = scene.get("title")
         if title:
             return title
+
+        # Derive title from the scene's own description
+        description = scene.get("description", "")
+        if description:
+            clean_desc = clean_generated_text(description, SCENE_DESCRIPTION_PREFIXES)
+            if clean_desc:
+                first_sentence = clean_desc.split(".")[0][:100]
+                return first_sentence.strip() or None
 
         if not scene_frames:
             return None
@@ -56,8 +66,10 @@ class StructureService:
             return first_sentence.strip()
         return None
 
-    def _generate_scene_summary(self, scene: dict, scene_frames: list[dict]) -> str | None:
-        """Generate a scene summary from its frame descriptions."""
+    def _generate_scene_summary(
+        self, scene: dict, scene_frames: list[dict] | None = None
+    ) -> str | None:
+        """Generate a scene summary from scene description, falling back to frames."""
         summary = scene.get("description")
         if summary:
             clean_summary = clean_generated_text(summary, SCENE_DESCRIPTION_PREFIXES)
@@ -200,7 +212,9 @@ class StructureService:
         """
         Build video structure from Neo4j graph data.
 
-        Returns None if the video is not in the graph.
+        Uses scene node properties (title, description, detected_objects) as
+        the primary data source — no bulk frame fetch. Only fetches frames as
+        a fallback for the video summary when the video node lacks one.
         """
         if self.graph_service is None:
             return None
@@ -213,26 +227,14 @@ class StructureService:
         if not scenes:
             return None
 
-        all_frames = self.graph_service.get_video_frames(media_id)
-        # Cap frames to bound per-scene filtering cost on long videos
-        MAX_FRAMES_FOR_STRUCTURE = 500
-        if len(all_frames) > MAX_FRAMES_FOR_STRUCTURE:
-            all_frames = all_frames[:MAX_FRAMES_FOR_STRUCTURE]
-
-        # Build scene list
+        # Build scene list from scene node properties (no frame cap)
         scene_list = []
         for s in scenes:
             start = float(s.get("start_time", 0) or 0)
             end = float(s.get("end_time", 0) or 0)
 
-            scene_frames = [
-                f
-                for f in all_frames
-                if f.get("timestamp") is not None and start <= f["timestamp"] < end
-            ]
-
-            scene_title = self._generate_scene_title(s, scene_frames)
-            scene_summary = self._generate_scene_summary(s, scene_frames)
+            scene_title = self._generate_scene_title(s)
+            scene_summary = self._generate_scene_summary(s)
 
             scene_list.append(
                 {
@@ -244,12 +246,24 @@ class StructureService:
                     "summary": scene_summary,
                     "detected_objects": s.get("detected_objects") or [],
                     "transcript_segment": s.get("transcript_segment"),
-                    "frame_count": len(scene_frames),
                 }
             )
 
         chapters = self._build_chapters(scene_list)
-        video_summary = self._generate_video_summary(video_node, all_frames)
+
+        # Video summary: prefer the pre-computed summary on the video node
+        video_summary = video_node.get("summary")
+        if not video_summary:
+            all_frames = self.graph_service.get_video_frames(media_id)
+            video_summary = self._generate_video_summary(video_node, all_frames[:100])
+        else:
+            # Fetch a small frame sample when topics are missing so
+            # _extract_key_topics can still derive them from descriptions.
+            if not video_node.get("topics"):
+                all_frames = self.graph_service.get_video_frames(media_id)[:50]
+            else:
+                all_frames = []
+
         key_topics = self._extract_key_topics(video_node, all_frames)
 
         return {
@@ -259,7 +273,7 @@ class StructureService:
                 "video_summary": video_summary,
                 "video_title": video_node.get("title"),
                 "key_topics": key_topics,
-                "total_frames": len(all_frames),
+                "total_scenes": len(scene_list),
             },
             "processing_method": "graph_scene_based",
             "processed_at": video_node.get("created_at"),
