@@ -53,7 +53,7 @@ async def search_across_videos(
             result_count=sum(len(v.get("results", [])) for v in data.get("results", [])),
             detail_hint=(
                 "Use search_video(query, target_video_id=<id>) for deeper search "
-                "within a specific video, or get_scene_context(timestamp, target_video_id=<id>) "
+                "within a specific video, or get_scene_context(timestamp=<start_seconds>, target_video_id=<id>) "
                 "for frame-level detail."
             ),
         )

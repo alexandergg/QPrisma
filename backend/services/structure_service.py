@@ -257,7 +257,12 @@ class StructureService:
             all_frames = self.graph_service.get_video_frames(media_id)
             video_summary = self._generate_video_summary(video_node, all_frames[:100])
         else:
-            all_frames = []
+            # Fetch a small frame sample when topics are missing so
+            # _extract_key_topics can still derive them from descriptions.
+            if not video_node.get("topics"):
+                all_frames = self.graph_service.get_video_frames(media_id)[:50]
+            else:
+                all_frames = []
 
         key_topics = self._extract_key_topics(video_node, all_frames)
 

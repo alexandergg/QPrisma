@@ -266,7 +266,7 @@ async def list_chapters(
             "chapters": [_format_chapter_entry(e, i + 1) for i, e in enumerate(entries)],
             "_meta": tool_meta(
                 result_count=len(entries),
-                total_available=len(scene_list),
+                total_available=len(entries),
                 detail_hint=(
                     "Use get_scene_context(timestamp=<start_seconds>) for detailed "
                     "visual descriptions, detected objects, and frame-level analysis "
