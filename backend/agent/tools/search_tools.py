@@ -120,9 +120,9 @@ async def find_entity(
         return tool_error("no_context", "No video context available.")
 
     logger.info(
-        "find_entity called | entity='%s' type='%s' media_id='%s'",
-        entity_name,
-        entity_type,
+        "find_entity called | entity_len=%d type_len=%d media_id='%s'",
+        len(entity_name),
+        len(entity_type),
         media_id,
     )
 
@@ -193,9 +193,9 @@ async def find_entity(
         shown = occurrences[:10]
 
         logger.info(
-            "find_entity completed | mode=%s entity='%s' results=%d",
+            "find_entity completed | mode=%s entity_len=%d results=%d",
             search_mode,
-            entity_name,
+            len(entity_name),
             len(shown),
         )
 
