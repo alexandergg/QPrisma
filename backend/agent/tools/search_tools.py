@@ -392,6 +392,16 @@ async def _hybrid_search_with_fallback(
                 NodeType.ENTITY,
             ]
 
+        logger.info(
+            "hybrid_search_with_fallback: starting tier-1 | video_id=%s "
+            "node_types=%s content_type=%s limit=%d timeout=%.0fs",
+            video_id,
+            [nt.value for nt in node_types],
+            content_type,
+            limit,
+            _HYBRID_SEARCH_TIMEOUT_S,
+        )
+
         search_response = await asyncio.wait_for(
             search_service.hybrid_search(
                 query_text=query,
@@ -402,6 +412,21 @@ async def _hybrid_search_with_fallback(
                 use_reranking=True,
             ),
             timeout=_HYBRID_SEARCH_TIMEOUT_S,
+        )
+
+        logger.info(
+            "hybrid_search_with_fallback: tier-1 returned | "
+            "raw_results=%d total=%d "
+            "embedding_ms=%.0f vector_ms=%.0f fulltext_ms=%.0f "
+            "graph_ms=%.0f reranking_ms=%.0f total_ms=%.0f",
+            len(search_response.results),
+            search_response.total_results,
+            search_response.embedding_time_ms,
+            search_response.vector_search_time_ms,
+            search_response.fulltext_search_time_ms,
+            search_response.graph_expansion_time_ms,
+            search_response.reranking_time_ms,
+            search_response.search_time_ms,
         )
 
         results: list[dict[str, Any]] = []
@@ -459,6 +484,13 @@ async def _hybrid_search_with_fallback(
 
             if len(results) >= limit:
                 break
+
+        logger.info(
+            "hybrid_search_with_fallback: tier-1 filtered | " "raw=%d accepted=%d (limit=%d)",
+            len(search_response.results),
+            len(results),
+            limit,
+        )
 
         return (
             results,

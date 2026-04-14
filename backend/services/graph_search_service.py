@@ -363,6 +363,17 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 NodeType.COMMUNITY,
             ]
 
+        logger.info(
+            "hybrid_search: START | query_len=%d node_types=%s "
+            "video_id=%s limit=%d expansion_hops=%d reranking=%s",
+            len(query_text),
+            [nt.value for nt in node_types],
+            effective_video_id or effective_video_ids,
+            limit,
+            expansion_hops,
+            use_reranking,
+        )
+
         # --- Cache lookup (before embedding to save OpenAI API cost) ---
         cache_key = self._build_search_cache_key(
             query_text=query_text,
@@ -382,16 +393,19 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             cache = await get_cache_service()
             cached = await cache.get_search_result(cache_key)
             if cached:
-                logger.debug("hybrid_search cache HIT for key=%s", cache_key[:12])
+                logger.info("hybrid_search: cache HIT | key=%s", cache_key[:12])
                 return GraphSearchResponse(**cached)
         except Exception:
             # Cache unavailable — proceed without it
             cache = None
 
+        logger.info("hybrid_search: cache MISS | proceeding to embedding")
+
         # 1. Generate query embedding
         embedding_start = datetime.now(UTC)
         query_embedding = await self.embedding_service.generate_embedding(query_text)
         embedding_time = (datetime.now(UTC) - embedding_start).total_seconds() * 1000
+        logger.info("hybrid_search: embedding done | %.0f ms", embedding_time)
 
         # 2-7. Sync search pipeline — run in thread pool to avoid blocking event loop.
         # All Neo4j calls (vector_search, _fulltext_search, _calculate_graph_scores, etc.)
@@ -473,6 +487,18 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             reranking_time,
         ) = await asyncio.to_thread(_sync_search_pipeline)
 
+        logger.info(
+            "hybrid_search: pipeline done | results=%d "
+            "vector_ms=%.0f fulltext_ms=%.0f graph_ms=%.0f "
+            "temporal_ms=%.0f reranking_ms=%.0f",
+            len(final_results),
+            vector_search_time,
+            fulltext_time_acc,
+            graph_time,
+            temporal_time,
+            reranking_time,
+        )
+
         # 8. Build response
         total_time = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
@@ -507,12 +533,16 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             },
         )
 
+        logger.info(
+            "hybrid_search: DONE | total_results=%d total_ms=%.0f",
+            len(search_results),
+            total_time,
+        )
+
         # --- Cache store (fire-and-forget, don't block response) ---
         if cache is not None:
             try:
-                await cache.set_search_result(
-                    cache_key, response.model_dump(mode="json")
-                )
+                await cache.set_search_result(cache_key, response.model_dump(mode="json"))
             except Exception:
                 logger.debug("Failed to cache search result", exc_info=True)
 

@@ -7,6 +7,7 @@ Provides embedding cache and batch processing.
 
 import hashlib
 import logging
+from datetime import UTC, datetime
 
 from openai import APIConnectionError, APIError, AsyncAzureOpenAI, AzureOpenAI, RateLimitError
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -142,17 +143,36 @@ class EmbeddingService:
         # Generate embedding
         self.stats["total_requests"] += 1
 
+        logger.info(
+            "generate_embedding: calling Azure OpenAI | " "deployment=%s text_len=%d",
+            self.deployment,
+            len(text),
+        )
+        embed_start = datetime.now(UTC)
+
         try:
             response = await self.client.embeddings.create(
                 model=self.deployment,
                 input=text,
             )
         except (APIError, APIConnectionError, RateLimitError) as e:
-            logger.error(f"OpenAI API error generating embedding: {e}")
+            embed_ms = (datetime.now(UTC) - embed_start).total_seconds() * 1000
+            logger.error(
+                "generate_embedding: Azure OpenAI error after %.0f ms: %s",
+                embed_ms,
+                e,
+            )
             raise
 
+        embed_ms = (datetime.now(UTC) - embed_start).total_seconds() * 1000
         embedding = response.data[0].embedding
         self.stats["tokens_used"] += response.usage.total_tokens
+        logger.info(
+            "generate_embedding: success | %.0f ms tokens=%d dim=%d",
+            embed_ms,
+            response.usage.total_tokens,
+            len(embedding),
+        )
 
         # Save to cache
         if use_cache:
