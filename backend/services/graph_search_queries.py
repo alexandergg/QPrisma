@@ -12,14 +12,10 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 from models.graph_models import NodeType
 
-if TYPE_CHECKING:
-    pass  # GraphSearchService types resolved at runtime
-
-logger = logging.getLogger(__name__)
+logger= logging.getLogger(__name__)
 
 # Compiled regex for Lucene special character escaping (Neo4j fulltext uses Lucene 9.x).
 # Neo4j fulltext indexes delegate query parsing to Apache Lucene, which
@@ -311,32 +307,6 @@ class GraphSearchQueryMixin:
             )
 
         return results
-
-    # --- Fallback manual vector search ---
-
-    def _fallback_vector_search(
-        self,
-        query_embedding: list[float],
-        node_type: NodeType,
-        limit: int,
-        video_id: str | None,
-        min_score: float,
-        video_ids: list[str] | None = None,
-        user_id: str | None = None,
-    ) -> list[ScoredNode]:
-        """Manual vector search — DISABLED.
-
-        Previously fetched ALL nodes with embeddings and computed cosine in
-        Python.  This was catastrophic for large videos (full table scan of
-        3072-dim vectors).  Fulltext search now carries the pipeline when
-        vector indexes are missing.
-        """
-        logger.warning(
-            "fallback_vector_search called for %s — returning empty "
-            "(create vector indexes to enable vector search)",
-            node_type.value,
-        )
-        return []
 
     # --- Full-text search ---
 

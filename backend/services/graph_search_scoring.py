@@ -324,42 +324,6 @@ class GraphSearchScoringMixin:
             logger.warning("Batch path lookup failed: %s", type(e).__name__)
             return None
 
-    def _get_path_to_video(
-        self,
-        node_id: str,
-        user_id: str | None = None,
-        timeout_s: float | None = None,
-    ) -> list[str]:
-        """Return the path from a node up to the root Video node."""
-        from neo4j import Query
-
-        cypher = """
-            MATCH path = (n {id: $node_id})<-[:CONTAINS*]-(v:Video)
-        """
-        params = {"node_id": node_id}
-        if user_id:
-            cypher += """
-            WHERE v.user_id = $user_id
-            """
-            params["user_id"] = user_id
-
-        cypher += """
-            RETURN [node in nodes(path) | node.id] as path
-            LIMIT 1
-        """
-
-        try:
-            with self.graph_service.get_session() as session:
-                q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
-                result = session.run(q, **params)
-                record = result.single()
-                if record:
-                    return record["path"]
-        except (KeyError, AttributeError, Exception) as e:
-            logger.warning("Could not retrieve path for node: %s", type(e).__name__)
-
-        return []
-
     def _count_by_type(self, results: list[ScoredNode]) -> dict[str, int]:
         """Count results by node type."""
         counts = {}

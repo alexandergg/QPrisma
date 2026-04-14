@@ -538,23 +538,3 @@ class TestPipelineBehavior:
         limit = 5
         cap = limit * 6  # 30
         assert len(nodes) <= cap  # 10 <= 30, no cap
-
-    @pytest.mark.asyncio
-    async def test_fallback_vector_search_is_noop(self):
-        """_fallback_vector_search should return empty list (no-op)."""
-        from services.graph_search_queries import GraphSearchQueryMixin
-
-        mixin = GraphSearchQueryMixin.__new__(GraphSearchQueryMixin)
-        mixin.graph_service = MagicMock()
-        from models.graph_models import NodeType
-
-        result = mixin._fallback_vector_search(
-            query_embedding=[0.1] * 3072,
-            node_type=NodeType.FRAME,
-            limit=10,
-            video_id=None,
-            min_score=0.5,
-        )
-        assert result == []
-        # Should NOT have called the graph service at all
-        mixin.graph_service.get_session.assert_not_called()
