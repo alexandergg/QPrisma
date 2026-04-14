@@ -395,11 +395,11 @@ async def _hybrid_search_with_fallback(
             ]
 
         logger.info(
-            "hybrid_search_with_fallback: starting tier-1 | video_id=%s "
-            "node_types=%s content_type=%s limit=%d timeout=%.0fs",
-            video_id,
-            [nt.value for nt in node_types],
-            content_type,
+            "hybrid_search_with_fallback: starting tier-1 | has_video_id=%s "
+            "node_type_count=%d content_type_len=%d limit=%d timeout=%.0fs",
+            bool(video_id),
+            len(node_types),
+            len(content_type) if content_type else 0,
             limit,
             _HYBRID_SEARCH_TIMEOUT_S,
         )
@@ -509,9 +509,8 @@ async def _hybrid_search_with_fallback(
         )
     except Exception as exc:
         logger.warning(
-            "search_video: hybrid search failed (%s: %s), using keyword fallback",
+            "search_video: hybrid search failed (%s), using keyword fallback",
             type(exc).__name__,
-            exc,
         )
 
     # --- attempt 2: keyword Cypher fallback (same pattern as working tools) ---
