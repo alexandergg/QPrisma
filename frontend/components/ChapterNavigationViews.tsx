@@ -1,12 +1,15 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   Play,
   Film,
   Sparkles,
   Tag,
+  Clock,
 } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
 import type { Scene, Chapter, VideoStructure } from '@/types';
@@ -102,6 +105,20 @@ export function ChaptersList({
   onSeek,
   getProgressPercent,
 }: ChaptersListProps) {
+  const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
+
+  const toggleScene = useCallback((sceneId: number) => {
+    setExpandedScenes(prev => {
+      const next = new Set(prev);
+      if (next.has(sceneId)) {
+        next.delete(sceneId);
+      } else {
+        next.add(sceneId);
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <div className="p-3 space-y-2">
       {chapters.map((chapter) => {
@@ -156,46 +173,114 @@ export function ChaptersList({
               <div className="bg-white border-t border-gray-100">
                 {chapterScenes.map((scene) => {
                   const isCurrentScene = currentScene?.scene_id === scene.scene_id;
+                  const isSceneExpanded = expandedScenes.has(scene.scene_id);
+                  const inlineObjects = scene.detected_objects?.slice(0, 3) ?? [];
+                  const extraObjectCount = Math.max(0, (scene.detected_objects?.length ?? 0) - 3);
+                  const sceneDuration = scene.duration ?? (scene.end_time - scene.start_time);
 
                   return (
-                    <button
+                    <div
                       key={scene.scene_id}
-                      onClick={() => onSeek(scene.start_time)}
-                      className={`w-full text-left p-3 pl-10 border-b border-gray-50 last:border-b-0 transition-all flex items-center gap-3 group ${
-                        isCurrentScene ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                      className={`border-b border-gray-50 last:border-b-0 ${
+                        isCurrentScene ? 'bg-indigo-50' : ''
                       }`}
                     >
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
-                        isCurrentScene
-                          ? 'bg-indigo-500 text-white'
-                          : 'bg-gray-200 text-gray-500 group-hover:bg-indigo-100 group-hover:text-indigo-600'
-                      }`}>
-                        <Play className="w-3 h-3 fill-current" />
-                      </div>
+                      {/* Scene header row */}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => toggleScene(scene.scene_id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleScene(scene.scene_id); } }}
+                        className={`w-full text-left p-3 pl-10 transition-all flex items-center gap-3 group cursor-pointer ${
+                          !isCurrentScene ? 'hover:bg-gray-50' : ''
+                        }`}
+                        aria-expanded={isSceneExpanded}
+                      >
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onSeek(scene.start_time); }}
+                          className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            isCurrentScene
+                              ? 'bg-indigo-500 text-white'
+                              : 'bg-gray-200 text-gray-500 group-hover:bg-indigo-100 group-hover:text-indigo-600'
+                          }`}
+                          aria-label={`Play ${scene.title || `Scene ${scene.scene_id + 1}`}`}
+                        >
+                          <Play className="w-3 h-3 fill-current" />
+                        </button>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className={`text-sm truncate ${
-                            isCurrentScene ? 'font-medium text-indigo-700' : 'text-gray-700'
-                          }`}>
-                            {scene.title || `Scene ${scene.scene_id + 1}`}
-                          </span>
-                          <span className="text-xs text-gray-400 ml-2">
-                            {formatTime(scene.start_time)}
-                          </span>
-                        </div>
-
-                        {scene.detected_objects && scene.detected_objects.length > 0 && (
-                          <div className="flex gap-1 mt-1 overflow-hidden">
-                            {scene.detected_objects.slice(0, 3).map((obj, i) => (
-                              <span key={i} className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                                {obj}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-sm truncate ${
+                              isCurrentScene ? 'font-medium text-indigo-700' : 'text-gray-700'
+                            }`}>
+                              {scene.title || `Scene ${scene.scene_id + 1}`}
+                            </span>
+                            <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+                              <span className="text-xs text-gray-400">
+                                {formatTime(scene.start_time)}
                               </span>
-                            ))}
+                              {isSceneExpanded ? (
+                                <ChevronUp className="w-3 h-3 text-gray-400" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3 text-gray-400" />
+                              )}
+                            </div>
                           </div>
-                        )}
+
+                          {/* Compact: first 3 objects + overflow badge */}
+                          {!isSceneExpanded && inlineObjects.length > 0 && (
+                            <div className="flex gap-1 mt-1 overflow-hidden">
+                              {inlineObjects.map((obj, i) => (
+                                <span key={i} className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                                  {obj}
+                                </span>
+                              ))}
+                              {extraObjectCount > 0 && (
+                                <span className="text-[10px] text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded font-medium">
+                                  +{extraObjectCount} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </button>
+
+                      {/* Expanded detail panel */}
+                      <div
+                        className={`overflow-hidden transition-all duration-200 ease-in-out ${
+                          isSceneExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+                        }`}
+                      >
+                        <div className="pl-[4.5rem] pr-3 pb-3 space-y-2">
+                          {/* Duration badge */}
+                          <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                            <Clock className="w-2.5 h-2.5" />
+                            {formatTime(sceneDuration)}
+                          </span>
+
+                          {/* Full summary */}
+                          {scene.summary && (
+                            <p className="text-xs text-gray-500 leading-relaxed">
+                              {scene.summary}
+                            </p>
+                          )}
+
+                          {/* All detected objects as pills */}
+                          {scene.detected_objects && scene.detected_objects.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {scene.detected_objects.map((obj, i) => (
+                                <span
+                                  key={i}
+                                  className="text-[10px] bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full"
+                                >
+                                  {obj}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   );
                 })}
               </div>
@@ -224,62 +309,127 @@ export function ScenesList({
   onSeek,
   getProgressPercent,
 }: ScenesListProps) {
+  const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
+
+  const toggleScene = useCallback((sceneId: number) => {
+    setExpandedScenes(prev => {
+      const next = new Set(prev);
+      if (next.has(sceneId)) {
+        next.delete(sceneId);
+      } else {
+        next.add(sceneId);
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <div className="p-3 space-y-1">
       {scenes.map((scene) => {
         const isCurrentScene = currentScene?.scene_id === scene.scene_id;
+        const isExpanded = expandedScenes.has(scene.scene_id);
+        const sceneDuration = scene.duration ?? (scene.end_time - scene.start_time);
 
         return (
-          <button
+          <div
             key={scene.scene_id}
-            onClick={() => onSeek(scene.start_time)}
-            className={`w-full text-left p-3 rounded-xl transition-all flex items-start gap-3 group ${
+            className={`w-full text-left rounded-xl transition-all group ${
               isCurrentScene
                 ? 'bg-indigo-50 border border-indigo-200'
                 : 'hover:bg-gray-50 border border-transparent'
             }`}
           >
-            <div className={`w-16 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-              isCurrentScene
-                ? 'bg-indigo-200'
-                : 'bg-gray-200 group-hover:bg-indigo-100'
-            }`}>
-              <Film className={`w-5 h-5 ${
-                isCurrentScene ? 'text-indigo-600' : 'text-gray-400'
-              }`} />
-            </div>
+            {/* Scene header — click to toggle expand */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => toggleScene(scene.scene_id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleScene(scene.scene_id); } }}
+              className="p-3 flex items-start gap-3 cursor-pointer"
+              aria-expanded={isExpanded}
+            >
+              <button
+                onClick={(e) => { e.stopPropagation(); onSeek(scene.start_time); }}
+                className={`w-16 h-10 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                  isCurrentScene
+                    ? 'bg-indigo-200'
+                    : 'bg-gray-200 group-hover:bg-indigo-100'
+                }`}
+                aria-label={`Play ${scene.title || `Scene ${scene.scene_id + 1}`}`}
+              >
+                <Film className={`w-5 h-5 ${
+                  isCurrentScene ? 'text-indigo-600' : 'text-gray-400'
+                }`} />
+              </button>
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between mb-1">
-                <span className={`text-sm font-medium truncate ${
-                  isCurrentScene ? 'text-indigo-700' : 'text-gray-900'
-                }`}>
-                  {scene.title || `Scene ${scene.scene_id + 1}`}
-                </span>
-                <span className="text-xs text-gray-400 ml-2 flex-shrink-0">
-                  {formatTime(scene.start_time)}
-                </span>
-              </div>
-
-              {scene.summary && (
-                <p className="text-xs text-gray-500 line-clamp-2">
-                  {scene.summary}
-                </p>
-              )}
-
-              <div className="mt-2 flex items-center gap-2">
-                <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-indigo-500 transition-all duration-300"
-                    style={{ width: `${getProgressPercent(scene.start_time, scene.end_time)}%` }}
-                  />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <span className={`text-sm font-medium truncate ${
+                    isCurrentScene ? 'text-indigo-700' : 'text-gray-900'
+                  }`}>
+                    {scene.title || `Scene ${scene.scene_id + 1}`}
+                  </span>
+                  <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+                    <span className="text-xs text-gray-400">
+                      {formatTime(scene.start_time)}
+                    </span>
+                    {isExpanded ? (
+                      <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                    )}
+                  </div>
                 </div>
-                <span className="text-[10px] text-gray-400">
-                  {Math.round(scene.duration ?? 0)}s
-                </span>
+
+                {scene.summary && (
+                  <p className={`text-xs text-gray-500 ${isExpanded ? 'leading-relaxed' : 'line-clamp-2'}`}>
+                    {scene.summary}
+                  </p>
+                )}
+
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 transition-all duration-300"
+                      style={{ width: `${getProgressPercent(scene.start_time, scene.end_time)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-gray-400">
+                    {Math.round(sceneDuration)}s
+                  </span>
+                </div>
               </div>
             </div>
-          </button>
+
+            {/* Expanded detail panel */}
+            <div
+              className={`overflow-hidden transition-all duration-200 ease-in-out ${
+                isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="px-3 pb-3 ml-[4.75rem] space-y-2 border-t border-gray-100 pt-2">
+                {/* Duration badge */}
+                <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                  <Clock className="w-2.5 h-2.5" />
+                  {formatTime(sceneDuration)}
+                </span>
+
+                {/* All detected objects as pills */}
+                {scene.detected_objects && scene.detected_objects.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {scene.detected_objects.map((obj, i) => (
+                      <span
+                        key={i}
+                        className="text-[10px] bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full"
+                      >
+                        {obj}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         );
       })}
     </div>

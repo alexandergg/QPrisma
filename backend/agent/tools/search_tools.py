@@ -141,6 +141,10 @@ async def search_video(
                 result_count=len(results),
                 total_available=search_response.total_results,
                 truncated_fields=list(set(truncated_fields)) if truncated_fields else None,
+                detail_hint=(
+                    "Use get_scene_context(timestamp=<seconds>) to get full visual "
+                    "descriptions, detected objects, and audio around any result."
+                ),
             ),
         }
 

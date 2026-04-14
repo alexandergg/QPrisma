@@ -19,44 +19,37 @@ from agent.utils.tool_meta import tool_error, tool_meta, truncate_with_notice
 logger = logging.getLogger(__name__)
 
 
-def _generate_scene_title(scene: dict, scene_frames: list[dict]) -> str | None:
-    """Generate a scene title from its first frame description."""
+def _generate_scene_title(scene: dict) -> str | None:
+    """Generate a scene title from the scene node's own properties.
+
+    Uses ``scene.title`` directly when available, otherwise derives a short
+    title from the first sentence of ``scene.description``.  No frame data is
+    needed — scene properties are populated during ingestion.
+    """
     title = scene.get("title")
     if title:
         return title
 
-    if not scene_frames:
-        return None
-
-    first_desc = scene_frames[0].get("description", "")
-    if not first_desc:
-        return None
-
-    clean_desc = clean_generated_text(first_desc, SCENE_DESCRIPTION_PREFIXES)
-    if clean_desc:
-        first_sentence = clean_desc.split(".")[0][:100]
-        return first_sentence.strip()
+    description = scene.get("description", "")
+    if description:
+        clean_desc = clean_generated_text(description, SCENE_DESCRIPTION_PREFIXES)
+        if clean_desc:
+            first_sentence = clean_desc.split(".")[0][:100]
+            return first_sentence.strip() or None
     return None
 
 
-def _generate_scene_summary(scene: dict, scene_frames: list[dict]) -> str | None:
-    """Generate a scene summary from its description or frame descriptions."""
+def _generate_scene_summary(scene: dict) -> str | None:
+    """Return the scene's own description as its summary.
+
+    Scene descriptions are set during ingestion and are already concise
+    natural-language summaries — no reformatting or truncation is applied
+    beyond stripping common prefixes.
+    """
     summary = scene.get("description")
     if summary:
         clean_summary = clean_generated_text(summary, SCENE_DESCRIPTION_PREFIXES)
         return clean_summary or None
-
-    if not scene_frames:
-        return None
-
-    descriptions = [
-        clean_generated_text(f.get("description", ""), SCENE_DESCRIPTION_PREFIXES)
-        for f in scene_frames[:3]
-        if f.get("description")
-    ]
-    descriptions = [d for d in descriptions if d]
-    if descriptions:
-        return " ".join(descriptions)[:500]
     return None
 
 
@@ -91,21 +84,21 @@ def _extract_key_topics(video_node: dict) -> list[str]:
     return video_node.get("topics") or []
 
 
-def _build_scene_list(scenes: list[dict], all_frames: list[dict]) -> list[dict[str, Any]]:
-    """Build enriched scene list with titles and summaries from graph data."""
+def _build_scene_list(scenes: list[dict]) -> list[dict[str, Any]]:
+    """Build a compact scene index directly from scene node properties.
+
+    Each entry contains the scene's index, title, time range, and brief
+    summary — all derived from the scene node itself (no frame data needed).
+    This eliminates the previous 500-frame cap that left later scenes empty
+    for long videos.
+    """
     scene_list = []
     for s in scenes:
         start = float(s.get("start_time", 0) or 0)
         end = float(s.get("end_time", 0) or 0)
 
-        scene_frames = [
-            f
-            for f in all_frames
-            if f.get("timestamp") is not None and start <= f["timestamp"] < end
-        ]
-
-        scene_title = _generate_scene_title(s, scene_frames)
-        scene_summary = _generate_scene_summary(s, scene_frames)
+        scene_title = _generate_scene_title(s)
+        scene_summary = _generate_scene_summary(s)
 
         scene_list.append(
             {
@@ -120,7 +113,7 @@ def _build_scene_list(scenes: list[dict], all_frames: list[dict]) -> list[dict[s
 
 
 def _build_chapters(scene_list: list[dict], max_scenes_per_chapter: int = 5) -> list[dict]:
-    """Group scenes into chapters."""
+    """Group scenes into chapters with embedded compact scene entries."""
     chapters = []
     for i in range(0, len(scene_list), max_scenes_per_chapter):
         chunk = scene_list[i : i + max_scenes_per_chapter]
@@ -134,6 +127,19 @@ def _build_chapters(scene_list: list[dict], max_scenes_per_chapter: int = 5) -> 
         scene_summaries = [s.get("summary", "") for s in chunk if s.get("summary")]
         chapter_summary = " ".join(scene_summaries)[:300] if scene_summaries else None
 
+        # Embed compact scene entries so the LLM sees the full hierarchy
+        compact_scenes = [
+            {
+                "scene_id": s["scene_id"],
+                "title": s["title"],
+                "time_range": (
+                    f"{format_timestamp(s['start_time'])} - "
+                    f"{format_timestamp(s['end_time'])}"
+                ),
+            }
+            for s in chunk
+        ]
+
         chapters.append(
             {
                 "chapter_id": chapter_id,
@@ -143,6 +149,7 @@ def _build_chapters(scene_list: list[dict], max_scenes_per_chapter: int = 5) -> 
                 "end_time": chunk[-1]["end_time"],
                 "duration": max(0.0, chunk[-1]["end_time"] - chunk[0]["start_time"]),
                 "scene_count": len(chunk),
+                "scenes": compact_scenes,
             }
         )
     return chapters
@@ -163,7 +170,7 @@ def _format_chapter_entry(entry: dict[str, Any], number: int) -> dict[str, Any]:
     if not summary:
         summary = title
 
-    return {
+    formatted: dict[str, Any] = {
         "number": number,
         "title": title,
         "start_time": start_time,
@@ -172,6 +179,10 @@ def _format_chapter_entry(entry: dict[str, Any], number: int) -> dict[str, Any]:
         "end_formatted": format_timestamp(end_time),
         "summary": summary,
     }
+    # Pass through compact scene entries from chapters
+    if "scenes" in entry:
+        formatted["scenes"] = entry["scenes"]
+    return formatted
 
 
 @tool
@@ -184,11 +195,24 @@ async def list_chapters(
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
-    Get the chronological chapter structure and timeline of the video.
-    Returns scenes grouped into chapters with titles, time ranges, and summaries.
-    Use for timeline requests, table-of-contents, or chapter-by-chapter breakdown.
-    For a single synopsis, use get_summary. For thematic clusters, use get_community_overview.
-    When several videos are selected, use target_video_id to get chapters for a specific video.
+    Get the chronological chapter/timeline structure of the entire video.
+
+    Returns a compact index of ALL scenes grouped into chapters. Each chapter
+    includes a title, time range, summary, and its constituent scenes.
+    Every scene is represented with a title and time range — no scenes are
+    omitted regardless of video length.
+
+    **When to use:**
+    - User asks for a timeline, table-of-contents, or chapter breakdown
+    - User asks "what happens in the video?" or "show me the structure"
+    - You need to orient yourself within the video before drilling down
+
+    **For deeper detail on a specific scene**, use the scene drill-down
+    tool with a timestamp (see ``_meta.detail_hint`` for the call).
+
+    For a single synopsis, use get_summary instead.
+    For thematic topic clusters, use get_community_overview.
+    When several videos are selected, use target_video_id.
     """
     effective_id = target_video_id or media_id
     if not effective_id:
@@ -223,22 +247,33 @@ async def list_chapters(
                 result["summary"] = summary
             return result
 
-        all_frames = await asyncio.to_thread(kg.get_video_frames, effective_id)
-        # Cap frames to avoid expensive per-scene filtering on long videos
-        MAX_FRAMES_FOR_CHAPTERS = 500
-        if len(all_frames) > MAX_FRAMES_FOR_CHAPTERS:
-            all_frames = all_frames[:MAX_FRAMES_FOR_CHAPTERS]
-        scene_list = _build_scene_list(scenes, all_frames)
+        # Build scene list from scene node properties — no bulk frame fetch
+        scene_list = _build_scene_list(scenes)
         chapters = _build_chapters(scene_list)
 
-        video_summary = _generate_video_summary(video_node, all_frames)
+        # Video summary: prefer the pre-computed summary on the video node
+        video_summary = video_node.get("summary")
+        if not video_summary:
+            # Fallback: sample a few frames for summary generation
+            sample_frames = await asyncio.to_thread(kg.get_video_frames, effective_id)
+            video_summary = _generate_video_summary(video_node, sample_frames[:100])
+
         key_topics = _extract_key_topics(video_node)
 
         entries = chapters if len(chapters) > 1 else scene_list
         response: dict[str, Any] = {
             "total_chapters": len(entries),
+            "total_scenes": len(scene_list),
             "chapters": [_format_chapter_entry(e, i + 1) for i, e in enumerate(entries)],
-            "_meta": tool_meta(result_count=len(entries)),
+            "_meta": tool_meta(
+                result_count=len(entries),
+                total_available=len(scene_list),
+                detail_hint=(
+                    "Use get_scene_context(timestamp=<start_seconds>) for detailed "
+                    "visual descriptions, detected objects, and frame-level analysis "
+                    "of any specific scene."
+                ),
+            ),
         }
 
         if video_summary:

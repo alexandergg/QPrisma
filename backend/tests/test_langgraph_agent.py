@@ -517,10 +517,6 @@ class TestLangGraphTools:
                 "description": "",
             },
         ]
-        mock_kg.get_video_frames.return_value = [
-            {"timestamp": 2.0, "description": "People walking on a busy street."},
-            {"timestamp": 18.0, "description": "Close-up of dragon boat decoration."},
-        ]
 
         with patch("services.knowledge_graph.get_knowledge_graph_service", return_value=mock_kg):
             result = await list_chapters.coroutine(target_video_id="vid-123")
@@ -531,14 +527,14 @@ class TestLangGraphTools:
             "Pedestrians move through a crowded intersection."
         )
         assert result["chapters"][1]["title"] == "Dragon boat branding close-up"
-        # Scene has empty description, so summary is generated from frame descriptions
-        assert result["chapters"][1]["summary"] == "Close-up of dragon boat decoration."
+        # Scene has empty description — summary falls back to the scene title
+        assert result["chapters"][1]["summary"] == "Dragon boat branding close-up"
         assert result["video_summary"] == "Festival-themed product montage."
         assert result["topics"] == ["Dragon Boat Festival", "SmallRig"]
-        # Verify no StructureService or DB calls
+        # No bulk frame fetch needed — scene properties and video_node.summary suffice
         mock_kg.get_video_node.assert_called_once_with("vid-123")
         mock_kg.get_video_scenes.assert_called_once_with("vid-123")
-        mock_kg.get_video_frames.assert_called_once_with("vid-123")
+        mock_kg.get_video_frames.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_list_chapters_no_scenes_returns_topics(self):

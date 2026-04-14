@@ -7,9 +7,11 @@ import {
   Layers,
   Mic,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   Share2,
   BarChart3,
+  Clock,
 } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
 import { apiClient } from '@/lib/api';
@@ -316,6 +318,20 @@ function ChapterCard({
 
   const isActive = chapterScenes.some((s) => currentScene?.scene_id === s.scene_id);
 
+  const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
+
+  const toggleScene = useCallback((sceneId: number) => {
+    setExpandedScenes(prev => {
+      const next = new Set(prev);
+      if (next.has(sceneId)) {
+        next.delete(sceneId);
+      } else {
+        next.add(sceneId);
+      }
+      return next;
+    });
+  }, []);
+
   // Get summary from first scene
   const summaryPreview = useMemo(() => {
     const text = chapterScenes.find((s) => s.summary)?.summary;
@@ -422,19 +438,92 @@ function ChapterCard({
           <div className="pt-2" />
           {chapterScenes.map((scene) => {
             const isSceneActive = currentScene?.scene_id === scene.scene_id;
+            const isSceneExpanded = expandedScenes.has(scene.scene_id);
+            const sceneDuration = scene.duration ?? (scene.end_time - scene.start_time);
+            const summaryText = scene.summary
+              ? (scene.summary.length > 100 && !isSceneExpanded ? scene.summary.slice(0, 100) + '…' : scene.summary)
+              : null;
+
             return (
-              <button
-                key={scene.scene_id}
-                onClick={() => onSeek(scene.start_time)}
-                className={`w-full text-left pl-8 pr-3 py-2 rounded-lg transition-all text-sm ${
-                  isSceneActive
-                    ? 'bg-indigo-100 text-indigo-700 font-medium dark:bg-indigo-500/15 dark:text-indigo-400'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]'
-                }`}
-              >
-                <span className="text-[var(--text-tertiary)] mr-2">{formatTime(scene.start_time)}</span>
-                {scene.title || `Scene ${scene.scene_id + 1}`}
-              </button>
+              <div key={scene.scene_id} className="rounded-lg overflow-hidden">
+                {/* Scene row header */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleScene(scene.scene_id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleScene(scene.scene_id); } }}
+                  className={`w-full text-left pl-8 pr-3 py-2 rounded-lg transition-all text-sm cursor-pointer flex items-start gap-2 ${
+                    isSceneActive
+                      ? 'bg-indigo-100 dark:bg-indigo-500/15'
+                      : 'hover:bg-[var(--surface-elevated)]'
+                  }`}
+                  aria-expanded={isSceneExpanded}
+                >
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onSeek(scene.start_time); }}
+                    className="mt-0.5 p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-500/20 text-indigo-500 flex-shrink-0"
+                    aria-label={`Play ${scene.title || `Scene ${scene.scene_id + 1}`}`}
+                  >
+                    <Play className="w-3 h-3 fill-current" />
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className={`truncate ${
+                        isSceneActive
+                          ? 'text-indigo-700 font-medium dark:text-indigo-400'
+                          : 'text-[var(--foreground)]'
+                      }`}>
+                        {scene.title || `Scene ${scene.scene_id + 1}`}
+                      </span>
+                      <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                        <span className="text-[var(--text-tertiary)] tabular-nums">
+                          {formatTime(scene.start_time)}
+                        </span>
+                        <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--text-tertiary)] bg-[var(--surface-elevated)] px-1.5 py-0.5 rounded-full">
+                          <Clock className="w-2.5 h-2.5" />
+                          {formatTime(sceneDuration)}
+                        </span>
+                        {isSceneExpanded ? (
+                          <ChevronUp className="w-3 h-3 text-[var(--text-tertiary)]" />
+                        ) : (
+                          <ChevronDown className="w-3 h-3 text-[var(--text-tertiary)]" />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Summary preview (100 chars collapsed, full expanded) */}
+                    {summaryText && (
+                      <p className="text-xs text-[var(--text-secondary)] leading-relaxed mt-1">
+                        {summaryText}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Expanded detail */}
+                <div
+                  className={`overflow-hidden transition-all duration-200 ease-in-out ${
+                    isSceneExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+                  }`}
+                >
+                  <div className="pl-14 pr-3 pb-2 space-y-2">
+                    {/* Detected objects as pills */}
+                    {scene.detected_objects && scene.detected_objects.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {scene.detected_objects.map((obj, i) => (
+                          <span
+                            key={i}
+                            className="text-[10px] bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 px-2 py-0.5 rounded-full"
+                          >
+                            {obj}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             );
           })}
         </div>
