@@ -35,14 +35,18 @@ QPrisma documentation uses the following view types:
 
 | Question to answer | Primary document | Primary diagram |
 |---|---|---|
-| What is QPrisma and where does it sit in its environment? | `README.md` and `docs/ARCHITECTURE_PORTFOLIO.md` | `docs/qprisma-system-context.drawio` |
-| How is the solution deployed in Azure? | `docs/INFRASTRUCTURE.md` | `docs/azure-architecture.drawio` |
-| How does video ingestion work end to end? | `docs/VIDEO_INGESTION_ARCHITECTURE.md` | `docs/video-ingestion-pipeline.drawio` |
-| How does the hosted agent retrieve and answer? | `docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md` | `docs/agent-search-rag-flow.drawio` |
-| How does data become knowledge and retrieval context? | `docs/DATA_KNOWLEDGE_ARCHITECTURE.md` | `docs/qprisma-data-knowledge-lifecycle.drawio` |
-| How are identity and trust boundaries enforced? | `docs/SECURITY_IDENTITY_ARCHITECTURE.md` | `docs/qprisma-identity-trust-boundaries.drawio` |
-| How should the workload be operated and reviewed against NFRs? | `docs/OPERATIONS_NFRS_ARCHITECTURE.md` | `docs/azure-architecture.drawio` plus the specialized flow diagrams |
+| What is QPrisma and where does it sit in its environment? | `README.md` and `docs/ARCHITECTURE_PORTFOLIO.md` | `docs/assets/architecture/qprisma-system-context.svg` |
+| How is the solution deployed in Azure? | `docs/INFRASTRUCTURE.md` | `docs/assets/architecture/azure-architecture.svg` |
+| How does video ingestion work end to end? | `docs/VIDEO_INGESTION_ARCHITECTURE.md` | `docs/assets/architecture/video-ingestion-pipeline.svg` |
+| How does the hosted agent retrieve and answer? | `docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md` | `docs/assets/architecture/agent-search-rag-flow.svg` |
+| How does data become knowledge and retrieval context? | `docs/DATA_KNOWLEDGE_ARCHITECTURE.md` | `docs/assets/architecture/qprisma-data-knowledge-lifecycle.svg` |
+| How are identity and trust boundaries enforced? | `docs/SECURITY_IDENTITY_ARCHITECTURE.md` | `docs/assets/architecture/qprisma-identity-trust-boundaries.svg` |
+| How should the workload be operated and reviewed against NFRs? | `docs/OPERATIONS_NFRS_ARCHITECTURE.md` | `docs/assets/architecture/azure-architecture.svg` plus the specialized flow documents |
 | How should a Solution Architect document the solution professionally? | `docs/SOLUTION_ARCHITECT_PLAYBOOK.md` | Uses the full portfolio |
+
+## Published context view
+
+![QPrisma system context diagram](assets/architecture/qprisma-system-context.svg)
 
 ## Document inventory
 
@@ -69,22 +73,33 @@ QPrisma documentation uses the following view types:
 
 ## Diagram inventory
 
+Published diagram assets live in `docs/assets/architecture/` and are embedded in their corresponding architecture documents.
+
 | File | Purpose | Recommended usage |
 |---|---|---|
-| `docs/azure-architecture.drawio` | Azure deployment and platform architecture | Executive technical overview, platform review |
-| `docs/video-ingestion-pipeline.drawio` | End-to-end ingestion and enrichment flow | Data/AI pipeline review, processing walkthrough |
-| `docs/agent-search-rag-flow.drawio` | Hosted agent and retrieval architecture | Agent design review, retrieval walkthrough |
-| `docs/qprisma-system-context.drawio` | System boundary and external ecosystem | Kickoff and stakeholder alignment |
-| `docs/qprisma-data-knowledge-lifecycle.drawio` | Data lifecycle from raw media to grounded response | Data architecture and lineage discussion |
-| `docs/qprisma-identity-trust-boundaries.drawio` | Authentication, authorization, and trust transitions | Security and compliance review |
+| `docs/assets/architecture/azure-architecture.svg` | Azure deployment and platform architecture | Executive technical overview, platform review |
+| `docs/assets/architecture/video-ingestion-pipeline.svg` | End-to-end ingestion and enrichment flow | Data/AI pipeline review, processing walkthrough |
+| `docs/assets/architecture/agent-search-rag-flow.svg` | Hosted agent and retrieval architecture | Agent design review, retrieval walkthrough |
+| `docs/assets/architecture/qprisma-system-context.svg` | System boundary and external ecosystem | Kickoff and stakeholder alignment |
+| `docs/assets/architecture/qprisma-data-knowledge-lifecycle.svg` | Data lifecycle from raw media to grounded response | Data architecture and lineage discussion |
+| `docs/assets/architecture/qprisma-identity-trust-boundaries.svg` | Authentication, authorization, and trust transitions | Security and compliance review |
+
+## Diagram maintenance workflow
+
+This repository intentionally versions the published SVG assets only. If you edit a diagram, keep your editable working source outside the repo and commit the regenerated SVG in its place.
+
+1. Update the diagram in your editor of choice while preserving the current Azure iconography and layout semantics.
+2. Export the published artifact as **SVG** into `docs/assets/architecture/` using the existing lowercase kebab-case filename (for example, `azure-architecture.svg`).
+3. Use a **fixed white background** for every exported SVG so the diagrams render consistently in GitHub, markdown previews, and presentation tooling.
+4. Replace the existing asset instead of creating versioned copies, then confirm the corresponding architecture document still embeds `assets/architecture/<diagram-name>.svg` and that the surrounding narrative matches the diagram.
 
 ## Recommended reading paths
 
 ### 1. Executive technical briefing
 
 1. `README.md`
-2. `docs/qprisma-system-context.drawio`
-3. `docs/azure-architecture.drawio`
+2. `docs/ARCHITECTURE_PORTFOLIO.md`
+3. `docs/INFRASTRUCTURE.md`
 4. `docs/OPERATIONS_NFRS_ARCHITECTURE.md`
 
 ### 2. Solution Architect review
@@ -103,32 +118,24 @@ QPrisma documentation uses the following view types:
 1. `docs/VIDEO_INGESTION_ARCHITECTURE.md`
 2. `docs/DATA_KNOWLEDGE_ARCHITECTURE.md`
 3. `docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md`
-4. `docs/agent-search-rag-flow.drawio`
-5. `docs/qprisma-data-knowledge-lifecycle.drawio`
+4. `docs/ARCHITECTURE_PORTFOLIO.md`
 
 ### 4. Platform and security review
 
 1. `docs/INFRASTRUCTURE.md`
 2. `docs/SECURITY_IDENTITY_ARCHITECTURE.md`
 3. `docs/OPERATIONS_NFRS_ARCHITECTURE.md`
-4. `docs/qprisma-identity-trust-boundaries.drawio`
 
 ## Documentation standards used in this repo
 
 - One document should answer one dominant architectural question.
 - Each document should state scope, audience, related artifacts, and trade-offs.
-- Diagrams should be versioned with the repo, not maintained outside source control.
+- Published diagram assets should be versioned with the repo and kept synchronized with the architecture narrative.
 - Azure diagrams should use official Azure icons and consistent connector semantics.
 - Documents should distinguish between:
   - implemented behavior,
   - external dependencies,
   - future opportunities.
-
-## README preview assets
-
-The `README.md` architecture section embeds static previews from `docs/assets/architecture/`.
-
-The editable source of truth remains the corresponding `.drawio` files in `docs/`. When a diagram changes, re-export its preview SVG so the README gallery stays aligned with the latest architecture source.
 
 ## External references
 
@@ -137,4 +144,3 @@ These references informed the organization of the QPrisma portfolio:
 - Azure Well-Architected: architecture design diagrams
 - Azure Architecture Center: Web-Queue-Worker architecture style
 - Azure AI Search guidance for RAG architecture and query/relevance trade-offs
-- diagrams.net guidance for Azure diagram organization, icon usage, regions, and connectors

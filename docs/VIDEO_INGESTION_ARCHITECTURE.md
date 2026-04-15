@@ -16,11 +16,13 @@ It does not attempt to re-document every backend class. For implementation detai
 
 ## Related artifacts
 
-- Diagram: `docs/video-ingestion-pipeline.drawio`
+- Published diagram asset: [assets/architecture/video-ingestion-pipeline.svg](assets/architecture/video-ingestion-pipeline.svg)
 - Portfolio index: `docs/ARCHITECTURE_PORTFOLIO.md`
 - Technical deep dive: `docs/ARCHITECTURE.md`
 - Runtime orchestration: `backend/tasks/video_tasks.py`
 - Upload routes: `backend/api/routes/media_routes.py`, `backend/api/routes/chunked_upload_routes.py`
+
+![QPrisma video ingestion pipeline diagram](assets/architecture/video-ingestion-pipeline.svg)
 
 ## Architecture style
 

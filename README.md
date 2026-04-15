@@ -73,7 +73,7 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
       <br>
       <strong>System context</strong><br>
       Users, platform boundary, Azure dependencies, and delivery boundary.<br>
-      <a href="docs/ARCHITECTURE_PORTFOLIO.md">Portfolio guide</a> · <a href="docs/qprisma-system-context.drawio">Source (.drawio)</a>
+      <a href="docs/ARCHITECTURE_PORTFOLIO.md">Portfolio guide</a> · <a href="docs/assets/architecture/qprisma-system-context.svg">SVG asset</a>
     </td>
     <td width="33%" valign="top">
       <a href="docs/VIDEO_INGESTION_ARCHITECTURE.md">
@@ -82,7 +82,7 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
       <br>
       <strong>Video ingestion</strong><br>
       Upload, queueing, worker processing, enrichment, and persistence flow.<br>
-      <a href="docs/VIDEO_INGESTION_ARCHITECTURE.md">Architecture doc</a> · <a href="docs/video-ingestion-pipeline.drawio">Source (.drawio)</a>
+      <a href="docs/VIDEO_INGESTION_ARCHITECTURE.md">Architecture doc</a> · <a href="docs/assets/architecture/video-ingestion-pipeline.svg">SVG asset</a>
     </td>
     <td width="33%" valign="top">
       <a href="docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md">
@@ -91,7 +91,7 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
       <br>
       <strong>Hosted agent retrieval</strong><br>
       Request handling, tool routing, hybrid retrieval, and grounded response flow.<br>
-      <a href="docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md">Architecture doc</a> · <a href="docs/agent-search-rag-flow.drawio">Source (.drawio)</a>
+      <a href="docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md">Architecture doc</a> · <a href="docs/assets/architecture/agent-search-rag-flow.svg">SVG asset</a>
     </td>
   </tr>
 </table>

@@ -17,10 +17,12 @@ For lower-level code references, see `docs/BACKEND_ARCHITECTURE.md`, `backend/ag
 
 ## Related artifacts
 
-- Diagram: `docs/agent-search-rag-flow.drawio`
+- Published diagram asset: `docs/assets/architecture/agent-search-rag-flow.svg`
 - Portfolio index: `docs/ARCHITECTURE_PORTFOLIO.md`
 - Technical deep dive: `docs/ARCHITECTURE.md`
 - Agent runtime overview: `docs/BACKEND_ARCHITECTURE.md`
+
+![QPrisma hosted agent retrieval diagram](assets/architecture/agent-search-rag-flow.svg)
 
 ## Architecture summary
 

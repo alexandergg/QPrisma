@@ -239,7 +239,7 @@ This architecture gives QPrisma a bounded, observable agent loop with better con
 
 QPrisma deploys to **Azure Container Apps** using Infrastructure as Code (Bicep) and GitHub Actions CI/CD.
 
-For the deployment-focused architecture view and platform operations details, see `docs/INFRASTRUCTURE.md` and the Azure diagram in `docs/azure-architecture.drawio`.
+For the deployment-focused architecture view and platform operations details, see `docs/INFRASTRUCTURE.md` and the published Azure diagram asset in `docs/assets/architecture/azure-architecture.svg`.
 
 ### 6.1. Azure Container Apps
 

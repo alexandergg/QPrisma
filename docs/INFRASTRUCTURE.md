@@ -25,9 +25,11 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 
 ### Related architecture views
 
-- `docs/azure-architecture.drawio` - Azure deployment and regional resource layout
+- `docs/assets/architecture/azure-architecture.svg` - Azure deployment and regional resource layout
 - `docs/SECURITY_IDENTITY_ARCHITECTURE.md` - identity, trust boundaries, and secret flow
 - `docs/OPERATIONS_NFRS_ARCHITECTURE.md` - scaling, reliability, observability, and trade-offs
+
+![QPrisma Azure deployment architecture](assets/architecture/azure-architecture.svg)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
