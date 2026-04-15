@@ -63,6 +63,12 @@ QPrisma supports more than one WebSocket authentication pattern depending on the
 | `/ws/user/{user_id}` | token provided as query parameter |
 | `/ws/all` | token sent as the first WebSocket message |
 
+### Security note on query-parameter tokens
+
+The `/ws/jobs/{job_id}` and `/ws/user/{user_id}` entries describe the current FastAPI implementation in `backend/api/routes/websocket_routes.py`, not a preferred security posture. Passing bearer tokens in the WebSocket URL creates the normal query-string exposure risk in logs, reverse proxies, browser tooling, and similar infrastructure.
+
+This repository does not document extra compensating controls for those two endpoints such as short-lived socket-specific tokens or log-scrubbing guarantees. By contrast, `/ws/all` avoids placing the bearer token in the URL by requiring first-message authentication after the socket opens.
+
 ### Architectural implication
 
 WebSocket channels often become blind spots in architecture documentation. QPrisma explicitly documents and implements them as authenticated boundaries, not as trusted internal channels.
