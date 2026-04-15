@@ -16,7 +16,7 @@ It does not attempt to re-document every backend class. For implementation detai
 
 ## Related artifacts
 
-- Published diagram asset: `docs/assets/architecture/video-ingestion-pipeline.svg`
+- Published diagram asset: [assets/architecture/video-ingestion-pipeline.svg](assets/architecture/video-ingestion-pipeline.svg)
 - Portfolio index: `docs/ARCHITECTURE_PORTFOLIO.md`
 - Technical deep dive: `docs/ARCHITECTURE.md`
 - Runtime orchestration: `backend/tasks/video_tasks.py`

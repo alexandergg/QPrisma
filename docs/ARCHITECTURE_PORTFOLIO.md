@@ -84,6 +84,15 @@ Published diagram assets live in `docs/assets/architecture/` and are embedded in
 | `docs/assets/architecture/qprisma-data-knowledge-lifecycle.svg` | Data lifecycle from raw media to grounded response | Data architecture and lineage discussion |
 | `docs/assets/architecture/qprisma-identity-trust-boundaries.svg` | Authentication, authorization, and trust transitions | Security and compliance review |
 
+## Diagram maintenance workflow
+
+This repository intentionally versions the published SVG assets only. If you edit a diagram, keep your editable working source outside the repo and commit the regenerated SVG in its place.
+
+1. Update the diagram in your editor of choice while preserving the current Azure iconography and layout semantics.
+2. Export the published artifact as **SVG** into `docs/assets/architecture/` using the existing lowercase kebab-case filename (for example, `azure-architecture.svg`).
+3. Use a **fixed white background** for every exported SVG so the diagrams render consistently in GitHub, markdown previews, and presentation tooling.
+4. Replace the existing asset instead of creating versioned copies, then confirm the corresponding architecture document still embeds `assets/architecture/<diagram-name>.svg` and that the surrounding narrative matches the diagram.
+
 ## Recommended reading paths
 
 ### 1. Executive technical briefing

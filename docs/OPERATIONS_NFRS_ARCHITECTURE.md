@@ -20,9 +20,11 @@ It is intended to complement the functional architecture documents by explaining
 
 - Platform deployment: `docs/INFRASTRUCTURE.md`
 - Portfolio index: `docs/ARCHITECTURE_PORTFOLIO.md`
-- Azure deployment diagram: `docs/assets/architecture/azure-architecture.svg`
+- Published diagram asset: `docs/assets/architecture/azure-architecture.svg`
 - Ingestion flow: `docs/VIDEO_INGESTION_ARCHITECTURE.md`
 - Hosted retrieval flow: `docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md`
+
+![QPrisma Azure deployment architecture](assets/architecture/azure-architecture.svg)
 
 ## NFR summary
 
