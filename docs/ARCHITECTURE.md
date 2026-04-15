@@ -2,6 +2,8 @@
 
 This document provides a comprehensive technical analysis of the QPrisma platform. It details the system architecture, processing pipelines, knowledge graph implementation, and the algorithmic foundations inspired by state-of-the-art VideoRAG research.
 
+For the full Solution Architect documentation set, start with `docs/ARCHITECTURE_PORTFOLIO.md`. This document remains the broad technical deep dive, while the portfolio breaks the system into focused views for ingestion, retrieval, data architecture, security, and operations.
+
 ## 1. System Architecture Overview
 
 QPrisma implements a **Microservices-based Modular Architecture** designed for scalability and high-throughput multimedia processing.
@@ -28,12 +30,11 @@ graph TD
     end
 
     subgraph "Retrieval & Generation"
-        Gateway -->|Query| Agent[LangGraph Video Agent]
-        Agent -->|Plan| Planner[ReAct Planner]
-        Planner -->|Search| Hybrid[Hybrid Search Engine]
-        Hybrid -->|Graph Traversal| Neo4j
-        Hybrid -->|Vector Sim| Neo4j
-        Agent -->|Synthesize| LLM[GPT-4o]
+        Gateway -->|Query| Agent[Hosted Video Agent]
+        Agent -->|Restore Media Context| StateGraph[LangGraph StateGraph]
+        StateGraph -->|Dynamic Tools| Hybrid[Hybrid Search Engine]
+        Hybrid -->|Graph + Vector + Text| Neo4j
+        StateGraph -->|Grounded Answer| LLM[GPT-4o / GPT-5.2-chat]
     end
 ```
 
@@ -204,11 +205,17 @@ The search engine (`EnhancedSearch`) combines results from three sources:
 $$ Score_{final} = \alpha \cdot Score_{vector} + \beta \cdot Score_{text} + \gamma \cdot Score_{graph} $$
 
 ### 4.2. LangGraph Orchestration
-The "Brain" of QPrisma is a **LangGraph StateGraph** that manages the cognitive architecture:
+The "brain" of QPrisma is a **LangGraph StateGraph** used by the video agent runtime.
 
-*   **Nodes**: `Planner`, `Search`, `Synthesize`, `Critique`.
-*   **Edges**: Conditional logic to loop back if information is missing (ReAct pattern).
-*   **Memory**: Redis-backed `CheckpointSaver` allows pausing/resuming long-running research tasks.
+The current workflow is centered on a bounded tool-using loop rather than the older planner/search/synthesize naming model.
+
+*   **Context restoration**: `restore_media_context` resolves the effective `media_id` or `media_ids` from request config, injected context markers, or checkpointed state.
+*   **Model invocation**: `call_model` builds the system prompt, selects a focused subset of tools, and invokes the model with the current state.
+*   **Tool execution loop**: `should_continue` decides whether to execute tools, stop, or degrade gracefully based on tool calls, iteration count, and accumulated partial results.
+*   **Context persistence**: `update_context` stores compact memory snippets plus artifact references for later rehydration.
+*   **Memory model**: the active prompt-time path uses graph state (`memory_context` and `artifact_refs`) plus selective artifact rehydration. Azure AI Foundry Memory Store is available as a service capability but is not automatically invoked in this runtime path yet.
+
+This architecture gives QPrisma a bounded, observable agent loop with better control over context growth, latency, and graceful degradation.
 
 ---
 
@@ -231,6 +238,8 @@ The "Brain" of QPrisma is a **LangGraph StateGraph** that manages the cognitive 
 ## 6. Deployment Architecture
 
 QPrisma deploys to **Azure Container Apps** using Infrastructure as Code (Bicep) and GitHub Actions CI/CD.
+
+For the deployment-focused architecture view and platform operations details, see `docs/INFRASTRUCTURE.md` and the Azure diagram in `docs/azure-architecture.drawio`.
 
 ### 6.1. Azure Container Apps
 

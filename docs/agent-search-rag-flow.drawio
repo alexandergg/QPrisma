@@ -1,129 +1,418 @@
-<mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2000" pageHeight="2000" math="0" shadow="0"><root><mxCell id="0"/><mxCell id="1" parent="0"/>
-<mxCell id="2" value="&lt;b style=&quot;font-size:20px;&quot;&gt;QPrisma — Agent Search &amp;amp; RAG Flow (LangGraph Agentic Architecture)&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontFamily=Helvetica;" vertex="1" parent="1"><mxGeometry x="200" y="10" width="1300" height="40" as="geometry"/></mxCell>
-<mxCell id="3" value="&lt;i&gt;Azure Data &amp;amp; AI Architecture — Solutions Architect View&lt;/i&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontFamily=Helvetica;fontSize=12;fontColor=#666666;" vertex="1" parent="1"><mxGeometry x="450" y="45" width="800" height="25" as="geometry"/></mxCell>
-<mxCell id="z1" value="&lt;b&gt;ZONE 1: USER REQUEST ENTRY&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" vertex="1" parent="1"><mxGeometry x="30" y="80" width="1540" height="180" as="geometry"/></mxCell>
-<mxCell id="z1_user" value="&lt;b&gt;User&lt;/b&gt;&lt;br&gt;Next.js 16&lt;br&gt;Frontend" style="shape=mxgraph.azure.user;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontFamily=Helvetica;" vertex="1" parent="z1"><mxGeometry x="30" y="50" width="70" height="85" as="geometry"/></mxCell>
-<mxCell id="z1_api" value="&lt;b&gt;POST /chat/agent&lt;/b&gt;&lt;br&gt;FastAPI Route Handler" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z1"><mxGeometry x="160" y="60" width="180" height="60" as="geometry"/></mxCell>
-<mxCell id="z1_foundry" value="&lt;b&gt;FoundryAgentClient&lt;/b&gt;&lt;br&gt;Azure AI Foundry&lt;br&gt;Hosted Agent Runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z1"><mxGeometry x="410" y="50" width="200" height="75" as="geometry"/></mxCell>
-<mxCell id="z1_ctx" value="&lt;b&gt;Context Injection&lt;/b&gt;&lt;br&gt;&lt;code&gt;[QPRISMA_CONTEXT:{&lt;br&gt;media_id, media_ids,&lt;br&gt;user_id, session_id}]&lt;/code&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z1"><mxGeometry x="680" y="45" width="210" height="85" as="geometry"/></mxCell>
-<mxCell id="z1_converter" value="&lt;b&gt;QPrismaStateConverter&lt;/b&gt;&lt;br&gt;Parse context prefix&lt;br&gt;→ LangGraph state init" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z1"><mxGeometry x="960" y="55" width="200" height="70" as="geometry"/></mxCell>
-<mxCell id="e10" value="chat message" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z1_user" target="z1_api" parent="z1"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z1_api" target="z1_foundry" parent="z1"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e12" value="prefix + message" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z1_foundry" target="z1_ctx" parent="z1"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e13" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z1_ctx" target="z1_converter" parent="z1"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="n1" value="&lt;b&gt;Context Injection Pattern&lt;/b&gt;&lt;br&gt;• Metadata del vídeo se inyecta como prefix invisible al user message&lt;br&gt;• QPrismaStateConverter parsea el prefix y extrae media_id, user_id, session_id&lt;br&gt;• El prefix se elimina antes de pasar al LLM&lt;br&gt;• OpenTelemetry trace_id propagado end-to-end" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" vertex="1" parent="z1"><mxGeometry x="1220" y="80" width="330" height="120" as="geometry"/></mxCell>
-<mxCell id="z2" value="&lt;b&gt;ZONE 2: LANGGRAPH STATE GRAPH — Core Agent Loop&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" vertex="1" parent="1"><mxGeometry x="30" y="280" width="1540" height="310" as="geometry"/></mxCell>
-<mxCell id="z2_start" value="&lt;b&gt;START&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#333333;fontColor=#ffffff;strokeColor=#333333;fontFamily=Helvetica;fontSize=11;fontStyle=1;" vertex="1" parent="z2"><mxGeometry x="20" y="125" width="60" height="40" as="geometry"/></mxCell>
-<mxCell id="z2_restore" value="&lt;b&gt;restore_media_context&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;Multi-level fallback:&lt;br&gt;config → state → msg parsing&lt;br&gt;Resolve titles from PostgreSQL&lt;br&gt;OpenTelemetry span attrs&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z2"><mxGeometry x="120" y="100" width="200" height="90" as="geometry"/></mxCell>
-<mxCell id="z2_callmodel" value="&lt;b&gt;call_model&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;• Dynamic system prompt&lt;br&gt;(single/multi/no-video)&lt;br&gt;• Dynamic tool selection (max 8)&lt;br&gt;• Context assembly pipeline:&lt;br&gt;- Trim messages (80k tokens)&lt;br&gt;- Hybrid memory (1.2-2.2k chars)&lt;br&gt;- Artifact rehydration (max 2, ~3.5k)&lt;br&gt;• Iteration guards: 10 calls, 3 errors&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z2"><mxGeometry x="390" y="60" width="240" height="170" as="geometry"/></mxCell>
-<mxCell id="z2_decide" value="&lt;b&gt;should_&lt;br&gt;continue?&lt;/b&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z2"><mxGeometry x="700" y="100" width="100" height="80" as="geometry"/></mxCell>
-<mxCell id="z2_tools" value="&lt;b&gt;tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;LangGraph ToolNode&lt;br&gt;handle_tool_errors=True&lt;br&gt;6 categories • 30+ tools&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z2"><mxGeometry x="870" y="100" width="200" height="85" as="geometry"/></mxCell>
-<mxCell id="z2_update" value="&lt;b&gt;update_context&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;Extract topics&lt;br&gt;Build memory summaries&lt;br&gt;Persist artifacts → Blob&lt;br&gt;Track refs (max 50)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z2"><mxGeometry x="1140" y="100" width="190" height="85" as="geometry"/></mxCell>
-<mxCell id="z2_end" value="&lt;b&gt;END&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#333333;fontColor=#ffffff;strokeColor=#333333;fontFamily=Helvetica;fontSize=11;fontStyle=1;" vertex="1" parent="z2"><mxGeometry x="730" y="230" width="50" height="35" as="geometry"/></mxCell>
-<mxCell id="z2_error" value="&lt;b&gt;error_handler&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;Graceful degradation&lt;br&gt;using partial_results&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z2"><mxGeometry x="870" y="225" width="170" height="50" as="geometry"/></mxCell>
-<mxCell id="e20" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_start" target="z2_restore" parent="z2"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e21" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_restore" target="z2_callmodel" parent="z2"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e22" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_callmodel" target="z2_decide" parent="z2"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e23" value="has tool_calls" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_decide" target="z2_tools" parent="z2"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e24" value="no tool_calls" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_decide" target="z2_end" parent="z2"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e25" value="3+ errors" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_decide" target="z2_error" parent="z2"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e26" value="tool results" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_tools" target="z2_update" parent="z2"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e27" value="loop back" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_update" target="z2_callmodel" parent="z2"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e15" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z1_converter" target="z2_restore" parent="1"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="n2" value="&lt;b&gt;LangGraph Agent Loop&lt;/b&gt;&lt;br&gt;• StateGraph con 5 nodos + decision diamond&lt;br&gt;• Max 10 iteraciones (tool calls) por request&lt;br&gt;• Circuit breaker: 3 errores consecutivos → graceful degradation&lt;br&gt;• Dynamic tool selection: máx 8 tools filtradas por query keywords&lt;br&gt;• Context budget: 80k tokens msgs + 2.2k memory + 3.5k artifacts" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" vertex="1" parent="1"><mxGeometry x="1370" y="280" width="330" height="140" as="geometry"/></mxCell>
-<mxCell id="z3" value="&lt;b&gt;ZONE 3: TOOL CATEGORIES (6 Domains, 30+ Tools)&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#d5eced;strokeColor=#5ba7ab;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" vertex="1" parent="1"><mxGeometry x="30" y="610" width="1540" height="260" as="geometry"/></mxCell>
-<mxCell id="z3_search" value="&lt;b&gt;🔍 Search Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;search_video (hybrid RAG)&lt;br&gt;search_across_videos&lt;br&gt;&lt;font color=&quot;#999&quot;&gt;30s timeout • keyword fallback&lt;/font&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3"><mxGeometry x="20" y="40" width="200" height="80" as="geometry"/></mxCell>
-<mxCell id="z3_entity" value="&lt;b&gt;🧩 Entity Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;find_entity&lt;br&gt;get_entity_network&lt;br&gt;get_entity_timeline&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3"><mxGeometry x="240" y="40" width="180" height="80" as="geometry"/></mxCell>
-<mxCell id="z3_context" value="&lt;b&gt;📋 Context Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;get_scene_context • describe_scene&lt;br&gt;get_video_structure • get_summary&lt;br&gt;list_chapters&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3"><mxGeometry x="440" y="40" width="220" height="80" as="geometry"/></mxCell>
-<mxCell id="z3_analysis" value="&lt;b&gt;📊 Analysis Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;get_related_content (1-3 hops)&lt;br&gt;compare_videos&lt;br&gt;compare_moments&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3"><mxGeometry x="680" y="40" width="200" height="80" as="geometry"/></mxCell>
-<mxCell id="z3_highlight" value="&lt;b&gt;✨ Highlight Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;create_highlight_clip&lt;br&gt;get_key_moments&lt;br&gt;find_highlights&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3"><mxGeometry x="900" y="40" width="180" height="80" as="geometry"/></mxCell>
-<mxCell id="z3_multi" value="&lt;b&gt;🎬 Multi-Video Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;get_library_overview&lt;br&gt;search_across_videos&lt;br&gt;find_common_entities&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3"><mxGeometry x="1100" y="40" width="200" height="80" as="geometry"/></mxCell>
-<mxCell id="z3_arrow_label" value="&lt;font size=&quot;1&quot; color=&quot;#5ba7ab&quot;&gt;&lt;b&gt;All tools return structured dicts&lt;/b&gt; — never raise exceptions — errors wrapped in {error: str, results: []}&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="z3"><mxGeometry x="200" y="135" width="700" height="25" as="geometry"/></mxCell>
-<mxCell id="z3_dyn" value="&lt;b&gt;Dynamic Tool Selection&lt;/b&gt;" style="swimlane;startSize=22;fillColor=#f5f5f5;strokeColor=#999999;fontFamily=Helvetica;fontSize=10;html=1;collapsible=0;rounded=1;" vertex="1" parent="z3"><mxGeometry x="20" y="160" width="800" height="70" as="geometry"/></mxCell>
-<mxCell id="z3_dyn_input" value="User Query" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3_dyn"><mxGeometry x="10" y="28" width="100" height="35" as="geometry"/></mxCell>
-<mxCell id="z3_dyn_kw" value="Keyword
-Analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3_dyn"><mxGeometry x="140" y="28" width="100" height="35" as="geometry"/></mxCell>
-<mxCell id="z3_dyn_select" value="Select max 8
-relevant tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3_dyn"><mxGeometry x="280" y="28" width="120" height="35" as="geometry"/></mxCell>
-<mxCell id="z3_dyn_inject" value="Inject into
-call_model" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z3_dyn"><mxGeometry x="440" y="28" width="120" height="35" as="geometry"/></mxCell>
-<mxCell id="z3_dyn_profiles" value="&lt;font size=&quot;1&quot;&gt;&lt;b&gt;Profiles:&lt;/b&gt; time-based • object • person • text • action • scene&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="z3_dyn"><mxGeometry x="590" y="28" width="200" height="35" as="geometry"/></mxCell>
-<mxCell id="e30" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z3_dyn_input" target="z3_dyn_kw" parent="z3_dyn"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e31" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z3_dyn_kw" target="z3_dyn_select" parent="z3_dyn"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e32" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z3_dyn_select" target="z3_dyn_inject" parent="z3_dyn"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e28" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_tools" target="z3_search" parent="1"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="n3" value="&lt;b&gt;Tool Design Patterns&lt;/b&gt;&lt;br&gt;• Todas las tools retornan dicts, nunca excepciones&lt;br&gt;• Timeout 30s en search tools con keyword fallback&lt;br&gt;• Entity network: graph traversal 1-3 hops con score decay&lt;br&gt;• Highlight tools generan clips con timestamps para frontend&lt;br&gt;• Dynamic selection reduce latencia y token usage" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" vertex="1" parent="z3"><mxGeometry x="1370" y="610" width="330" height="130" as="geometry"/></mxCell>
-<mxCell id="z4" value="&lt;b&gt;ZONE 4: HYBRID RAG SEARCH PIPELINE&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" vertex="1" parent="1"><mxGeometry x="30" y="890" width="1540" height="330" as="geometry"/></mxCell>
-<mxCell id="z4_query" value="&lt;b&gt;Query&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=11;fontStyle=1;" vertex="1" parent="z4"><mxGeometry x="20" y="80" width="70" height="45" as="geometry"/></mxCell>
-<mxCell id="z4_vec" value="&lt;b&gt;Layer 1: Vector Search&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#d6b656&quot;&gt;&lt;b&gt;35% weight&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Matryoshka 512d pre-filter&lt;br&gt;→ Full 3072d cosine ranking&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z4"><mxGeometry x="140" y="45" width="220" height="80" as="geometry"/></mxCell>
-<mxCell id="z4_ft" value="&lt;b&gt;Layer 2: Full-Text Search&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#d6b656&quot;&gt;&lt;b&gt;25% weight&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Neo4j fulltext indexes&lt;br&gt;frame_search • entity_search • audio_search&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z4"><mxGeometry x="140" y="140" width="220" height="80" as="geometry"/></mxCell>
-<mxCell id="z4_graph" value="&lt;b&gt;Layer 3: Graph Traversal&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#d6b656&quot;&gt;&lt;b&gt;25% weight&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;CONTAINS • MENTIONS • RELATED_TO&lt;br&gt;1-3 hops, score decay by distance&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z4"><mxGeometry x="400" y="45" width="220" height="80" as="geometry"/></mxCell>
-<mxCell id="z4_temp" value="&lt;b&gt;Layer 4: Temporal Awareness&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#d6b656&quot;&gt;&lt;b&gt;15% weight&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Proximity boost by normalized&lt;br&gt;timestamp distance&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z4"><mxGeometry x="400" y="140" width="220" height="80" as="geometry"/></mxCell>
-<mxCell id="z4_fusion" value="&lt;b&gt;Multi-Signal&lt;br&gt;Fusion&lt;/b&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;fontStyle=1;shadow=1;" vertex="1" parent="z4"><mxGeometry x="670" y="90" width="100" height="80" as="geometry"/></mxCell>
-<mxCell id="z4_rerank" value="&lt;b&gt;Re-Ranking&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Expanded context&lt;br&gt;Co-occurrence boost&lt;br&gt;Community clustering&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z4"><mxGeometry x="820" y="80" width="180" height="80" as="geometry"/></mxCell>
-<mxCell id="z4_results" value="&lt;b&gt;Ranked Results&lt;/b&gt;&lt;br&gt;→ call_model context" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z4"><mxGeometry x="1060" y="90" width="150" height="60" as="geometry"/></mxCell>
-<mxCell id="e40" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_query" target="z4_vec" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e41" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_query" target="z4_ft" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e42" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_vec" target="z4_graph" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e43" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_graph" target="z4_fusion" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e44" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_ft" target="z4_temp" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e45" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_temp" target="z4_fusion" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e46" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_fusion" target="z4_rerank" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e47" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_rerank" target="z4_results" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="z4_table_title" value="&lt;b&gt;Intent-Adaptive Weighting&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" vertex="1" parent="z4"><mxGeometry x="100" y="235" width="250" height="20" as="geometry"/></mxCell>
-<mxCell id="z4_table" value="&lt;table style=&quot;font-size:9px;font-family:Helvetica;border-collapse:collapse;&quot; cellpadding=&quot;3&quot; border=&quot;1&quot;&gt;&lt;tr style=&quot;background:#d6b656;color:white;font-weight:bold;&quot;&gt;&lt;td&gt;Intent&lt;/td&gt;&lt;td&gt;Vector&lt;/td&gt;&lt;td&gt;FullText&lt;/td&gt;&lt;td&gt;Graph&lt;/td&gt;&lt;td&gt;Temporal&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;time-based&lt;/td&gt;&lt;td&gt;25%&lt;/td&gt;&lt;td&gt;15%&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;&lt;b&gt;40%&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;object/person&lt;/td&gt;&lt;td&gt;30%&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;&lt;b&gt;35%&lt;/b&gt;&lt;/td&gt;&lt;td&gt;15%&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;text&lt;/td&gt;&lt;td&gt;25%&lt;/td&gt;&lt;td&gt;&lt;b&gt;40%&lt;/b&gt;&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;15%&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;action/scene&lt;/td&gt;&lt;td&gt;&lt;b&gt;40%&lt;/b&gt;&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="text;html=1;overflow=fill;strokeColor=#d6b656;fillColor=#FFFDE7;rounded=1;shadow=1;" vertex="1" parent="z4"><mxGeometry x="100" y="255" width="320" height="65" as="geometry"/></mxCell>
-<mxCell id="z4_neo4j" value="&lt;b&gt;Neo4j Knowledge Graph&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Vector indexes + Fulltext indexes&lt;br&gt;Graph relationships&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z4"><mxGeometry x="470" y="240" width="160" height="70" as="geometry"/></mxCell>
-<mxCell id="e48" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_neo4j" target="z4_vec" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e49" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;" edge="1" source="z4_neo4j" target="z4_ft" parent="z4"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e35" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;" edge="1" source="z3_search" target="z4_query" parent="1"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="n4" value="&lt;b&gt;Hybrid RAG Search&lt;/b&gt;&lt;br&gt;• 4 capas de búsqueda con fusión multi-signal&lt;br&gt;• Matryoshka 2-stage: 512d coarse → 3072d fine&lt;br&gt;• Intent-adaptive: detecta tipo de query y ajusta pesos&lt;br&gt;• Temporal: queries de tiempo boost ×2.5&lt;br&gt;• Entity: queries de entidades boost ×1.4 graph&lt;br&gt;• Re-ranking: expanded context + community clustering" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" vertex="1" parent="1"><mxGeometry x="1370" y="890" width="330" height="140" as="geometry"/></mxCell>
-<mxCell id="z5" value="&lt;b&gt;ZONE 5: MEMORY &amp;amp; PERSISTENCE ARCHITECTURE&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" vertex="1" parent="1"><mxGeometry x="30" y="1240" width="1540" height="280" as="geometry"/></mxCell>
-<mxCell id="z5_t1_title" value="&lt;b&gt;Tier 1: Thread-Scoped&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="20" y="35" width="180" height="20" as="geometry"/></mxCell>
-<mxCell id="z5_checkpoint" value="&lt;b&gt;LangGraph Checkpointer&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;PostgreSQL-backed&lt;br&gt;Thread-scoped state&lt;br&gt;Resume / retry continuity&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z5"><mxGeometry x="20" y="60" width="200" height="80" as="geometry"/></mxCell>
-<mxCell id="z5_t2_title" value="&lt;b&gt;Tier 2: Tool Artifacts&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="280" y="35" width="200" height="20" as="geometry"/></mxCell>
-<mxCell id="z5_redis" value="&lt;b&gt;Redis&lt;/b&gt;&lt;br&gt;Hot cache" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/databases/Cache_Redis.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="280" y="60" width="50" height="50" as="geometry"/></mxCell>
-<mxCell id="z5_blob" value="&lt;b&gt;Azure Blob&lt;/b&gt;&lt;br&gt;Cold storage" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/storage/Storage_Accounts.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="410" y="60" width="50" height="50" as="geometry"/></mxCell>
-<mxCell id="z5_pg" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;Metadata" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/databases/Azure_Database_PostgreSQL_Server.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="540" y="60" width="50" height="50" as="geometry"/></mxCell>
-<mxCell id="z5_t3_title" value="&lt;b&gt;Tier 3: Long-Term Memory&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="720" y="35" width="250" height="20" as="geometry"/></mxCell>
-<mxCell id="z5_foundry" value="&lt;b&gt;Azure AI Foundry&lt;/b&gt;&lt;br&gt;Memory Store" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/ai_machine_learning/Cognitive_Services.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="740" y="60" width="50" height="50" as="geometry"/></mxCell>
-<mxCell id="z5_foundry_desc" value="&lt;font size=&quot;1&quot;&gt;Compact semantic summaries&lt;br&gt;Cross-session user memory&lt;br&gt;Long-term topic tracking&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;strokeColor=none;fillColor=none;fontSize=9;fontColor=#666;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="830" y="65" width="160" height="50" as="geometry"/></mxCell>
-<mxCell id="z5_retrieval_title" value="&lt;b&gt;Memory Retrieval Pipeline&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="20" y="155" width="250" height="20" as="geometry"/></mxCell>
-<mxCell id="z5_r1" value="Hybrid Candidate
-Collection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z5"><mxGeometry x="30" y="180" width="140" height="45" as="geometry"/></mxCell>
-<mxCell id="z5_r2" value="Reranking
-(lexical+semantic+recency)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z5"><mxGeometry x="200" y="180" width="170" height="45" as="geometry"/></mxCell>
-<mxCell id="z5_r3" value="Budget Allocation
-(1.2-2.2k chars)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z5"><mxGeometry x="400" y="180" width="150" height="45" as="geometry"/></mxCell>
-<mxCell id="z5_r4" value="Selective Artifact
-Rehydration (max 2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z5"><mxGeometry x="580" y="180" width="160" height="45" as="geometry"/></mxCell>
-<mxCell id="z5_r5" value="→ call_model
-context window" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z5"><mxGeometry x="770" y="180" width="140" height="45" as="geometry"/></mxCell>
-<mxCell id="e50" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z5_r1" target="z5_r2" parent="z5"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e51" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z5_r2" target="z5_r3" parent="z5"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e52" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z5_r3" target="z5_r4" parent="z5"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e53" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z5_r4" target="z5_r5" parent="z5"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="z5_limits" value="&lt;font size=&quot;1&quot; color=&quot;#82b366&quot;&gt;&lt;b&gt;Limits:&lt;/b&gt; artifact_refs max 50 • memory_context max 20 • partial_results max 10&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="z5"><mxGeometry x="20" y="235" width="500" height="20" as="geometry"/></mxCell>
-<mxCell id="e29" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_update" target="z5_checkpoint" parent="1"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="n5" value="&lt;b&gt;3-Tier Memory Architecture&lt;/b&gt;&lt;br&gt;• Hot (Redis TTL) → Warm (Blob persistent) → Cold (Foundry Memory)&lt;br&gt;• Retrieval: hybrid candidates → multi-signal reranking → budget allocation&lt;br&gt;• Selective rehydration: solo 2 artifacts expandidos (~3.5k chars)&lt;br&gt;• Prevents context overflow: budget estricto por tier&lt;br&gt;• Cross-session memory via Foundry Memory Store" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" vertex="1" parent="1"><mxGeometry x="1370" y="1240" width="330" height="130" as="geometry"/></mxCell>
-<mxCell id="z6" value="&lt;b&gt;ZONE 6: RESPONSE STREAMING&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" vertex="1" parent="1"><mxGeometry x="30" y="1540" width="1540" height="170" as="geometry"/></mxCell>
-<mxCell id="z6_oai" value="&lt;b&gt;Azure OpenAI&lt;/b&gt;&lt;br&gt;GPT-4o / GPT-5.2" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/ai_machine_learning/Cognitive_Services.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" vertex="1" parent="z6"><mxGeometry x="50" y="45" width="50" height="50" as="geometry"/></mxCell>
-<mxCell id="z6_stream" value="&lt;b&gt;openai.responses.create&lt;/b&gt;&lt;br&gt;&lt;code&gt;stream=True&lt;/code&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z6"><mxGeometry x="200" y="55" width="210" height="55" as="geometry"/></mxCell>
-<mxCell id="z6_sse" value="&lt;b&gt;Server-Sent Events&lt;/b&gt;&lt;br&gt;&lt;code&gt;{type:&quot;token&quot;,&lt;br&gt;content:&quot;...&quot;}&lt;/code&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z6"><mxGeometry x="480" y="45" width="190" height="65" as="geometry"/></mxCell>
-<mxCell id="z6_fe" value="&lt;b&gt;Next.js 16 Frontend&lt;/b&gt;&lt;br&gt;Token-by-token rendering&lt;br&gt;&lt;font size=&quot;1&quot;&gt;+ navigation_actions + source citations&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=10;shadow=1;" vertex="1" parent="z6"><mxGeometry x="740" y="50" width="240" height="60" as="geometry"/></mxCell>
-<mxCell id="z6_user" value="&lt;b&gt;User&lt;/b&gt;" style="shape=mxgraph.azure.user;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontFamily=Helvetica;" vertex="1" parent="z6"><mxGeometry x="1050" y="55" width="50" height="60" as="geometry"/></mxCell>
-<mxCell id="e60" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z6_oai" target="z6_stream" parent="z6"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e61" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z6_stream" target="z6_sse" parent="z6"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e62" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z6_sse" target="z6_fe" parent="z6"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e63" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" edge="1" source="z6_fe" target="z6_user" parent="z6"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="e29b" value="response generation" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" edge="1" source="z2_end" target="z6_stream" parent="1"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
-<mxCell id="n6" value="&lt;b&gt;Streaming Architecture&lt;/b&gt;&lt;br&gt;• Token-by-token via SSE (Server-Sent Events)&lt;br&gt;• Frontend renderiza progressivamente con React 19&lt;br&gt;• Navigation actions: timestamps clickables en video player&lt;br&gt;• Source citations: referencias a frames/scenes/chapters&lt;br&gt;• Latency: first token ~0.5s, full response 2-15s" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" vertex="1" parent="1"><mxGeometry x="1370" y="1540" width="330" height="120" as="geometry"/></mxCell>
-<mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;" style="swimlane;startSize=22;fillColor=#f5f5f5;strokeColor=#999999;fontFamily=Helvetica;fontSize=10;html=1;collapsible=0;rounded=1;" vertex="1" parent="1"><mxGeometry x="1370" y="1710" width="330" height="120" as="geometry"/></mxCell>
-<mxCell id="l1" value="API / Compute" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="legend"><mxGeometry x="10" y="28" width="80" height="22" as="geometry"/></mxCell>
-<mxCell id="l2" value="AI / LLM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="legend"><mxGeometry x="100" y="28" width="80" height="22" as="geometry"/></mxCell>
-<mxCell id="l3" value="Data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="legend"><mxGeometry x="190" y="28" width="60" height="22" as="geometry"/></mxCell>
-<mxCell id="l4" value="Tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="legend"><mxGeometry x="260" y="28" width="60" height="22" as="geometry"/></mxCell>
-<mxCell id="l5" value="Memory/OK" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="legend"><mxGeometry x="10" y="55" width="80" height="22" as="geometry"/></mxCell>
-<mxCell id="l6" value="Error" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="legend"><mxGeometry x="100" y="55" width="80" height="22" as="geometry"/></mxCell>
-<mxCell id="l7" value="Note" style="shape=note;size=10;fillColor=#FFFFCC;strokeColor=#B3B300;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="legend"><mxGeometry x="190" y="55" width="60" height="22" as="geometry"/></mxCell>
-<mxCell id="l8" value="&lt;font size=&quot;1&quot;&gt;━━ Primary  ── Standard  - - Meta/Data&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontFamily=Helvetica;" vertex="1" parent="legend"><mxGeometry x="10" y="85" width="300" height="20" as="geometry"/></mxCell>
-</root></mxGraphModel>
+<mxfile host="65bd71144e">
+    <diagram id="f94amr2qfJ_1bi5JirR0" name="Page-1">
+        <mxGraphModel dx="3894" dy="851" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="2000" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="2" value="&lt;b style=&quot;font-size:20px;&quot;&gt;QPrisma — Agent Search &amp;amp; GraphRAG Flow (LangGraph Agentic Architecture)&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontFamily=Helvetica;" parent="1" vertex="1">
+                    <mxGeometry x="455" width="770" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="3" value="&lt;i&gt;Azure Data &amp;amp; AI Architecture — Solutions Architect View&lt;/i&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontFamily=Helvetica;fontSize=12;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="440" y="30" width="800" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="3meta" value="Diagram: Agent Search and RAG Flow | Version: v1.1 | Date: 2026-04-14 | Scope: Hosted agent, StateGraph loop, hybrid retrieval, layered memory" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=10;fontColor=#666666;fontFamily=Helvetica;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="55" width="1180" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="z1" value="&lt;b&gt;ZONE 1: USER REQUEST ENTRY&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="80" width="1540" height="180" as="geometry"/>
+                </mxCell>
+                <mxCell id="z1_user" value="&lt;b&gt;User&lt;/b&gt;&lt;br&gt;Next.js 16&lt;br&gt;Frontend" style="shape=mxgraph.azure.user;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;fontFamily=Helvetica;" parent="z1" vertex="1">
+                    <mxGeometry x="11" y="54" width="60" height="68" as="geometry"/>
+                </mxCell>
+                <mxCell id="z1_api" value="&lt;b&gt;POST /chat/agent&lt;/b&gt;&lt;br&gt;FastAPI Route Handler" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z1" vertex="1">
+                    <mxGeometry x="209" y="56" width="180" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="z1_foundry" value="&lt;b&gt;FoundryAgentClient&lt;/b&gt;&lt;br&gt;Azure AI Foundry&lt;br&gt;Hosted Agent Runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z1" vertex="1">
+                    <mxGeometry x="630" y="47.5" width="200" height="75" as="geometry"/>
+                </mxCell>
+                <mxCell id="z1_ctx" value="&lt;b&gt;Context Injection&lt;/b&gt;&lt;br&gt;&lt;code&gt;[QPRISMA_CONTEXT:{&lt;br&gt;media_id, media_ids,&lt;br&gt;user_id, session_id}]&lt;/code&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z1" vertex="1">
+                    <mxGeometry x="970" y="42.5" width="210" height="85" as="geometry"/>
+                </mxCell>
+                <mxCell id="z1_converter" value="&lt;b&gt;QPrismaStateConverter&lt;/b&gt;&lt;br&gt;Parse context prefix&lt;br&gt;→ LangGraph state init" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z1" vertex="1">
+                    <mxGeometry x="1270" y="50" width="200" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="e10" value="chat message" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z1" source="z1_user" target="z1_api" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e11" value="invoke agent (HTTPS/SDK)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z1" source="z1_api" target="z1_foundry" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e12" value="prefix + message" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z1" source="z1_foundry" target="z1_ctx" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e13" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="z1" source="z1_ctx" target="z1_converter" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2" value="&lt;b&gt;ZONE 2: LANGGRAPH STATE GRAPH — Core Agent Loop&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="280" width="1540" height="310" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2_start" value="&lt;b&gt;START&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=none;fontColor=#ffffff;strokeColor=#333333;fontFamily=Helvetica;fontSize=11;fontStyle=1;" parent="z2" vertex="1">
+                    <mxGeometry x="20" y="125" width="60" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2_restore" value="&lt;b&gt;restore_media_context&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;Multi-level fallback:&lt;br&gt;config → state → msg parsing&lt;br&gt;Resolve titles from PostgreSQL&lt;br&gt;OpenTelemetry span attrs&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z2" vertex="1">
+                    <mxGeometry x="120" y="100" width="200" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2_callmodel" value="&lt;b&gt;call_model&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;• Dynamic system prompt&lt;br&gt;(single/multi/no-video)&lt;br&gt;• Dynamic tool selection (max 8)&lt;br&gt;• Context assembly pipeline:&lt;br&gt;- Trim messages (80k tokens)&lt;br&gt;- Hybrid memory (1.2-2.2k chars)&lt;br&gt;- Artifact rehydration (max 2, ~3.5k)&lt;br&gt;• Iteration guards: 10 calls, 3 errors&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z2" vertex="1">
+                    <mxGeometry x="390" y="60" width="240" height="170" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2_decide" value="&lt;b&gt;should_&lt;br&gt;continue?&lt;/b&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z2" vertex="1">
+                    <mxGeometry x="700" y="105" width="100" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2_tools" value="&lt;b&gt;tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;LangGraph ToolNode&lt;br&gt;handle_tool_errors=True&lt;br&gt;6 categories • 30+ tools&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z2" vertex="1">
+                    <mxGeometry x="870" y="100" width="200" height="85" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2_update" value="&lt;b&gt;update_context&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;Extract topics&lt;br&gt;Build memory summaries&lt;br&gt;Persist artifacts → Blob&lt;br&gt;Track refs (max 50)&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z2" vertex="1">
+                    <mxGeometry x="1256" y="100" width="190" height="85" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2_end" value="&lt;b&gt;END&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=none;fontColor=#ffffff;strokeColor=#333333;fontFamily=Helvetica;fontSize=11;fontStyle=1;" parent="z2" vertex="1">
+                    <mxGeometry x="724" y="235" width="50" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="z2_error" value="&lt;b&gt;error_handler&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot; color=&quot;#666&quot;&gt;Graceful degradation&lt;br&gt;using partial_results&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z2" vertex="1">
+                    <mxGeometry x="870" y="214" width="170" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="e20" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z2" source="z2_start" target="z2_restore" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e21" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="z2" source="z2_restore" target="z2_callmodel" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e22" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="z2" source="z2_callmodel" target="z2_decide" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e23" value="has tool_calls" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=9;" parent="z2" source="z2_decide" target="z2_tools" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e24" value="no tool_calls" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z2" source="z2_decide" target="z2_end" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e25" value="3+ errors" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#b85450;dashed=1;fontFamily=Helvetica;fontSize=9;" parent="z2" source="z2_decide" target="z2_error" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="750" y="200"/>
+                            <mxPoint x="955" y="200"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e26" value="tool results" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=9;" parent="z2" source="z2_tools" target="z2_update" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e27" value="loop back" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=9;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" parent="z2" source="z2_update" target="z2_callmodel" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1351" y="50"/>
+                            <mxPoint x="510" y="50"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e15" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="1" source="z1_converter" target="z2_restore" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1400" y="230"/>
+                            <mxPoint x="250" y="230"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="n2" value="&lt;b&gt;LangGraph Agent Loop&lt;/b&gt;&lt;br&gt;• StateGraph with 5 core nodes plus a routing decision&lt;br&gt;• Max 10 tool iterations per request&lt;br&gt;• Circuit breaker: 3 consecutive errors trigger graceful degradation&lt;br&gt;• Dynamic tool selection: up to 8 tools filtered from the query&lt;br&gt;• Context budget combines messages, memory snippets, and selective artifacts" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="1600" y="380" width="330" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3" value="&lt;b&gt;ZONE 3: TOOL CATEGORIES (6 Domains, 30+ Tools)&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#d5eced;strokeColor=#5ba7ab;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="610" width="1540" height="240" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_search" value="&lt;b&gt;🔍 Search Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;search_video (hybrid RAG)&lt;br&gt;search_across_videos&lt;br&gt;&lt;font color=&quot;#999&quot;&gt;30s timeout • keyword fallback&lt;/font&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3" vertex="1">
+                    <mxGeometry x="20" y="40" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_entity" value="&lt;b&gt;🧩 Entity Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;find_entity&lt;br&gt;get_entity_network&lt;br&gt;get_entity_timeline&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3" vertex="1">
+                    <mxGeometry x="240" y="40" width="180" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_context" value="&lt;b&gt;📋 Context Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;get_scene_context • describe_scene&lt;br&gt;get_video_structure • get_summary&lt;br&gt;list_chapters&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3" vertex="1">
+                    <mxGeometry x="440" y="40" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_analysis" value="&lt;b&gt;📊 Analysis Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;get_related_content (1-3 hops)&lt;br&gt;compare_videos&lt;br&gt;compare_moments&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3" vertex="1">
+                    <mxGeometry x="680" y="40" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_highlight" value="&lt;b&gt;✨ Highlight Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;create_highlight_clip&lt;br&gt;get_key_moments&lt;br&gt;find_highlights&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3" vertex="1">
+                    <mxGeometry x="900" y="40" width="180" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_multi" value="&lt;b&gt;🎬 Multi-Video Tools&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;get_library_overview&lt;br&gt;search_across_videos&lt;br&gt;find_common_entities&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3" vertex="1">
+                    <mxGeometry x="1100" y="40" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_arrow_label" value="&lt;font size=&quot;1&quot; color=&quot;#5ba7ab&quot;&gt;&lt;b&gt;All tools return structured dicts&lt;/b&gt; — never raise exceptions — errors wrapped in {error: str, results: []}&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontFamily=Helvetica;" parent="z3" vertex="1">
+                    <mxGeometry x="420" y="131" width="700" height="25" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_dyn" value="&lt;b&gt;Dynamic Tool Selection&lt;/b&gt;" style="swimlane;startSize=22;fillColor=#f5f5f5;strokeColor=#999999;fontFamily=Helvetica;fontSize=10;html=1;collapsible=0;rounded=1;" parent="z3" vertex="1">
+                    <mxGeometry x="327" y="160" width="860" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_dyn_input" value="User Query" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3_dyn" vertex="1">
+                    <mxGeometry x="10" y="28" width="100" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_dyn_kw" value="Keyword Analysis" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3_dyn" vertex="1">
+                    <mxGeometry x="140" y="28" width="100" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_dyn_select" value="Select max 8 relevant tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3_dyn" vertex="1">
+                    <mxGeometry x="280" y="28" width="120" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_dyn_inject" value="Inject into call_model" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z3_dyn" vertex="1">
+                    <mxGeometry x="440" y="28" width="120" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="z3_dyn_profiles" value="&lt;font size=&quot;1&quot;&gt;&lt;b&gt;Profiles:&lt;/b&gt; time-based • object • person • text • action • scene&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontFamily=Helvetica;" parent="z3_dyn" vertex="1">
+                    <mxGeometry x="572" y="28" width="200" height="35" as="geometry"/>
+                </mxCell>
+                <mxCell id="e30" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z3_dyn" source="z3_dyn_input" target="z3_dyn_kw" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e31" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z3_dyn" source="z3_dyn_kw" target="z3_dyn_select" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e32" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z3_dyn" source="z3_dyn_select" target="z3_dyn_inject" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e28" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" parent="1" source="z2_tools" target="z3_search" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1110" y="423"/>
+                            <mxPoint x="1110" y="560"/>
+                            <mxPoint x="150" y="560"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="n3" value="&lt;b&gt;Tool Design Patterns&lt;/b&gt;&lt;br&gt;• All tools return structured dicts instead of raising exceptions&lt;br&gt;• Search tools use a 30 s timeout with keyword fallback&lt;br&gt;• Entity network traversal spans 1-3 hops with score decay&lt;br&gt;• Highlight tools emit clip timestamps for the frontend&lt;br&gt;• Dynamic selection reduces latency and token usage" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="1610" y="675" width="330" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4" value="&lt;b&gt;ZONE 4: HYBRID RAG SEARCH PIPELINE&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="890" width="1540" height="340" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_query" value="&lt;b&gt;Query&lt;/b&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=11;fontStyle=1;" parent="z4" vertex="1">
+                    <mxGeometry x="20" y="63" width="70" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_vec" value="&lt;b&gt;Layer 1: Vector Search&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#d6b656&quot;&gt;&lt;b&gt;35% weight&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Matryoshka 512d pre-filter&lt;br&gt;→ Full 3072d cosine ranking&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z4" vertex="1">
+                    <mxGeometry x="140" y="45" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_ft" value="&lt;b&gt;Layer 2: Full-Text Search&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#d6b656&quot;&gt;&lt;b&gt;25% weight&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Neo4j fulltext indexes&lt;br&gt;frame_search • entity_search • audio_search&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z4" vertex="1">
+                    <mxGeometry x="140" y="146" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_graph" value="&lt;b&gt;Layer 3: Graph Traversal&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#d6b656&quot;&gt;&lt;b&gt;25% weight&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;CONTAINS • APPEARS_WITH • RELATES_TO&lt;br&gt;1-3 hops with distance-aware score decay&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z4" vertex="1">
+                    <mxGeometry x="400" y="45" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_temp" value="&lt;b&gt;Layer 4: Temporal Awareness&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#d6b656&quot;&gt;&lt;b&gt;15% weight&lt;/b&gt;&lt;/font&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Proximity boost by normalized&lt;br&gt;timestamp distance&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z4" vertex="1">
+                    <mxGeometry x="400" y="146" width="220" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_fusion" value="&lt;b&gt;Multi-Signal&lt;br&gt;Fusion&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;strokeWidth=3;fontFamily=Helvetica;fontSize=10;fontStyle=1;shadow=1;" parent="z4" vertex="1">
+                    <mxGeometry x="702" y="85" width="130" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_rerank" value="&lt;b&gt;Re-Ranking&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Expanded context&lt;br&gt;Co-occurrence boost&lt;br&gt;Community clustering&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z4" vertex="1">
+                    <mxGeometry x="893" y="90" width="180" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_results" value="&lt;b&gt;Ranked Results&lt;/b&gt;&lt;br&gt;→ call_model context" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z4" vertex="1">
+                    <mxGeometry x="1135" y="100" width="150" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="e40" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z4" source="z4_query" target="z4_vec" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e41" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z4" source="z4_query" target="z4_ft" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="55" y="186"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e42" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z4" source="z4_vec" target="z4_graph" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e43" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z4" source="z4_graph" target="z4_fusion" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e44" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z4" source="z4_ft" target="z4_temp" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e45" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z4" source="z4_temp" target="z4_fusion" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e46" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="z4" source="z4_fusion" target="z4_rerank" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e47" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="z4" source="z4_rerank" target="z4_results" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_table_title" value="&lt;b&gt;Intent-Adaptive Weighting&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" parent="z4" vertex="1">
+                    <mxGeometry x="855" y="177" width="250" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_table" value="&lt;br&gt;&lt;ul&gt;&lt;li&gt;&lt;table style=&quot;text-align: center; font-size: 9px; font-family: Helvetica; border-collapse: collapse;&quot; cellpadding=&quot;3&quot; border=&quot;1&quot;&gt;&lt;tbody&gt;&lt;tr style=&quot;background: rgb(214, 182, 86); color: white; font-weight: bold;&quot;&gt;&lt;td&gt;Intent&lt;/td&gt;&lt;td&gt;Vector&lt;/td&gt;&lt;td&gt;FullText&lt;/td&gt;&lt;td&gt;Graph&lt;/td&gt;&lt;td&gt;Temporal&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;time-based&lt;/td&gt;&lt;td&gt;25%&lt;/td&gt;&lt;td&gt;15%&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;&lt;b&gt;40%&lt;/b&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;object/person&lt;/td&gt;&lt;td&gt;30%&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;&lt;b&gt;35%&lt;/b&gt;&lt;/td&gt;&lt;td&gt;15%&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;text&lt;/td&gt;&lt;td&gt;25%&lt;/td&gt;&lt;td&gt;&lt;b&gt;40%&lt;/b&gt;&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;15%&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td&gt;action/scene&lt;/td&gt;&lt;td&gt;&lt;b&gt;40%&lt;/b&gt;&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;td&gt;20%&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;&lt;/li&gt;&lt;/ul&gt;" style="text;html=1;overflow=fill;strokeColor=#d6b656;fillColor=#FFFDE7;rounded=1;shadow=1;" parent="z4" vertex="1">
+                    <mxGeometry x="830" y="201" width="300" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="z4_neo4j" value="&lt;b&gt;Neo4j Knowledge Graph&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;Vector indexes + Fulltext indexes&lt;br&gt;Graph relationships&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z4" vertex="1">
+                    <mxGeometry x="470" y="240" width="160" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="e48" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;exitX=0.145;exitY=0;exitDx=0;exitDy=3.4799999999999995;exitPerimeter=0;" parent="z4" source="z4_neo4j" target="z4_vec" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="493" y="240"/>
+                            <mxPoint x="380" y="240"/>
+                            <mxPoint x="380" y="85"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e49" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;" parent="z4" source="z4_neo4j" target="z4_ft" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e35" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;" parent="1" source="z3_search" target="z4_query" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="85" y="780"/>
+                            <mxPoint x="85" y="780"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="n4" value="&lt;b&gt;Hybrid RAG Search&lt;/b&gt;&lt;br&gt;• Four search layers feed a multi-signal fusion step&lt;br&gt;• Matryoshka two-stage retrieval: 512d coarse → 3072d fine&lt;br&gt;• Intent-adaptive weighting adjusts to the query type&lt;br&gt;• Temporal questions receive proximity boosting&lt;br&gt;• Entity questions receive stronger graph weighting&lt;br&gt;• Re-ranking adds expanded context and community signals" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="1600" y="985" width="330" height="140" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5" value="&lt;b&gt;ZONE 5: MEMORY &amp;amp; PERSISTENCE ARCHITECTURE&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="1240" width="1540" height="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_t1_title" value="&lt;b&gt;Tier 1: Thread-Scoped&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="20" y="35" width="180" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_checkpoint" value="&lt;b&gt;LangGraph Checkpointer&lt;/b&gt;&lt;br&gt;&lt;font size=&quot;1&quot;&gt;PostgreSQL-backed&lt;br&gt;Thread-scoped state&lt;br&gt;Resume / retry continuity&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z5" vertex="1">
+                    <mxGeometry x="20" y="60" width="200" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_t2_title" value="&lt;b&gt;Tier 2: Tool Artifacts&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="335" y="35" width="200" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_redis" value="&lt;b&gt;Redis&lt;/b&gt;&lt;br&gt;Hot cache" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/databases/Cache_Redis.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="280" y="60" width="50" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_blob" value="&lt;b&gt;Azure Blob&lt;/b&gt;&lt;br&gt;Cold storage" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/storage/Storage_Accounts.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="410" y="60" width="50" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_pg" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;Metadata" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/databases/Azure_Database_PostgreSQL_Server.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="540" y="60" width="50" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_t3_title" value="&lt;b&gt;Tier 3: Long-Term Memory&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="720" y="35" width="250" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_foundry" value="&lt;b&gt;Azure AI Foundry&lt;/b&gt;&lt;br&gt;Memory Store" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/ai_machine_learning/Cognitive_Services.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="769" y="60" width="50" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_foundry_desc" value="&lt;font size=&quot;1&quot;&gt;Compact semantic summaries&lt;br&gt;Available long-term capability&lt;br&gt;Not auto-invoked in the main loop yet&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=top;strokeColor=none;fillColor=none;fontSize=9;fontColor=#666;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="834" y="70" width="180" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_retrieval_title" value="&lt;b&gt;Memory Retrieval Pipeline&lt;/b&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=11;fontStyle=1;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="20" y="155" width="250" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_r1" value="Hybrid Candidate Collection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z5" vertex="1">
+                    <mxGeometry x="30" y="180" width="140" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_r2" value="Reranking (lexical+semantic+recency)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z5" vertex="1">
+                    <mxGeometry x="200" y="180" width="170" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_r3" value="Budget Allocation (1.2-2.2k chars)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z5" vertex="1">
+                    <mxGeometry x="400" y="180" width="150" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_r4" value="Selective Artifact Rehydration (max 2)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z5" vertex="1">
+                    <mxGeometry x="580" y="180" width="160" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_r5" value="→ call_model context window" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z5" vertex="1">
+                    <mxGeometry x="770" y="180" width="140" height="45" as="geometry"/>
+                </mxCell>
+                <mxCell id="e50" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z5" source="z5_r1" target="z5_r2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e51" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z5" source="z5_r2" target="z5_r3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e52" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z5" source="z5_r3" target="z5_r4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e53" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="z5" source="z5_r4" target="z5_r5" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="z5_limits" value="&lt;font size=&quot;1&quot; color=&quot;#82b366&quot;&gt;&lt;b&gt;Limits:&lt;/b&gt; artifact_refs max 50 • memory_context max 20 • partial_results max 10&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontFamily=Helvetica;" parent="z5" vertex="1">
+                    <mxGeometry x="20" y="235" width="500" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="e29" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#999999;dashed=1;fontFamily=Helvetica;fontSize=9;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" parent="1" source="z2_update" target="z5_checkpoint" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1381" y="570"/>
+                            <mxPoint x="150" y="570"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="n5" value="&lt;b&gt;Layered Memory Architecture&lt;/b&gt;&lt;br&gt;• Hot cache and artifacts feed the active prompt-time path&lt;br&gt;• Retrieval pipeline: candidate collection → reranking → budget allocation&lt;br&gt;• Selective rehydration expands only a small number of artifacts&lt;br&gt;• Context growth is bounded by per-tier limits&lt;br&gt;• Foundry Memory Store exists as an available long-term capability" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="1600" y="1320" width="330" height="130" as="geometry"/>
+                </mxCell>
+                <mxCell id="z6" value="&lt;b&gt;ZONE 6: RESPONSE STREAMING&lt;/b&gt;" style="swimlane;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;fontFamily=Helvetica;html=1;collapsible=0;rounded=1;arcSize=8;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="30" y="1540" width="1540" height="170" as="geometry"/>
+                </mxCell>
+                <mxCell id="z6_oai" value="&lt;b&gt;Azure OpenAI&lt;/b&gt;&lt;br&gt;GPT-4o / GPT-5.2" style="image;aspect=fixed;html=1;points=[];align=center;fontSize=10;image=img/lib/azure2/ai_machine_learning/Cognitive_Services.svg;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;fontFamily=Helvetica;" parent="z6" vertex="1">
+                    <mxGeometry x="50" y="58" width="50" height="50" as="geometry"/>
+                </mxCell>
+                <mxCell id="z6_stream" value="&lt;b&gt;openai.responses.create&lt;/b&gt;&lt;br&gt;&lt;code&gt;stream=True&lt;/code&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z6" vertex="1">
+                    <mxGeometry x="200" y="55" width="210" height="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="z6_sse" value="&lt;b&gt;Server-Sent Events&lt;/b&gt;&lt;br&gt;&lt;code&gt;{type:&quot;token&quot;,&lt;br&gt;content:&quot;...&quot;}&lt;/code&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z6" vertex="1">
+                    <mxGeometry x="480" y="50" width="190" height="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="z6_fe" value="&lt;b&gt;Next.js 16 Frontend&lt;/b&gt;&lt;br&gt;Token-by-token rendering&lt;br&gt;&lt;font size=&quot;1&quot;&gt;+ navigation_actions + source citations&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=10;shadow=1;" parent="z6" vertex="1">
+                    <mxGeometry x="740" y="52" width="240" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="z6_user" value="&lt;b&gt;User&lt;/b&gt;" style="shape=mxgraph.azure.user;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontFamily=Helvetica;" parent="z6" vertex="1">
+                    <mxGeometry x="1045" y="46" width="60" height="72" as="geometry"/>
+                </mxCell>
+                <mxCell id="e60" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z6" source="z6_oai" target="z6_stream" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e61" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="z6" source="z6_stream" target="z6_sse" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e62" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="z6" source="z6_sse" target="z6_fe" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e63" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#333333;fontFamily=Helvetica;fontSize=9;" parent="z6" source="z6_fe" target="z6_user" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e29b" value="response generation" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=3;strokeColor=#6c8ebf;fontFamily=Helvetica;fontSize=9;" parent="1" source="z2_end" target="z6_stream" edge="1">
+                    <mxGeometry x="0.0017" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="20" y="528"/>
+                            <mxPoint x="20" y="1740"/>
+                            <mxPoint x="335" y="1740"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="n6" value="&lt;b&gt;Streaming Architecture&lt;/b&gt;&lt;br&gt;• Token-by-token delivery over SSE (Server-Sent Events)&lt;br&gt;• The frontend progressively renders the answer with React 19&lt;br&gt;• Navigation actions can jump to timestamps in the player&lt;br&gt;• Source citations can point to frames, scenes, and chapters&lt;br&gt;• The client also supports non-streaming response delivery when needed" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="1600" y="1565" width="330" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;" style="swimlane;startSize=22;fillColor=#f5f5f5;strokeColor=#999999;fontFamily=Helvetica;fontSize=10;html=1;collapsible=0;rounded=1;" parent="1" vertex="1">
+                    <mxGeometry x="20" y="1790" width="330" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="l1" value="API / Compute" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=9;fontFamily=Helvetica;" parent="legend" vertex="1">
+                    <mxGeometry x="10" y="28" width="80" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="l2" value="AI / LLM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=9;fontFamily=Helvetica;" parent="legend" vertex="1">
+                    <mxGeometry x="100" y="28" width="80" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3" value="Data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=9;fontFamily=Helvetica;" parent="legend" vertex="1">
+                    <mxGeometry x="190" y="28" width="60" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="l4" value="Tools" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5eced;strokeColor=#5ba7ab;fontSize=9;fontFamily=Helvetica;" parent="legend" vertex="1">
+                    <mxGeometry x="260" y="28" width="60" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="l5" value="Memory/OK" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=9;fontFamily=Helvetica;" parent="legend" vertex="1">
+                    <mxGeometry x="10" y="55" width="80" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="l6" value="Error" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=9;fontFamily=Helvetica;" parent="legend" vertex="1">
+                    <mxGeometry x="100" y="55" width="80" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="l7" value="Note" style="shape=note;size=10;fillColor=#FFFFCC;strokeColor=#B3B300;fontSize=9;fontFamily=Helvetica;" parent="legend" vertex="1">
+                    <mxGeometry x="190" y="55" width="60" height="22" as="geometry"/>
+                </mxCell>
+                <mxCell id="l8" value="&lt;font size=&quot;1&quot;&gt;=== Primary  --- Standard  ··· Meta/Data&lt;/font&gt;" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=9;fontFamily=Helvetica;" parent="legend" vertex="1">
+                    <mxGeometry x="10" y="85" width="300" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="n1" value="&lt;b&gt;Context Injection Pattern&lt;/b&gt;&lt;br&gt;• Video metadata is injected as an invisible prefix on the user message&lt;br&gt;• QPrismaStateConverter parses the prefix and extracts media_id, user_id, and session_id&lt;br&gt;• The prefix is removed before the model sees the prompt&lt;br&gt;• OpenTelemetry trace context is propagated end to end" style="shape=note;size=15;fillColor=#FFFFCC;strokeColor=#B3B300;fontFamily=Helvetica;fontSize=10;align=left;verticalAlign=top;spacingTop=4;spacingLeft=8;spacingRight=4;whiteSpace=wrap;html=1;shadow=1;" parent="1" vertex="1">
+                    <mxGeometry x="1600" y="112" width="330" height="120" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
