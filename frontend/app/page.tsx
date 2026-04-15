@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
   Sparkles, Upload, Library, MessageSquare,
-  Zap, Clock, Play, Film, GitCompare,
+  Clock, Play, Film, GitCompare,
   ArrowRight, Video, TrendingUp,
 } from 'lucide-react';
 import RequireAuth from '@/components/RequireAuth';
@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { apiClient, type MediaItem } from '@/lib/api';
 import { staggerContainer, staggerItem, fadeIn } from '@/lib/animations';
 import ThemeToggle from '@/components/ui/ThemeToggle';
+import { BrandLogo } from '@/components/branding/BrandLogo';
 
 function formatDuration(seconds?: number): string {
   if (!seconds) return '0:00';
@@ -112,12 +113,7 @@ function DashboardContent() {
 
       {/* Top Navigation */}
       <header className="relative z-10 flex items-center justify-between px-6 py-4 lg:px-10">
-        <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
-            <Zap className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-xl font-bold text-[var(--foreground)]">QPrisma</span>
-        </div>
+        <BrandLogo variant="lockup" className="shrink-0" />
         <div className="flex items-center gap-3">
           <ThemeToggle />
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--surface)]/80 backdrop-blur-sm border border-[var(--border-subtle)]">

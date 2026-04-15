@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Sparkles, Brain, Zap } from 'lucide-react';
 import VideoKnowledgeAnimation from '@/components/auth/VideoKnowledgeAnimation';
+import { BrandLogo } from '@/components/branding/BrandLogo';
 
 /* ── Static data ───────────────────────────────────────────────── */
 
@@ -106,29 +107,22 @@ export default function AuthPage() {
         >
           {/* Branding */}
           <div className="mb-12 md:mb-16">
-            <div className="flex items-center gap-3 mb-8">
-              <div
-                className="w-12 h-12 rounded-[14px] flex items-center justify-center"
-                style={{
-                  background: 'linear-gradient(135deg, #A78BFA, #8B5CF6)',
-                  animation: 'glow-ring 4s ease-in-out infinite',
-                }}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1C1B18" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="12 2 2 22 22 22" />
-                  <line x1="12" y1="10" x2="12" y2="16" />
-                </svg>
-              </div>
-              <span className="text-2xl font-bold text-white tracking-tight">QPrisma</span>
+            <div className="inline-flex items-center rounded-[28px] border border-white/50 bg-white/88 px-5 py-4 shadow-2xl shadow-black/25 backdrop-blur-md mb-8">
+              <BrandLogo
+                as="h1"
+                variant="full"
+                className="max-w-full"
+                priority
+              />
             </div>
 
-            <h1 className="text-4xl md:text-5xl lg:text-[3.5rem] font-bold text-white leading-[1.1] tracking-tight">
+            <h2 className="text-4xl md:text-5xl lg:text-[3.5rem] font-bold text-white leading-[1.1] tracking-tight">
               Your videos,
               <br />
               <span className="bg-gradient-to-r from-[#A78BFA] to-[#8B5CF6] bg-clip-text text-transparent">
                 understood.
               </span>
-            </h1>
+            </h2>
             <p className="mt-4 text-white/50 text-lg max-w-md">
               Unlock insights from every frame with AI-powered analysis, search, and knowledge discovery.
             </p>

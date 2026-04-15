@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
-  Zap,
   Plus,
   Film,
   Library,
@@ -19,6 +18,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import { staggerContainer, staggerItem } from '@/lib/animations';
+import { BrandLogo } from '@/components/branding/BrandLogo';
 
 export type ChatMode = 'single' | 'library';
 
@@ -95,13 +95,11 @@ export default function Sidebar({
           </button>
 
           {/* Logo */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="bg-gradient-to-br from-indigo-500 to-purple-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30 flex-shrink-0">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <span className={`text-xl font-bold text-[var(--foreground)] ${isCollapsed ? 'md:hidden' : ''}`}>
-              QPrisma
-            </span>
+          <div className={`mb-6 ${isCollapsed ? 'flex justify-center' : ''}`}>
+            <BrandLogo
+              variant={isCollapsed ? 'mark' : 'lockup'}
+              className={isCollapsed ? 'mx-auto' : ''}
+            />
           </div>
 
           {/* New Chat Button */}
