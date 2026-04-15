@@ -2,12 +2,12 @@
 
 import React from 'react';
 import {
-  Zap,
   ChevronRight,
   LogOut,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { BrandLogo } from '@/components/branding/BrandLogo';
 
 interface MediaItem {
   id: string;
@@ -35,12 +35,7 @@ export function StudioSidebar({
     <div className="w-72 bg-white/70 backdrop-blur-xl border-r border-gray-200/50 flex flex-col sticky top-0 h-screen shadow-xl shadow-gray-200/20">
       <div className="p-6 flex flex-col h-full">
         {/* Logo */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
-            <Zap className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">QPrisma</span>
-        </div>
+        <BrandLogo variant="lockup" className="mb-8" />
 
         {showBackButton && (
           <button
