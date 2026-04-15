@@ -15,10 +15,12 @@ This view focuses on:
 
 ## Related artifacts
 
-- Diagram: `docs/qprisma-identity-trust-boundaries.drawio`
+- Published diagram asset: `docs/assets/architecture/qprisma-identity-trust-boundaries.svg`
 - Platform architecture: `docs/INFRASTRUCTURE.md`
 - Deep implementation reference: `docs/BACKEND_ARCHITECTURE.md`
 - Portfolio index: `docs/ARCHITECTURE_PORTFOLIO.md`
+
+![QPrisma security and trust boundaries diagram](assets/architecture/qprisma-identity-trust-boundaries.svg)
 
 ## Security architecture summary
 

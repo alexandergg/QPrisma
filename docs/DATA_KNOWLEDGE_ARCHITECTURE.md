@@ -14,11 +14,13 @@ This view focuses on:
 
 ## Related artifacts
 
-- Diagram: `docs/qprisma-data-knowledge-lifecycle.drawio`
+- Published diagram asset: `docs/assets/architecture/qprisma-data-knowledge-lifecycle.svg`
 - Ingestion flow: `docs/VIDEO_INGESTION_ARCHITECTURE.md`
 - Retrieval flow: `docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md`
 - Platform deployment: `docs/INFRASTRUCTURE.md`
 - Deep technical reference: `docs/ARCHITECTURE.md`
+
+![QPrisma data and knowledge lifecycle diagram](assets/architecture/qprisma-data-knowledge-lifecycle.svg)
 
 ## Data architecture summary
 
