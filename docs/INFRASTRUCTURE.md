@@ -2,6 +2,8 @@
 
 This document provides a comprehensive deep-dive into QPrisma's infrastructure architecture, CI/CD pipelines, and Azure deployment configuration.
 
+For the full architecture portfolio and the related Solution Architect views, start with `docs/ARCHITECTURE_PORTFOLIO.md`. This document is the platform and deployment reference view within that portfolio.
+
 ## Table of Contents
 
 - [Infrastructure Overview](#infrastructure-overview)
@@ -20,6 +22,12 @@ This document provides a comprehensive deep-dive into QPrisma's infrastructure a
 ## Infrastructure Overview
 
 QPrisma runs on **Azure Container Apps** with a microservices architecture. The infrastructure is fully defined as code using **Azure Bicep** and deployed via **GitHub Actions**.
+
+### Related architecture views
+
+- `docs/azure-architecture.drawio` - Azure deployment and regional resource layout
+- `docs/SECURITY_IDENTITY_ARCHITECTURE.md` - identity, trust boundaries, and secret flow
+- `docs/OPERATIONS_NFRS_ARCHITECTURE.md` - scaling, reliability, observability, and trade-offs
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐

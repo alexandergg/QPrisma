@@ -2,6 +2,11 @@
 
 This guide defines **what each layer stores** and which is the **source of truth** for agent conversations.
 
+Related views:
+
+- `docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md` - hosted agent request path and prompt-time context assembly
+- `docs/BACKEND_ARCHITECTURE.md` - backend module inventory and memory-layer implementation references
+
 ## Memory Layers
 
 1. **LangGraph Checkpointer (Backend)**

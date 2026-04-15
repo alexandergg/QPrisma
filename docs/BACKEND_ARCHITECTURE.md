@@ -18,7 +18,7 @@
 9. [Video Processing Pipeline](#9-video-processing-pipeline)
 10. [Knowledge Graph — Neo4j](#10-knowledge-graph--neo4j)
 11. [Hybrid Search System](#11-hybrid-search-system)
-12. [Memory System — Foundry Memory Store](#12-memory-system--foundry-memory-store)
+12. [Memory System — Layered State and Foundry Memory Capability](#12-memory-system--layered-state-and-foundry-memory-capability)
 13. [Caching Layer — Redis Enterprise](#13-caching-layer--redis-enterprise)
 14. [A2A Protocol — Agent-to-Agent](#14-a2a-protocol--agent-to-agent)
 15. [Authentication and Authorization](#15-authentication-and-authorization)
@@ -41,7 +41,7 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 | AI Agent | LangGraph + GPT-4o / GPT-5.2-chat | Multi-tool conversational agent |
 | Knowledge Graph | Neo4j | Entity relationships and semantic structure |
 | Search | PostgreSQL + Neo4j | Hybrid vector + graph search |
-| Memory | Foundry Memory Store | Long-term user memory via Azure AI Foundry |
+| Memory | Checkpointer + artifacts + optional Foundry Memory Store | Thread state, persisted tool artifacts, and available long-term semantic memory capability |
 | Cache | Redis Enterprise | Multi-layer caching with TTL |
 | Auth | Microsoft Entra ID | OIDC-based authentication and RBAC |
 | Tasks | Celery + Redis | Async video processing pipeline |
@@ -1253,86 +1253,65 @@ class GraphSearchService:
 
 ---
 
-## 12. Memory System — Foundry Memory Store
+## 12. Memory System — Layered State and Foundry Memory Capability
 
-QPrisma uses Azure AI Foundry Memory Store for long-term user memory, replacing the earlier mem0-based approach. The implementation lives in `services/foundry_memory_service.py`.
+QPrisma uses a layered memory approach. The active runtime path is built around graph-state memory plus persisted tool artifacts, while Azure AI Foundry Memory Store exists as an available long-term memory capability in `services/foundry_memory_service.py`.
 
 ### Architecture
 
 ```
-┌──────────────┐     ┌────────────────────────┐     ┌──────────────┐
-│   Agent      │────►│  FoundryMemoryService  │────►│  Azure AI    │
-│   (chat)     │     │                        │     │  Foundry     │
-│              │◄────│  recall / memorize     │◄────│  Memory      │
-└──────────────┘     └────────────────────────┘     └──────────────┘
+┌─────────────────┐    ┌────────────────────┐    ┌────────────────────────────┐
+│ LangGraph Agent │───►│ local memory state │───►│ ToolArtifactService        │
+│ runtime         │    │ + artifact refs    │    │ Redis + Blob + Postgres    │
+└─────────────────┘    └────────────────────┘    └────────────────────────────┘
+         │
+         │ optional long-term semantic memory capability
+         ▼
+┌────────────────────────┐     ┌──────────────┐
+│  FoundryMemoryService  │────►│  Azure AI    │
+│  ensure/update/search  │     │  Foundry     │
+└────────────────────────┘     │  Memory      │
+                               └──────────────┘
 ```
 
-### Memory Service
+### Foundry Memory Service
 
 ```python
-class FoundryMemoryService:
-    """ Manages long-term user memory via Azure AI Foundry Memory Store."""
+service = get_foundry_memory_service()
 
-    def __init__(self):
-        self.client = FoundryMemoryClient(
-            endpoint=settings.azure.foundry_endpoint,
-            credential=DefaultAzureCredential(),
-        )
-
-    async def memorize(
-        self,
-        user_id: str,
-        content: str,
-        metadata: dict | None = None,
-    ) -> str:
-        """ Store a memory fact for the user."""
-        memory = await self.client.create_memory(
-            user_id=user_id,
-            content=content,
-            metadata=metadata or {},
-        )
-        return memory.id
-
-    async def recall(
-        self,
-        user_id: str,
-        query: str,
-        limit: int = 5,
-    ) -> list[dict]:
-        """ Retrieve relevant memories for the user based on query."""
-        memories = await self.client.search_memories(
-            user_id=user_id,
-            query=query,
-            top=limit,
-        )
-        return [
-            {
-                "content": m.content,
-                "relevance": m.score,
-                "created_at": m.created_at.isoformat(),
-            }
-            for m in memories
-        ]
-
-    async def forget(self, user_id: str, memory_id: str) -> bool:
-        """ Delete a specific memory."""
-        await self.client.delete_memory(memory_id=memory_id, user_id=user_id)
-        return True
+if service.enabled:
+    await service.ensure_memory_store()
+    await service.update_memories(
+        scope="tenant_object_id",
+        messages=[{"role": "user", "content": "Show me the video about supply chain risk"}],
+    )
+    results = await service.search_memories(
+        scope="tenant_object_id",
+        query="supply chain preferences",
+    )
 ```
+
+The service exposes three key operations:
+
+- `ensure_memory_store()` - idempotently create or fetch the store definition
+- `update_memories()` - extract memory items from one or more conversation messages
+- `search_memories()` - retrieve relevant memories for a user scope
 
 ### Memory Integration in Agent
 
 The agent uses a layered memory approach:
 
-1. **Checkpointer** — Thread-scoped operational state via `AsyncPostgresSaver` (resume/retry continuity)
+1. **Checkpointer** — Thread-scoped operational state for resume/retry continuity
 2. **Artifact storage** — Full tool payloads via `ToolArtifactService` (Redis + Blob + Postgres metadata)
-3. **Foundry Memory Store** — Compact semantic summaries for long-term user memory
+3. **Foundry Memory Store** — Available long-term semantic memory capability for future automatic integration
 
-Before each model call, the system:
-1. Collects hybrid candidates (local memory + Foundry Memory Store + artifact refs)
-2. Reranks by lexical overlap + semantic signal + recency
+In the current runtime path, before each model call the system:
+1. Collects hybrid candidates from local `memory_context` plus `artifact_refs`
+2. Reranks by lexical overlap, semantic signal, and recency
 3. Applies dynamic context budget allocation
 4. Selectively rehydrates artifacts only for detail-heavy queries
+
+`FoundryMemoryService` is present in the codebase, but automatic prompt-time retrieval from Foundry Memory Store is not wired into the main LangGraph node flow yet. `docs/MEMORY_ARCHITECTURE.md` is the authoritative reference for that status.
 
 
 ---

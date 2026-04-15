@@ -60,11 +60,43 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 
 ## Architecture
 
-<p align="center">
-  <img src="docs/assets/qprisma_architecture.png" alt="QPrisma Azure Architecture" width="100%">
-</p>
-
 > Multi-region deployment: **West Europe** (compute + AI Foundry), **North Europe** (PostgreSQL). Full infrastructure defined as code with [Azure Bicep](infra/main.bicep). See [Infrastructure docs](docs/INFRASTRUCTURE.md) for details.
+
+### Key architecture views
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <a href="docs/ARCHITECTURE_PORTFOLIO.md">
+        <img src="docs/assets/architecture/qprisma-system-context.svg" alt="QPrisma system context diagram" width="100%">
+      </a>
+      <br>
+      <strong>System context</strong><br>
+      Users, platform boundary, Azure dependencies, and delivery boundary.<br>
+      <a href="docs/ARCHITECTURE_PORTFOLIO.md">Portfolio guide</a> · <a href="docs/qprisma-system-context.drawio">Source (.drawio)</a>
+    </td>
+    <td width="33%" valign="top">
+      <a href="docs/VIDEO_INGESTION_ARCHITECTURE.md">
+        <img src="docs/assets/architecture/video-ingestion-pipeline.svg" alt="QPrisma video ingestion pipeline diagram" width="100%">
+      </a>
+      <br>
+      <strong>Video ingestion</strong><br>
+      Upload, queueing, worker processing, enrichment, and persistence flow.<br>
+      <a href="docs/VIDEO_INGESTION_ARCHITECTURE.md">Architecture doc</a> · <a href="docs/video-ingestion-pipeline.drawio">Source (.drawio)</a>
+    </td>
+    <td width="33%" valign="top">
+      <a href="docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md">
+        <img src="docs/assets/architecture/agent-search-rag-flow.svg" alt="QPrisma hosted agent retrieval diagram" width="100%">
+      </a>
+      <br>
+      <strong>Hosted agent retrieval</strong><br>
+      Request handling, tool routing, hybrid retrieval, and grounded response flow.<br>
+      <a href="docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md">Architecture doc</a> · <a href="docs/agent-search-rag-flow.drawio">Source (.drawio)</a>
+    </td>
+  </tr>
+</table>
+
+See the [Architecture Portfolio](docs/ARCHITECTURE_PORTFOLIO.md) for the full set of diagrams and narratives, including [Azure deployment](docs/INFRASTRUCTURE.md), [data and knowledge lifecycle](docs/DATA_KNOWLEDGE_ARCHITECTURE.md), and [security and trust boundaries](docs/SECURITY_IDENTITY_ARCHITECTURE.md).
 
 ### Technology Stack
 
@@ -276,11 +308,26 @@ See `.github/workflows/evaluate-agent.yml` for the full CI/CD evaluation pipelin
 
 ## Documentation
 
+### Architecture
+
+- [Architecture Portfolio Index](./docs/ARCHITECTURE_PORTFOLIO.md) - Solution Architect entry point and reading map
+- [Architecture Deep Dive](./docs/ARCHITECTURE.md) - System overview, ingestion, graph, retrieval, and deployment summary
+- [Backend Technical Architecture](./docs/BACKEND_ARCHITECTURE.md) - Backend modules, API layer, agent runtime, services, and tasks
+- [Memory Architecture](./docs/MEMORY_ARCHITECTURE.md) - Checkpointer, artifacts, and Foundry Memory Store status
+- [Infrastructure Guide](./docs/INFRASTRUCTURE.md) - Azure resources, Bicep, CI/CD, security, and deployment flow
+
+### Architecture Deep Dives
+
+- [Video Ingestion Architecture](./docs/VIDEO_INGESTION_ARCHITECTURE.md) - Blob-first upload, queue-based orchestration, and multimodal enrichment
+- [Hosted Agent Retrieval Architecture](./docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md) - Foundry hosted agent, LangGraph loop, hybrid retrieval, and prompt-time context
+- [Data and Knowledge Architecture](./docs/DATA_KNOWLEDGE_ARCHITECTURE.md) - Data lifecycle, graph hierarchy, embeddings, lineage, and ownership
+- [Security and Identity Architecture](./docs/SECURITY_IDENTITY_ARCHITECTURE.md) - Entra ID, WebSocket auth, managed identities, secrets, and trust boundaries
+- [Operations, NFRs, and Trade-offs](./docs/OPERATIONS_NFRS_ARCHITECTURE.md) - Reliability, scaling, observability, cost, and runbook-oriented review
+- [Solution Architect Playbook](./docs/SOLUTION_ARCHITECT_PLAYBOOK.md) - Reusable documentation and diagramming guidance for Data and AI solutions
+
+### Reference
+
 - [API Documentation](./API_DOCUMENTATION.md)
-- [Architecture Deep Dive](./docs/ARCHITECTURE.md)
-- [Backend Technical Architecture](./docs/BACKEND_ARCHITECTURE.md)
-- [Memory Architecture](./docs/MEMORY_ARCHITECTURE.md)
-- [Infrastructure Guide](./docs/INFRASTRUCTURE.md)
 - [Testing Guide](./TESTING.md)
 - [Contributing Guide](./CONTRIBUTING.md)
 - [Changelog](./CHANGELOG.md)
