@@ -13,6 +13,7 @@
 <p align="center">
   <a href="#what-qprisma-solves">What QPrisma Solves</a> •
   <a href="#core-capabilities">Core Capabilities</a> •
+  <a href="#frontend-preview">Frontend Preview</a> •
   <a href="#architecture">Architecture</a> •
   <a href="#quick-start-local">Quick Start</a> •
   <a href="#azure-deployment">Azure Deployment</a> •
@@ -57,6 +58,67 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 - **Long-term user memory** via Azure AI Foundry Memory Store (per-user, Entra ID scoped).
 - **Server-side conversation history** via Foundry Conversations API.
 - **Prompt-time ranking** with recency and semantic/lexical signals.
+
+## Frontend Preview
+
+QPrisma's frontend is designed to move from sign-in to investigation quickly: open the workspace, review processed videos, and ask grounded questions with chapters, transcripts, and graph context close at hand.
+
+<p align="center">
+  <a href="docs/assets/frontend/frontend-landing-signin.png">
+    <img src="docs/assets/frontend/frontend-landing-signin.png" alt="QPrisma landing page with product overview and sign-in options" width="100%">
+  </a>
+  <br>
+  <em>Landing and sign-in experience with SSO and provider-based authentication options.</em>
+</p>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/assets/frontend/frontend-dashboard-home.png">
+        <img src="docs/assets/frontend/frontend-dashboard-home.png" alt="QPrisma dashboard showing video stats, quick actions, and recent videos" width="100%">
+      </a>
+      <br>
+      <strong>Dashboard</strong><br>
+      Review processed video counts, quick actions, and recent uploads from the main home view.
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/assets/frontend/frontend-library-home.png">
+        <img src="docs/assets/frontend/frontend-library-home.png" alt="QPrisma library home with chat mode toggle and quick links" width="100%">
+      </a>
+      <br>
+      <strong>Library and navigation</strong><br>
+      Switch chat modes, jump into the library, compare assets, or upload a new video from the side workspace.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/assets/frontend/frontend-video-chat-workspace.png">
+        <img src="docs/assets/frontend/frontend-video-chat-workspace.png" alt="QPrisma single-video chat workspace with video player, chapters, and prompt suggestions" width="100%">
+      </a>
+      <br>
+      <strong>Video chat workspace</strong><br>
+      Ask grounded questions while keeping the player, chapter timeline, and prompt shortcuts in view.
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/assets/frontend/frontend-video-summary.png">
+        <img src="docs/assets/frontend/frontend-video-summary.png" alt="QPrisma generated video summary with key themes and structure" width="100%">
+      </a>
+      <br>
+      <strong>AI-generated summaries</strong><br>
+      Generate structured summaries that surface themes, narrative flow, and evidence-rich takeaways from a video.
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <a href="docs/assets/frontend/frontend-follow-up-prompts.png">
+        <img src="docs/assets/frontend/frontend-follow-up-prompts.png" alt="QPrisma suggesting follow-up prompts after generating a summary" width="100%">
+      </a>
+      <br>
+      <strong>Suggested follow-up prompts</strong><br>
+      Continue the investigation with next-step questions generated directly from the current answer.
+    </td>
+  </tr>
+</table>
 
 ## Architecture
 
