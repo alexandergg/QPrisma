@@ -79,9 +79,7 @@ async def run_redteam_scan(
             return cls[name.upper()]
         except KeyError as exc:
             valid = ", ".join(m.name.lower() for m in cls)
-            raise ValueError(
-                f"Unknown {cls.__name__} '{name}'. Valid values: {valid}"
-            ) from exc
+            raise ValueError(f"Unknown {cls.__name__} '{name}'. Valid values: {valid}") from exc
 
     mapped_strategies = [_map_enum(AttackStrategy, s) for s in strategies]
     mapped_risks = [_map_enum(RiskCategory, r) for r in risk_categories]
@@ -102,8 +100,7 @@ async def run_redteam_scan(
         target = {"agent_id": agent_id}
 
         logger.info(
-            "Starting RedTeam scan (agent_id=%s, strategies=%s, risks=%s, "
-            "num_objectives=%d)",
+            "Starting RedTeam scan (agent_id=%s, strategies=%s, risks=%s, " "num_objectives=%d)",
             agent_id,
             [s.name for s in mapped_strategies],
             [r.name for r in mapped_risks],
@@ -138,10 +135,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--risk-categories",
         default=",".join(DEFAULT_RISK_CATEGORIES),
-        help=(
-            "Comma-separated risk categories (default: "
-            f"{','.join(DEFAULT_RISK_CATEGORIES)})"
-        ),
+        help=("Comma-separated risk categories (default: " f"{','.join(DEFAULT_RISK_CATEGORIES)})"),
     )
     parser.add_argument(
         "--num-objectives",

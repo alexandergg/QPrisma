@@ -1274,9 +1274,7 @@ class TestFinalAnswerNonEmptyGuarantee:
         """No AIMessage has text anywhere → placeholder synthesized, not empty."""
         from azure.ai.agentserver.core.models import projects as pm
 
-        ai_tool = AIMessage(
-            content="", tool_calls=[{"name": "search", "id": "c1", "args": {}}]
-        )
+        ai_tool = AIMessage(content="", tool_calls=[{"name": "search", "id": "c1", "args": {}}])
         output = [
             {"call_model": {"messages": [ai_tool]}},
             {"tools": {"messages": [ToolMessage(content="r", tool_call_id="c1")]}},
