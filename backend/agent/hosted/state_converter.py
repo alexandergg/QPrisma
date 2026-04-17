@@ -171,6 +171,30 @@ def _extract_ai_text(message: Any) -> str:
     return str(content).strip()
 
 
+def _content_shape_summary(content: Any) -> str:
+    """Return a short human-readable summary of an assistant item's ``content``.
+
+    Used by the post-conversion invariant log to confirm that every
+    ``ResponsesAssistantMessageItemResource`` emitted by the converter carries
+    a list of typed SDK content parts (``ItemContent`` / similar) rather than
+    a raw string or JSON-stringified array — a symptom previously observed in
+    Foundry evaluation runs where ``sample.output[*].content`` was stored as
+    ``"[{\\"type\\":\\"output_text\\",...}]"`` instead of a proper typed list,
+    which caused evaluators to fail with ``Response is a required input and
+    cannot be None``.
+    """
+    if content is None:
+        return "None"
+    if isinstance(content, str):
+        return f"str(len={len(content)})"
+    if isinstance(content, list):
+        if not content:
+            return "list(empty)"
+        element_types = {type(el).__name__ for el in content}
+        return f"list(len={len(content)}, element_types={sorted(element_types)})"
+    return type(content).__name__
+
+
 def _assistant_item_is_empty(item: Any) -> bool:
     """Return True when a ``ResponsesAssistantMessageItemResource`` carries
     no non-whitespace text.
@@ -441,6 +465,62 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
         if logger.isEnabledFor(logging.DEBUG):
             type_seq = [type(i).__name__ for i in result]
             logger.debug("Item sequence: %s", type_seq)
+
+        # --- Post-conversion content-shape invariant + defensive repair ---
+        #
+        # The Foundry Responses API requires ``ResponsesAssistantMessageItemResource.content``
+        # to be a list of typed SDK content parts (``ItemContent`` and friends).
+        # If ``content`` is ever emitted as a plain string — or as a list
+        # containing a plain string / raw dict — downstream evaluation
+        # pipelines (e.g. ``microsoft/ai-agent-evals@v3-beta``) can fail to
+        # resolve ``sample.output[*].content`` as a valid response and abort
+        # every row with ``(UserError) Response is a required input and
+        # cannot be None``.  This happened in the v52 hosted-agent deployment
+        # despite the converter calling ``convert_MessageContent`` on every
+        # code path.
+        #
+        # The loop below acts as a final safety net: it logs the observed
+        # content shape for every assistant item at INFO (so deployments can
+        # be diagnosed without re-running locally) and, if a malformed shape
+        # is detected, re-runs ``convert_MessageContent`` on a flattened
+        # plain-text representation to guarantee typed output.
+        for idx, item in enumerate(result):
+            if not isinstance(item, project_models.ResponsesAssistantMessageItemResource):
+                continue
+            content = getattr(item, "content", None)
+            shape = _content_shape_summary(content)
+            needs_repair = False
+            if isinstance(content, str):
+                needs_repair = True
+            elif isinstance(content, list):
+                for el in content:
+                    # Typed SDK parts expose ``.text``/``.type`` attrs; raw
+                    # strings or untyped dicts slipping through indicate the
+                    # content was not routed through ``convert_MessageContent``
+                    # and must be repaired to avoid stringified storage.
+                    if isinstance(el, str):
+                        needs_repair = True
+                        break
+            elif content is None:
+                needs_repair = True
+
+            if needs_repair:
+                logger.warning(
+                    "Assistant item %d has malformed content shape %s — "
+                    "re-wrapping via convert_MessageContent (defensive repair)",
+                    idx,
+                    shape,
+                )
+                try:
+                    fallback_text = _extract_ai_text(item) or _FINAL_ANSWER_EMPTY_PLACEHOLDER
+                    item.content = self.convert_MessageContent(
+                        fallback_text,
+                        role=project_models.ResponsesMessageRole.ASSISTANT,
+                    )
+                except Exception:
+                    logger.exception("Defensive content repair failed for assistant item %d", idx)
+            else:
+                logger.info("Assistant item %d content shape OK: %s", idx, shape)
 
         # Warn on mismatched tool call/output counts (orphan indicator)
         if tool_call_count != tool_output_count and tool_call_count > 0:

@@ -70,6 +70,17 @@ if "azure.ai.agentserver" not in sys.modules:
         async def convert_request(self, context):
             return {"input": {}, "config": {}}
 
+    class _ItemContent:
+        """Mimics the SDK's typed content part (returned by convert_MessageContent)."""
+
+        def __init__(self, payload):
+            self._payload = payload
+            self.text = payload.get("text") if isinstance(payload, dict) else None
+            self.type = payload.get("type") if isinstance(payload, dict) else None
+
+        def __repr__(self):
+            return f"_ItemContent({self._payload!r})"
+
     class _ResponseAPIMessagesNonStreamResponseConverter:
         def __init__(self, context, hitl_helper):
             self.context = context
@@ -79,6 +90,25 @@ if "azure.ai.agentserver" not in sys.modules:
             return []
 
         def convert_MessageContent(self, content, *, role=None):
+            # Mirror the real SDK: wrap strings in a single-element list of
+            # typed content parts.  Lists are iterated and each string element
+            # wrapped the same way.  This matches
+            # azure.ai.agentserver.langgraph.models.response_api_non_stream_response_converter
+            # so tests exercise the same shape as production.
+            if isinstance(content, str):
+                return [_ItemContent({"text": content, "type": "output_text", "annotations": []})]
+            if isinstance(content, list):
+                parts = []
+                for el in content:
+                    if isinstance(el, str):
+                        parts.append(
+                            _ItemContent({"text": el, "type": "output_text", "annotations": []})
+                        )
+                    elif isinstance(el, dict):
+                        parts.append(_ItemContent(el))
+                    else:
+                        parts.append(el)
+                return parts
             return content
 
     def _extract_function_call(tool_call):
@@ -215,6 +245,27 @@ def _make_hitl_helper() -> MagicMock:
     helper = MagicMock()
     helper.convert_interrupts.return_value = []
     return helper
+
+
+def _content_text(content) -> str:
+    """Extract the concatenated text from an assistant item's content.
+
+    The stub ``convert_MessageContent`` wraps strings in a list of typed
+    parts (matching the real SDK), so existing tests that previously asserted
+    ``item.content == "Hello"`` now need to look through ``item.content[*].text``.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for el in content:
+            text = getattr(el, "text", None)
+            if text is None and isinstance(el, dict):
+                text = el.get("text")
+            if text is not None:
+                parts.append(text)
+        return "".join(parts)
+    return str(content) if content is not None else ""
 
 
 # ---------------------------------------------------------------------------
@@ -894,7 +945,7 @@ class TestNormalMultiToolCallFlow:
         assert len(func_calls) == 3
         assert len(func_outputs) == 3
         assert len(assistant_msgs) == 1
-        assert assistant_msgs[0].content == "Summary answer"
+        assert _content_text(assistant_msgs[0].content) == "Summary answer"
 
 
 class TestTruncationEnforcesLimit:
@@ -988,7 +1039,7 @@ class TestNoAssistantMessageOnToolCallTurn:
         assert len(func_outputs) == 2
         # Only the final answer should be an assistant message
         assert len(assistant_msgs) == 1
-        assert "summary" in assistant_msgs[0].content.lower()
+        assert "summary" in _content_text(assistant_msgs[0].content).lower()
 
     def test_tool_calls_with_whitespace_content_no_message(self, converter):
         """AIMessage with whitespace-only content + tool_calls → still no assistant message."""
@@ -1150,7 +1201,7 @@ class TestFinalAnswerResponseMode:
 
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
-        assert items[0].content == "Here is the summary of the video."
+        assert _content_text(items[0].content) == "Here is the summary of the video."
 
     def test_assistant_only_response_unchanged(self, final_answer_converter):
         """Response with only an assistant message → preserved as-is."""
@@ -1161,7 +1212,7 @@ class TestFinalAnswerResponseMode:
 
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
-        assert items[0].content == "I can help!"
+        assert _content_text(items[0].content) == "I can help!"
 
     def test_full_mode_preserves_all_items(self, converter):
         """Default 'full' mode keeps tool-call and tool-output items."""
@@ -1268,7 +1319,7 @@ class TestFinalAnswerNonEmptyGuarantee:
 
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
-        assert "Based on the video" in items[0].content
+        assert "Based on the video" in _content_text(items[0].content)
 
     def test_all_ai_messages_empty_falls_back_to_placeholder(self, final_answer_converter):
         """No AIMessage has text anywhere → placeholder synthesized, not empty."""
@@ -1284,7 +1335,7 @@ class TestFinalAnswerNonEmptyGuarantee:
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
         # Placeholder content is non-empty — Foundry can persist it.
-        assert isinstance(items[0].content, str) and len(items[0].content) > 0
+        assert len(_content_text(items[0].content)) > 0
 
     def test_multiple_assistant_messages_collapsed_to_last(self, final_answer_converter):
         """Two assistant messages survive → only the last is kept.
@@ -1302,7 +1353,7 @@ class TestFinalAnswerNonEmptyGuarantee:
 
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
-        assert items[0].content == "Final answer here."
+        assert _content_text(items[0].content) == "Final answer here."
 
     def test_tool_loop_with_final_message_unchanged(self, final_answer_converter):
         """Canonical happy path: tool loop → final AIMessage → that message kept.
@@ -1330,7 +1381,7 @@ class TestFinalAnswerNonEmptyGuarantee:
 
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
-        assert items[0].content == "Video summary: …"
+        assert _content_text(items[0].content) == "Video summary: …"
 
     def test_list_content_preamble_flattened(self, final_answer_converter):
         """AIMessage with list-style content (Anthropic blocks) is flattened."""
@@ -1348,7 +1399,7 @@ class TestFinalAnswerNonEmptyGuarantee:
 
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
-        assert "Checking the transcript" in items[0].content
+        assert "Checking the transcript" in _content_text(items[0].content)
 
     def test_final_ai_message_empty_string_replaced_with_fallback(self, final_answer_converter):
         """Final AIMessage with ``content=""`` → surviving empty item is replaced.
@@ -1365,8 +1416,8 @@ class TestFinalAnswerNonEmptyGuarantee:
 
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
-        assert isinstance(items[0].content, str)
-        assert items[0].content.strip()  # non-whitespace
+        assert isinstance(items[0].content, list) and len(items[0].content) > 0
+        assert _content_text(items[0].content).strip()  # non-whitespace
 
     def test_final_ai_message_whitespace_only_replaced_with_fallback(self, final_answer_converter):
         """Final AIMessage with whitespace-only content → replaced with fallback.
@@ -1381,8 +1432,8 @@ class TestFinalAnswerNonEmptyGuarantee:
 
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
-        assert isinstance(items[0].content, str)
-        assert items[0].content.strip()  # non-whitespace
+        assert isinstance(items[0].content, list) and len(items[0].content) > 0
+        assert _content_text(items[0].content).strip()  # non-whitespace
 
     def test_empty_final_message_uses_last_ai_text_when_available(self, final_answer_converter):
         """Empty final AIMessage + earlier preamble → preamble wins over placeholder."""
@@ -1401,7 +1452,7 @@ class TestFinalAnswerNonEmptyGuarantee:
 
         assert len(items) == 1
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
-        assert "Based on the transcript" in items[0].content
+        assert "Based on the transcript" in _content_text(items[0].content)
 
 
 # ---------------------------------------------------------------------------
@@ -1507,3 +1558,85 @@ class TestStateConverterResponseMode:
         # Other fields should be injected normally
         assert result["input"]["media_id"] == "v1"
         assert result["input"]["user_id"] == "u1"
+
+
+# ---------------------------------------------------------------------------
+# Test: content-shape invariant (v53 regression — Foundry eval stringified
+# output_text.content bug)
+# ---------------------------------------------------------------------------
+
+
+class TestContentShapeInvariant:
+    """Every emitted assistant item must have typed list content.
+
+    Foundry ``microsoft/ai-agent-evals@v3-beta`` fails every row with
+    ``Response is a required input and cannot be None`` when
+    ``sample.output[*].content`` lands as a JSON-stringified list or a bare
+    string instead of a typed content-part list.  The converter must never
+    emit a ``ResponsesAssistantMessageItemResource`` whose ``content`` is a
+    plain string or a list containing plain strings.
+    """
+
+    def _assert_content_typed(self, items):
+        from azure.ai.agentserver.core.models import projects as pm
+
+        for item in items:
+            if not isinstance(item, pm.ResponsesAssistantMessageItemResource):
+                continue
+            assert isinstance(
+                item.content, list
+            ), f"content must be a list, got {type(item.content).__name__}"
+            for el in item.content:
+                assert not isinstance(
+                    el, str
+                ), "content list elements must be typed SDK parts, not raw strings"
+
+    def test_simple_string_content_is_wrapped(self, converter):
+        ai_msg = AIMessage(content="Hello world")
+        output = [{"call_model": {"messages": [ai_msg]}}]
+        items = converter.convert(output)
+        self._assert_content_typed(items)
+
+    def test_final_answer_fallback_content_is_typed(self, converter_final_answer):
+        # Graph ends on a tool call — fallback placeholder must be typed
+        ai_tool_msg = AIMessage.model_construct(
+            content="",
+            type="ai",
+            tool_calls=[{"name": "search_video", "id": "call_1", "args": {"q": "x"}}],
+        )
+        output = [{"call_model": {"messages": [ai_tool_msg]}}]
+        items = converter_final_answer.convert(output)
+        self._assert_content_typed(items)
+        assert len(items) == 1
+
+    def test_malformed_string_content_is_repaired(self, converter, monkeypatch):
+        """If something upstream produces a raw-string content, the invariant
+        repair loop must rewrap it via ``convert_MessageContent``."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_msg = AIMessage(content="Answer.")
+        output = [{"call_model": {"messages": [ai_msg]}}]
+
+        # Force the emitted item's content to a malformed raw string to
+        # simulate an upstream bug.  Patch ``_convert_single_message`` to
+        # pass through but poison the content before the invariant loop.
+        original_convert_single = converter._convert_single_message
+
+        def _poisoned(message):
+            for item in original_convert_single(message):
+                if isinstance(item, pm.ResponsesAssistantMessageItemResource):
+                    item.content = "Answer."  # bad shape
+                yield item
+
+        monkeypatch.setattr(converter, "_convert_single_message", _poisoned)
+        items = converter.convert(output)
+        self._assert_content_typed(items)
+
+
+@pytest.fixture
+def converter_final_answer():
+    from agent.hosted.state_converter import QPrismaNonStreamResponseConverter
+
+    ctx = _make_context()
+    hitl = _make_hitl_helper()
+    return QPrismaNonStreamResponseConverter(ctx, hitl, response_mode="final_answer")
