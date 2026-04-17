@@ -171,6 +171,41 @@ def _extract_ai_text(message: Any) -> str:
     return str(content).strip()
 
 
+def _assistant_item_is_empty(item: Any) -> bool:
+    """Return True when a ``ResponsesAssistantMessageItemResource`` carries
+    no non-whitespace text.
+
+    ``_convert_single_message`` emits an assistant item unconditionally for
+    every tool-free ``AIMessage`` — including ones whose ``content`` is an
+    empty string.  Those pass-through empty items would slip past the
+    ``not assistant_items`` guard in ``final_answer`` mode and still cause
+    Foundry to reject the response.  This helper mirrors ``_extract_ai_text``
+    so the guard can detect them regardless of whether the SDK stores
+    ``item.content`` as a plain string or as a list of content-part objects
+    (dicts with a ``"text"`` key or objects exposing a ``.text`` attribute).
+    """
+    content = getattr(item, "content", None)
+    if content is None:
+        return True
+    if isinstance(content, str):
+        return not content.strip()
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, str):
+                if block.strip():
+                    return False
+            elif isinstance(block, dict):
+                text = block.get("text")
+                if isinstance(text, str) and text.strip():
+                    return False
+            else:
+                text = getattr(block, "text", None)
+                if isinstance(text, str) and text.strip():
+                    return False
+        return True
+    return not str(content).strip()
+
+
 class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConverter):
     """Convert LangGraph ``stream_mode="updates"`` output to Responses API items.
 
@@ -320,17 +355,24 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
 
             # Guarantee non-empty: Foundry rejects empty responses with
             # HTTP 400 "Response could not be saved due to invalid format".
-            # When no assistant message survived (e.g. the final graph step
-            # was a tool call, max_iterations hit, or content was empty),
-            # synthesize one from the last AIMessage text we tracked, or
-            # from a placeholder as last resort.  Only synthesize when the
-            # graph actually produced output — a truly empty ``output``
-            # list means the graph never ran and Foundry handles that
-            # upstream.
+            # We need a fallback both when no assistant message survived
+            # stripping (e.g. the final graph step was a tool call or
+            # ``max_iterations`` was hit) AND when the surviving assistant
+            # message carries empty/whitespace content — ``_convert_single_message``
+            # emits an assistant item for every tool-free AIMessage, even one
+            # with ``content=""``, so ``assistant_items`` can be non-empty
+            # while still being unusable.  Only synthesize when the graph
+            # actually produced output — a truly empty ``output`` list means
+            # the graph never ran and Foundry handles that upstream.
             synthesized = False
-            if not assistant_items and output:
+            surviving_empty = bool(assistant_items) and _assistant_item_is_empty(
+                assistant_items[-1]
+            )
+            if output and (not assistant_items or surviving_empty):
                 fallback_text = last_ai_text or _FINAL_ANSWER_EMPTY_PLACEHOLDER
                 try:
+                    # Replace any empty surviving message rather than append,
+                    # preserving the single-assistant-turn contract.
                     assistant_items = [
                         project_models.ResponsesAssistantMessageItemResource(
                             content=self.convert_MessageContent(
@@ -343,9 +385,13 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                     ]
                     synthesized = True
                     logger.warning(
-                        "response_mode=final_answer: no assistant message survived "
-                        "stripping (stripped=%d, last_ai_text_len=%d); synthesized "
-                        "fallback from %s",
+                        "response_mode=final_answer: %s (stripped=%d, "
+                        "last_ai_text_len=%d); synthesized fallback from %s",
+                        (
+                            "surviving assistant message was empty/whitespace"
+                            if surviving_empty
+                            else "no assistant message survived stripping"
+                        ),
                         stripped,
                         len(last_ai_text),
                         "last AIMessage text" if last_ai_text else "empty-placeholder",

@@ -1350,6 +1350,59 @@ class TestFinalAnswerNonEmptyGuarantee:
         assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
         assert "Checking the transcript" in items[0].content
 
+    def test_final_ai_message_empty_string_replaced_with_fallback(self, final_answer_converter):
+        """Final AIMessage with ``content=""`` → surviving empty item is replaced.
+
+        ``_convert_single_message`` emits a ``ResponsesAssistantMessageItemResource``
+        for every tool-free AIMessage regardless of content, so ``assistant_items``
+        is non-empty here.  The empty surviving message must still be swapped for
+        the placeholder fallback — Foundry would otherwise reject the response.
+        """
+        from azure.ai.agentserver.core.models import projects as pm
+
+        output = [{"call_model": {"messages": [AIMessage(content="")]}}]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        assert isinstance(items[0].content, str)
+        assert items[0].content.strip()  # non-whitespace
+
+    def test_final_ai_message_whitespace_only_replaced_with_fallback(self, final_answer_converter):
+        """Final AIMessage with whitespace-only content → replaced with fallback.
+
+        Covers the ``"   \\n\\t  "`` case where content is technically a
+        non-empty string but collapses to nothing after stripping.
+        """
+        from azure.ai.agentserver.core.models import projects as pm
+
+        output = [{"call_model": {"messages": [AIMessage(content="   \n\t  ")]}}]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        assert isinstance(items[0].content, str)
+        assert items[0].content.strip()  # non-whitespace
+
+    def test_empty_final_message_uses_last_ai_text_when_available(self, final_answer_converter):
+        """Empty final AIMessage + earlier preamble → preamble wins over placeholder."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_with_preamble = AIMessage(
+            content="Based on the transcript, here is what I found.",
+            tool_calls=[{"name": "s", "id": "c1", "args": {}}],
+        )
+        output = [
+            {"call_model": {"messages": [ai_with_preamble]}},
+            {"tools": {"messages": [ToolMessage(content="r", tool_call_id="c1")]}},
+            {"call_model": {"messages": [AIMessage(content="")]}},
+        ]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        assert "Based on the transcript" in items[0].content
+
 
 # ---------------------------------------------------------------------------
 # Test: QPrismaStateConverter response_mode integration

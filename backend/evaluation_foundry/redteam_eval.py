@@ -107,6 +107,10 @@ async def run_redteam_scan(
             num_objectives,
         )
 
+        # Ensure the destination directory exists before handing the path to
+        # the SDK, which writes the full scan results itself.
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
         result = await red_team.scan(
             target=target,
             scan_name=scan_name,
@@ -185,7 +189,6 @@ def main(argv: list[str] | None = None) -> int:
 
     # The SDK writes full results to `output_path`; here we print a short
     # summary for CI log visibility.
-    args.output.parent.mkdir(parents=True, exist_ok=True)
     if not args.output.exists():
         args.output.write_text(json.dumps(summary, default=str, indent=2), encoding="utf-8")
     logger.info("RedTeam results written to %s", args.output)
