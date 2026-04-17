@@ -1222,6 +1222,138 @@ class TestFinalAnswerResponseMode:
 
 
 # ---------------------------------------------------------------------------
+# Test: final_answer non-empty guarantee (v46 regression — Foundry 400 fix)
+# ---------------------------------------------------------------------------
+
+
+class TestFinalAnswerNonEmptyGuarantee:
+    """Regression tests for the Foundry 400 "Response could not be saved due
+    to invalid format" failures observed on v45 for media-context queries.
+
+    The hosted agent graph ``call_model → tools → call_model → … → END``
+    can, under certain conditions, end without producing a tool-free
+    ``AIMessage`` with non-empty text (e.g. the final step is a tool call,
+    ``max_iterations`` is reached, or the LLM returns empty content).  In
+    ``response_mode="final_answer"`` the converter used to strip all tool
+    items and hand Foundry an empty list, which the Responses API rejects
+    with HTTP 400.  The converter now guarantees at least one
+    ``ResponsesAssistantMessageItemResource`` in the output whenever the
+    graph actually ran.
+    """
+
+    @pytest.fixture()
+    def final_answer_converter(self):
+        from agent.hosted.state_converter import QPrismaNonStreamResponseConverter
+
+        ctx = _make_context()
+        hitl = _make_hitl_helper()
+        return QPrismaNonStreamResponseConverter(ctx, hitl, response_mode="final_answer")
+
+    def test_graph_ends_on_tool_call_falls_back_to_preamble(self, final_answer_converter):
+        """Graph ends on AIMessage(tool_calls + preamble) → preamble surfaced.
+
+        Simulates the common Anthropic pattern where the final assistant
+        message carries both narrative text and tool_calls.  Without the
+        fix, stripping leaves zero items; with the fix, the preamble is
+        used as the final answer.
+        """
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_with_preamble = AIMessage(
+            content="Based on the video, here are the key points.",
+            tool_calls=[{"name": "search_video", "id": "call_x", "args": {}}],
+        )
+        output = [{"call_model": {"messages": [ai_with_preamble]}}]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        assert "Based on the video" in items[0].content
+
+    def test_all_ai_messages_empty_falls_back_to_placeholder(self, final_answer_converter):
+        """No AIMessage has text anywhere → placeholder synthesized, not empty."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_tool = AIMessage(
+            content="", tool_calls=[{"name": "search", "id": "c1", "args": {}}]
+        )
+        output = [
+            {"call_model": {"messages": [ai_tool]}},
+            {"tools": {"messages": [ToolMessage(content="r", tool_call_id="c1")]}},
+        ]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        # Placeholder content is non-empty — Foundry can persist it.
+        assert isinstance(items[0].content, str) and len(items[0].content) > 0
+
+    def test_multiple_assistant_messages_collapsed_to_last(self, final_answer_converter):
+        """Two assistant messages survive → only the last is kept.
+
+        Multiple ``ResponsesAssistantMessageItemResource`` in a single
+        response have been observed to trigger Foundry 400s.
+        """
+        from azure.ai.agentserver.core.models import projects as pm
+
+        output = [
+            {"call_model": {"messages": [AIMessage(content="First thought.")]}},
+            {"call_model": {"messages": [AIMessage(content="Final answer here.")]}},
+        ]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        assert items[0].content == "Final answer here."
+
+    def test_tool_loop_with_final_message_unchanged(self, final_answer_converter):
+        """Canonical happy path: tool loop → final AIMessage → that message kept.
+
+        Ensures the non-empty guarantee does not interfere with normal
+        operation — the pre-existing test still holds under the new code.
+        """
+        from azure.ai.agentserver.core.models import projects as pm
+
+        output = [
+            {
+                "call_model": {
+                    "messages": [
+                        AIMessage(
+                            content="",
+                            tool_calls=[{"name": "s", "id": "c1", "args": {}}],
+                        )
+                    ]
+                }
+            },
+            {"tools": {"messages": [ToolMessage(content="r", tool_call_id="c1")]}},
+            {"call_model": {"messages": [AIMessage(content="Video summary: …")]}},
+        ]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        assert items[0].content == "Video summary: …"
+
+    def test_list_content_preamble_flattened(self, final_answer_converter):
+        """AIMessage with list-style content (Anthropic blocks) is flattened."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_with_blocks = AIMessage(
+            content=[
+                {"type": "text", "text": "Checking the transcript…"},
+                {"type": "tool_use", "id": "c1", "name": "s", "input": {}},
+            ],
+            tool_calls=[{"name": "s", "id": "c1", "args": {}}],
+        )
+        output = [{"call_model": {"messages": [ai_with_blocks]}}]
+        items = final_answer_converter.convert(output)
+
+        assert len(items) == 1
+        assert isinstance(items[0], pm.ResponsesAssistantMessageItemResource)
+        assert "Checking the transcript" in items[0].content
+
+
+# ---------------------------------------------------------------------------
 # Test: QPrismaStateConverter response_mode integration
 # ---------------------------------------------------------------------------
 

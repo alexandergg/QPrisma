@@ -16,6 +16,11 @@ on:
         description: 'Agent version override (e.g., "2"). Leave empty to auto-resolve.'
         required: false
         type: string
+      run-redteam:
+        description: 'Run AI Red Teaming scan (direct-attack / jailbreak coverage).'
+        required: false
+        type: boolean
+        default: false
 
   # Weekly regression monitoring
   schedule:
@@ -316,5 +321,68 @@ jobs:
         if: steps.eval-safety.outcome == 'failure'
         run: |
           echo "::warning::Safety evaluation action failed. Results may still be available in the Azure AI Foundry portal."
+          echo "Check: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations"
+          exit 1
+
+  # ------------------------------------------------------------------
+  # Job 6: AI Red Teaming scan (direct-attack / jailbreak coverage)
+  # ------------------------------------------------------------------
+  # Only runs when the workflow is manually dispatched with
+  # `run-redteam=true`.  Skipped on workflow_run / schedule triggers to
+  # avoid paying the red-team cost on every deploy.
+  redteam-eval:
+    runs-on: ubuntu-latest
+    needs: [resolve-version]
+    environment: dev
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.run-redteam == true
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Red Team SDK
+        run: |
+          pip install "azure-ai-evaluation[redteam]" "azure-identity>=1.25.0"
+
+      - name: Run AI Red Teaming scan
+        id: redteam
+        continue-on-error: true
+        working-directory: backend
+        env:
+          AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          QPRISMA_REDTEAM_NUM_OBJECTIVES: '5'
+        run: |
+          python -m evaluation_foundry.redteam_eval \
+            --agent-id "${{ needs.resolve-version.outputs.agent-id }}" \
+            --endpoint "${{ vars.FOUNDRY_PROJECT_ENDPOINT }}" \
+            --strategies "base64,flip,morse" \
+            --risk-categories "violence,hate_unfairness,sexual,self_harm" \
+            --output "${{ runner.temp }}/redteam-results.json" \
+            --scan-name "qprisma-${{ needs.resolve-version.outputs.agent-id }}-redteam"
+
+      - name: Upload red-team results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: redteam-results
+          path: ${{ runner.temp }}/redteam-results.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Report red-team outcome
+        if: steps.redteam.outcome == 'failure'
+        run: |
+          echo "::warning::Red Team scan failed. Partial results (if any) were uploaded as an artifact."
           echo "Check: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations"
           exit 1

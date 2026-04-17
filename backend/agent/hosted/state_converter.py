@@ -133,6 +133,44 @@ def _sanitize_tool_output(content: str) -> str:
     return _CONTROL_CHAR_RE.sub("", content)
 
 
+# Last-resort placeholder used when `response_mode="final_answer"` strips all
+# tool items and no AIMessage text survived.  Foundry's Responses API rejects
+# empty response batches with HTTP 400 "Response could not be saved due to
+# invalid format", so we always emit at least one assistant message.
+_FINAL_ANSWER_EMPTY_PLACEHOLDER = (
+    "I couldn't produce a final answer for this request. "
+    "Please try again or rephrase your question."
+)
+
+
+def _extract_ai_text(message: Any) -> str:
+    """Return the plain-text content of an AIMessage, or ``""`` if none.
+
+    LangChain ``AIMessage.content`` may be a string *or* a list of content
+    blocks (Anthropic style).  This helper flattens list content by joining
+    the ``text`` of every ``type="text"`` block so we can use AIMessage
+    content that accompanies tool_calls as a fallback final answer.
+    """
+    content = getattr(message, "content", None)
+    if not content:
+        return ""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif (
+                isinstance(block, dict)
+                and block.get("type") == "text"
+                and isinstance(block.get("text"), str)
+            ):
+                parts.append(block["text"])
+        return "\n".join(p for p in parts if p).strip()
+    return str(content).strip()
+
+
 class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConverter):
     """Convert LangGraph ``stream_mode="updates"`` output to Responses API items.
 
@@ -184,11 +222,28 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
         self._conversion_errors = 0
         self._attempted_tool_conversions = False
 
+        # Track the last AIMessage text content seen in the stream so we can
+        # use it as a fallback final answer in `final_answer` mode when the
+        # post-stripping result would otherwise be empty.  Preambles on
+        # tool-calling AIMessages are normally discarded by
+        # ``_convert_single_message`` (mutually-exclusive turn rule), but in
+        # ``final_answer`` mode tool items are stripped anyway — so the
+        # preamble is safe (and valuable) to surface.
+        last_ai_text: str = ""
+
         for step in output:
             if not isinstance(step, dict):
                 logger.warning("Skipping non-dict step of type %s", type(step).__name__)
                 continue
             for node_name, node_output in step.items():
+                if node_name not in _NODES_TO_SKIP and isinstance(node_output, dict):
+                    msgs = node_output.get("messages")
+                    if isinstance(msgs, Collection):
+                        for msg in msgs:
+                            if isinstance(msg, lc_messages.AIMessage):
+                                text = _extract_ai_text(msg)
+                                if text:
+                                    last_ai_text = text
                 for item in self._convert_node_output_multi(node_name, node_output):
                     items.append(item)
                     if isinstance(item, project_models.FunctionToolCallItemResource):
@@ -248,19 +303,69 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
         # --- final_answer mode: strip tool items for eval-friendly output ---
         if self._response_mode == "final_answer":
             full_count = len(result)
-            result = [
+            assistant_items = [
                 item
                 for item in result
                 if isinstance(item, project_models.ResponsesAssistantMessageItemResource)
             ]
-            stripped = full_count - len(result)
-            if stripped:
-                logger.info(
-                    "response_mode=final_answer: stripped %d tool items, "
-                    "kept %d assistant message(s)",
-                    stripped,
-                    len(result),
-                )
+            stripped = full_count - len(assistant_items)
+
+            # Collapse multiple assistant messages to the last non-empty one.
+            # The Responses API treats the response as a single assistant
+            # turn; emitting multiple ResponsesAssistantMessageItemResource
+            # has been observed to trigger Foundry "invalid format" 400s.
+            collapsed_from = len(assistant_items)
+            if len(assistant_items) > 1:
+                assistant_items = [assistant_items[-1]]
+
+            # Guarantee non-empty: Foundry rejects empty responses with
+            # HTTP 400 "Response could not be saved due to invalid format".
+            # When no assistant message survived (e.g. the final graph step
+            # was a tool call, max_iterations hit, or content was empty),
+            # synthesize one from the last AIMessage text we tracked, or
+            # from a placeholder as last resort.  Only synthesize when the
+            # graph actually produced output — a truly empty ``output``
+            # list means the graph never ran and Foundry handles that
+            # upstream.
+            synthesized = False
+            if not assistant_items and output:
+                fallback_text = last_ai_text or _FINAL_ANSWER_EMPTY_PLACEHOLDER
+                try:
+                    assistant_items = [
+                        project_models.ResponsesAssistantMessageItemResource(
+                            content=self.convert_MessageContent(
+                                fallback_text,
+                                role=project_models.ResponsesMessageRole.ASSISTANT,
+                            ),
+                            id=self.context.agent_run.id_generator.generate_message_id(),
+                            status="completed",
+                        )
+                    ]
+                    synthesized = True
+                    logger.warning(
+                        "response_mode=final_answer: no assistant message survived "
+                        "stripping (stripped=%d, last_ai_text_len=%d); synthesized "
+                        "fallback from %s",
+                        stripped,
+                        len(last_ai_text),
+                        "last AIMessage text" if last_ai_text else "empty-placeholder",
+                    )
+                except Exception:
+                    logger.exception(
+                        "response_mode=final_answer: failed to synthesize fallback "
+                        "assistant message — Foundry will reject empty response"
+                    )
+
+            result = assistant_items
+            logger.info(
+                "response_mode=final_answer: stripped=%d tool items, "
+                "collapsed=%d assistant messages, synthesized_fallback=%s, "
+                "final_count=%d",
+                stripped,
+                max(0, collapsed_from - len(result)) if not synthesized else 0,
+                synthesized,
+                len(result),
+            )
 
         tool_call_count = sum(
             1 for i in result if isinstance(i, project_models.FunctionToolCallItemResource)
