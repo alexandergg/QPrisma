@@ -479,11 +479,12 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
         # despite the converter calling ``convert_MessageContent`` on every
         # code path.
         #
-        # The loop below acts as a final safety net: it logs the observed
-        # content shape for every assistant item at INFO (so deployments can
-        # be diagnosed without re-running locally) and, if a malformed shape
-        # is detected, re-runs ``convert_MessageContent`` on a flattened
-        # plain-text representation to guarantee typed output.
+        # The loop below acts as a final safety net: it logs unexpected
+        # content shapes at WARNING and otherwise keeps shape diagnostics at
+        # DEBUG so production logs are not flooded by healthy assistant items.
+        # If a malformed shape is detected, it re-runs
+        # ``convert_MessageContent`` on a flattened plain-text representation
+        # to guarantee typed output.
         for idx, item in enumerate(result):
             if not isinstance(item, project_models.ResponsesAssistantMessageItemResource):
                 continue
@@ -498,7 +499,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                     # strings or untyped dicts slipping through indicate the
                     # content was not routed through ``convert_MessageContent``
                     # and must be repaired to avoid stringified storage.
-                    if isinstance(el, str):
+                    if isinstance(el, str | dict):
                         needs_repair = True
                         break
             elif content is None:
@@ -520,7 +521,7 @@ class QPrismaNonStreamResponseConverter(ResponseAPIMessagesNonStreamResponseConv
                 except Exception:
                     logger.exception("Defensive content repair failed for assistant item %d", idx)
             else:
-                logger.info("Assistant item %d content shape OK: %s", idx, shape)
+                logger.debug("Assistant item %d content shape OK: %s", idx, shape)
 
         # Warn on mismatched tool call/output counts (orphan indicator)
         if tool_call_count != tool_output_count and tool_call_count > 0:

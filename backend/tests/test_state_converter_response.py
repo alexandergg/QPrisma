@@ -7,6 +7,7 @@ orphan-output guarding, and node-level filtering for the Foundry Responses API.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import types
 from enum import Enum
@@ -1574,7 +1575,7 @@ class TestContentShapeInvariant:
     ``sample.output[*].content`` lands as a JSON-stringified list or a bare
     string instead of a typed content-part list.  The converter must never
     emit a ``ResponsesAssistantMessageItemResource`` whose ``content`` is a
-    plain string or a list containing plain strings.
+    plain string or a list containing plain strings / raw dict blocks.
     """
 
     def _assert_content_typed(self, items):
@@ -1588,8 +1589,8 @@ class TestContentShapeInvariant:
             ), f"content must be a list, got {type(item.content).__name__}"
             for el in item.content:
                 assert not isinstance(
-                    el, str
-                ), "content list elements must be typed SDK parts, not raw strings"
+                    el, str | dict
+                ), "content list elements must be typed SDK parts, not raw strings or dicts"
 
     def test_simple_string_content_is_wrapped(self, converter):
         ai_msg = AIMessage(content="Hello world")
@@ -1631,6 +1632,38 @@ class TestContentShapeInvariant:
         monkeypatch.setattr(converter, "_convert_single_message", _poisoned)
         items = converter.convert(output)
         self._assert_content_typed(items)
+
+    def test_malformed_dict_content_is_repaired(self, converter, monkeypatch):
+        """Raw dict blocks must be rewrapped into typed SDK content parts."""
+        from azure.ai.agentserver.core.models import projects as pm
+
+        ai_msg = AIMessage(content="Answer.")
+        output = [{"call_model": {"messages": [ai_msg]}}]
+
+        original_convert_single = converter._convert_single_message
+
+        def _poisoned(message):
+            for item in original_convert_single(message):
+                if isinstance(item, pm.ResponsesAssistantMessageItemResource):
+                    item.content = [{"text": "Answer.", "type": "output_text", "annotations": []}]
+                yield item
+
+        monkeypatch.setattr(converter, "_convert_single_message", _poisoned)
+        items = converter.convert(output)
+        self._assert_content_typed(items)
+
+    def test_healthy_content_shape_logs_at_debug(self, converter, caplog):
+        ai_msg = AIMessage(content="Hello world")
+        output = [{"call_model": {"messages": [ai_msg]}}]
+
+        with caplog.at_level(logging.INFO, logger="agent.hosted.state_converter"):
+            items = converter.convert(output)
+
+        self._assert_content_typed(items)
+        assert not any(
+            record.levelno == logging.INFO and "content shape OK" in record.message
+            for record in caplog.records
+        )
 
 
 @pytest.fixture

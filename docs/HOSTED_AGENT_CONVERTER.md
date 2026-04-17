@@ -21,7 +21,7 @@ QPrisma requirements are not met by the default converter:
    only the first `function_call` item when one `AIMessage` triggers multiple
    tools in parallel, breaking traces used by Foundry agent evaluations.
 2. **`response_mode` selection.** QPrisma allows callers to opt in to either a
-   full trace (`full_trace`) or a single final message (`final_answer`). The
+   full trace (`full`) or a single final message (`final_answer`). The
    default adapter does not understand either knob.
 
 `backend/agent/hosted/state_converter.py` subclasses the SDK converter and
@@ -42,7 +42,7 @@ Supported values:
 
 | Value           | Behavior                                                          |
 | --------------- | ----------------------------------------------------------------- |
-| `full_trace`    | Emit every assistant message, tool call, and tool output (default). |
+| `full`          | Emit every assistant message, tool call, and tool output (default). |
 | `final_answer`  | Strip intermediate tool calls/outputs; emit only the final answer.  |
 
 In `final_answer` mode the converter guarantees a single, non-empty assistant
@@ -84,12 +84,12 @@ The invariant is covered by the `TestContentShapeInvariant` tests in
 ## Files
 
 - `backend/agent/hosted/state_converter.py` — converter + sanitization.
-- `backend/agent/hosted/server.py` — wires the converter into
-  `from_langgraph(..., non_stream_response_converter_factory=...)`.
+- `backend/agent/hosted/main.py` — builds the hosted app and passes
+  `QPrismaStateConverter(graph=graph)` to `from_langgraph(...)`.
 - `backend/tests/test_state_converter_response.py` — end-to-end shape tests.
 
 ## Related
 
-- [`plan-foundry-tools.md`](../plan-foundry-tools.md) — why native Foundry tools
-  are **not** required; `@tool`-decorated LangGraph tools are the supported path.
+- [`BACKEND_ARCHITECTURE.md`](./BACKEND_ARCHITECTURE.md) — tool modules and
+  `@tool`-decorated LangGraph patterns used by the hosted agent.
 - [`AGENTS.md`](../AGENTS.md) — operating rules for the agent and services.
