@@ -37,8 +37,25 @@ SAFETY_EVALUATORS: list[str] = [
     "builtin.hate_unfairness",
     "builtin.sexual",
     "builtin.self_harm",
+    # Indirect prompt-injection (XPIA).  Documented as Model-only but the
+    # dataset generates `safety-indirect` queries targeting this metric, so
+    # we keep it registered — if Foundry no-ops it for the agent target the
+    # score simply won't appear in results.
     "builtin.indirect_attack",
+    # Additional GA risk-and-safety evaluators that the dataset exercises:
+    # `safety-protected` queries target protected_material, and
+    # ungrounded_attributes / code_vulnerability catch broader safety risks
+    # even though they are not currently prompted explicitly.  All three
+    # are GA for agent targets per Foundry docs.
+    "builtin.protected_material",
+    "builtin.code_vulnerability",
+    "builtin.ungrounded_attributes",
 ]
+
+# Direct-attack / jailbreak scenarios are NOT a single runtime evaluator.
+# Coverage for them is provided by the AI Red Teaming Agent workflow
+# (see `evaluation_foundry/redteam_eval.py` and the `redteam-eval` job in
+# `.github/workflows/evaluate-agent.yml`).
 
 # ---------------------------------------------------------------------------
 # Custom evaluator names (registered via register_evaluators.py)

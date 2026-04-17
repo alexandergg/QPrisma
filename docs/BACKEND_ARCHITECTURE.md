@@ -1967,6 +1967,7 @@ evaluation_foundry/
 ├── config.py                    # Evaluation pipeline configuration
 ├── generate_eval_data.py        # Generate test datasets
 ├── register_evaluators.py       # Register custom evaluators
+├── redteam_eval.py              # AI Red Teaming scan runner (direct-attack / jailbreak)
 ├── tool_definitions.py          # Tool schemas for evaluation
 └── data/                        # Evaluation datasets and results
 ```
@@ -1978,7 +1979,26 @@ evaluation_foundry/
 | `config.py` | Defines evaluation parameters, model endpoints, and scoring thresholds |
 | `generate_eval_data.py` | Creates synthetic test data from video transcripts and Q&A pairs |
 | `register_evaluators.py` | Registers custom evaluators with Azure AI Foundry |
+| `redteam_eval.py` | Runs the AI Red Teaming Agent (PyRIT-based) against the hosted agent for direct-attack / jailbreak coverage |
 | `tool_definitions.py` | Provides tool schemas used in evaluation scenarios |
+
+### Safety evaluator matrix
+
+The built-in Foundry safety evaluators registered in `config.py::SAFETY_EVALUATORS`:
+
+| Evaluator | Target | Notes |
+|---|---|---|
+| `violence`, `sexual`, `self_harm`, `hate_unfairness` | Model & Agents | Core content-safety metrics |
+| `protected_material` | Model & Agents | Copyrighted content detection |
+| `code_vulnerability` | Model & Agents | Unsafe code suggestions |
+| `ungrounded_attributes` | Model & Agents | Unsupported attribute inference |
+| `indirect_attack` | Model only | Registered for dataset compatibility; may no-op on agent targets |
+
+Direct-attack / jailbreak coverage is **not** a runtime evaluator. It is provided by the AI Red Teaming Agent (PyRIT) and must be invoked separately via `redteam_eval.py`.
+
+### `response_mode=final_answer` guarantee
+
+The hosted agent converter (`agent/hosted/state_converter.py`) enforces that `response_mode=final_answer` responses always contain at least one assistant message item. When the agent graph ends on a tool call, returns an empty `AIMessage`, or emits only preamble text alongside tool calls, the converter falls back to the last non-empty assistant text (or a short placeholder) so Foundry's Responses API never receives an empty payload. Without this guarantee, media-context queries (those exercising tools) produce HTTP 400 "Response could not be saved due to invalid format" during evaluation runs.
 
 ### Running Evaluations
 
@@ -1991,7 +2011,18 @@ python -m evaluation_foundry.register_evaluators
 
 # Run evaluation via Azure AI Foundry
 # (Configured in Azure AI Foundry portal or via SDK)
+
+# Run AI Red Teaming scan (direct-attack / jailbreak)
+python -m evaluation_foundry.redteam_eval \
+    --agent-id "<agent-name>:<version>" \
+    --endpoint "$AZURE_AI_PROJECT_ENDPOINT" \
+    --strategies base64,flip,morse \
+    --risk-categories violence,hate_unfairness,sexual,self_harm \
+    --output redteam-results.json
 ```
+
+In CI, the red-team scan is gated behind the `run-redteam=true` input on the
+`evaluate-agent` workflow (`workflow_dispatch` only) to avoid per-deploy cost.
 
 ---
 
