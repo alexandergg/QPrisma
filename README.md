@@ -349,13 +349,54 @@ For full details, see [docs/INFRASTRUCTURE.md](./docs/INFRASTRUCTURE.md).
 
 ## Evaluation
 
-QPrisma uses **Azure AI Foundry** for automated agent evaluation. The hosted agent (`qprisma-video-agent`) is evaluated using the `microsoft/ai-agent-evals` GitHub Action with built-in and custom evaluators.
+QPrisma uses **Azure AI Foundry** to evaluate the hosted video agent (`qprisma-video-agent`) across response quality, tool behavior, safety posture, and investigation artifacts.
 
 **Triggers**: Runs on-demand via `workflow_dispatch`.
+
+**Workflow stages**:
+- **Generate evaluation data** from `backend/evaluation_foundry/` templates and environment-backed media/user configuration.
+- **Resolve the deployed agent version** so the run targets the exact hosted agent revision under test.
+- **Run dedicated evaluation jobs** for quality, agent/tool behavior, and safety by using `microsoft/ai-agent-evals@v3-beta`.
+- **Optionally run AI Red Teaming** for direct-attack and jailbreak coverage with `python -m evaluation_foundry.redteam_eval`.
+- **Inspect artifacts in Azure AI Foundry** through run details, conversation traces, response payloads, and cluster analysis views.
 
 **Evaluators**:
 - **Built-in**: Coherence, fluency, groundedness, task adherence, tool call accuracy, safety (6 categories)
 - **Custom**: Temporal specificity (video timestamp quality), source grounding (video evidence citation)
+
+> [!TIP]
+> See the [Azure AI Foundry Evaluation Guide](./docs/EVALUATION_GUIDE.md) for the full walkthrough, portal screenshots, artifact analysis, and cluster-insight summaries for both quality and agent evaluation runs.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/assets/evaluation/agent-overview-traces-monitor-evaluation.png">
+        <img src="docs/assets/evaluation/agent-overview-traces-monitor-evaluation.png" alt="Azure AI Foundry hosted agent page showing traces, monitor, and evaluation surfaces for QPrisma" width="100%">
+      </a>
+      <br>
+      <strong>Hosted agent evaluation entry points</strong><br>
+      QPrisma uses the agent, traces, monitor, and evaluation surfaces inside Azure AI Foundry to move from deployment into measurable runs and debugging artifacts.
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/assets/evaluation/evaluation-run-details-results.png">
+        <img src="docs/assets/evaluation/evaluation-run-details-results.png" alt="Azure AI Foundry evaluation run details showing completed results for a QPrisma hosted agent run" width="100%">
+      </a>
+      <br>
+      <strong>Run-level inspection</strong><br>
+      Each evaluation run records status, timing, logs, and results so quality regressions and agent behavior issues can be tied back to a specific hosted-agent version.
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top">
+      <a href="docs/assets/evaluation/evaluation-cluster-analysis-tooling.png">
+        <img src="docs/assets/evaluation/evaluation-cluster-analysis-tooling.png" alt="Azure AI Foundry cluster analysis for QPrisma evaluation failures showing AI suggestions and grouped issue clusters" width="100%">
+      </a>
+      <br>
+      <strong>Cluster analysis for debugging</strong><br>
+      Azure AI Foundry groups failure patterns into AI-labeled clusters, then surfaces suggestions like <em>Use the Right Tool</em>, <em>Use Exact Tool Output</em>, and <em>Enforce Evidence Grounding</em> to speed up investigation.
+    </td>
+  </tr>
+</table>
 
 ```bash
 # Generate evaluation data files locally (dry-run)
@@ -369,7 +410,7 @@ python -m evaluation_foundry.generate_eval_data --dry-run --response-mode final_
 python -m evaluation_foundry.register_evaluators --dry-run
 ```
 
-See `.github/workflows/evaluate-agent.yml` for the full CI/CD evaluation pipeline.
+See `.github/workflows/evaluate-agent.yml` for the full CI/CD evaluation pipeline, and `docs/EVALUATION_GUIDE.md` for the Foundry portal walkthrough and artifact analysis.
 
 ## Documentation
 
@@ -392,6 +433,7 @@ See `.github/workflows/evaluate-agent.yml` for the full CI/CD evaluation pipelin
 
 ### Reference
 
+- [Evaluation Guide](./docs/EVALUATION_GUIDE.md)
 - [API Documentation](./API_DOCUMENTATION.md)
 - [Testing Guide](./TESTING.md)
 - [Contributing Guide](./CONTRIBUTING.md)
