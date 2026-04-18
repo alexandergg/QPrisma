@@ -84,7 +84,19 @@ def _setup_telemetry() -> None:
     """
     import os
 
-    from agent.hosted.telemetry import set_azure_ai_tracer
+    from agent.hosted.telemetry import (
+        SafeAzureAIOpenTelemetryTracer,
+        patch_agentserver_history_fetch,
+        set_azure_ai_tracer,
+    )
+
+    # Apply the agentserver history-fetch patch unconditionally (no-op when
+    # the upstream signature changes). This restores cross-turn history that
+    # is otherwise silently dropped on every conversation.
+    try:
+        patch_agentserver_history_fetch()
+    except Exception as e:
+        logger.warning("agentserver patch: failed to apply (%s)", e)
 
     conn_str = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
     if not conn_str:
@@ -132,7 +144,11 @@ def _setup_telemetry() -> None:
                 agent_id="qprisma-video-agent",
                 auto_configure_azure_monitor=False,
             )
-            set_azure_ai_tracer(_tracer)
+            # Wrap so that LangGraph list-shaped chain inputs (which the
+            # 1.1.0b1 tracer mishandles) and any other callback errors are
+            # contained to debug-level logs instead of flooding stderr on
+            # every node start.
+            set_azure_ai_tracer(SafeAzureAIOpenTelemetryTracer(_tracer))
             logger.info(
                 "AzureAIOpenTelemetryTracer: enabled (content_recording=%s)",
                 content_recording,

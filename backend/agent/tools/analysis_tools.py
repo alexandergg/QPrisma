@@ -114,6 +114,56 @@ async def get_related_content(
         return tool_error("query_error", f"Failed to explore connections: {e}")
 
 
+async def _resolve_entity_via_hybrid_search(
+    entity_name: str,
+    entity_type: str,
+    media_id: str,
+) -> str | None:
+    """Resolve a descriptive entity name to a canonical graph entity name.
+
+    Mirrors the ENTITY-restricted hybrid search that ``find_entity`` uses,
+    returning the top candidate's canonical name (``r.content["name"]``) so
+    callers can retry exact-match graph lookups. Returns ``None`` if no
+    candidate matches, the search fails, or the top candidate has no
+    usable name field.
+    """
+    try:
+        from models.graph_models import NodeType
+        from services.graph_search_service import get_graph_search_service
+
+        search_service = get_graph_search_service()
+        search_response = await asyncio.wait_for(
+            search_service.hybrid_search(
+                query_text=entity_name,
+                node_types=[NodeType.ENTITY],
+                video_id=media_id,
+                limit=5,
+                expansion_hops=1,
+                use_reranking=True,
+            ),
+            timeout=10.0,
+        )
+    except Exception as exc:
+        logger.debug(
+            "_resolve_entity_via_hybrid_search: failed for '%s' (%s)",
+            entity_name[:50],
+            exc,
+        )
+        return None
+
+    requested_type = (entity_type or "any").lower()
+    for r in search_response.results:
+        if getattr(r, "node_type", None) != NodeType.ENTITY:
+            continue
+        candidate_type = (r.content.get("type") or "").lower()
+        if requested_type != "any" and candidate_type and candidate_type != requested_type:
+            continue
+        name = r.content.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return None
+
+
 @tool
 async def get_entity_timeline(
     entity_name: Annotated[str, "Name of the entity to track"],
@@ -129,6 +179,12 @@ async def get_entity_timeline(
     throughout the video. Returns ordered moments with rich detail for each
     appearance. Useful for tracking how a person, object, or concept evolves over time.
     For a quick list of where an entity appears, use find_entity instead.
+
+    Tip: pass canonical entity names from the graph (use find_entity first for
+    descriptive phrases like "middle-aged presenter with gray hair"). When this
+    tool receives a non-canonical name and finds no exact match, it will
+    transparently fuzzy-resolve the name and retry; the substituted name is
+    reported in the response as ``resolved_entity_name``.
     """
     if not media_id:
         return tool_error("no_context", "No video context available.")
@@ -151,20 +207,45 @@ async def get_entity_timeline(
         visual_records = appearances.get("visual", [])
         audio_records = appearances.get("audio", [])
 
-        logger.info(
-            "get_entity_timeline: results | visual=%d audio=%d entity=%s",
-            len(visual_records),
-            len(audio_records),
-            entity_name[:50],
-        )
+        resolved_entity_name: str | None = None
+        resolution_method: str | None = None
 
         if not visual_records and not audio_records:
-            logger.warning(
-                "get_entity_timeline: 0 results for '%s' — entity extraction "
-                "may not have run or entity name may not match graph nodes. "
-                "Try a partial/case-insensitive match via find_entity instead.",
+            logger.info(
+                "get_entity_timeline: 0 exact matches for '%s' — attempting "
+                "fuzzy entity resolution via hybrid search",
                 entity_name[:50],
             )
+            resolved = await _resolve_entity_via_hybrid_search(
+                entity_name=entity_name,
+                entity_type=entity_type,
+                media_id=media_id,
+            )
+            if resolved and resolved != entity_name:
+                resolved_entity_name = resolved
+                resolution_method = "hybrid_search_fuzzy"
+                appearances = await asyncio.to_thread(
+                    lambda: kg.find_entity_appearances(
+                        media_id, resolved, user_id=user_id
+                    )
+                )
+                visual_records = appearances.get("visual", [])
+                audio_records = appearances.get("audio", [])
+                logger.info(
+                    "get_entity_timeline: fuzzy fallback | original='%s' "
+                    "resolved='%s' visual=%d audio=%d",
+                    entity_name[:50],
+                    resolved[:50],
+                    len(visual_records),
+                    len(audio_records),
+                )
+            else:
+                logger.warning(
+                    "get_entity_timeline: 0 results for '%s' (no fuzzy match "
+                    "found either). Entity extraction may not have run or the "
+                    "name may not exist in the graph.",
+                    entity_name[:50],
+                )
 
         timeline = []
         seen_timestamps: set[float] = set()
@@ -227,7 +308,7 @@ async def get_entity_timeline(
         spoken_count = sum(1 for t in timeline if t["appearance_type"] == "spoken")
 
         shown = timeline[:30]
-        return {
+        payload: dict[str, Any] = {
             "entity": entity_name,
             "entity_type": entity_type,
             "total_appearances": len(timeline),
@@ -241,6 +322,10 @@ async def get_entity_timeline(
                 total_available=len(timeline),
             ),
         }
+        if resolved_entity_name:
+            payload["resolved_entity_name"] = resolved_entity_name
+            payload["resolution_method"] = resolution_method
+        return payload
 
     except Exception as e:
         logger.error("get_entity_timeline failed for %s: %s", media_id, e)

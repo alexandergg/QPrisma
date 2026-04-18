@@ -278,13 +278,30 @@ class GraphSearchScoringMixin:
             logger.warning("Batch graph expansion failed: %s", e)
             return None
 
+    # Maximum CONTAINS hops between any node and its Video ancestor.
+    # Schema: Video -> Chapter -> Scene -> Frame -> Entity (~4 hops).
+    # Bound at 6 for headroom; rare deeper structures are accepted as
+    # missing-path (graceful degradation), never an unbounded scan.
+    _PATH_LOOKUP_MAX_HOPS = 6
+
+    # Chunk size for batched path lookups: keeps each Neo4j transaction
+    # well under the configured timeout and isolates failures so a single
+    # bad chunk cannot poison the rest of the batch.
+    _PATH_LOOKUP_CHUNK_SIZE = 25
+
     def _batch_get_paths_to_video(
         self,
         node_ids: list[str],
         user_id: str | None = None,
         timeout_s: float | None = None,
     ) -> dict[str, list[str]] | None:
-        """Batch fetch the shortest path from each node up to a Video node."""
+        """Batch fetch the shortest path from each node up to a Video node.
+
+        Uses a bounded ``shortestPath`` (``[:CONTAINS*0..6]``) so Neo4j can
+        short-circuit instead of enumerating every path before sorting.
+        Candidate ids are processed in fixed-size chunks; per-chunk errors
+        are isolated so a single timeout does not discard prior results.
+        """
         from neo4j import Query
 
         unique_node_ids = list(dict.fromkeys(node_ids))
@@ -292,38 +309,65 @@ class GraphSearchScoringMixin:
             return {}
 
         node_filter = "WHERE n.user_id = $user_id" if user_id else ""
-        video_filter = ""
+        # `*0..6` allows the path when ``n`` is itself a ``Video`` (preserves
+        # behavior of the previous unbounded ``[:CONTAINS*]`` match).
         if user_id:
-            video_filter = """
-            WHERE v.user_id = $user_id
-              AND all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)
+            cypher = f"""
+                UNWIND $node_ids AS node_id
+                MATCH (n {{id: node_id}})
+                {node_filter}
+                MATCH p = shortestPath(
+                    (n)<-[:CONTAINS*0..{self._PATH_LOOKUP_MAX_HOPS}]-(v:Video {{user_id: $user_id}})
+                )
+                WHERE all(x IN nodes(p) WHERE x.user_id = $user_id)
+                RETURN node_id, [x IN nodes(p) | x.id] AS path
+            """
+        else:
+            cypher = f"""
+                UNWIND $node_ids AS node_id
+                MATCH (n {{id: node_id}})
+                MATCH p = shortestPath(
+                    (n)<-[:CONTAINS*0..{self._PATH_LOOKUP_MAX_HOPS}]-(v:Video)
+                )
+                RETURN node_id, [x IN nodes(p) | x.id] AS path
             """
 
-        cypher = f"""
-            UNWIND $node_ids AS node_id
-            MATCH (n {{id: node_id}})
-            {node_filter}
-            MATCH path = (n)<-[:CONTAINS*]-(v:Video)
-            {video_filter}
-            WITH node_id, path
-            ORDER BY node_id, length(path)
-            WITH node_id, collect(path)[0] AS best_path
-            RETURN node_id, [node IN nodes(best_path) | node.id] AS path
-        """
+        chunk_size = max(1, self._PATH_LOOKUP_CHUNK_SIZE)
+        chunks = [
+            unique_node_ids[i : i + chunk_size]
+            for i in range(0, len(unique_node_ids), chunk_size)
+        ]
 
-        params = {"node_ids": unique_node_ids}
-        if user_id:
-            params["user_id"] = user_id
+        paths_by_node: dict[str, list[str]] = {}
+        failed_chunks = 0
 
-        try:
-            with self.graph_service.get_session() as session:
-                q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
-                result = session.run(q, **params)
-                return {record["node_id"]: record["path"] for record in result}
-        except Exception as e:
-            logger.warning("Batch path lookup failed: %s — %s", type(e).__name__, str(e))
-            logger.debug("Batch path lookup traceback", exc_info=True)
+        for chunk in chunks:
+            params: dict[str, object] = {"node_ids": chunk}
+            if user_id:
+                params["user_id"] = user_id
+
+            try:
+                with self.graph_service.get_session() as session:
+                    q = Query(cypher, timeout=timeout_s) if timeout_s else cypher
+                    result = session.run(q, **params)
+                    for record in result:
+                        paths_by_node[record["node_id"]] = record["path"]
+            except Exception as e:
+                failed_chunks += 1
+                logger.warning(
+                    "Batch path lookup chunk failed (size=%d): %s — %s",
+                    len(chunk),
+                    type(e).__name__,
+                    str(e),
+                )
+                logger.debug("Batch path lookup chunk traceback", exc_info=True)
+                continue
+
+        # Preserve the legacy contract: return ``None`` when *every* chunk
+        # failed so the caller can short-circuit graph scoring entirely.
+        if failed_chunks and not paths_by_node:
             return None
+        return paths_by_node
 
     def _count_by_type(self, results: list[ScoredNode]) -> dict[str, int]:
         """Count results by node type."""
