@@ -7,6 +7,7 @@ from enum import Enum
 
 import pytest
 
+import evaluation_foundry.redteam_eval as redteam_eval_module
 from evaluation_foundry.redteam_eval import (
     _build_enabled_taxonomy_update,
     _build_retry_taxonomy_update_body,
@@ -480,7 +481,7 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
     assert "agents_get" not in calls
 
 
-def test_run_redteam_scan_retries_taxonomy_update_with_asset_id_when_name_is_rejected(
+def test_run_redteam_scan_falls_back_to_rest_patch_when_sdk_update_identifiers_fail(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ):
     calls: dict[str, object] = {}
@@ -602,7 +603,11 @@ def test_run_redteam_scan_retries_taxonomy_update_with_asset_id_when_name_is_rej
                     "Message: {argumentName} is invalid\n"
                     "Target: taxonomyId"
                 )
-            assert name == "taxonomy-asset-id"
+            raise FakeHttpResponseError("Operation returned an invalid status 'Not Found'")
+
+        def get(self, *, name: str):
+            calls.setdefault("taxonomy_get_calls", []).append(name)
+            assert name == "qprisma-video-agent-prohibited-actions"
             return FakeTaxonomy("taxonomy-asset-id", subcategory_enabled=True)
 
     class FakeBetaClient:
@@ -647,6 +652,18 @@ def test_run_redteam_scan_retries_taxonomy_update_with_asset_id_when_name_is_rej
     monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions_module)
     monkeypatch.setitem(sys.modules, "azure.identity", azure_identity_module)
 
+    def fake_rest_patch(*, credential, endpoint: str, taxonomy_name: str, body: dict[str, object]):
+        calls.setdefault("rest_patch_calls", []).append(
+            {
+                "credential": credential,
+                "endpoint": endpoint,
+                "taxonomy_name": taxonomy_name,
+                "body": body,
+            }
+        )
+
+    monkeypatch.setattr(redteam_eval_module, "_patch_taxonomy_via_rest", fake_rest_patch)
+
     summary = run_redteam_scan(
         endpoint="https://example.services.ai.azure.com/api/projects/demo",
         agent_id="qprisma-video-agent:7",
@@ -666,8 +683,17 @@ def test_run_redteam_scan_retries_taxonomy_update_with_asset_id_when_name_is_rej
     assert [call["name"] for call in calls["taxonomy_update_calls"]] == [
         "foundry-generated-taxonomy",
         "taxonomy-asset-id",
+        "qprisma-video-agent-prohibited-actions",
     ]
     assert calls["taxonomy_update_calls"][0]["body"]["taxonomyInput"] == {"type": "agent"}
+    assert len(calls["rest_patch_calls"]) == 1
+    assert (
+        calls["rest_patch_calls"][0]["endpoint"]
+        == "https://example.services.ai.azure.com/api/projects/demo"
+    )
+    assert calls["rest_patch_calls"][0]["taxonomy_name"] == "qprisma-video-agent-prohibited-actions"
+    assert calls["rest_patch_calls"][0]["body"] == calls["taxonomy_update_calls"][0]["body"]
+    assert calls["taxonomy_get_calls"] == ["qprisma-video-agent-prohibited-actions"]
 
 
 def test_run_redteam_scan_logs_unexpected_taxonomy_shape(

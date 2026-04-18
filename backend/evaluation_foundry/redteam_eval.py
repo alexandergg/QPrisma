@@ -40,6 +40,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_STRATEGIES: list[str] = ["base64", "flip", "indirect_jailbreak"]
@@ -287,6 +289,41 @@ def _http_response_target_matches(exc: Exception, target: str) -> bool:
     return f"target: {target.lower()}" in str(exc).lower()
 
 
+def _is_resource_not_found_error(exc: Exception) -> bool:
+    return exc.__class__.__name__ == "ResourceNotFoundError" or "not found" in str(exc).lower()
+
+
+def _patch_taxonomy_via_rest(
+    *,
+    credential: Any,
+    endpoint: str,
+    taxonomy_name: str,
+    body: dict[str, Any],
+) -> None:
+    """PATCH a taxonomy using the documented Foundry REST endpoint."""
+    token = credential.get_token("https://ai.azure.com/.default").token
+    url = f"{endpoint.rstrip('/')}/evaluationtaxonomies/{taxonomy_name}?api-version=v1"
+    try:
+        response = httpx.patch(
+            url,
+            json=body,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Foundry-Features": "Evaluations=V1Preview",
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        details = exc.response.text.strip() or str(exc)
+        raise RuntimeError(
+            f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' with status "
+            f"{exc.response.status_code}: {details}"
+        ) from exc
+
+
 def _extract_run_status(run: Any) -> str:
     raw = _to_json_primitive(run)
     if isinstance(raw, dict):
@@ -498,12 +535,14 @@ def run_redteam_scan(
                     taxonomy_update_body,
                 )
                 last_update_error: HttpResponseError | None = None
+                update_succeeded = False
                 for identifier in update_identifiers:
                     try:
                         taxonomy = project_client.beta.evaluation_taxonomies.update(
                             name=identifier,
                             body=taxonomy_update_body,
                         )
+                        update_succeeded = True
                         break
                     except HttpResponseError as exc:
                         last_update_error = exc
@@ -511,6 +550,13 @@ def run_redteam_scan(
                             logger.warning(
                                 "Taxonomy update rejected identifier '%s'; trying the next "
                                 "identifier candidate.",
+                                identifier,
+                            )
+                            continue
+                        if _is_resource_not_found_error(exc):
+                            logger.warning(
+                                "Taxonomy update could not resolve identifier '%s'; trying "
+                                "the next identifier candidate.",
                                 identifier,
                             )
                             continue
@@ -529,6 +575,7 @@ def run_redteam_scan(
                                     name=identifier,
                                     body=retry_update_body,
                                 )
+                                update_succeeded = True
                                 break
                             except HttpResponseError as retry_exc:
                                 last_update_error = retry_exc
@@ -539,12 +586,63 @@ def run_redteam_scan(
                                         identifier,
                                     )
                                     continue
+                                if _is_resource_not_found_error(retry_exc):
+                                    logger.warning(
+                                        "Taxonomy update still could not resolve identifier "
+                                        "'%s' after retrying with the full taxonomy input.",
+                                        identifier,
+                                    )
+                                    continue
                                 raise
                         raise
-                else:
-                    if last_update_error is not None:
+                if not update_succeeded:
+                    if last_update_error is None:
+                        raise RuntimeError(
+                            "Could not determine a valid taxonomy identifier to update."
+                        )
+                    if _http_response_target_matches(
+                        last_update_error, "taxonomyId"
+                    ) or _is_resource_not_found_error(last_update_error):
+                        logger.warning(
+                            "SDK taxonomy update did not match the live Foundry service "
+                            "contract; retrying taxonomy enablement through the documented "
+                            "REST PATCH endpoint."
+                        )
+                        rest_bodies = [taxonomy_update_body]
+                        if retry_update_body != taxonomy_update_body:
+                            rest_bodies.append(retry_update_body)
+                        rest_error: RuntimeError | None = None
+                        for rest_body in rest_bodies:
+                            try:
+                                _patch_taxonomy_via_rest(
+                                    credential=credential,
+                                    endpoint=endpoint,
+                                    taxonomy_name=taxonomy_name,
+                                    body=rest_body,
+                                )
+                                taxonomy = project_client.beta.evaluation_taxonomies.get(
+                                    name=taxonomy_name
+                                )
+                                update_succeeded = True
+                                break
+                            except RuntimeError as rest_exc:
+                                rest_error = rest_exc
+                                if (
+                                    _http_response_target_matches(rest_exc, "taxonomyInput")
+                                    and rest_body == taxonomy_update_body
+                                    and retry_update_body != taxonomy_update_body
+                                ):
+                                    logger.warning(
+                                        "REST taxonomy PATCH rejected the minimal taxonomyInput "
+                                        "payload; retrying with the original taxonomy input "
+                                        "metadata."
+                                    )
+                                    continue
+                                raise
+                        if not update_succeeded and rest_error is not None:
+                            raise rest_error
+                    else:
                         raise last_update_error
-                    raise RuntimeError("Could not determine a valid taxonomy identifier to update.")
                 enabled_count = _count_enabled_subcategories(taxonomy)
                 if enabled_count == 0:
                     taxonomy_id = getattr(taxonomy, "id", None) or "<unknown>"
