@@ -334,8 +334,7 @@ class GraphSearchScoringMixin:
 
         chunk_size = max(1, self._PATH_LOOKUP_CHUNK_SIZE)
         chunks = [
-            unique_node_ids[i : i + chunk_size]
-            for i in range(0, len(unique_node_ids), chunk_size)
+            unique_node_ids[i : i + chunk_size] for i in range(0, len(unique_node_ids), chunk_size)
         ]
 
         paths_by_node: dict[str, list[str]] = {}
