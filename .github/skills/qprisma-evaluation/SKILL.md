@@ -16,6 +16,7 @@ GitHub Action with built-in and custom evaluators.
 
 The evaluation runs manually via `.github/workflows/evaluate-agent.yml`:
 - **Manual**: `workflow_dispatch` with optional version override
+- Optional `run-redteam=true` launches the **cloud Foundry AI Red Teaming** job
 
 ## Local Commands
 
@@ -50,6 +51,21 @@ export AZURE_AI_PROJECT_ENDPOINT=https://aif-qprisma-dev.services.ai.azure.com/a
 python scripts/resolve_agent_version.py
 ```
 
+### Run cloud red-team locally
+
+```bash
+cd backend
+export AZURE_AI_PROJECT_ENDPOINT=https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
+export AZURE_AI_MODEL_DEPLOYMENT_NAME=gpt-4o
+python -m evaluation_foundry.redteam_eval \
+  --agent-id qprisma-video-agent:<version> \
+  --endpoint "$AZURE_AI_PROJECT_ENDPOINT" \
+  --model-deployment "$AZURE_AI_MODEL_DEPLOYMENT_NAME" \
+  --strategies base64,flip,indirect_jailbreak \
+  --risk-categories prohibited_actions \
+  --output ./redteam-results.json
+```
+
 ## GitHub Variables & Secrets
 
 | Variable/Secret | Type | Description |
@@ -58,6 +74,14 @@ python scripts/resolve_agent_version.py
 | `EVAL_MEDIA_ID_2` | Variable | UUID of test video 2 (already indexed) |
 | `EVAL_USER_ID` | Secret | Current runtime user ID recognized by the hosted agent |
 | `FOUNDRY_PROJECT_ENDPOINT` | Variable | AI Foundry project endpoint URL |
+| `AZURE_OPENAI_DEPLOYMENT_GPT` | Variable | Foundry/OpenAI deployment used by task-adherence in cloud red-team |
+
+## Cloud red-team prerequisites
+
+- Foundry project in a region that supports cloud red teaming
+- **Azure AI User** role on the Foundry project
+- Hosted agent deployed in that same Foundry project
+- This workflow uses the **cloud Foundry Agent red-team path**, not the local PyRIT `azure.ai.evaluation.red_team.RedTeam` runner
 
 ## Evaluators
 

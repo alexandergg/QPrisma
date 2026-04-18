@@ -1979,7 +1979,7 @@ evaluation_foundry/
 | `config.py` | Defines evaluation parameters, model endpoints, and scoring thresholds |
 | `generate_eval_data.py` | Creates synthetic test data from video transcripts and Q&A pairs |
 | `register_evaluators.py` | Registers custom evaluators with Azure AI Foundry |
-| `redteam_eval.py` | Runs the AI Red Teaming Agent (PyRIT-based) against the hosted agent for direct-attack / jailbreak coverage |
+| `redteam_eval.py` | Runs the cloud Foundry AI Red Teaming workflow against the hosted agent for direct-attack / jailbreak coverage |
 | `tool_definitions.py` | Provides tool schemas used in evaluation scenarios |
 
 ### Safety evaluator matrix
@@ -1994,7 +1994,7 @@ The built-in Foundry safety evaluators registered in `config.py::SAFETY_EVALUATO
 | `ungrounded_attributes` | Model & Agents | Unsupported attribute inference |
 | `indirect_attack` | Model only | Registered for dataset compatibility; may no-op on agent targets |
 
-Direct-attack / jailbreak coverage is **not** a runtime evaluator. It is provided by the AI Red Teaming Agent (PyRIT) and must be invoked separately via `redteam_eval.py`.
+Direct-attack / jailbreak coverage is **not** a runtime evaluator. It is provided by the cloud Foundry AI Red Teaming workflow and must be invoked separately via `redteam_eval.py`.
 
 ### `response_mode=final_answer` guarantee
 
@@ -2025,13 +2025,17 @@ python -m evaluation_foundry.register_evaluators
 python -m evaluation_foundry.redteam_eval \
     --agent-id "<agent-name>:<version>" \
     --endpoint "$AZURE_AI_PROJECT_ENDPOINT" \
-    --strategies base64,flip,morse \
-    --risk-categories violence,hate_unfairness,sexual,self_harm \
+    --model-deployment gpt-4o \
+    --strategies base64,flip,indirect_jailbreak \
+    --risk-categories prohibited_actions \
     --output redteam-results.json
 ```
 
 In CI, the red-team scan is gated behind the `run-redteam=true` input on the
 `evaluate-agent` workflow (`workflow_dispatch` only) to avoid per-deploy cost.
+
+The cloud red-team path requires the Foundry project to be in a supported
+region and the caller to have the **Azure AI User** role on the project.
 
 ---
 

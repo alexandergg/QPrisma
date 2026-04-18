@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import json
+import sys
+import types
 from enum import Enum
 
 import pytest
 
-from evaluation_foundry.redteam_eval import _map_enum_member
+from evaluation_foundry.redteam_eval import (
+    _map_enum_member,
+    _normalize_attack_strategy,
+    _normalize_risk_category,
+    _split_agent_reference,
+    run_redteam_scan,
+)
 
 
 class LowercaseStrategy(Enum):
@@ -37,3 +46,237 @@ def test_map_enum_member_accepts_case_insensitive_names_and_values(
 def test_map_enum_member_lists_valid_values_on_unknown_token():
     with pytest.raises(ValueError, match="Valid values: base64, flip, morse"):
         _map_enum_member(LowercaseStrategy, "unknown")
+
+
+@pytest.mark.parametrize(
+    ("token", "expected"),
+    [
+        ("base64", "Base64"),
+        ("flip", "Flip"),
+        ("indirect_jailbreak", "IndirectJailbreak"),
+        ("ROT13", "ROT13"),
+        ("character-space", "CharacterSpace"),
+    ],
+)
+def test_normalize_attack_strategy(token: str, expected: str):
+    assert _normalize_attack_strategy(token) == expected
+
+
+def test_normalize_risk_category_rejects_unsupported_cloud_taxonomy():
+    with pytest.raises(ValueError, match="prohibited_actions taxonomy only"):
+        _normalize_risk_category("violence")
+
+
+@pytest.mark.parametrize(
+    ("agent_id", "expected_name", "expected_version"),
+    [
+        ("qprisma-video-agent:7", "qprisma-video-agent", "7"),
+        ("qprisma-video-agent", "qprisma-video-agent", None),
+    ],
+)
+def test_split_agent_reference(agent_id: str, expected_name: str, expected_version: str | None):
+    assert _split_agent_reference(agent_id) == (expected_name, expected_version)
+
+
+def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    calls: dict[str, object] = {}
+
+    class FakeCredential:
+        def close(self):
+            calls["credential_closed"] = True
+
+    class FakeHttpResponseError(Exception):
+        pass
+
+    class FakeRiskCategory(Enum):
+        PROHIBITED_ACTIONS = "ProhibitedActions"
+
+    class FakeAzureAIAgentTarget:
+        def __init__(self, *, name: str, version: str):
+            self.name = name
+            self.version = version
+
+        def as_dict(self) -> dict[str, str]:
+            return {
+                "type": "azure_ai_agent",
+                "name": self.name,
+                "version": self.version,
+            }
+
+    class FakeAgentTaxonomyInput:
+        def __init__(
+            self, *, risk_categories: list[FakeRiskCategory], target: FakeAzureAIAgentTarget
+        ):
+            self.risk_categories = risk_categories
+            self.target = target
+
+    class FakeEvaluationTaxonomy:
+        def __init__(self, *, description: str, taxonomy_input: FakeAgentTaxonomyInput):
+            self.description = description
+            self.taxonomy_input = taxonomy_input
+
+    class FakeResource:
+        def __init__(self, resource_id: str, status: str = "queued"):
+            self.id = resource_id
+            self.status = status
+
+        def as_dict(self) -> dict[str, str]:
+            return {"id": self.id, "status": self.status}
+
+    class FakeTaxonomy(FakeResource):
+        def __init__(self, resource_id: str):
+            super().__init__(resource_id, "completed")
+
+    class FakeOutputItem:
+        def __init__(self, item_id: str):
+            self.item_id = item_id
+
+        def as_dict(self) -> dict[str, str]:
+            return {"item_id": self.item_id}
+
+    class FakeOutputItemsClient:
+        def list(self, *, run_id: str, eval_id: str):
+            calls["output_items_list"] = {"run_id": run_id, "eval_id": eval_id}
+            return [FakeOutputItem("item-1")]
+
+    class FakeRunsClient:
+        def __init__(self):
+            self.output_items = FakeOutputItemsClient()
+
+        def create(self, *, eval_id: str, name: str, data_source: dict[str, object]):
+            calls["run_create"] = {"eval_id": eval_id, "name": name, "data_source": data_source}
+            return FakeResource("run-1", "queued")
+
+        def retrieve(self, *, run_id: str, eval_id: str):
+            calls.setdefault("run_retrieve_calls", 0)
+            calls["run_retrieve_calls"] = int(calls["run_retrieve_calls"]) + 1
+            return FakeResource(run_id, "completed")
+
+    class FakeEvalsClient:
+        def __init__(self):
+            self.runs = FakeRunsClient()
+
+        def create(
+            self, *, name: str, data_source_config: dict[str, str], testing_criteria: list[dict]
+        ):
+            calls["eval_create"] = {
+                "name": name,
+                "data_source_config": data_source_config,
+                "testing_criteria": testing_criteria,
+            }
+            return FakeResource("eval-1", "created")
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.evals = FakeEvalsClient()
+
+        def close(self):
+            calls["openai_closed"] = True
+
+    class FakeEvaluationTaxonomiesClient:
+        def create(self, *, name: str, body: FakeEvaluationTaxonomy):
+            calls["taxonomy_create"] = {"name": name, "body": body}
+            return FakeTaxonomy("taxonomy-1")
+
+    class FakeBetaClient:
+        def __init__(self):
+            self.evaluation_taxonomies = FakeEvaluationTaxonomiesClient()
+
+    class FakeAgentsClient:
+        def get(self, *, agent_name: str):
+            calls["agents_get"] = agent_name
+            return types.SimpleNamespace(version="99")
+
+    class FakeProjectClient:
+        def __init__(self, *, endpoint: str, credential: FakeCredential, allow_preview: bool):
+            calls["project_init"] = {
+                "endpoint": endpoint,
+                "allow_preview": allow_preview,
+                "credential_type": type(credential).__name__,
+            }
+            self.beta = FakeBetaClient()
+            self.agents = FakeAgentsClient()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get_openai_client(self):
+            return FakeOpenAIClient()
+
+    azure_module = types.ModuleType("azure")
+    azure_ai_module = types.ModuleType("azure.ai")
+    projects_module = types.ModuleType("azure.ai.projects")
+    projects_models_module = types.ModuleType("azure.ai.projects.models")
+    azure_core_module = types.ModuleType("azure.core")
+    azure_core_exceptions_module = types.ModuleType("azure.core.exceptions")
+    azure_identity_module = types.ModuleType("azure.identity")
+
+    projects_module.AIProjectClient = FakeProjectClient
+    projects_models_module.AgentTaxonomyInput = FakeAgentTaxonomyInput
+    projects_models_module.AzureAIAgentTarget = FakeAzureAIAgentTarget
+    projects_models_module.EvaluationTaxonomy = FakeEvaluationTaxonomy
+    projects_models_module.RiskCategory = FakeRiskCategory
+    azure_core_exceptions_module.HttpResponseError = FakeHttpResponseError
+    azure_identity_module.DefaultAzureCredential = FakeCredential
+
+    monkeypatch.setitem(sys.modules, "azure", azure_module)
+    monkeypatch.setitem(sys.modules, "azure.ai", azure_ai_module)
+    monkeypatch.setitem(sys.modules, "azure.ai.projects", projects_module)
+    monkeypatch.setitem(sys.modules, "azure.ai.projects.models", projects_models_module)
+    monkeypatch.setitem(sys.modules, "azure.core", azure_core_module)
+    monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions_module)
+    monkeypatch.setitem(sys.modules, "azure.identity", azure_identity_module)
+
+    output_path = tmp_path / "redteam-results.json"
+    summary = run_redteam_scan(
+        endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_id="qprisma-video-agent:7",
+        agent_name=None,
+        agent_version=None,
+        model_deployment="gpt-4o",
+        strategies=["base64", "flip"],
+        risk_categories=["prohibited_actions"],
+        num_turns=3,
+        output_path=output_path,
+        scan_name="qprisma-redteam",
+        poll_interval_seconds=0,
+        timeout_seconds=5,
+    )
+
+    assert summary["mode"] == "cloud_foundry_agent_redteam"
+    assert summary["agent"] == {"name": "qprisma-video-agent", "version": "7"}
+    assert output_path.exists()
+    assert json.loads(output_path.read_text(encoding="utf-8"))["run"]["status"] == "completed"
+
+    eval_create = calls["eval_create"]
+    assert eval_create["data_source_config"] == {"type": "azure_ai_source", "scenario": "red_team"}
+    assert eval_create["testing_criteria"][1]["initialization_parameters"] == {
+        "deployment_name": "gpt-4o"
+    }
+
+    taxonomy_create = calls["taxonomy_create"]
+    assert taxonomy_create["name"] == "qprisma-video-agent-prohibited-actions"
+    assert taxonomy_create["body"].taxonomy_input.target.name == "qprisma-video-agent"
+    assert taxonomy_create["body"].taxonomy_input.target.version == "7"
+    assert taxonomy_create["body"].taxonomy_input.risk_categories == [
+        FakeRiskCategory.PROHIBITED_ACTIONS
+    ]
+
+    run_create = calls["run_create"]
+    assert run_create["data_source"]["item_generation_params"]["attack_strategies"] == [
+        "Base64",
+        "Flip",
+    ]
+    assert run_create["data_source"]["item_generation_params"]["source"] == {
+        "type": "file_id",
+        "id": "taxonomy-1",
+    }
+    assert run_create["data_source"]["target"] == {
+        "type": "azure_ai_agent",
+        "name": "qprisma-video-agent",
+        "version": "7",
+    }
+    assert "agents_get" not in calls
