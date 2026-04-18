@@ -268,9 +268,8 @@ def _extract_total_results(source: Any) -> int:
             if isinstance(total, int) and total > 0:
                 return total
 
-        per_criteria = (
-            candidate.get("per_testing_criteria_results")
-            or candidate.get("perTestingCriteriaResults")
+        per_criteria = candidate.get("per_testing_criteria_results") or candidate.get(
+            "perTestingCriteriaResults"
         )
         if isinstance(per_criteria, list) and per_criteria:
             criteria_totals: list[int] = []

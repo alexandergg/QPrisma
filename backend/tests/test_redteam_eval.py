@@ -618,6 +618,7 @@ def test_run_redteam_scan_logs_unexpected_taxonomy_shape(
         in caplog.text
     )
 
+
 def test_count_enabled_subcategories_handles_various_shapes():
     assert _count_enabled_subcategories({}) == 0
     assert _count_enabled_subcategories(None) == 0
