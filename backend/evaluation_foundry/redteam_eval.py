@@ -161,15 +161,15 @@ def _to_json_primitive(value: Any) -> Any:
     return repr(value)
 
 
-def _build_enabled_taxonomy_update(taxonomy: Any) -> tuple[dict[str, Any], bool]:
+def _build_enabled_taxonomy_update(taxonomy: Any) -> tuple[dict[str, Any], bool, bool]:
     """Build an upsert payload with all generated taxonomy items enabled."""
     raw = _to_json_primitive(taxonomy)
     if not isinstance(raw, dict):
-        return {}, False
+        return {}, False, False
 
     categories = raw.get("taxonomyCategories")
     if not isinstance(categories, list):
-        return {}, False
+        return {}, False, False
 
     changed = False
     updated_categories: list[dict[str, Any]] = []
@@ -215,7 +215,7 @@ def _build_enabled_taxonomy_update(taxonomy: Any) -> tuple[dict[str, Any], bool]
     if raw.get("tags") is not None:
         body["tags"] = raw["tags"]
 
-    return body, changed
+    return body, changed, True
 
 
 def _extract_run_status(run: Any) -> str:
@@ -378,7 +378,11 @@ def run_redteam_scan(
                     ),
                 ),
             )
-            taxonomy_update_body, taxonomy_changed = _build_enabled_taxonomy_update(taxonomy)
+            (
+                taxonomy_update_body,
+                taxonomy_changed,
+                taxonomy_payload_supported,
+            ) = _build_enabled_taxonomy_update(taxonomy)
             if taxonomy_changed:
                 logger.info(
                     "Enabling generated prohibited-actions taxonomy items before creating the run."
@@ -386,6 +390,11 @@ def run_redteam_scan(
                 taxonomy = project_client.beta.evaluation_taxonomies.create(
                     name=f"{resolved_agent_name}-prohibited-actions",
                     body=taxonomy_update_body,
+                )
+            elif not taxonomy_payload_supported:
+                logger.warning(
+                    "Generated taxonomy payload used an unexpected shape; skipping enablement "
+                    "update. The red-team run may produce zero cases."
                 )
             else:
                 logger.warning(
