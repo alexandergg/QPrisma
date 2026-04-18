@@ -145,6 +145,11 @@ def _to_json_primitive(value: Any) -> Any:
     """Convert SDK objects into JSON-serializable primitives."""
     if hasattr(value, "as_dict") and callable(value.as_dict):
         return _to_json_primitive(value.as_dict())
+    if hasattr(value, "model_dump") and callable(value.model_dump):
+        try:
+            return _to_json_primitive(value.model_dump(mode="json"))
+        except TypeError:
+            return _to_json_primitive(value.model_dump())
     if isinstance(value, dict):
         return {key: _to_json_primitive(item) for key, item in value.items()}
     if isinstance(value, list | tuple):
@@ -154,6 +159,85 @@ def _to_json_primitive(value: Any) -> Any:
     if isinstance(value, str | int | float | bool) or value is None:
         return value
     return repr(value)
+
+
+def _build_enabled_taxonomy_update(taxonomy: Any) -> tuple[dict[str, Any], bool]:
+    """Build an upsert payload with all generated taxonomy items enabled."""
+    raw = _to_json_primitive(taxonomy)
+    if not isinstance(raw, dict):
+        return {}, False
+
+    categories = raw.get("taxonomyCategories")
+    if not isinstance(categories, list):
+        return {}, False
+
+    changed = False
+    updated_categories: list[dict[str, Any]] = []
+    for category in categories:
+        if not isinstance(category, dict):
+            updated_categories.append(category)
+            continue
+
+        updated_category = dict(category)
+        if isinstance(updated_category.get("enabled"), bool) and not updated_category["enabled"]:
+            updated_category["enabled"] = True
+            changed = True
+
+        sub_categories = updated_category.get("subCategories")
+        if isinstance(sub_categories, list):
+            updated_sub_categories: list[dict[str, Any]] = []
+            for sub_category in sub_categories:
+                if not isinstance(sub_category, dict):
+                    updated_sub_categories.append(sub_category)
+                    continue
+
+                updated_sub_category = dict(sub_category)
+                if isinstance(updated_sub_category.get("enabled"), bool):
+                    if not updated_sub_category["enabled"]:
+                        updated_sub_category["enabled"] = True
+                        changed = True
+                else:
+                    updated_sub_category["enabled"] = True
+                    changed = True
+
+                updated_sub_categories.append(updated_sub_category)
+            updated_category["subCategories"] = updated_sub_categories
+
+        updated_categories.append(updated_category)
+
+    body = {
+        "description": raw.get("description"),
+        "taxonomyInput": raw.get("taxonomyInput"),
+        "taxonomyCategories": updated_categories,
+    }
+    if raw.get("properties") is not None:
+        body["properties"] = raw["properties"]
+    if raw.get("tags") is not None:
+        body["tags"] = raw["tags"]
+
+    return body, changed
+
+
+def _extract_run_status(run: Any) -> str:
+    raw = _to_json_primitive(run)
+    if isinstance(raw, dict):
+        return str(raw.get("status", "") or "").lower()
+
+    return str(getattr(run, "status", "") or "").lower()
+
+
+def _extract_total_results(run_summary: Any) -> int:
+    raw = _to_json_primitive(run_summary)
+    if not isinstance(raw, dict):
+        return 0
+
+    result_counts = raw.get("result_counts") or raw.get("resultCounts")
+    if isinstance(result_counts, dict):
+        total = result_counts.get("total")
+        if isinstance(total, int):
+            return total
+
+    return 0
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -294,6 +378,20 @@ def run_redteam_scan(
                     ),
                 ),
             )
+            taxonomy_update_body, taxonomy_changed = _build_enabled_taxonomy_update(taxonomy)
+            if taxonomy_changed:
+                logger.info(
+                    "Enabling generated prohibited-actions taxonomy items before creating the run."
+                )
+                taxonomy = project_client.beta.evaluation_taxonomies.create(
+                    name=f"{resolved_agent_name}-prohibited-actions",
+                    body=taxonomy_update_body,
+                )
+            else:
+                logger.warning(
+                    "Generated taxonomy returned no disabled items to enable. "
+                    "The red-team run may produce zero cases."
+                )
 
             eval_run = openai_client.evals.runs.create(
                 eval_id=red_team.id,
@@ -313,7 +411,7 @@ def run_redteam_scan(
             deadline = time.monotonic() + timeout_seconds
             run = eval_run
             while True:
-                status = str(getattr(run, "status", "") or "").lower()
+                status = _extract_run_status(run)
                 logger.info("Red-team run status: %s", status or "<unknown>")
                 if status in TERMINAL_RUN_STATUSES:
                     break
@@ -482,13 +580,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    status = str(summary.get("run", {}).get("status", "")).lower()
+    status = _extract_run_status(summary.get("run"))
     logger.info("Red-team results written to %s", args.output)
     if status != "completed":
         logger.error(
             "Red-team run finished with status '%s'. Check Azure AI User role, supported "
             "region, and Foundry project prerequisites.",
             status or "<unknown>",
+        )
+        return 1
+    total_results = _extract_total_results(summary.get("run"))
+    if total_results == 0:
+        logger.error(
+            "Red-team run completed but generated zero result items. Check the generated "
+            "taxonomy in Foundry and confirm prohibited-actions entries are enabled."
         )
         return 1
     return 0

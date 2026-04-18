@@ -8,6 +8,9 @@ from enum import Enum
 import pytest
 
 from evaluation_foundry.redteam_eval import (
+    _build_enabled_taxonomy_update,
+    _extract_run_status,
+    _extract_total_results,
     _map_enum_member,
     _normalize_attack_strategy,
     _normalize_risk_category,
@@ -78,6 +81,42 @@ def test_split_agent_reference(agent_id: str, expected_name: str, expected_versi
     assert _split_agent_reference(agent_id) == (expected_name, expected_version)
 
 
+def test_build_enabled_taxonomy_update_enables_generated_subcategories():
+    taxonomy = {
+        "description": "taxonomy",
+        "taxonomyInput": {"type": "agent"},
+        "taxonomyCategories": [
+            {
+                "id": "cat-1",
+                "name": "category",
+                "subCategories": [
+                    {"id": "sub-1", "name": "disabled", "enabled": False},
+                    {"id": "sub-2", "name": "already-enabled", "enabled": True},
+                ],
+            }
+        ],
+    }
+
+    body, changed = _build_enabled_taxonomy_update(taxonomy)
+
+    assert changed is True
+    assert body["taxonomyCategories"][0]["subCategories"] == [
+        {"id": "sub-1", "name": "disabled", "enabled": True},
+        {"id": "sub-2", "name": "already-enabled", "enabled": True},
+    ]
+
+
+def test_extract_run_helpers_support_dicts_and_models():
+    class FakeRunModel:
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            return {"status": "completed", "result_counts": {"total": 4}}
+
+    assert _extract_run_status(FakeRunModel()) == "completed"
+    assert _extract_total_results(FakeRunModel()) == 4
+    assert _extract_run_status({"status": "failed"}) == "failed"
+    assert _extract_total_results({"resultCounts": {"total": 2}}) == 2
+
+
 def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.MonkeyPatch, tmp_path):
     calls: dict[str, object] = {}
 
@@ -120,12 +159,38 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
             self.id = resource_id
             self.status = status
 
-        def as_dict(self) -> dict[str, str]:
-            return {"id": self.id, "status": self.status}
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            return {
+                "id": self.id,
+                "status": self.status,
+                "result_counts": {"total": 1 if self.status == "completed" else 0},
+            }
 
     class FakeTaxonomy(FakeResource):
-        def __init__(self, resource_id: str):
+        def __init__(self, resource_id: str, subcategory_enabled: bool):
             super().__init__(resource_id, "completed")
+            self.subcategory_enabled = subcategory_enabled
+
+        def as_dict(self) -> dict[str, object]:
+            return {
+                "id": self.id,
+                "name": "qprisma-video-agent-prohibited-actions",
+                "description": "taxonomy",
+                "taxonomyInput": {"type": "agent"},
+                "taxonomyCategories": [
+                    {
+                        "id": "cat-1",
+                        "name": "category",
+                        "subCategories": [
+                            {
+                                "id": "sub-1",
+                                "name": "disabled-until-confirmed",
+                                "enabled": self.subcategory_enabled,
+                            }
+                        ],
+                    }
+                ],
+            }
 
     class FakeOutputItem:
         def __init__(self, item_id: str):
@@ -174,9 +239,13 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
             calls["openai_closed"] = True
 
     class FakeEvaluationTaxonomiesClient:
-        def create(self, *, name: str, body: FakeEvaluationTaxonomy):
-            calls["taxonomy_create"] = {"name": name, "body": body}
-            return FakeTaxonomy("taxonomy-1")
+        def __init__(self):
+            self.create_calls = 0
+
+        def create(self, *, name: str, body: FakeEvaluationTaxonomy | dict[str, object]):
+            self.create_calls += 1
+            calls.setdefault("taxonomy_create_calls", []).append({"name": name, "body": body})
+            return FakeTaxonomy("taxonomy-1", subcategory_enabled=self.create_calls > 1)
 
     class FakeBetaClient:
         def __init__(self):
@@ -257,13 +326,16 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
         "deployment_name": "gpt-4o"
     }
 
-    taxonomy_create = calls["taxonomy_create"]
-    assert taxonomy_create["name"] == "qprisma-video-agent-prohibited-actions"
-    assert taxonomy_create["body"].taxonomy_input.target.name == "qprisma-video-agent"
-    assert taxonomy_create["body"].taxonomy_input.target.version == "7"
-    assert taxonomy_create["body"].taxonomy_input.risk_categories == [
+    taxonomy_create_calls = calls["taxonomy_create_calls"]
+    initial_taxonomy = taxonomy_create_calls[0]
+    assert initial_taxonomy["name"] == "qprisma-video-agent-prohibited-actions"
+    assert initial_taxonomy["body"].taxonomy_input.target.name == "qprisma-video-agent"
+    assert initial_taxonomy["body"].taxonomy_input.target.version == "7"
+    assert initial_taxonomy["body"].taxonomy_input.risk_categories == [
         FakeRiskCategory.PROHIBITED_ACTIONS
     ]
+    updated_taxonomy = taxonomy_create_calls[1]
+    assert updated_taxonomy["body"]["taxonomyCategories"][0]["subCategories"][0]["enabled"] is True
 
     run_create = calls["run_create"]
     assert run_create["data_source"]["item_generation_params"]["attack_strategies"] == [
