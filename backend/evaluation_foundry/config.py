@@ -56,7 +56,7 @@ SAFETY_EVALUATORS: list[str] = [
 ]
 
 # Direct-attack / jailbreak scenarios are NOT a single runtime evaluator.
-# Coverage for them is provided by the AI Red Teaming Agent workflow
+# Coverage for them is provided by the cloud Foundry AI Red Teaming workflow
 # (see `evaluation_foundry/redteam_eval.py` and the `redteam-eval` job in
 # `.github/workflows/evaluate-agent.yml`).
 

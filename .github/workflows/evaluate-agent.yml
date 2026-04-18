@@ -10,7 +10,7 @@ on:
         required: false
         type: string
       run-redteam:
-        description: 'Run AI Red Teaming scan (direct-attack / jailbreak coverage).'
+        description: 'Run cloud Foundry AI Red Teaming scan (direct-attack / jailbreak coverage).'
         required: false
         type: boolean
         default: false
@@ -301,7 +301,7 @@ jobs:
           exit 1
 
   # ------------------------------------------------------------------
-  # Job 6: AI Red Teaming scan (direct-attack / jailbreak coverage)
+  # Job 6: Cloud AI Red Teaming scan (direct-attack / jailbreak coverage)
   # ------------------------------------------------------------------
   # Only runs when the manual workflow is dispatched with
   # `run-redteam=true` so red-team cost remains explicit.
@@ -326,9 +326,32 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Setup long-lived OIDC token refresh
+        run: |
+          TOKEN_FILE="${RUNNER_TEMP}/oidc-token"
+
+          curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
+            | jq -r '.value' > "$TOKEN_FILE"
+
+          (
+            while true; do
+              sleep 240
+              curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
+                | jq -r '.value' > "${TOKEN_FILE}.tmp" 2>/dev/null \
+                && mv "${TOKEN_FILE}.tmp" "$TOKEN_FILE"
+            done
+          ) &
+          echo "TOKEN_REFRESH_PID=$!" >> "$GITHUB_ENV"
+
+          echo "AZURE_FEDERATED_TOKEN_FILE=$TOKEN_FILE" >> "$GITHUB_ENV"
+          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> "$GITHUB_ENV"
+          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
+
       - name: Install Red Team SDK
         run: |
-          pip install "azure-ai-evaluation[redteam]" "azure-identity>=1.25.0"
+          pip install "azure-ai-projects>=2.0.1" "azure-identity>=1.25.0"
 
       - name: Run AI Red Teaming scan
         id: redteam
@@ -336,15 +359,21 @@ jobs:
         working-directory: backend
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
-          QPRISMA_REDTEAM_NUM_OBJECTIVES: '5'
+          AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-4o' }}
+          QPRISMA_REDTEAM_NUM_TURNS: '5'
         run: |
           python -m evaluation_foundry.redteam_eval \
             --agent-id "${{ needs.resolve-version.outputs.agent-id }}" \
             --endpoint "${{ vars.FOUNDRY_PROJECT_ENDPOINT }}" \
-            --strategies "base64,flip,morse" \
-            --risk-categories "violence,hate_unfairness,sexual,self_harm" \
+            --model-deployment "${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-4o' }}" \
+            --strategies "base64,flip,indirect_jailbreak" \
+            --risk-categories "prohibited_actions" \
             --output "${{ runner.temp }}/redteam-results.json" \
             --scan-name "qprisma-${{ needs.resolve-version.outputs.agent-id }}-redteam"
+
+      - name: Cleanup token refresh
+        if: always()
+        run: kill "$TOKEN_REFRESH_PID" 2>/dev/null || true
 
       - name: Upload red-team results
         if: always()

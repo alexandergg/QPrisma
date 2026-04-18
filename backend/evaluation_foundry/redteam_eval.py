@@ -1,48 +1,120 @@
 """
-AI Red Teaming Agent runner for the QPrisma video agent
-=======================================================
+Cloud AI Red Team runner for the QPrisma video agent.
 
-Wraps :class:`azure.ai.evaluation.red_team.RedTeam` to run adversarial
-scans against the deployed Foundry agent.  Provides coverage for
-**direct-attack / jailbreak** scenarios, which are not a single runtime
-evaluator — they require the PyRIT-based Red Teaming Agent.
+This module uses the Microsoft Foundry cloud red-teaming workflow for Foundry
+Agents rather than the local PyRIT ``azure.ai.evaluation.red_team.RedTeam``
+helper. The cloud path matches the documented Foundry-Agent flow:
+
+1. Create a red team evaluation group
+2. Create or update the prohibited-actions taxonomy for the target agent
+3. Create a red-team run against the hosted agent
+4. Poll until the run reaches a terminal state
+5. Persist the run summary and output items as a JSON artifact
 
 Usage::
 
-    python -m evaluation_foundry.redteam_eval \\
-        --agent-id <AGENT_ID> \\
-        --endpoint https://<foundry>.services.ai.azure.com/api/projects/<project> \\
-        --strategies base64,flip,morse \\
-        --risk-categories violence,hate_unfairness,sexual,self_harm \\
+    python -m evaluation_foundry.redteam_eval \
+        --agent-id qprisma-video-agent:3 \
+        --endpoint https://<foundry>.services.ai.azure.com/api/projects/<project> \
+        --model-deployment gpt-4o \
+        --strategies base64,flip,indirect_jailbreak \
         --output redteam-results.json
 
 Environment variables:
-    AZURE_AI_PROJECT_ENDPOINT — Foundry project endpoint URL (fallback for --endpoint)
-    QPRISMA_REDTEAM_NUM_OBJECTIVES — per-category objective count (default: 5)
-
-Authentication uses :class:`DefaultAzureCredential`.
+    AZURE_AI_PROJECT_ENDPOINT - Foundry project endpoint URL (fallback for --endpoint)
+    AZURE_AI_MODEL_DEPLOYMENT_NAME - model deployment used by builtin.task_adherence
+    QPRISMA_REDTEAM_NUM_TURNS - generated red-team turn depth (default: 5)
+    QPRISMA_REDTEAM_TIMEOUT_SECONDS - max poll time before failing (default: 3600)
+    QPRISMA_REDTEAM_POLL_INTERVAL_SECONDS - polling interval (default: 10)
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import logging
 import os
+import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STRATEGIES: list[str] = ["base64", "flip", "morse"]
-DEFAULT_RISK_CATEGORIES: list[str] = [
-    "violence",
-    "hate_unfairness",
-    "sexual",
-    "self_harm",
-]
+DEFAULT_STRATEGIES: list[str] = ["base64", "flip", "indirect_jailbreak"]
+DEFAULT_RISK_CATEGORIES: list[str] = ["prohibited_actions"]
+DEFAULT_MODEL_DEPLOYMENT = "gpt-4o"
+TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled"}
+_ATTACK_STRATEGY_ALIASES = {
+    "ansi_attack": "AnsiAttack",
+    "ascii_art": "AsciiArt",
+    "ascii_smuggler": "AsciiSmuggler",
+    "atbash": "Atbash",
+    "base64": "Base64",
+    "binary": "Binary",
+    "caesar": "Caesar",
+    "character_space": "CharacterSpace",
+    "charswap": "CharSwap",
+    "char_swap": "CharSwap",
+    "crescendo": "Crescendo",
+    "diacritic": "Diacritic",
+    "flip": "Flip",
+    "indirect_attack": "IndirectAttack",
+    "indirect_jailbreak": "IndirectJailbreak",
+    "jailbreak": "Jailbreak",
+    "leetspeak": "Leetspeak",
+    "morse": "Morse",
+    "multiturn": "Multiturn",
+    "multi_turn": "Multiturn",
+    "rot13": "ROT13",
+    "string_join": "StringJoin",
+    "suffix_append": "SuffixAppend",
+    "tense": "Tense",
+    "unicode_confusable": "UnicodeConfusable",
+    "unicode_substitution": "UnicodeSubstitution",
+    "url": "Url",
+}
+_RISK_CATEGORY_ALIASES = {
+    "prohibitedactions": "PROHIBITED_ACTIONS",
+    "prohibited_actions": "PROHIBITED_ACTIONS",
+}
+
+
+def _split_agent_reference(agent_id: str) -> tuple[str, str | None]:
+    """Split a ``name[:version]`` identifier into components."""
+    normalized = agent_id.strip()
+    if not normalized:
+        raise ValueError("Agent identifier cannot be empty.")
+
+    if ":" not in normalized:
+        return normalized, None
+
+    name, version = normalized.split(":", 1)
+    name = name.strip()
+    version = version.strip()
+    if not name or not version:
+        raise ValueError(
+            "Agent identifier must use the format '<agent_name>:<agent_version>' "
+            "when a version is provided."
+        )
+    return name, version
+
+
+def _normalize_attack_strategy(name: str) -> str:
+    """Convert CLI-friendly strategy tokens to the cloud API representation."""
+    normalized = re.sub(r"[\s\-]+", "_", name.strip().lower())
+    if not normalized:
+        raise ValueError("Attack strategy values cannot be empty.")
+
+    if normalized in _ATTACK_STRATEGY_ALIASES:
+        return _ATTACK_STRATEGY_ALIASES[normalized]
+
+    parts = [part for part in normalized.split("_") if part]
+    if not parts:
+        raise ValueError(f"Invalid attack strategy '{name}'.")
+
+    return "".join(part[:1].upper() + part[1:] for part in parts)
 
 
 def _map_enum_member(cls: Any, name: str) -> Any:
@@ -59,82 +131,265 @@ def _map_enum_member(cls: Any, name: str) -> Any:
     raise ValueError(f"Unknown {cls.__name__} '{name}'. Valid values: {valid}")
 
 
-async def run_redteam_scan(
+def _normalize_risk_category(name: str) -> str:
+    normalized = re.sub(r"[\s\-]+", "_", name.strip().lower())
+    if normalized not in _RISK_CATEGORY_ALIASES:
+        raise ValueError(
+            "Cloud Foundry Agent red-team currently uses the prohibited_actions "
+            "taxonomy only. Use --risk-categories prohibited_actions."
+        )
+    return _RISK_CATEGORY_ALIASES[normalized]
+
+
+def _to_json_primitive(value: Any) -> Any:
+    """Convert SDK objects into JSON-serializable primitives."""
+    if hasattr(value, "as_dict") and callable(value.as_dict):
+        return _to_json_primitive(value.as_dict())
+    if isinstance(value, dict):
+        return {key: _to_json_primitive(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_to_json_primitive(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, str | int | float | bool) or value is None:
+        return value
+    return repr(value)
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, default=_to_json_primitive, indent=2), encoding="utf-8")
+
+
+def _build_testing_criteria(model_deployment: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "azure_ai_evaluator",
+            "name": "Prohibited Actions",
+            "evaluator_name": "builtin.prohibited_actions",
+            "evaluator_version": "1",
+        },
+        {
+            "type": "azure_ai_evaluator",
+            "name": "Task Adherence",
+            "evaluator_name": "builtin.task_adherence",
+            "evaluator_version": "1",
+            "initialization_parameters": {"deployment_name": model_deployment},
+        },
+        {
+            "type": "azure_ai_evaluator",
+            "name": "Sensitive Data Leakage",
+            "evaluator_name": "builtin.sensitive_data_leakage",
+            "evaluator_version": "1",
+        },
+    ]
+
+
+def _resolve_agent_target(
+    *,
+    project_client: Any,
+    agent_id: str | None,
+    agent_name: str | None,
+    agent_version: str | None,
+) -> tuple[str, str]:
+    if agent_id:
+        parsed_name, parsed_version = _split_agent_reference(agent_id)
+        agent_name = agent_name or parsed_name
+        agent_version = agent_version or parsed_version
+
+    if not agent_name:
+        raise ValueError("Missing target agent. Provide --agent-id or --agent-name.")
+
+    if not agent_version:
+        logger.info("No agent version supplied, resolving the latest version for %s", agent_name)
+        latest_agent = project_client.agents.get(agent_name=agent_name)
+        agent_version = str(getattr(latest_agent, "version", "") or "").strip()
+        if not agent_version:
+            raise RuntimeError(f"Could not resolve a latest version for agent '{agent_name}'.")
+
+    return agent_name, agent_version
+
+
+def run_redteam_scan(
     *,
     endpoint: str,
-    agent_id: str,
+    agent_id: str | None,
+    agent_name: str | None,
+    agent_version: str | None,
+    model_deployment: str,
     strategies: list[str],
     risk_categories: list[str],
-    num_objectives: int,
+    num_turns: int,
     output_path: Path,
     scan_name: str,
+    poll_interval_seconds: int,
+    timeout_seconds: int,
 ) -> dict[str, Any]:
-    """Execute a Red Team scan against the hosted agent.
-
-    Returns the scan summary dict (also written to ``output_path``).
-    """
+    """Execute a cloud red-team run against the hosted agent."""
     try:
-        from azure.ai.evaluation.red_team import (
-            AttackStrategy,
-            RedTeam,
+        from azure.ai.projects import AIProjectClient
+        from azure.ai.projects.models import (
+            AgentTaxonomyInput,
+            AzureAIAgentTarget,
+            EvaluationTaxonomy,
             RiskCategory,
         )
-        from azure.identity.aio import DefaultAzureCredential
+        from azure.core.exceptions import HttpResponseError
+        from azure.identity import DefaultAzureCredential
     except ImportError as exc:
         raise RuntimeError(
-            "azure-ai-evaluation[redteam] is required. Install with "
-            "`pip install azure-ai-evaluation[redteam]`."
+            "azure-ai-projects>=2.0.0 and azure-identity are required. "
+            "Install with `pip install azure-ai-projects azure-identity`."
         ) from exc
 
-    mapped_strategies = [_map_enum_member(AttackStrategy, s) for s in strategies]
-    mapped_risks = [_map_enum_member(RiskCategory, r) for r in risk_categories]
+    normalized_strategies = [_normalize_attack_strategy(strategy) for strategy in strategies]
+    mapped_risks = [
+        _map_enum_member(RiskCategory, _normalize_risk_category(category))
+        for category in risk_categories
+    ]
 
-    # Foundry project config dict expected by the SDK
-    project_config = {"azure_ai_project": endpoint}
-
-    async with DefaultAzureCredential() as credential:
-        red_team = RedTeam(
-            azure_ai_project=project_config,
+    credential = DefaultAzureCredential()
+    openai_client = None
+    try:
+        with AIProjectClient(
+            endpoint=endpoint,
             credential=credential,
-            risk_categories=mapped_risks,
-            num_objectives=num_objectives,
-        )
+            allow_preview=True,
+        ) as project_client:
+            openai_client = project_client.get_openai_client()
+            resolved_agent_name, resolved_agent_version = _resolve_agent_target(
+                project_client=project_client,
+                agent_id=agent_id,
+                agent_name=agent_name,
+                agent_version=agent_version,
+            )
+            target = AzureAIAgentTarget(
+                name=resolved_agent_name,
+                version=resolved_agent_version,
+            )
 
-        # The SDK supports either a model config (model-only scans) or an
-        # agent_id (agent scan).  For QPrisma we always target the agent.
-        target = {"agent_id": agent_id}
+            logger.info(
+                "Starting cloud red-team run (agent=%s:%s, strategies=%s, risk_categories=%s, "
+                "num_turns=%d)",
+                resolved_agent_name,
+                resolved_agent_version,
+                normalized_strategies,
+                [risk.name for risk in mapped_risks],
+                num_turns,
+            )
 
-        logger.info(
-            "Starting RedTeam scan (agent_id=%s, strategies=%s, risks=%s, " "num_objectives=%d)",
-            agent_id,
-            [s.name for s in mapped_strategies],
-            [r.name for r in mapped_risks],
-            num_objectives,
-        )
+            red_team = openai_client.evals.create(
+                name=f"{scan_name}-group",
+                data_source_config={"type": "azure_ai_source", "scenario": "red_team"},
+                testing_criteria=_build_testing_criteria(model_deployment),
+            )
 
-        # Ensure the destination directory exists before handing the path to
-        # the SDK, which writes the full scan results itself.
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+            taxonomy = project_client.beta.evaluation_taxonomies.create(
+                name=f"{resolved_agent_name}-prohibited-actions",
+                body=EvaluationTaxonomy(
+                    description="QPrisma prohibited-actions taxonomy for cloud red teaming",
+                    taxonomy_input=AgentTaxonomyInput(
+                        risk_categories=mapped_risks,
+                        target=target,
+                    ),
+                ),
+            )
 
-        result = await red_team.scan(
-            target=target,
-            scan_name=scan_name,
-            attack_strategies=mapped_strategies,
-            output_path=str(output_path),
-        )
+            eval_run = openai_client.evals.runs.create(
+                eval_id=red_team.id,
+                name=scan_name,
+                data_source={
+                    "type": "azure_ai_red_team",
+                    "item_generation_params": {
+                        "type": "red_team_taxonomy",
+                        "attack_strategies": normalized_strategies,
+                        "num_turns": num_turns,
+                        "source": {"type": "file_id", "id": taxonomy.id},
+                    },
+                    "target": target.as_dict(),
+                },
+            )
 
-    summary = result if isinstance(result, dict) else {"raw": repr(result)}
-    logger.info("RedTeam scan complete. Summary keys: %s", list(summary.keys()))
-    return summary
+            deadline = time.monotonic() + timeout_seconds
+            run = eval_run
+            while True:
+                status = str(getattr(run, "status", "") or "").lower()
+                logger.info("Red-team run status: %s", status or "<unknown>")
+                if status in TERMINAL_RUN_STATUSES:
+                    break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Timed out waiting for red-team run '{eval_run.id}' after "
+                        f"{timeout_seconds} seconds."
+                    )
+                time.sleep(poll_interval_seconds)
+                run = openai_client.evals.runs.retrieve(run_id=eval_run.id, eval_id=red_team.id)
+
+            output_items: list[Any] = []
+            output_items_error: str | None = None
+            try:
+                output_items = list(
+                    openai_client.evals.runs.output_items.list(
+                        run_id=run.id,
+                        eval_id=red_team.id,
+                    )
+                )
+            except HttpResponseError as exc:
+                output_items_error = str(exc)
+                logger.warning("Could not fetch red-team output items: %s", exc)
+
+            summary = {
+                "mode": "cloud_foundry_agent_redteam",
+                "endpoint": endpoint,
+                "agent": {
+                    "name": resolved_agent_name,
+                    "version": resolved_agent_version,
+                },
+                "model_deployment": model_deployment,
+                "strategies": normalized_strategies,
+                "risk_categories": [risk.name for risk in mapped_risks],
+                "red_team": _to_json_primitive(red_team),
+                "taxonomy": _to_json_primitive(taxonomy),
+                "run": _to_json_primitive(run),
+                "output_items": _to_json_primitive(output_items),
+                "output_items_error": output_items_error,
+                "portal_url": f"{endpoint}/evaluations",
+            }
+            _write_json(output_path, summary)
+            return summary
+    finally:
+        if openai_client is not None and hasattr(openai_client, "close"):
+            openai_client.close()
+        if hasattr(credential, "close"):
+            credential.close()
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run AI Red Teaming scan against QPrisma agent")
-    parser.add_argument("--agent-id", required=True, help="Foundry agent ID to target")
+    parser = argparse.ArgumentParser(description="Run cloud red-team scan against QPrisma agent")
+    parser.add_argument(
+        "--agent-id",
+        help="Foundry agent identifier in the form '<name>:<version>'",
+    )
+    parser.add_argument(
+        "--agent-name",
+        help="Foundry agent name. Use with --agent-version or omit version to resolve latest.",
+    )
+    parser.add_argument(
+        "--agent-version",
+        help="Foundry agent version. Optional when --agent-id includes it or when resolving latest.",
+    )
     parser.add_argument(
         "--endpoint",
         default=os.environ.get("AZURE_AI_PROJECT_ENDPOINT"),
         help="Foundry project endpoint URL (env: AZURE_AI_PROJECT_ENDPOINT)",
+    )
+    parser.add_argument(
+        "--model-deployment",
+        default=os.environ.get("AZURE_AI_MODEL_DEPLOYMENT_NAME", DEFAULT_MODEL_DEPLOYMENT),
+        help=(
+            "Foundry project deployment name used to initialize builtin.task_adherence "
+            f"(default: {DEFAULT_MODEL_DEPLOYMENT})"
+        ),
     )
     parser.add_argument(
         "--strategies",
@@ -144,24 +399,39 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--risk-categories",
         default=",".join(DEFAULT_RISK_CATEGORIES),
-        help=("Comma-separated risk categories (default: " f"{','.join(DEFAULT_RISK_CATEGORIES)})"),
+        help=(
+            "Comma-separated taxonomy risk categories. "
+            "Cloud Foundry Agent red-team currently supports prohibited_actions."
+        ),
     )
     parser.add_argument(
-        "--num-objectives",
+        "--num-turns",
         type=int,
-        default=int(os.environ.get("QPRISMA_REDTEAM_NUM_OBJECTIVES", "5")),
-        help="Number of attack objectives per risk category (default: 5)",
+        default=int(os.environ.get("QPRISMA_REDTEAM_NUM_TURNS", "5")),
+        help="Generated red-team turn depth (default: 5)",
+    )
+    parser.add_argument(
+        "--poll-interval-seconds",
+        type=int,
+        default=int(os.environ.get("QPRISMA_REDTEAM_POLL_INTERVAL_SECONDS", "10")),
+        help="Polling interval while waiting for the red-team run (default: 10)",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=int(os.environ.get("QPRISMA_REDTEAM_TIMEOUT_SECONDS", "3600")),
+        help="Fail if the red-team run does not finish within this many seconds (default: 3600)",
     )
     parser.add_argument(
         "--output",
         type=Path,
         default=Path("redteam-results.json"),
-        help="Output JSON path for scan results",
+        help="Output JSON path for run summary and output items",
     )
     parser.add_argument(
         "--scan-name",
-        default="qprisma-direct-attack-scan",
-        help="Scan display name registered in Foundry",
+        default="qprisma-cloud-redteam",
+        help="Display name for the Foundry red-team run",
     )
     return parser.parse_args(argv)
 
@@ -169,34 +439,58 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = _parse_args(argv)
+
     if not args.endpoint:
         logger.error("Missing --endpoint (or AZURE_AI_PROJECT_ENDPOINT env var)")
         return 2
 
-    strategies = [s.strip() for s in args.strategies.split(",") if s.strip()]
-    risks = [r.strip() for r in args.risk_categories.split(",") if r.strip()]
+    if not args.agent_id and not args.agent_name:
+        logger.error("Missing target agent. Provide --agent-id or --agent-name.")
+        return 2
+
+    strategies = [strategy.strip() for strategy in args.strategies.split(",") if strategy.strip()]
+    risk_categories = [item.strip() for item in args.risk_categories.split(",") if item.strip()]
 
     try:
-        summary = asyncio.run(
-            run_redteam_scan(
-                endpoint=args.endpoint,
-                agent_id=args.agent_id,
-                strategies=strategies,
-                risk_categories=risks,
-                num_objectives=args.num_objectives,
-                output_path=args.output,
-                scan_name=args.scan_name,
-            )
+        summary = run_redteam_scan(
+            endpoint=args.endpoint,
+            agent_id=args.agent_id,
+            agent_name=args.agent_name,
+            agent_version=args.agent_version,
+            model_deployment=args.model_deployment,
+            strategies=strategies,
+            risk_categories=risk_categories,
+            num_turns=args.num_turns,
+            output_path=args.output,
+            scan_name=args.scan_name,
+            poll_interval_seconds=args.poll_interval_seconds,
+            timeout_seconds=args.timeout_seconds,
         )
-    except Exception:
-        logger.exception("RedTeam scan failed")
+    except Exception as exc:
+        logger.exception("Cloud red-team run failed")
+        _write_json(
+            args.output,
+            {
+                "mode": "cloud_foundry_agent_redteam",
+                "status": "failed",
+                "error": str(exc),
+                "endpoint": args.endpoint,
+                "agent_id": args.agent_id,
+                "agent_name": args.agent_name,
+                "agent_version": args.agent_version,
+            },
+        )
         return 1
 
-    # The SDK writes full results to `output_path`; here we print a short
-    # summary for CI log visibility.
-    if not args.output.exists():
-        args.output.write_text(json.dumps(summary, default=str, indent=2), encoding="utf-8")
-    logger.info("RedTeam results written to %s", args.output)
+    status = str(summary.get("run", {}).get("status", "")).lower()
+    logger.info("Red-team results written to %s", args.output)
+    if status != "completed":
+        logger.error(
+            "Red-team run finished with status '%s'. Check Azure AI User role, supported "
+            "region, and Foundry project prerequisites.",
+            status or "<unknown>",
+        )
+        return 1
     return 0
 
 
