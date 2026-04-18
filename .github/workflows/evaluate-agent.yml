@@ -82,7 +82,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Install SDK
-        run: pip install "azure-ai-projects==2.0.1" "azure-identity>=1.25.0"
+        run: pip install "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
 
       - name: Resolve agent version
         id: resolve
@@ -351,7 +351,7 @@ jobs:
 
       - name: Install Red Team SDK
         run: |
-          pip install "azure-ai-projects>=2.0.1" "azure-identity>=1.25.0"
+          pip install "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
 
       - name: Run AI Red Teaming scan
         id: redteam
