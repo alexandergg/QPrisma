@@ -322,6 +322,10 @@ def _patch_taxonomy_via_rest(
             f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' with status "
             f"{exc.response.status_code}: {details}"
         ) from exc
+    except httpx.RequestError as exc:
+        raise RuntimeError(
+            f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' at '{url}': {exc}"
+        ) from exc
 
 
 def _extract_run_status(run: Any) -> str:

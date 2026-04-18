@@ -5,6 +5,7 @@ import sys
 import types
 from enum import Enum
 
+import httpx
 import pytest
 
 import evaluation_foundry.redteam_eval as redteam_eval_module
@@ -18,6 +19,7 @@ from evaluation_foundry.redteam_eval import (
     _map_enum_member,
     _normalize_attack_strategy,
     _normalize_risk_category,
+    _patch_taxonomy_via_rest,
     _split_agent_reference,
     run_redteam_scan,
 )
@@ -230,6 +232,34 @@ def test_extract_total_results_returns_zero_when_no_signals():
     assert _extract_total_results({"run": {}, "output_items": []}) == 0
     assert _extract_total_results({}) == 0
     assert _extract_total_results(None) == 0
+
+
+def test_patch_taxonomy_via_rest_wraps_request_errors(monkeypatch: pytest.MonkeyPatch):
+    class FakeCredential:
+        def get_token(self, scope: str):
+            assert scope == "https://ai.azure.com/.default"
+            return types.SimpleNamespace(token="token")
+
+    def fake_patch(*args, **kwargs):
+        request = httpx.Request("PATCH", args[0])
+        raise httpx.ConnectError("connection dropped", request=request)
+
+    monkeypatch.setattr(redteam_eval_module.httpx, "patch", fake_patch)
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "Foundry REST taxonomy PATCH failed for 'demo-taxonomy' at "
+            "'https://example.services.ai.azure.com/api/projects/demo/evaluationtaxonomies/"
+            "demo-taxonomy\\?api-version=v1': connection dropped"
+        ),
+    ):
+        _patch_taxonomy_via_rest(
+            credential=FakeCredential(),
+            endpoint="https://example.services.ai.azure.com/api/projects/demo",
+            taxonomy_name="demo-taxonomy",
+            body={"taxonomyCategories": []},
+        )
 
 
 def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.MonkeyPatch, tmp_path):
