@@ -80,6 +80,21 @@ class ScoredNode:
 class GraphSearchQueryMixin:
     """Query building and execution helpers for :class:`GraphSearchService`."""
 
+    # Node types that have vector indexes provisioned by
+    # ``GraphSearchService._create_vector_indexes``. Calling
+    # ``db.index.vector.queryNodes`` for any other type raises
+    # ``ProcedureCallFailed`` on every request — pure log noise.
+    # Topic embeddings are not generated anywhere in the pipeline; add the
+    # type here once topic embeddings are introduced.
+    _VECTOR_SUPPORTED_TYPES: frozenset[NodeType] = frozenset(
+        {
+            NodeType.FRAME,
+            NodeType.ENTITY,
+            NodeType.AUDIO_SEGMENT,
+            NodeType.COMMUNITY,
+        }
+    )
+
     # --- Vector search orchestrator ---
 
     def vector_search(
@@ -100,6 +115,13 @@ class GraphSearchQueryMixin:
         Pass 2: Re-rank candidates using full (3072d) embeddings for precise scoring.
         Falls back to single-pass full index if coarse index is unavailable.
         """
+        if node_type not in self._VECTOR_SUPPORTED_TYPES:
+            logger.debug(
+                "vector_search: skipping %s — no vector index provisioned for this type",
+                node_type.value,
+            )
+            return []
+
         label = node_type.value
 
         # --- Pass 1: Coarse search (512d, fast, wide net) ---
@@ -234,7 +256,11 @@ class GraphSearchQueryMixin:
                     )
         except Exception as e:
             err_str = str(e).lower()
-            if "no such index" in err_str or "index not found" in err_str:
+            if (
+                "no such index" in err_str
+                or "index not found" in err_str
+                or "no such vector schema index" in err_str
+            ):
                 logger.info("Vector index '%s' does not exist — skipping", index_name)
             else:
                 logger.warning(

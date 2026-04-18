@@ -224,7 +224,7 @@ def test_calculate_graph_scores_batches_expansion_and_paths():
     assert "UNWIND $node_ids AS node_id" in first_query
     assert "UNWIND $node_ids AS node_id" in second_query
     assert "all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)" in first_query
-    assert "all(path_node IN nodes(path) WHERE path_node.user_id = $user_id)" in second_query
+    assert "all(x IN nodes(p) WHERE x.user_id = $user_id)" in second_query
 
     assert candidates[0].graph_score == pytest.approx((1 + 7) / 50)
     assert len(candidates[0].related_nodes) == 6
