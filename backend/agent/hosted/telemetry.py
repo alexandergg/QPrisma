@@ -154,8 +154,8 @@ def patch_agentserver_history_fetch() -> bool:
     if getattr(_converter, "_qprisma_history_patched", False):
         return False
 
-    original = getattr(_converter, "_fetch_historical_items", None)
-    if original is None:
+    _original = getattr(_converter, "_fetch_historical_items", None)
+    if _original is None:
         logger.debug("agentserver patch: _fetch_historical_items not found")
         return False
 

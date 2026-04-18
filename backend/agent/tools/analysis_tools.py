@@ -132,6 +132,12 @@ async def _resolve_entity_via_hybrid_search(
         from services.graph_search_service import get_graph_search_service
 
         search_service = get_graph_search_service()
+        # NOTE: wait_for releases the awaiting task on timeout but cannot cancel
+        # the underlying asyncio.to_thread sync work inside hybrid_search. The
+        # search service has its own internal budget controls; this guard only
+        # bounds the latency this fallback adds to a single get_entity_timeline
+        # call. A deeper fix would propagate a timeout_s budget into the search
+        # pipeline itself.
         search_response = await asyncio.wait_for(
             search_service.hybrid_search(
                 query_text=entity_name,
@@ -279,6 +285,10 @@ async def get_entity_timeline(
                 }
             )
 
+        # Use the resolved canonical name for entries when fuzzy resolution
+        # succeeded so visual and spoken entries refer to the same entity.
+        canonical_entity_name = resolved_entity_name or entity_name
+
         for record in audio_records:
             ts = record.get("timestamp")
             if ts is None:
@@ -297,7 +307,7 @@ async def get_entity_timeline(
                     "timestamp": ts,
                     "timestamp_formatted": format_timestamp(ts),
                     "appearance_type": "spoken",
-                    "entity_name": entity_name,
+                    "entity_name": canonical_entity_name,
                     "context": ctx,
                 }
             )
@@ -309,7 +319,7 @@ async def get_entity_timeline(
 
         shown = timeline[:30]
         payload: dict[str, Any] = {
-            "entity": entity_name,
+            "entity": canonical_entity_name,
             "entity_type": entity_type,
             "total_appearances": len(timeline),
             "visual_appearances": visual_count,
@@ -324,6 +334,7 @@ async def get_entity_timeline(
         }
         if resolved_entity_name:
             payload["resolved_entity_name"] = resolved_entity_name
+            payload["original_entity_name"] = entity_name
             payload["resolution_method"] = resolution_method
         return payload
 
