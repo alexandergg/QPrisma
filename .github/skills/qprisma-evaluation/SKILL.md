@@ -14,9 +14,7 @@ GitHub Action with built-in and custom evaluators.
 
 ## CI/CD Workflow
 
-The evaluation runs automatically via `.github/workflows/evaluate-agent.yml`:
-- **After deploy**: Triggers after `Deploy Hosted Agent` succeeds
-- **Weekly**: Monday 06:00 UTC for regression monitoring
+The evaluation runs manually via `.github/workflows/evaluate-agent.yml`:
 - **Manual**: `workflow_dispatch` with optional version override
 
 ## Local Commands

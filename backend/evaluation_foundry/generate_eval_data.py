@@ -23,6 +23,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -44,6 +45,7 @@ from evaluation_foundry.data.query_templates import (
 from evaluation_foundry.tool_definitions import TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
+USER_ID_RUNTIME_PATTERN = re.compile(r"^user_[0-9a-f]{12}$")
 
 # ---------------------------------------------------------------------------
 # QPRISMA_CONTEXT formatting
@@ -108,6 +110,11 @@ def _get_user_id() -> str | None:
     """Get EVAL_USER_ID from environment."""
     val = os.environ.get(ENV_USER_ID)
     return val.strip() if val else None
+
+
+def _has_runtime_user_id_format(user_id: str) -> bool:
+    """Check whether a user_id matches the hosted-agent runtime format."""
+    return USER_ID_RUNTIME_PATTERN.fullmatch(user_id) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +340,7 @@ def main() -> int:
         )
     if not user_id:
         logger.warning("EVAL_USER_ID not set — multi-video and user-scoped queries will be skipped")
-    elif user_id == "user_7541242e88e3":
+    elif _has_runtime_user_id_format(user_id):
         logger.info("EVAL_USER_ID matches the current hosted-agent runtime format")
     else:
         logger.warning(

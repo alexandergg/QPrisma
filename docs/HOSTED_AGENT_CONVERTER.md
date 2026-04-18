@@ -63,8 +63,10 @@ Besides `response_mode`, `QPRISMA_CONTEXT` also carries:
 - `media_id` — injected into the LangGraph input state so tools can scope
   queries to a specific video. Required for video-aware queries.
 - `user_id` — propagated for audit, personalization, and retrieval filters.
+- `session_id` — propagated for thread continuity so LangGraph memory and
+  checkpointed state can resume the same conversation.
 
-Both keys are forwarded to the graph's input state and are **not** included in
+These fields are forwarded to the graph's input state and are **not** included in
 the resulting prompt text.
 
 ## Content-shape invariant

@@ -18,6 +18,7 @@ from evaluation_foundry.data.query_templates import QueryTemplate
 from evaluation_foundry.generate_eval_data import (
     _build_query,
     _format_context,
+    _has_runtime_user_id_format,
     generate_data_file,
 )
 
@@ -80,6 +81,21 @@ class TestFormatContext:
         result = _format_context(MEDIA_ID_1, USER_ID, response_mode="final_answer")
         ctx = _extract_context(result + "dummy")
         assert ctx["response_mode"] == "final_answer"
+
+
+class TestRuntimeUserIdFormat:
+    @pytest.mark.parametrize(
+        ("user_id", "expected"),
+        [
+            ("user_7541242e88e3", True),
+            ("user_0123456789ab", True),
+            ("user_0123456789abc", False),
+            ("user_0123456789az", False),
+            ("usr_0123456789ab", False),
+        ],
+    )
+    def test_matches_runtime_format(self, user_id: str, expected: bool):
+        assert _has_runtime_user_id_format(user_id) is expected
 
 
 # ── _build_query ──────────────────────────────────────────────────────────

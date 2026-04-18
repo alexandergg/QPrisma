@@ -2010,7 +2010,10 @@ generation should mirror.
 
 ```bash
 # Generate evaluation data
-python -m evaluation_foundry.generate_eval_data --media-id <id>
+export EVAL_MEDIA_ID_1=<video-uuid>
+export EVAL_MEDIA_ID_2=<video-uuid>
+export EVAL_USER_ID=<runtime-user-id>
+python -m evaluation_foundry.generate_eval_data --output-dir ./eval-output
 
 # Register evaluators
 python -m evaluation_foundry.register_evaluators
