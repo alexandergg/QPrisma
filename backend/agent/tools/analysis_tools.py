@@ -188,7 +188,7 @@ async def get_entity_timeline(
 
     Tip: pass canonical entity names from the graph (use find_entity first for
     descriptive phrases like "middle-aged presenter with gray hair"). When this
-    tool receives a non-canonical name and finds no exact match, it will
+    tool receives a non-canonical name and finds no direct match, it will
     transparently fuzzy-resolve the name and retry; the substituted name is
     reported in the response as ``resolved_entity_name``.
     """
@@ -231,9 +231,7 @@ async def get_entity_timeline(
                 resolved_entity_name = resolved
                 resolution_method = "hybrid_search_fuzzy"
                 appearances = await asyncio.to_thread(
-                    lambda: kg.find_entity_appearances(
-                        media_id, resolved, user_id=user_id
-                    )
+                    lambda: kg.find_entity_appearances(media_id, resolved, user_id=user_id)
                 )
                 visual_records = appearances.get("visual", [])
                 audio_records = appearances.get("audio", [])
