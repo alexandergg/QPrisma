@@ -1,0 +1,115 @@
+query,response,evaluatorName,evaluationType,score,contextSummary,conversationSummary,tool_calls,tool_definitions,subcluster,cluster,x,y
+"[QPRISMA_CONTEXT:{""media_ids"":[""602fffa2-fc33-4650-a626-ad7c98e8b9fa"",""1958c2fd-d9d6-4619-8072-2f43e9bd03a7""],""user_id"":""user_7541242e88e3""}]
+Find people or entities that appear in multiple videos.","### Overview of Common Entities Across Both Videos:
+Several individuals appear prominently in both the Microsoft Build 2025 keynote (Video 1) and NVIDIA's GTC 2026 keynote (Video 2). However, no specific names are provided, making it easier to identify shared roles, attire styles, and professional settings for comparison.
+
+### Details Per Video:
+
+#### **[Microsoft Build 2025 Satya Nadella Opening Keynote - Microsoft]**
+1. **Presenter in Professional Setup**:
+   - **Location**: Indoor workplace (0:29)
+   - **Description**: Presenter with green hair wearing a colorful patterned shirt, engaged in collaborative content presentation.  
+   - Keywords: Workplace meeting, visualization, software discussions.
+
+2. **Speaker on Conference Stage**:
+   - **Location**: Professional stage setup (9:52)
+   - **Description**: Presenter wearing dark top urgently collaborating / engaging speech-per-style resonates appearing engaging technology teams.
+
+More chapters exploring engagement professional-science Soft platforms [FORMAT UNCLOSED]. Aptly all suggesting productive & corporate 1 final DAY-output-validator Mark7 `+Axis",fluency,azure_ai_evaluator,1,"The RESPONSE contains pervasive grammatical issues, fragmented sentences, and unclear phrasing, which significantly hinder understanding. It aligns most closely with the characteristics of ""Emergent Fluency.""","[object Object] - [object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object]",,,response_grammar_degradation,poor_grammar_clarity,0.0007803311242461817,0.00007182532208684074
+"[QPRISMA_CONTEXT:{""media_id"":""602fffa2-fc33-4650-a626-ad7c98e8b9fa"",""user_id"":""user_7541242e88e3""}]
+Show me the knowledge graph relationships for the main topic.","### Knowledge Graph Relationships and Insights
+
+#### **Main Topic: ""GitHub Copilot and Productivity Advancements""**
+The analyzed connections reveal the depth of this topic through its incorporation in professional keynote presentations within the video. It highlights interactions between innovative technological tools, coding enhancements, and their implications for developers and software ecosystems.
+
+#### **Connected Moments**
+Here are example timestamps and their descriptions where the topic is central:
+1. **[3:10]** - An indoor event venue where a presenter, in professional attire, discusses development tools leveraging GitHub Copilot's framework during a polished corporate presentation.
+2. **[3:17]** - Keynote focus draws attention to GitHub’s forward-thinking tools. The male presenter emphasizes frameworks making life easier for coders.
+3 & Upconc ?   
+
+- Or any-other..
+
+",fluency,azure_ai_evaluator,1,"The response demonstrates minimal command of language, with pervasive grammatical errors, fragmented sentences, and incoherent ideas. It is largely incomprehensible, aligning with the definition of ""Emergent Fluency.""","[object Object] - [object Object],[object Object],[object Object],[object Object],[object Object]",,,poor_language_fluency,poor_grammar_clarity,-0.000006668662383273498,0.000005521517496744997
+"[QPRISMA_CONTEXT:{""media_ids"":[""602fffa2-fc33-4650-a626-ad7c98e8b9fa"",""1958c2fd-d9d6-4619-8072-2f43e9bd03a7""],""user_id"":""user_7541242e88e3""}]
+Find people or entities that appear in multiple videos.","### Overview of Common Entities Across Both Videos:
+Several individuals appear prominently in both the Microsoft Build 2025 keynote (Video 1) and NVIDIA's GTC 2026 keynote (Video 2). However, no specific names are provided, making it easier to identify shared roles, attire styles, and professional settings for comparison.
+
+### Details Per Video:
+
+#### **[Microsoft Build 2025 Satya Nadella Opening Keynote - Microsoft]**
+1. **Presenter in Professional Setup**:
+   - **Location**: Indoor workplace (0:29)
+   - **Description**: Presenter with green hair wearing a colorful patterned shirt, engaged in collaborative content presentation.  
+   - Keywords: Workplace meeting, visualization, software discussions.
+
+2. **Speaker on Conference Stage**:
+   - **Location**: Professional stage setup (9:52)
+   - **Description**: Presenter wearing dark top urgently collaborating / engaging speech-per-style resonates appearing engaging technology teams.
+
+More chapters exploring engagement professional-science Soft platforms [FORMAT UNCLOSED]. Aptly all suggesting productive & corporate 1 final DAY-output-validator Mark7 `+Axis",task_adherence,azure_ai_evaluator,0,"The assistant partially addressed the user's intent by identifying entities in the searched videos using individual video searches after the cross-video search failed. However, it did not fulfill the user's goal of determining common entities between the videos, as no aggregation or comparison of individuals across videos was performed. This was critical to resolving the request. There are no violations of safety, privacy, or compliance rules, and no procedural missteps in tool usage were evident. However, the failure to fully achieve the stated task constitutes a material issue.","[object Object] - [object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object]",,,missed_cross_item_aggregation,action_plan_issues,0,-1.5163785712884e-311
+"[QPRISMA_CONTEXT:{""media_id"":""602fffa2-fc33-4650-a626-ad7c98e8b9fa"",""user_id"":""user_7541242e88e3""}]
+Show me the knowledge graph relationships for the main topic.","### Knowledge Graph Relationships and Insights
+
+#### **Main Topic: ""GitHub Copilot and Productivity Advancements""**
+The analyzed connections reveal the depth of this topic through its incorporation in professional keynote presentations within the video. It highlights interactions between innovative technological tools, coding enhancements, and their implications for developers and software ecosystems.
+
+#### **Connected Moments**
+Here are example timestamps and their descriptions where the topic is central:
+1. **[3:10]** - An indoor event venue where a presenter, in professional attire, discusses development tools leveraging GitHub Copilot's framework during a polished corporate presentation.
+2. **[3:17]** - Keynote focus draws attention to GitHub’s forward-thinking tools. The male presenter emphasizes frameworks making life easier for coders.
+3 & Upconc ?   
+
+- Or any-other..
+
+",relevance,azure_ai_evaluator,1,"The response does not directly address the user's query about 'knowledge graph relationships for the main topic.' Instead, it discusses GitHub Copilot and productivity advancements, which appears unrelated to the user's request.","[object Object] - [object Object],[object Object],[object Object],[object Object],[object Object]",,,off_topic_response,inadequate_final_answer,-0.0000017344041823389781,7.470041618016073e-8
+"[QPRISMA_CONTEXT:{""media_ids"":[""602fffa2-fc33-4650-a626-ad7c98e8b9fa"",""1958c2fd-d9d6-4619-8072-2f43e9bd03a7""],""user_id"":""user_7541242e88e3""}]
+Find people or entities that appear in multiple videos.","### Overview of Common Entities Across Both Videos:
+Several individuals appear prominently in both the Microsoft Build 2025 keynote (Video 1) and NVIDIA's GTC 2026 keynote (Video 2). However, no specific names are provided, making it easier to identify shared roles, attire styles, and professional settings for comparison.
+
+### Details Per Video:
+
+#### **[Microsoft Build 2025 Satya Nadella Opening Keynote - Microsoft]**
+1. **Presenter in Professional Setup**:
+   - **Location**: Indoor workplace (0:29)
+   - **Description**: Presenter with green hair wearing a colorful patterned shirt, engaged in collaborative content presentation.  
+   - Keywords: Workplace meeting, visualization, software discussions.
+
+2. **Speaker on Conference Stage**:
+   - **Location**: Professional stage setup (9:52)
+   - **Description**: Presenter wearing dark top urgently collaborating / engaging speech-per-style resonates appearing engaging technology teams.
+
+More chapters exploring engagement professional-science Soft platforms [FORMAT UNCLOSED]. Aptly all suggesting productive & corporate 1 final DAY-output-validator Mark7 `+Axis",coherence,azure_ai_evaluator,2,"The RESPONSE is poorly coherent, with fragmented sentences, unclear descriptions, and a lack of logical structure, making it difficult to understand and follow. It minimally addresses the QUERY but fails to provide a clear and organized answer.","[object Object] - [object Object],[object Object],[object Object],[object Object],[object Object],[object Object],[object Object]",,,response_coherence_failure,inadequate_final_answer,0.00040629794490880356,-0.0027467113429838035
+"[QPRISMA_CONTEXT:{""media_id"":""602fffa2-fc33-4650-a626-ad7c98e8b9fa"",""user_id"":""user_7541242e88e3""}]
+Find all mentions of the most prominent person in this video.","The most prominent person associated with the name ""Microsoft"" appears multiple times within the video. Below are all the recorded timestamps and brief contextual details of ""Microsoft"" mentions, predominantly in visible contexts during key segments of the presentation.
+
+### Key Mentions:
+1. **[1:17] - Welcoming Slide to 'Microsoft Build'**
+   - **Context**: Professional introductory scene with bright lighting and clean design. Features high-quality graphics and a warm, corporate tone.
+   - **Visuals**: Text title reads ""Welcome to Microsoft Build."" A light background emphasizes professionalism.
+
+2. **[1:24] - Microsoft Branding on Stage**
+   - **Context**: A clean, corporate stage design, with a presenter walking to the center. The atmosphere is professional, and the brand logo is displayed prominently.
+   - **Visual Elements**: Stage design showcases the Microsoft logo in its iconic four-color square format.
+
+3. **[1:27] - Presenter on Stage Under Microsoft Branding**
+   - **Context**: Inside an auditorium with lighting that highlights the presenter and the branding. The atmosphere is formal and corporate.
+   - **Visuals**: A large screen visible with the Microsoft logo flanked by the presenter speaking to the audience.
+   
+4. **[1:32] - Technology Conference Focus**
+   - **Context**: A focused and professional environment with an emphasis on technology and corporate events.
+   - **Visual Elements**: Microsoft logo displayed, presenter addresses an audience about development topics.
+
+5. **[1:36] - Corporate Strategy Discussion**
+   - **Details**: A professional scene featuring corporate strategies and Microsoft branding during a presentation.
+   - **Visuals**: Display includes a presenter with the Microsoft logo showcased prominently.
+
+6. **[1:41] - Corporate Event Scene**
+   - **Scene Details**: Highlights a formal corporate session. Presentations align with branding efforts and Microsoft’s modern tech innovation ethos.
+   - **Presenter Context**: Confident delivery paired with strong professional and modern visuals on stage.
+
+---
+
+### Analysis:
+These moments repeatedly display ""Microsoft"" as central to the conference's tone and branding, not just as part of the visuals but also embedded in the narrative structure. For connected presentation parts highlighting Microsoft's branding strategy, we see thematic reinforcement timed early across opening setups.
+",relevance,azure_ai_evaluator,1,"The response does not identify the most prominent person in the video, as requested, but instead focuses on mentions of the brand 'Microsoft' and its branding elements. This is off-topic and fails to address the query.","[object Object] - [object Object],[object Object],[object Object],[object Object],[object Object]",,,off_topic_salience_mismatch,misunderstood_tool_info,0.0000012829058263911416,3.3412394999129966e-10

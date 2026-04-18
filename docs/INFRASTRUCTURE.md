@@ -280,7 +280,9 @@ Handles model deployments (GPT-4o, GPT-5.2-chat, text-embedding-3-large, Whisper
 **Triggers**: Manual dispatch
 **Purpose**: Runs the QPrisma evaluation pipeline using Azure AI Foundry evaluators against a deployed agent endpoint.
 
-Uses the `evaluation_foundry/` module to execute Video-MME benchmark evaluations and report quality metrics.
+Uses the `evaluation_foundry/` module to generate evaluation datasets, resolve the deployed hosted-agent version, run separate quality/agent/safety evaluations, and optionally launch AI Red Teaming for direct-attack and jailbreak coverage.
+
+See [EVALUATION_GUIDE.md](./EVALUATION_GUIDE.md) for the detailed Azure AI Foundry walkthrough, screenshots, and cluster-analysis artifact summary.
 
 ### 8. Release (`release.yml`)
 
