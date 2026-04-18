@@ -162,7 +162,7 @@ def _to_json_primitive(value: Any) -> Any:
 
 
 def _build_enabled_taxonomy_update(taxonomy: Any) -> tuple[dict[str, Any], bool, bool]:
-    """Build an upsert payload with all generated taxonomy items enabled."""
+    """Build a PATCH payload with all generated taxonomy items enabled."""
     raw = _to_json_primitive(taxonomy)
     if not isinstance(raw, dict):
         return {}, False, False
@@ -205,10 +205,10 @@ def _build_enabled_taxonomy_update(taxonomy: Any) -> tuple[dict[str, Any], bool,
 
         updated_categories.append(updated_category)
 
-    # NOTE: intentionally omit ``taxonomyInput``. Re-sending it (especially with
-    # ``type: "Agent"``) makes Foundry treat the request as a fresh agent-driven
-    # generation and discards the ``enabled: true`` flags we just set. The
-    # documented in-place edit shape only requires ``taxonomyCategories``.
+    # NOTE: intentionally omit ``taxonomyInput`` from the PATCH payload.
+    # Re-sending it (especially with ``type: "Agent"``) makes Foundry treat the
+    # request as a fresh agent-driven generation and discards the
+    # ``enabled: true`` flags we just set.
     body: dict[str, Any] = {"taxonomyCategories": updated_categories}
     if raw.get("description") is not None:
         body["description"] = raw["description"]
@@ -437,7 +437,7 @@ def run_redteam_scan(
                 logger.info(
                     "Enabling generated prohibited-actions taxonomy items before creating the run."
                 )
-                taxonomy = project_client.beta.evaluation_taxonomies.create(
+                taxonomy = project_client.beta.evaluation_taxonomies.update(
                     name=f"{resolved_agent_name}-prohibited-actions",
                     body=taxonomy_update_body,
                 )

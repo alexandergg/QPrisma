@@ -102,10 +102,9 @@ def test_build_enabled_taxonomy_update_enables_generated_subcategories():
 
     assert supported is True
     assert changed is True
-    # ``taxonomyInput`` MUST be omitted: re-sending it (especially including
-    # a ``taxonomyInput.type`` value) makes Foundry regenerate the taxonomy
-    # and discard the ``enabled: true`` flags we just set, leaving the run
-    # with zero prompts.
+    # ``taxonomyInput`` MUST be omitted from the PATCH payload: re-sending it
+    # makes Foundry regenerate the taxonomy and discard the ``enabled: true``
+    # flags we just set, leaving the run with zero prompts.
     assert "taxonomyInput" not in body
     assert body["description"] == "taxonomy"
     assert body["taxonomyCategories"][0]["subCategories"] == [
@@ -323,11 +322,19 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
     class FakeEvaluationTaxonomiesClient:
         def __init__(self):
             self.create_calls = 0
+            self.update_calls = 0
 
         def create(self, *, name: str, body: FakeEvaluationTaxonomy | dict[str, object]):
             self.create_calls += 1
+            if isinstance(body, dict):
+                raise FakeHttpResponseError("Taxonomy input is required is invalid")
             calls.setdefault("taxonomy_create_calls", []).append({"name": name, "body": body})
-            return FakeTaxonomy("taxonomy-1", subcategory_enabled=self.create_calls > 1)
+            return FakeTaxonomy("taxonomy-1", subcategory_enabled=False)
+
+        def update(self, *, name: str, body: dict[str, object]):
+            self.update_calls += 1
+            calls.setdefault("taxonomy_update_calls", []).append({"name": name, "body": body})
+            return FakeTaxonomy("taxonomy-1", subcategory_enabled=True)
 
     class FakeBetaClient:
         def __init__(self):
@@ -416,8 +423,11 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
     assert initial_taxonomy["body"].taxonomy_input.risk_categories == [
         FakeRiskCategory.PROHIBITED_ACTIONS
     ]
-    updated_taxonomy = taxonomy_create_calls[1]
+    assert len(taxonomy_create_calls) == 1
+    taxonomy_update_calls = calls["taxonomy_update_calls"]
+    updated_taxonomy = taxonomy_update_calls[0]
     assert updated_taxonomy["body"]["taxonomyCategories"][0]["subCategories"][0]["enabled"] is True
+    assert "taxonomyInput" not in updated_taxonomy["body"]
 
     run_create = calls["run_create"]
     assert run_create["data_source"]["item_generation_params"]["attack_strategies"] == [
@@ -546,6 +556,9 @@ def test_run_redteam_scan_logs_unexpected_taxonomy_shape(
         def create(self, *, name: str, body: FakeEvaluationTaxonomy | dict[str, object]):
             calls.setdefault("taxonomy_create_calls", []).append({"name": name, "body": body})
             return FakeTaxonomy("taxonomy-1", "completed")
+
+        def update(self, *, name: str, body: dict[str, object]):
+            raise AssertionError("taxonomy update should be skipped for unsupported payloads")
 
     class FakeBetaClient:
         def __init__(self):
@@ -780,10 +793,18 @@ def test_run_redteam_scan_raises_when_taxonomy_upsert_leaves_zero_enabled(
     class FakeEvaluationTaxonomiesClient:
         def __init__(self):
             self.create_calls = 0
+            self.update_calls = 0
 
         def create(self, *, name: str, body: FakeEvaluationTaxonomy | dict[str, object]):
             self.create_calls += 1
+            if isinstance(body, dict):
+                raise FakeHttpResponseError("Taxonomy input is required is invalid")
             calls.setdefault("taxonomy_create_calls", []).append({"name": name, "body": body})
+            return FakeTaxonomy("taxonomy-zero")
+
+        def update(self, *, name: str, body: dict[str, object]):
+            self.update_calls += 1
+            calls.setdefault("taxonomy_update_calls", []).append({"name": name, "body": body})
             return FakeTaxonomy("taxonomy-zero")
 
     class FakeBetaClient:
@@ -854,6 +875,8 @@ def test_run_redteam_scan_raises_when_taxonomy_upsert_leaves_zero_enabled(
     message = str(excinfo.value)
     assert "taxonomy-zero" in message
     assert f"{endpoint}/evaluations" in message
+    assert len(calls["taxonomy_create_calls"]) == 1
+    assert len(calls["taxonomy_update_calls"]) == 1
     # The run must not be created when the taxonomy upsert leaves 0 enabled
     # subcategories; otherwise Foundry generates a zero-prompt scan.
     assert "run_create" not in calls
