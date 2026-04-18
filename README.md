@@ -351,7 +351,7 @@ For full details, see [docs/INFRASTRUCTURE.md](./docs/INFRASTRUCTURE.md).
 
 QPrisma uses **Azure AI Foundry** for automated agent evaluation. The hosted agent (`qprisma-video-agent`) is evaluated using the `microsoft/ai-agent-evals` GitHub Action with built-in and custom evaluators.
 
-**Triggers**: Runs automatically after agent deployment, weekly for regression monitoring, and on-demand via `workflow_dispatch`.
+**Triggers**: Runs on-demand via `workflow_dispatch`.
 
 **Evaluators**:
 - **Built-in**: Coherence, fluency, groundedness, task adherence, tool call accuracy, safety (6 categories)
@@ -361,6 +361,9 @@ QPrisma uses **Azure AI Foundry** for automated agent evaluation. The hosted age
 # Generate evaluation data files locally (dry-run)
 cd backend
 python -m evaluation_foundry.generate_eval_data --dry-run
+
+# Optional: force the legacy final_answer response shape for a one-off debug run
+python -m evaluation_foundry.generate_eval_data --dry-run --response-mode final_answer
 
 # Register custom evaluators with Foundry
 python -m evaluation_foundry.register_evaluators --dry-run

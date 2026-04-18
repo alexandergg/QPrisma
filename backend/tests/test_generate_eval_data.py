@@ -25,7 +25,7 @@ from evaluation_foundry.generate_eval_data import (
 
 MEDIA_ID_1 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 MEDIA_ID_2 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-USER_ID = "uuuuuuuu-uuuu-uuuu-uuuu-uuuuuuuuuuuu"
+USER_ID = "user_7541242e88e3"
 
 CONTEXT_RE = re.compile(r"^\[QPRISMA_CONTEXT:(\{.*?\})\]\n", re.DOTALL)
 
@@ -70,6 +70,16 @@ class TestFormatContext:
         assert ctx["media_id"] == MEDIA_ID_1
         assert ctx["media_ids"] == [MEDIA_ID_1, MEDIA_ID_2]
         assert ctx["user_id"] == USER_ID
+
+    def test_response_mode_is_opt_in(self):
+        result = _format_context(MEDIA_ID_1, USER_ID)
+        ctx = _extract_context(result + "dummy")
+        assert "response_mode" not in ctx
+
+    def test_response_mode_override_included_when_requested(self):
+        result = _format_context(MEDIA_ID_1, USER_ID, response_mode="final_answer")
+        ctx = _extract_context(result + "dummy")
+        assert ctx["response_mode"] == "final_answer"
 
 
 # ── _build_query ──────────────────────────────────────────────────────────

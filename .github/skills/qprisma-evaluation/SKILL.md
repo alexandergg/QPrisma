@@ -34,7 +34,7 @@ python -m evaluation_foundry.generate_eval_data --dry-run
 cd backend
 export EVAL_MEDIA_ID_1=<uuid>
 export EVAL_MEDIA_ID_2=<uuid>
-export EVAL_USER_ID=<entra-oid>
+export EVAL_USER_ID=<runtime-user-id>
 python -m evaluation_foundry.generate_eval_data --output-dir ./eval-output
 ```
 
@@ -58,7 +58,7 @@ python scripts/resolve_agent_version.py
 |-----------------|------|-------------|
 | `EVAL_MEDIA_ID_1` | Variable | UUID of test video 1 (already indexed) |
 | `EVAL_MEDIA_ID_2` | Variable | UUID of test video 2 (already indexed) |
-| `EVAL_USER_ID` | Secret | Entra Object ID of the user who uploaded the videos |
+| `EVAL_USER_ID` | Secret | Current runtime user ID recognized by the hosted agent |
 | `FOUNDRY_PROJECT_ENDPOINT` | Variable | AI Foundry project endpoint URL |
 
 ## Evaluators

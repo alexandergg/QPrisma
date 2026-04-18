@@ -30,8 +30,8 @@ shape, id generation, and HITL support.
 
 ## `response_mode`
 
-Clients select the response shape by injecting a `QPRISMA_CONTEXT` marker at
-the top of the user message:
+Clients can still select the response shape by injecting a `QPRISMA_CONTEXT`
+marker at the top of the user message:
 
 ```
 [QPRISMA_CONTEXT:{"media_id":"...","user_id":"...","response_mode":"final_answer"}]
@@ -49,6 +49,12 @@ In `final_answer` mode the converter guarantees a single, non-empty assistant
 message. When the final `AIMessage` is empty (tool-only or whitespace) the
 converter synthesizes a fallback placeholder so downstream evaluators never see
 a null or blank `response`.
+
+The current production/frontend path does **not** set `response_mode` by
+default. It sends `media_id`, `user_id`, and `session_id` in
+`QPRISMA_CONTEXT`, and relies on the converter's default `full` mode. Treat
+`final_answer` as a legacy opt-in for targeted evaluation/debug scenarios until
+the adapter audit proves it can be removed safely.
 
 ## Context injection
 

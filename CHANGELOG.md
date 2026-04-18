@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Foundry evaluation pipeline**: New `evaluation_foundry/` module replaces the unfinished `evaluation/` module. Uses Azure AI Foundry's `microsoft/ai-agent-evals` GitHub Action with Agent Target mode against the deployed hosted agent.
 - **61 evaluation query templates**: General chat (15), video-scoped (22), multi-video (5), and safety (19) queries with automatic QPRISMA_CONTEXT injection for video-specific tests.
 - **Custom evaluators**: Two prompt-based LLM judge evaluators — Temporal Specificity (timestamp quality) and Source Grounding (video evidence citation).
-- **CI/CD evaluation workflow**: `.github/workflows/evaluate-agent.yml` runs automatically after deployment, weekly for regression monitoring, and on-demand via `workflow_dispatch`.
+- **CI/CD evaluation workflow**: `.github/workflows/evaluate-agent.yml` now runs on-demand via `workflow_dispatch`, keeping hosted-agent evaluation explicit and version-aware.
 - **Data generation CLI**: `python -m evaluation_foundry.generate_eval_data` generates Foundry-compatible JSON data files from environment-configured test media.
 - **Agent version resolver**: `scripts/resolve_agent_version.py` dynamically resolves the latest deployed agent version for evaluation.
 
