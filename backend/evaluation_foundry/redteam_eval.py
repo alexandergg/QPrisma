@@ -205,11 +205,14 @@ def _build_enabled_taxonomy_update(taxonomy: Any) -> tuple[dict[str, Any], bool,
 
         updated_categories.append(updated_category)
 
-    # NOTE: intentionally omit ``taxonomyInput`` from the PATCH payload.
-    # Re-sending it (especially with ``type: "Agent"``) makes Foundry treat the
-    # request as a fresh agent-driven generation and discards the
-    # ``enabled: true`` flags we just set.
+    taxonomy_input = raw.get("taxonomyInput")
     body: dict[str, Any] = {"taxonomyCategories": updated_categories}
+    if isinstance(taxonomy_input, dict):
+        input_type = taxonomy_input.get("type")
+        if isinstance(input_type, str) and input_type.strip():
+            # The PATCH contract documents ``taxonomyInput`` as optional, but if
+            # it is present the discriminator must still be included.
+            body["taxonomyInput"] = {"type": input_type}
     if raw.get("description") is not None:
         body["description"] = raw["description"]
     if raw.get("properties") is not None:
@@ -234,6 +237,54 @@ def _count_enabled_subcategories(taxonomy: Any) -> int:
             if isinstance(sub, dict) and sub.get("enabled") is True:
                 count += 1
     return count
+
+
+def _extract_taxonomy_update_identifiers(taxonomy: Any, requested_name: str) -> list[str]:
+    """Return unique identifier candidates for the taxonomy update call."""
+    raw = _to_json_primitive(taxonomy)
+    candidates: list[str] = []
+
+    def add(candidate: Any) -> None:
+        if not isinstance(candidate, str):
+            return
+        normalized = candidate.strip()
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
+
+    if isinstance(raw, dict):
+        add(raw.get("name"))
+        add(raw.get("id"))
+
+    add(getattr(taxonomy, "name", None))
+    add(getattr(taxonomy, "id", None))
+    add(requested_name)
+    return candidates
+
+
+def _build_retry_taxonomy_update_body(
+    taxonomy: Any,
+    base_body: dict[str, Any],
+) -> dict[str, Any]:
+    """Return a broader PATCH body that reuses the original taxonomy input."""
+    raw = _to_json_primitive(taxonomy)
+    if not isinstance(raw, dict):
+        return base_body
+
+    taxonomy_input = raw.get("taxonomyInput")
+    if not isinstance(taxonomy_input, dict):
+        return base_body
+
+    input_type = taxonomy_input.get("type")
+    if not isinstance(input_type, str) or not input_type.strip():
+        return base_body
+
+    retry_body = dict(base_body)
+    retry_body["taxonomyInput"] = dict(taxonomy_input)
+    return retry_body
+
+
+def _http_response_target_matches(exc: Exception, target: str) -> bool:
+    return f"target: {target.lower()}" in str(exc).lower()
 
 
 def _extract_run_status(run: Any) -> str:
@@ -418,8 +469,9 @@ def run_redteam_scan(
                 testing_criteria=_build_testing_criteria(model_deployment),
             )
 
+            taxonomy_name = f"{resolved_agent_name}-prohibited-actions"
             taxonomy = project_client.beta.evaluation_taxonomies.create(
-                name=f"{resolved_agent_name}-prohibited-actions",
+                name=taxonomy_name,
                 body=EvaluationTaxonomy(
                     description="QPrisma prohibited-actions taxonomy for cloud red teaming",
                     taxonomy_input=AgentTaxonomyInput(
@@ -437,10 +489,62 @@ def run_redteam_scan(
                 logger.info(
                     "Enabling generated prohibited-actions taxonomy items before creating the run."
                 )
-                taxonomy = project_client.beta.evaluation_taxonomies.update(
-                    name=f"{resolved_agent_name}-prohibited-actions",
-                    body=taxonomy_update_body,
+                update_identifiers = _extract_taxonomy_update_identifiers(
+                    taxonomy,
+                    requested_name=taxonomy_name,
                 )
+                retry_update_body = _build_retry_taxonomy_update_body(
+                    taxonomy,
+                    taxonomy_update_body,
+                )
+                last_update_error: HttpResponseError | None = None
+                for identifier in update_identifiers:
+                    try:
+                        taxonomy = project_client.beta.evaluation_taxonomies.update(
+                            name=identifier,
+                            body=taxonomy_update_body,
+                        )
+                        break
+                    except HttpResponseError as exc:
+                        last_update_error = exc
+                        if _http_response_target_matches(exc, "taxonomyId"):
+                            logger.warning(
+                                "Taxonomy update rejected identifier '%s'; trying the next "
+                                "identifier candidate.",
+                                identifier,
+                            )
+                            continue
+                        if (
+                            _http_response_target_matches(exc, "taxonomyInput")
+                            and retry_update_body != taxonomy_update_body
+                        ):
+                            logger.warning(
+                                "Taxonomy update rejected the minimal PATCH taxonomyInput for "
+                                "identifier '%s'; retrying with the original taxonomy input "
+                                "metadata.",
+                                identifier,
+                            )
+                            try:
+                                taxonomy = project_client.beta.evaluation_taxonomies.update(
+                                    name=identifier,
+                                    body=retry_update_body,
+                                )
+                                break
+                            except HttpResponseError as retry_exc:
+                                last_update_error = retry_exc
+                                if _http_response_target_matches(retry_exc, "taxonomyId"):
+                                    logger.warning(
+                                        "Taxonomy update still rejected identifier '%s' after "
+                                        "retrying with the full taxonomy input.",
+                                        identifier,
+                                    )
+                                    continue
+                                raise
+                        raise
+                else:
+                    if last_update_error is not None:
+                        raise last_update_error
+                    raise RuntimeError("Could not determine a valid taxonomy identifier to update.")
                 enabled_count = _count_enabled_subcategories(taxonomy)
                 if enabled_count == 0:
                     taxonomy_id = getattr(taxonomy, "id", None) or "<unknown>"

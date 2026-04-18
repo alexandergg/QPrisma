@@ -9,8 +9,10 @@ import pytest
 
 from evaluation_foundry.redteam_eval import (
     _build_enabled_taxonomy_update,
+    _build_retry_taxonomy_update_body,
     _count_enabled_subcategories,
     _extract_run_status,
+    _extract_taxonomy_update_identifiers,
     _extract_total_results,
     _map_enum_member,
     _normalize_attack_strategy,
@@ -102,10 +104,7 @@ def test_build_enabled_taxonomy_update_enables_generated_subcategories():
 
     assert supported is True
     assert changed is True
-    # ``taxonomyInput`` MUST be omitted from the PATCH payload: re-sending it
-    # makes Foundry regenerate the taxonomy and discard the ``enabled: true``
-    # flags we just set, leaving the run with zero prompts.
-    assert "taxonomyInput" not in body
+    assert body["taxonomyInput"] == {"type": "agent"}
     assert body["description"] == "taxonomy"
     assert body["taxonomyCategories"][0]["subCategories"] == [
         {"id": "sub-1", "name": "disabled", "enabled": True},
@@ -129,7 +128,7 @@ def test_build_enabled_taxonomy_update_returns_unchanged_when_all_enabled():
 
     assert supported is True
     assert changed is False
-    assert "taxonomyInput" not in body
+    assert body["taxonomyInput"] == {"type": "agent"}
 
 
 def test_build_enabled_taxonomy_update_preserves_optional_fields():
@@ -147,7 +146,7 @@ def test_build_enabled_taxonomy_update_preserves_optional_fields():
 
     assert supported is True
     assert changed is True
-    assert "taxonomyInput" not in body
+    assert body["taxonomyInput"] == {"type": "agent"}
     assert body["properties"] == {"foo": "bar"}
     assert body["tags"] == ["a", "b"]
 
@@ -158,6 +157,40 @@ def test_build_enabled_taxonomy_update_rejects_unexpected_payload_shape():
     assert body == {}
     assert changed is False
     assert supported is False
+
+
+def test_build_retry_taxonomy_update_body_preserves_full_input_metadata():
+    taxonomy = {
+        "taxonomyInput": {
+            "type": "agent",
+            "riskCategories": ["ProhibitedActions"],
+            "target": {"type": "azure_ai_agent", "name": "qprisma-video-agent", "version": "54"},
+        },
+        "taxonomyCategories": [
+            {"id": "cat-1", "subCategories": [{"id": "sub-1", "enabled": True}]}
+        ],
+    }
+    base_body = {
+        "taxonomyCategories": taxonomy["taxonomyCategories"],
+        "taxonomyInput": {"type": "agent"},
+    }
+
+    retry_body = _build_retry_taxonomy_update_body(taxonomy, base_body)
+
+    assert retry_body["taxonomyInput"] == taxonomy["taxonomyInput"]
+
+
+def test_extract_taxonomy_update_identifiers_prefers_returned_values():
+    taxonomy = {
+        "name": "returned-taxonomy-name",
+        "id": "taxonomy-asset-id",
+    }
+
+    assert _extract_taxonomy_update_identifiers(taxonomy, "requested-name") == [
+        "returned-taxonomy-name",
+        "taxonomy-asset-id",
+        "requested-name",
+    ]
 
 
 def test_extract_run_helpers_support_dicts_and_models():
@@ -255,7 +288,7 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
         def as_dict(self) -> dict[str, object]:
             return {
                 "id": self.id,
-                "name": "qprisma-video-agent-prohibited-actions",
+                "name": "foundry-generated-taxonomy",
                 "description": "taxonomy",
                 "taxonomyInput": {"type": "agent"},
                 "taxonomyCategories": [
@@ -426,8 +459,9 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
     assert len(taxonomy_create_calls) == 1
     taxonomy_update_calls = calls["taxonomy_update_calls"]
     updated_taxonomy = taxonomy_update_calls[0]
+    assert updated_taxonomy["name"] == "foundry-generated-taxonomy"
     assert updated_taxonomy["body"]["taxonomyCategories"][0]["subCategories"][0]["enabled"] is True
-    assert "taxonomyInput" not in updated_taxonomy["body"]
+    assert updated_taxonomy["body"]["taxonomyInput"] == {"type": "agent"}
 
     run_create = calls["run_create"]
     assert run_create["data_source"]["item_generation_params"]["attack_strategies"] == [
@@ -444,6 +478,196 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
         "version": "7",
     }
     assert "agents_get" not in calls
+
+
+def test_run_redteam_scan_retries_taxonomy_update_with_asset_id_when_name_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    calls: dict[str, object] = {}
+
+    class FakeCredential:
+        def close(self):
+            calls["credential_closed"] = True
+
+    class FakeHttpResponseError(Exception):
+        pass
+
+    class FakeRiskCategory(Enum):
+        PROHIBITED_ACTIONS = "ProhibitedActions"
+
+    class FakeAzureAIAgentTarget:
+        def __init__(self, *, name: str, version: str):
+            self.name = name
+            self.version = version
+
+        def as_dict(self) -> dict[str, str]:
+            return {
+                "type": "azure_ai_agent",
+                "name": self.name,
+                "version": self.version,
+            }
+
+    class FakeAgentTaxonomyInput:
+        def __init__(
+            self, *, risk_categories: list[FakeRiskCategory], target: FakeAzureAIAgentTarget
+        ):
+            self.risk_categories = risk_categories
+            self.target = target
+
+    class FakeEvaluationTaxonomy:
+        def __init__(self, *, description: str, taxonomy_input: FakeAgentTaxonomyInput):
+            self.description = description
+            self.taxonomy_input = taxonomy_input
+
+    class FakeResource:
+        def __init__(self, resource_id: str, status: str = "queued"):
+            self.id = resource_id
+            self.status = status
+
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            return {
+                "id": self.id,
+                "status": self.status,
+                "result_counts": {"total": 1 if self.status == "completed" else 0},
+            }
+
+    class FakeTaxonomy(FakeResource):
+        def __init__(self, resource_id: str, subcategory_enabled: bool):
+            super().__init__(resource_id, "completed")
+            self.subcategory_enabled = subcategory_enabled
+
+        def as_dict(self) -> dict[str, object]:
+            return {
+                "id": self.id,
+                "name": "foundry-generated-taxonomy",
+                "description": "taxonomy",
+                "taxonomyInput": {"type": "agent"},
+                "taxonomyCategories": [
+                    {
+                        "id": "cat-1",
+                        "subCategories": [{"id": "sub-1", "enabled": self.subcategory_enabled}],
+                    }
+                ],
+            }
+
+    class FakeOutputItem:
+        def __init__(self, item_id: str):
+            self.item_id = item_id
+
+        def as_dict(self) -> dict[str, str]:
+            return {"item_id": self.item_id}
+
+    class FakeOutputItemsClient:
+        def list(self, *, run_id: str, eval_id: str):
+            return [FakeOutputItem("item-1")]
+
+    class FakeRunsClient:
+        def __init__(self):
+            self.output_items = FakeOutputItemsClient()
+
+        def create(self, *, eval_id: str, name: str, data_source: dict[str, object]):
+            calls["run_create"] = {"eval_id": eval_id, "name": name, "data_source": data_source}
+            return FakeResource("run-1", "queued")
+
+        def retrieve(self, *, run_id: str, eval_id: str):
+            return FakeResource(run_id, "completed")
+
+    class FakeEvalsClient:
+        def __init__(self):
+            self.runs = FakeRunsClient()
+
+        def create(
+            self, *, name: str, data_source_config: dict[str, str], testing_criteria: list[dict]
+        ):
+            return FakeResource("eval-1", "created")
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.evals = FakeEvalsClient()
+
+        def close(self):
+            calls["openai_closed"] = True
+
+    class FakeEvaluationTaxonomiesClient:
+        def create(self, *, name: str, body: FakeEvaluationTaxonomy | dict[str, object]):
+            calls.setdefault("taxonomy_create_calls", []).append({"name": name, "body": body})
+            return FakeTaxonomy("taxonomy-asset-id", subcategory_enabled=False)
+
+        def update(self, *, name: str, body: dict[str, object]):
+            calls.setdefault("taxonomy_update_calls", []).append({"name": name, "body": body})
+            if name == "foundry-generated-taxonomy":
+                raise FakeHttpResponseError(
+                    "(UserError) {argumentName} is invalid\n"
+                    "Code: UserError\n"
+                    "Message: {argumentName} is invalid\n"
+                    "Target: taxonomyId"
+                )
+            assert name == "taxonomy-asset-id"
+            return FakeTaxonomy("taxonomy-asset-id", subcategory_enabled=True)
+
+    class FakeBetaClient:
+        def __init__(self):
+            self.evaluation_taxonomies = FakeEvaluationTaxonomiesClient()
+
+    class FakeProjectClient:
+        def __init__(self, *, endpoint: str, credential: FakeCredential, allow_preview: bool):
+            self.beta = FakeBetaClient()
+            self.agents = types.SimpleNamespace()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get_openai_client(self):
+            return FakeOpenAIClient()
+
+    azure_module = types.ModuleType("azure")
+    azure_ai_module = types.ModuleType("azure.ai")
+    projects_module = types.ModuleType("azure.ai.projects")
+    projects_models_module = types.ModuleType("azure.ai.projects.models")
+    azure_core_module = types.ModuleType("azure.core")
+    azure_core_exceptions_module = types.ModuleType("azure.core.exceptions")
+    azure_identity_module = types.ModuleType("azure.identity")
+
+    projects_module.AIProjectClient = FakeProjectClient
+    projects_models_module.AgentTaxonomyInput = FakeAgentTaxonomyInput
+    projects_models_module.AzureAIAgentTarget = FakeAzureAIAgentTarget
+    projects_models_module.EvaluationTaxonomy = FakeEvaluationTaxonomy
+    projects_models_module.RiskCategory = FakeRiskCategory
+    azure_core_exceptions_module.HttpResponseError = FakeHttpResponseError
+    azure_identity_module.DefaultAzureCredential = FakeCredential
+
+    monkeypatch.setitem(sys.modules, "azure", azure_module)
+    monkeypatch.setitem(sys.modules, "azure.ai", azure_ai_module)
+    monkeypatch.setitem(sys.modules, "azure.ai.projects", projects_module)
+    monkeypatch.setitem(sys.modules, "azure.ai.projects.models", projects_models_module)
+    monkeypatch.setitem(sys.modules, "azure.core", azure_core_module)
+    monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions_module)
+    monkeypatch.setitem(sys.modules, "azure.identity", azure_identity_module)
+
+    summary = run_redteam_scan(
+        endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_id="qprisma-video-agent:7",
+        agent_name=None,
+        agent_version=None,
+        model_deployment="gpt-4o",
+        strategies=["base64"],
+        risk_categories=["prohibited_actions"],
+        num_turns=1,
+        output_path=tmp_path / "redteam-results.json",
+        scan_name="qprisma-redteam",
+        poll_interval_seconds=0,
+        timeout_seconds=5,
+    )
+
+    assert summary["run"]["status"] == "completed"
+    assert [call["name"] for call in calls["taxonomy_update_calls"]] == [
+        "foundry-generated-taxonomy",
+        "taxonomy-asset-id",
+    ]
+    assert calls["taxonomy_update_calls"][0]["body"]["taxonomyInput"] == {"type": "agent"}
 
 
 def test_run_redteam_scan_logs_unexpected_taxonomy_shape(
