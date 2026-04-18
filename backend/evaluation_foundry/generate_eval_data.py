@@ -13,8 +13,8 @@ Usage:
     python -m evaluation_foundry.generate_eval_data --output-dir /tmp/eval
 
 Environment variables:
-    EVAL_MEDIA_ID_1, EVAL_MEDIA_ID_2, ...  — UUIDs of uploaded test videos
-    EVAL_USER_ID                            — Entra Object ID of the video uploader
+    EVAL_MEDIA_ID_1, EVAL_MEDIA_ID_2, ...  — current media IDs for uploaded test videos
+    EVAL_USER_ID                            — current runtime user ID recognized by the hosted agent
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -44,6 +45,7 @@ from evaluation_foundry.data.query_templates import (
 from evaluation_foundry.tool_definitions import TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
+USER_ID_RUNTIME_PATTERN = re.compile(r"^user_[0-9a-f]{12}$")
 
 # ---------------------------------------------------------------------------
 # QPRISMA_CONTEXT formatting
@@ -64,15 +66,16 @@ def _format_context(
     Parameters
     ----------
     media_id:
-        Single video UUID for single-video queries.
+        Single video/media ID for single-video queries.
     user_id:
-        Entra Object-ID of the video owner.
+        Runtime user ID recognized by the hosted agent.
     media_ids:
-        Full list of video UUIDs for multi-video / cross-video queries.
+        Full list of video/media IDs for multi-video / cross-video queries.
     response_mode:
         Optional response mode hint for the hosted agent converter.
-        ``"final_answer"`` strips tool items from the response, making it
-        compatible with Foundry's evaluation save pipeline.
+        This is deprecated for normal evaluation generation because production
+        traffic does not set it by default. Keep it available only as an
+        explicit override while the adapter audit is still in progress.
     """
     parts: dict[str, str | list[str]] = {}
     if media_id:
@@ -107,6 +110,11 @@ def _get_user_id() -> str | None:
     """Get EVAL_USER_ID from environment."""
     val = os.environ.get(ENV_USER_ID)
     return val.strip() if val else None
+
+
+def _has_runtime_user_id_format(user_id: str) -> bool:
+    """Check whether a user_id matches the hosted-agent runtime format."""
+    return USER_ID_RUNTIME_PATTERN.fullmatch(user_id) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -166,14 +174,16 @@ def _build_query(
     Parameters
     ----------
     media_id:
-        Targeted video UUID for this specific row (single-video queries).
+        Targeted video/media ID for this specific row (single-video queries).
     user_id:
-        Entra Object-ID of the video owner.
+        Runtime user ID recognized by the hosted agent.
     media_ids:
-        Full list of available video UUIDs — included in the context
+        Full list of available video/media IDs — included in the context
         envelope for multi-video queries (``needs_user=True``).
     response_mode:
         Optional response mode hint passed through to the context envelope.
+        Deprecated for default evaluation generation so eval traffic mirrors
+        the production/frontend request shape.
     """
     if template.needs_media and not media_id:
         logger.warning("Skipping query (needs media_id): %s", template.text[:60])
@@ -218,10 +228,10 @@ def generate_data_file(
     Parameters
     ----------
     response_mode:
-        When set (e.g. ``"final_answer"``), the response mode is embedded
-        in every QPRISMA_CONTEXT envelope so the hosted agent converter
-        strips tool items from responses, avoiding Foundry "invalid format"
-        errors during evaluation.
+        Optional response mode override. Left unset by default so evaluation
+        traffic mirrors the production/frontend hosted-agent path. This can
+        still be used for targeted debugging while the adapter audit is in
+        progress.
     """
     rows: list[dict] = []
     skipped = 0
@@ -297,6 +307,15 @@ def main() -> int:
         action="store_true",
         help="Print to stdout instead of writing files",
     )
+    parser.add_argument(
+        "--response-mode",
+        choices=["full", "final_answer"],
+        default=None,
+        help=(
+            "Optional response_mode override to embed in QPRISMA_CONTEXT. "
+            "Omit to mirror the production/frontend hosted-agent path."
+        ),
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -321,6 +340,14 @@ def main() -> int:
         )
     if not user_id:
         logger.warning("EVAL_USER_ID not set — multi-video and user-scoped queries will be skipped")
+    elif _has_runtime_user_id_format(user_id):
+        logger.info("EVAL_USER_ID matches the current hosted-agent runtime format")
+    else:
+        logger.warning(
+            "EVAL_USER_ID is set to '%s'. Ensure this matches the current runtime user_id format "
+            "accepted by the hosted agent for the target environment.",
+            user_id,
+        )
 
     # Generate text-quality evaluation data (no tool_definitions needed)
     quality = generate_data_file(
@@ -329,7 +356,7 @@ def main() -> int:
         evaluators=QUALITY_EVAL_EVALUATORS,
         media_ids=media_ids,
         user_id=user_id,
-        response_mode="final_answer",
+        response_mode=args.response_mode,
     )
 
     # Generate agent/tool evaluation data (includes flattened tool_definitions)
@@ -340,7 +367,7 @@ def main() -> int:
         media_ids=media_ids,
         user_id=user_id,
         include_tool_definitions=True,
-        response_mode="final_answer",
+        response_mode=args.response_mode,
     )
 
     # Generate safety evaluation data
@@ -350,7 +377,7 @@ def main() -> int:
         evaluators=SAFETY_EVAL_EVALUATORS,
         media_ids=media_ids,
         user_id=user_id,
-        response_mode="final_answer",
+        response_mode=args.response_mode,
     )
 
     if args.dry_run:

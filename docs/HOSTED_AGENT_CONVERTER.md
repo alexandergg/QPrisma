@@ -30,8 +30,8 @@ shape, id generation, and HITL support.
 
 ## `response_mode`
 
-Clients select the response shape by injecting a `QPRISMA_CONTEXT` marker at
-the top of the user message:
+Clients can still select the response shape by injecting a `QPRISMA_CONTEXT`
+marker at the top of the user message:
 
 ```
 [QPRISMA_CONTEXT:{"media_id":"...","user_id":"...","response_mode":"final_answer"}]
@@ -50,6 +50,12 @@ message. When the final `AIMessage` is empty (tool-only or whitespace) the
 converter synthesizes a fallback placeholder so downstream evaluators never see
 a null or blank `response`.
 
+The current production/frontend path does **not** set `response_mode` by
+default. It sends `media_id`, `user_id`, and `session_id` in
+`QPRISMA_CONTEXT`, and relies on the converter's default `full` mode. Treat
+`final_answer` as a legacy opt-in for targeted evaluation/debug scenarios until
+the adapter audit proves it can be removed safely.
+
 ## Context injection
 
 Besides `response_mode`, `QPRISMA_CONTEXT` also carries:
@@ -57,8 +63,10 @@ Besides `response_mode`, `QPRISMA_CONTEXT` also carries:
 - `media_id` — injected into the LangGraph input state so tools can scope
   queries to a specific video. Required for video-aware queries.
 - `user_id` — propagated for audit, personalization, and retrieval filters.
+- `session_id` — propagated for thread continuity so LangGraph memory and
+  checkpointed state can resume the same conversation.
 
-Both keys are forwarded to the graph's input state and are **not** included in
+These fields are forwarded to the graph's input state and are **not** included in
 the resulting prompt text.
 
 ## Content-shape invariant

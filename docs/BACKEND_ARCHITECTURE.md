@@ -2000,11 +2000,20 @@ Direct-attack / jailbreak coverage is **not** a runtime evaluator. It is provide
 
 The hosted agent converter (`agent/hosted/state_converter.py`) enforces that `response_mode=final_answer` responses always contain at least one assistant message item. When the agent graph ends on a tool call, returns an empty `AIMessage`, or emits only preamble text alongside tool calls, the converter falls back to the last non-empty assistant text (or a short placeholder) so Foundry's Responses API never receives an empty payload. Without this guarantee, media-context queries (those exercising tools) produce HTTP 400 "Response could not be saved due to invalid format" during evaluation runs.
 
+The current production/frontend request path does not set `response_mode`
+explicitly; it relies on the converter's default `full` mode. `final_answer`
+remains available as an opt-in compatibility/debug lever while the hosted
+adapter is audited, but it is no longer the default path that evaluation data
+generation should mirror.
+
 ### Running Evaluations
 
 ```bash
 # Generate evaluation data
-python -m evaluation_foundry.generate_eval_data --media-id <id>
+export EVAL_MEDIA_ID_1=<video-uuid>
+export EVAL_MEDIA_ID_2=<video-uuid>
+export EVAL_USER_ID=<runtime-user-id>
+python -m evaluation_foundry.generate_eval_data --output-dir ./eval-output
 
 # Register evaluators
 python -m evaluation_foundry.register_evaluators
