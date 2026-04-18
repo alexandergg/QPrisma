@@ -205,17 +205,35 @@ def _build_enabled_taxonomy_update(taxonomy: Any) -> tuple[dict[str, Any], bool,
 
         updated_categories.append(updated_category)
 
-    body = {
-        "description": raw.get("description"),
-        "taxonomyInput": raw.get("taxonomyInput"),
-        "taxonomyCategories": updated_categories,
-    }
+    # NOTE: intentionally omit ``taxonomyInput``. Re-sending it (especially with
+    # ``type: "Agent"``) makes Foundry treat the request as a fresh agent-driven
+    # generation and discards the ``enabled: true`` flags we just set. The
+    # documented in-place edit shape only requires ``taxonomyCategories``.
+    body: dict[str, Any] = {"taxonomyCategories": updated_categories}
+    if raw.get("description") is not None:
+        body["description"] = raw["description"]
     if raw.get("properties") is not None:
         body["properties"] = raw["properties"]
     if raw.get("tags") is not None:
         body["tags"] = raw["tags"]
 
     return body, changed, True
+
+
+def _count_enabled_subcategories(taxonomy: Any) -> int:
+    """Return the number of enabled subcategories across all categories."""
+    raw = _to_json_primitive(taxonomy)
+    if not isinstance(raw, dict):
+        return 0
+
+    count = 0
+    for category in raw.get("taxonomyCategories") or []:
+        if not isinstance(category, dict):
+            continue
+        for sub in category.get("subCategories") or []:
+            if isinstance(sub, dict) and sub.get("enabled") is True:
+                count += 1
+    return count
 
 
 def _extract_run_status(run: Any) -> str:
@@ -226,16 +244,49 @@ def _extract_run_status(run: Any) -> str:
     return str(getattr(run, "status", "") or "").lower()
 
 
-def _extract_total_results(run_summary: Any) -> int:
-    raw = _to_json_primitive(run_summary)
+def _extract_total_results(source: Any) -> int:
+    """Best-effort total result count from a run object or full summary dict.
+
+    Falls back to per-criteria counts and ``output_items`` length when the
+    primary ``result_counts.total`` field is missing or zero, which has been
+    observed in completed-but-empty Foundry runs.
+    """
+    raw = _to_json_primitive(source)
     if not isinstance(raw, dict):
         return 0
 
-    result_counts = raw.get("result_counts") or raw.get("resultCounts")
-    if isinstance(result_counts, dict):
-        total = result_counts.get("total")
-        if isinstance(total, int):
-            return total
+    # ``source`` can be a run dict OR a summary that wraps a run.
+    candidates: list[dict[str, Any]] = [raw]
+    nested_run = raw.get("run")
+    if isinstance(nested_run, dict):
+        candidates.append(nested_run)
+
+    for candidate in candidates:
+        result_counts = candidate.get("result_counts") or candidate.get("resultCounts")
+        if isinstance(result_counts, dict):
+            total = result_counts.get("total")
+            if isinstance(total, int) and total > 0:
+                return total
+
+        per_criteria = (
+            candidate.get("per_testing_criteria_results")
+            or candidate.get("perTestingCriteriaResults")
+        )
+        if isinstance(per_criteria, list) and per_criteria:
+            criteria_totals: list[int] = []
+            for entry in per_criteria:
+                if not isinstance(entry, dict):
+                    continue
+                passed = entry.get("passed", 0)
+                failed = entry.get("failed", 0)
+                if isinstance(passed, int) and isinstance(failed, int):
+                    criteria_totals.append(passed + failed)
+            if criteria_totals and max(criteria_totals) > 0:
+                return max(criteria_totals)
+
+    output_items = raw.get("output_items")
+    if isinstance(output_items, list) and output_items:
+        return len(output_items)
 
     return 0
 
@@ -390,6 +441,20 @@ def run_redteam_scan(
                 taxonomy = project_client.beta.evaluation_taxonomies.create(
                     name=f"{resolved_agent_name}-prohibited-actions",
                     body=taxonomy_update_body,
+                )
+                enabled_count = _count_enabled_subcategories(taxonomy)
+                if enabled_count == 0:
+                    taxonomy_id = getattr(taxonomy, "id", None) or "<unknown>"
+                    raise RuntimeError(
+                        "Failed to enable taxonomy subcategories for taxonomy "
+                        f"'{taxonomy_id}'. All subcategories remain disabled after "
+                        "the update; the red-team run would generate zero attack "
+                        f"prompts. Review and enable manually at {endpoint}/evaluations."
+                    )
+                logger.info(
+                    "Taxonomy '%s' now has %d enabled subcategories.",
+                    getattr(taxonomy, "id", "<unknown>"),
+                    enabled_count,
                 )
             elif not taxonomy_payload_supported:
                 logger.warning(
@@ -598,11 +663,20 @@ def main(argv: list[str] | None = None) -> int:
             status or "<unknown>",
         )
         return 1
-    total_results = _extract_total_results(summary.get("run"))
+    total_results = _extract_total_results(summary)
     if total_results == 0:
+        taxonomy_info = summary.get("taxonomy") if isinstance(summary, dict) else None
+        taxonomy_id = (
+            taxonomy_info.get("id") if isinstance(taxonomy_info, dict) else None
+        ) or "<unknown>"
+        portal_url = (
+            summary.get("portal_url") if isinstance(summary, dict) else None
+        ) or f"{args.endpoint}/evaluations"
         logger.error(
-            "Red-team run completed but generated zero result items. Check the generated "
-            "taxonomy in Foundry and confirm prohibited-actions entries are enabled."
+            "Red-team run completed but generated zero result items. "
+            "Taxonomy ID: %s. Review and enable prohibited-actions subcategories at %s",
+            taxonomy_id,
+            portal_url,
         )
         return 1
     return 0

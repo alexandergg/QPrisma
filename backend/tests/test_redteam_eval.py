@@ -101,10 +101,54 @@ def test_build_enabled_taxonomy_update_enables_generated_subcategories():
 
     assert supported is True
     assert changed is True
+    # ``taxonomyInput`` MUST be omitted: re-sending it (especially with
+    # ``type: agent``) makes Foundry regenerate the taxonomy and discards the
+    # ``enabled: true`` flags we just set, leaving the run with zero prompts.
+    assert "taxonomyInput" not in body
+    assert body["description"] == "taxonomy"
     assert body["taxonomyCategories"][0]["subCategories"] == [
         {"id": "sub-1", "name": "disabled", "enabled": True},
         {"id": "sub-2", "name": "already-enabled", "enabled": True},
     ]
+
+
+def test_build_enabled_taxonomy_update_returns_unchanged_when_all_enabled():
+    taxonomy = {
+        "description": "taxonomy",
+        "taxonomyInput": {"type": "agent"},
+        "taxonomyCategories": [
+            {
+                "id": "cat-1",
+                "subCategories": [{"id": "sub-1", "enabled": True}],
+            }
+        ],
+    }
+
+    body, changed, supported = _build_enabled_taxonomy_update(taxonomy)
+
+    assert supported is True
+    assert changed is False
+    assert "taxonomyInput" not in body
+
+
+def test_build_enabled_taxonomy_update_preserves_optional_fields():
+    taxonomy = {
+        "description": "desc",
+        "taxonomyInput": {"type": "agent"},
+        "properties": {"foo": "bar"},
+        "tags": ["a", "b"],
+        "taxonomyCategories": [
+            {"id": "cat-1", "subCategories": [{"id": "sub-1", "enabled": False}]}
+        ],
+    }
+
+    body, changed, supported = _build_enabled_taxonomy_update(taxonomy)
+
+    assert supported is True
+    assert changed is True
+    assert "taxonomyInput" not in body
+    assert body["properties"] == {"foo": "bar"}
+    assert body["tags"] == ["a", "b"]
 
 
 def test_build_enabled_taxonomy_update_rejects_unexpected_payload_shape():
@@ -124,6 +168,33 @@ def test_extract_run_helpers_support_dicts_and_models():
     assert _extract_total_results(FakeRunModel()) == 4
     assert _extract_run_status({"status": "failed"}) == "failed"
     assert _extract_total_results({"resultCounts": {"total": 2}}) == 2
+
+
+def test_extract_total_results_falls_back_to_per_criteria():
+    run = {
+        "result_counts": {"total": 0},
+        "per_testing_criteria_results": [
+            {"testing_criteria": "Prohibited Actions", "passed": 3, "failed": 1},
+            {"testing_criteria": "Task Adherence", "passed": 2, "failed": 0},
+        ],
+    }
+
+    assert _extract_total_results(run) == 4
+
+
+def test_extract_total_results_falls_back_to_output_items_in_summary():
+    summary = {
+        "run": {"result_counts": {"total": 0}},
+        "output_items": [{"item_id": "a"}, {"item_id": "b"}, {"item_id": "c"}],
+    }
+
+    assert _extract_total_results(summary) == 3
+
+
+def test_extract_total_results_returns_zero_when_no_signals():
+    assert _extract_total_results({"run": {}, "output_items": []}) == 0
+    assert _extract_total_results({}) == 0
+    assert _extract_total_results(None) == 0
 
 
 def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.MonkeyPatch, tmp_path):

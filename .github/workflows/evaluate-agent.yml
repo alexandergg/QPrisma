@@ -351,7 +351,7 @@ jobs:
 
       - name: Install Red Team SDK
         run: |
-          pip install "azure-ai-projects>=2.0.1" "azure-identity>=1.25.0"
+          pip install "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
 
       - name: Run AI Red Teaming scan
         id: redteam
