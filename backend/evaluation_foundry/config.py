@@ -44,12 +44,15 @@ SAFETY_EVALUATORS: list[str] = [
     "builtin.indirect_attack",
     # Additional GA risk-and-safety evaluators that the dataset exercises:
     # `safety-protected` queries target protected_material, and
-    # ungrounded_attributes / code_vulnerability catch broader safety risks
-    # even though they are not currently prompted explicitly.  All three
-    # are GA for agent targets per Foundry docs.
+    # code_vulnerability catches broader safety risks even though it is not
+    # currently prompted explicitly.
+    #
+    # Note: builtin.ungrounded_attributes also targets agent runs, but the
+    # current safety dataset does not provide the evaluator `context` field it
+    # requires. Keep it out of the default safety batch until the dataset is
+    # redesigned with the required schema.
     "builtin.protected_material",
     "builtin.code_vulnerability",
-    "builtin.ungrounded_attributes",
 ]
 
 # Direct-attack / jailbreak scenarios are NOT a single runtime evaluator.

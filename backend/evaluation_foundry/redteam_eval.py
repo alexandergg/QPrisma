@@ -45,6 +45,20 @@ DEFAULT_RISK_CATEGORIES: list[str] = [
 ]
 
 
+def _map_enum_member(cls: Any, name: str) -> Any:
+    """Map a CLI token to an SDK enum member case-insensitively."""
+    normalized = name.strip().lower()
+    for member in cls:
+        if member.name.lower() == normalized:
+            return member
+        value = getattr(member, "value", None)
+        if isinstance(value, str) and value.lower() == normalized:
+            return member
+
+    valid = ", ".join(m.name.lower() for m in cls)
+    raise ValueError(f"Unknown {cls.__name__} '{name}'. Valid values: {valid}")
+
+
 async def run_redteam_scan(
     *,
     endpoint: str,
@@ -72,17 +86,8 @@ async def run_redteam_scan(
             "`pip install azure-ai-evaluation[redteam]`."
         ) from exc
 
-    # Map string inputs to SDK enums, failing loud on unknown values so
-    # typos in CI configuration are caught early.
-    def _map_enum(cls: Any, name: str) -> Any:
-        try:
-            return cls[name.upper()]
-        except KeyError as exc:
-            valid = ", ".join(m.name.lower() for m in cls)
-            raise ValueError(f"Unknown {cls.__name__} '{name}'. Valid values: {valid}") from exc
-
-    mapped_strategies = [_map_enum(AttackStrategy, s) for s in strategies]
-    mapped_risks = [_map_enum(RiskCategory, r) for r in risk_categories]
+    mapped_strategies = [_map_enum_member(AttackStrategy, s) for s in strategies]
+    mapped_risks = [_map_enum_member(RiskCategory, r) for r in risk_categories]
 
     # Foundry project config dict expected by the SDK
     project_config = {"azure_ai_project": endpoint}
