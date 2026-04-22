@@ -44,6 +44,9 @@ param entraAuthClientId string
 @description('Backend API scope exposed by the app registration (e.g. api://<id>/access_as_user)')
 param entraAuthApiScope string
 
+@description('Object ID of the GitHub Actions OIDC service principal used for workflow automation')
+param githubOidcPrincipalObjectId string = ''
+
 @description('API container image (leave empty to use ACR default)')
 param apiImageName string = ''
 
@@ -438,6 +441,7 @@ module workerContainerApp 'modules/container-app-worker.bicep' = {
 
 var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 var storageBlobDataContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var storageBlobDataReaderRoleId = '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
 var azureAiDeveloperRoleId = '64702f94-c441-49e6-a78b-ef80e0188fee'
 var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
 var cognitiveServicesOpenAiUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
@@ -469,6 +473,16 @@ resource workerStorageBlobContributorRole 'Microsoft.Authorization/roleAssignmen
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
     principalId: workerContainerApp.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource githubOidcStorageBlobReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(githubOidcPrincipalObjectId)) {
+  name: guid(existingStorage.id, githubOidcPrincipalObjectId, storageBlobDataReaderRoleId)
+  scope: existingStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataReaderRoleId)
+    principalId: githubOidcPrincipalObjectId
     principalType: 'ServicePrincipal'
   }
 }

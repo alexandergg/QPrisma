@@ -49,7 +49,7 @@ Use [`.github/workflows/benchmark-video-mme.yml`](../.github/workflows/benchmark
 
 1. Keep the raw HuggingFace archive under a stable Blob root such as `evaluation-dataset/data/datasets/_private/video_mme/`.
 2. Extract the `videos_chunked_*.zip` archives and upload the resulting raw `*.mp4` files under a dedicated prefix such as `evaluation-dataset/data/datasets/_private/video_mme/videos/`, preserving the upstream filenames (`<video_id>.mp4`).
-3. Upload or retain the upstream parquet/jsonl/json metadata or questions file and generate an HTTPS/SAS URL for it. For the standard HuggingFace layout this is `data/datasets/_private/video_mme/videomme/test-00000-of-00001.parquet`. The URL must resolve to the raw file bytes; browser/view URLs that return HTML or XML will now fail workflow validation.
+3. Upload or retain the upstream parquet/jsonl/json metadata or questions file and provide an HTTPS blob URL for it. For the standard HuggingFace layout this is `data/datasets/_private/video_mme/videomme/test-00000-of-00001.parquet`. The workflow now attempts an Azure-authenticated blob download first when the URL points at Azure Blob Storage, and falls back to direct HTTPS/SAS download when needed. The URL must still resolve to the raw file bytes; browser/view URLs that return HTML or XML will fail workflow validation.
 4. Do not point `source-prefix` at the archive root while it still only contains zip files; the current `full-pipeline` workflow does not unzip source archives in Azure.
 5. Configure the backend with `BENCHMARK_API_TOKEN` so `/benchmark/*` endpoints can be called by automation. The durable path is to keep the value in the GitHub Actions secret `BENCHMARK_API_TOKEN` and let `deploy-infra.yml` publish it to Key Vault and the API Container App.
 6. Add the same value to the GitHub Actions secret `BENCHMARK_API_TOKEN`. The benchmark workflow uses that secret directly, and infra deployment now uses the same secret to keep the backend configuration persistent across future infra redeploys.
@@ -58,7 +58,7 @@ Use [`.github/workflows/benchmark-video-mme.yml`](../.github/workflows/benchmark
 
 This mode automates **both** V0 and V3.5:
 
-1. Download the metadata/questions file from `questions-url`
+1. Download the metadata/questions file from `questions-url` (prefer Azure-authenticated blob download for Azure Blob URLs, fall back to direct HTTPS/SAS download otherwise)
 2. Select the smoke subset (`limit=5` by default, stratified by `duration_bucket`)
 3. Call `POST /benchmark/ingest/batch` with `{source_container, source_blob_name, benchmark_video_id}`
 4. Poll `GET /benchmark/status` until all videos are `completed`
@@ -93,7 +93,9 @@ gh workflow run benchmark-video-mme.yml \
   -f subtitle-modes=without
 ```
 
-This mode skips ingest entirely and reuses the existing SAS-driven evaluation flow.
+This mode skips ingest entirely and reuses the staged manifest/questions flow, preferring Azure-authenticated blob downloads for Azure Blob URLs and falling back to direct HTTPS/SAS downloads when needed.
+
+> **Prerequisite:** Re-run `deploy-infra.yml` after pulling this change so the GitHub Actions OIDC principal receives the storage read role needed for authenticated benchmark downloads from the QPrisma-managed storage account.
 
 ### Local fallback
 

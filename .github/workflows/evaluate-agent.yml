@@ -68,6 +68,13 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Generate evaluation data
         id: gen
         working-directory: backend
@@ -451,6 +458,13 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Validate inputs
         run: |
           if [ -z "${{ inputs.video-mme-manifest-url }}" ] || [ -z "${{ inputs.video-mme-questions-url }}" ]; then
@@ -470,7 +484,65 @@ jobs:
         run: |
           STAGE_DIR="${RUNNER_TEMP}/vmme"
           mkdir -p "$STAGE_DIR"
-          curl --fail-with-body -sSL -o "$STAGE_DIR/manifest.json" "$MANIFEST_URL"
+
+          download_with_auth_fallback() {
+            local label="$1"
+            local url="$2"
+            local dest="$3"
+            local url_path="${url%%?*}"
+            local parsed=()
+            readarray -t parsed < <(FILE_URL="$url" python - <<'PY'
+from urllib.parse import urlparse, unquote
+import os
+
+parsed = urlparse(os.environ["FILE_URL"])
+host = (parsed.hostname or "").lower()
+path = parsed.path.lstrip("/")
+account = ""
+container = ""
+blob = ""
+is_blob = False
+if host.endswith(".blob.core.windows.net") and "/" in path:
+    container, blob = path.split("/", 1)
+    container = unquote(container)
+    blob = unquote(blob)
+    account = host.split(".", 1)[0]
+    is_blob = bool(account and container and blob)
+print("azure-blob" if is_blob else "url")
+print(account)
+print(container)
+print(blob)
+PY
+            )
+            local download_method="${parsed[0]}"
+            local account_name="${parsed[1]}"
+            local container_name="${parsed[2]}"
+            local blob_name="${parsed[3]}"
+
+            if [ "$download_method" = "azure-blob" ]; then
+              echo "Attempting Azure-authenticated download for $label from $account_name/$container_name/$blob_name"
+              if az storage blob download \
+                --auth-mode login \
+                --account-name "$account_name" \
+                --container-name "$container_name" \
+                --name "$blob_name" \
+                --file "$dest" \
+                --overwrite true \
+                --output none; then
+                return 0
+              fi
+              if [ "$url" != "$url_path" ]; then
+                echo "::warning::Azure-authenticated download failed for $label; retrying with the provided URL"
+              else
+                echo "::error::Azure-authenticated download failed for $label and no SAS/query fallback is available"
+                return 1
+              fi
+            fi
+
+            curl --fail-with-body -sSL -o "$dest" "$url"
+          }
+
+          download_with_auth_fallback "Video-MME manifest" "$MANIFEST_URL" "$STAGE_DIR/manifest.json"
           # Try to preserve extension by sniffing URL path before query string
           QURL_PATH="${QUESTIONS_URL%%?*}"
           case "$QURL_PATH" in
@@ -479,7 +551,7 @@ jobs:
             *.json)    QFILE="questions.json" ;;
             *)         QFILE="questions.parquet" ;;
           esac
-          curl --fail-with-body -sSL -o "$STAGE_DIR/$QFILE" "$QUESTIONS_URL"
+          download_with_auth_fallback "Video-MME questions file" "$QUESTIONS_URL" "$STAGE_DIR/$QFILE"
           echo "STAGE_DIR=$STAGE_DIR" >> "$GITHUB_ENV"
           echo "QFILE=$QFILE" >> "$GITHUB_ENV"
           echo "Manifest size: $(wc -c <"$STAGE_DIR/manifest.json") bytes"

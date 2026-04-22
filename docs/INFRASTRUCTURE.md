@@ -437,7 +437,7 @@ GitHub Secrets
 2. **Configure GitHub Secrets** (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, DB_ADMIN_PASSWORD, NEO4J_URI, NEO4J_PASSWORD, JWT_SECRET_KEY; optionally NEO4J_USER and NEO4J_DATABASE)
 3. **Configure GitHub Variables** (ACR_NAME, ACR_LOGIN_SERVER, AZURE_RESOURCE_GROUP, AZURE_LOCATION, KEY_VAULT_NAME, ENVIRONMENT, ENTRA_SPA_CLIENT_ID, ENTRA_TENANT_ID, ENTRA_API_SCOPE)
 4. **Grant OIDC SP Graph API permissions** for Entra SPA redirect URI sync (see [below](#entra-id-spa-redirect-uri-sync))
-5. **Run `deploy-infra.yml`** manually to provision all Azure resources
+5. **Run `deploy-infra.yml`** manually to provision all Azure resources and grant the GitHub Actions OIDC service principal `Storage Blob Data Reader` on the QPrisma storage account for benchmark dataset downloads
 6. **Run `build-and-push.yml`** manually to build and push initial container images
 7. **Application auto-deploys** via `deploy-app.yml` triggered by build pipeline
 
@@ -492,6 +492,12 @@ Remove-Item "$env:TEMP\body.json" -ErrorAction SilentlyContinue
 ```
 
 **Verification:** After granting permissions, re-run the `build-and-push.yml` workflow. The "Sync Entra ID SPA redirect URI" step should succeed with `✅ SPA redirect URIs updated`.
+
+### Benchmark Blob Access
+
+`deploy-infra.yml` now resolves the GitHub Actions OIDC service principal object ID from `AZURE_CLIENT_ID` and passes it into `infra/main.bicep`. The deployment assigns **Storage Blob Data Reader** on the QPrisma storage account so the Video-MME workflows can download staged benchmark files via Azure-authenticated blob access.
+
+If you pull this change into an existing environment, run `deploy-infra.yml` once before dispatching the Video-MME workflows. The workflows still accept direct HTTPS/SAS URLs as a fallback for externally staged blobs, but QPrisma-managed benchmark blobs should no longer depend on manually generated SAS tokens.
 
 ### Ongoing Deployment
 
