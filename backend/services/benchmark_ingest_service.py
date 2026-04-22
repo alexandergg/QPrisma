@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -34,12 +35,18 @@ logger = logging.getLogger(__name__)
 
 VALID_VIDEO_EXTS = {"mp4", "avi", "mov", "mkv", "webm"}
 BENCHMARK_COPY_TIMEOUT_S = 15 * 60
+_LOG_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 _benchmark_ingest_service: BenchmarkIngestService | None = None
 
 
 def _normalize_benchmark_name(name: str) -> str:
     return name.strip().lower()
+
+
+def _sanitize_log_value(value: object, max_len: int = 200) -> str:
+    """Strip control characters and truncate user-influenced log values."""
+    return _LOG_CONTROL_CHARS_RE.sub("", str(value))[:max_len]
 
 
 def _dataset_hash(items: Sequence[BenchmarkStatusItem]) -> str:
@@ -129,8 +136,8 @@ class BenchmarkIngestService:
             if existing:
                 logger.info(
                     "Benchmark ingest deduplicated concurrent request for %s/%s",
-                    benchmark_name,
-                    request.benchmark_video_id,
+                    _sanitize_log_value(benchmark_name),
+                    _sanitize_log_value(request.benchmark_video_id),
                 )
                 return self._build_existing_response(
                     request=request,
@@ -346,7 +353,11 @@ class BenchmarkIngestService:
                 blob=blob_name,
             ).delete_blob(delete_snapshots="include")
         except AzureError:
-            logger.warning("Failed to delete duplicate benchmark blob %s", blob_name, exc_info=True)
+            logger.warning(
+                "Failed to delete duplicate benchmark blob %s",
+                _sanitize_log_value(blob_name),
+                exc_info=True,
+            )
 
 
 def get_benchmark_ingest_service() -> BenchmarkIngestService:

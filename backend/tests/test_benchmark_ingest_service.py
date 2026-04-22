@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+from azure.core.exceptions import AzureError
 from sqlalchemy.exc import IntegrityError
 
 from models.benchmark_schemas import BenchmarkIngestRequest, BenchmarkManifestRequest
@@ -121,6 +122,72 @@ async def test_ingest_video_returns_existing_row_after_concurrent_duplicate_inse
     mock_apply_async.assert_not_called()
     mock_blob.get_blob_client.return_value.delete_blob.assert_called_once_with(
         delete_snapshots="include"
+    )
+
+
+@pytest.mark.unit
+async def test_ingest_video_sanitizes_duplicate_request_log_values():
+    existing = MagicMock()
+    existing.id = "media_existing"
+    existing.blob_name = "media_existing.mp4"
+    existing.job_id = "job_existing"
+    existing.processing_status = "queued"
+    existing.benchmark_split = "short"
+
+    mock_db = MagicMock()
+    mock_db.get_media_by_benchmark_key.side_effect = [None, existing]
+    mock_db.create_media.side_effect = IntegrityError("insert", {}, Exception("duplicate"))
+    mock_blob = MagicMock()
+
+    with (
+        patch("services.benchmark_ingest_service.get_database_service", return_value=mock_db),
+        patch("services.benchmark_ingest_service.get_blob_service", return_value=mock_blob),
+        patch("services.benchmark_ingest_service.get_storage_container_name", return_value="media"),
+        patch("services.benchmark_ingest_service.logger") as mock_logger,
+    ):
+        from services.benchmark_ingest_service import BenchmarkIngestService
+
+        service = BenchmarkIngestService()
+        service._copy_source_blob = MagicMock(return_value=(1024, "video/mp4"))
+
+        await service.ingest_video(
+            BenchmarkIngestRequest(
+                benchmark_name="video\nmme",
+                benchmark_video_id="video_001\r\nbad",
+                source_container="benchmarks",
+                source_blob_name="video_001.mp4",
+                benchmark_split="short",
+            )
+        )
+
+    mock_logger.info.assert_called_once_with(
+        "Benchmark ingest deduplicated concurrent request for %s/%s",
+        "videomme",
+        "video_001bad",
+    )
+
+
+@pytest.mark.unit
+def test_delete_target_blob_sanitizes_blob_name_in_warning_log():
+    mock_db = MagicMock()
+    mock_blob = MagicMock()
+    mock_blob.get_blob_client.return_value.delete_blob.side_effect = AzureError("boom")
+
+    with (
+        patch("services.benchmark_ingest_service.get_database_service", return_value=mock_db),
+        patch("services.benchmark_ingest_service.get_blob_service", return_value=mock_blob),
+        patch("services.benchmark_ingest_service.get_storage_container_name", return_value="media"),
+        patch("services.benchmark_ingest_service.logger") as mock_logger,
+    ):
+        from services.benchmark_ingest_service import BenchmarkIngestService
+
+        service = BenchmarkIngestService()
+        service._delete_target_blob("duplicate\nblob.mp4")
+
+    mock_logger.warning.assert_called_once_with(
+        "Failed to delete duplicate benchmark blob %s",
+        "duplicateblob.mp4",
+        exc_info=True,
     )
 
 
