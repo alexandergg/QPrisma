@@ -158,7 +158,7 @@ jobs:
             *.json)    QFILE="questions.json" ;;
             *)         QFILE="questions.parquet" ;;
           esac
-          curl -sSL -o "$STAGE_DIR/$QFILE" "$QUESTIONS_URL"
+          curl --fail-with-body -sSL -o "$STAGE_DIR/$QFILE" "$QUESTIONS_URL"
           echo "QFILE=$QFILE" >> "$GITHUB_ENV"
 
       - name: Download manifest (eval-only)
@@ -166,7 +166,24 @@ jobs:
         env:
           MANIFEST_URL: ${{ inputs.manifest-url }}
         run: |
-          curl -sSL -o "$STAGE_DIR/manifest.json" "$MANIFEST_URL"
+          curl --fail-with-body -sSL -o "$STAGE_DIR/manifest.json" "$MANIFEST_URL"
+
+      - name: Validate questions metadata
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          from evaluation_foundry.benchmarks.video_mme.file_validation import validate_staged_dataset_file
+
+          path = Path(os.environ["STAGE_DIR"]) / os.environ["QFILE"]
+          inspection = validate_staged_dataset_file(path, label="Video-MME questions metadata")
+          print(
+              f"Validated {path.name}: detected={inspection.detected_format}, "
+              f"size={inspection.size_bytes} bytes"
+          )
+          PY
 
       - name: Build ingest batch (full-pipeline)
         if: ${{ inputs.mode == 'full-pipeline' }}

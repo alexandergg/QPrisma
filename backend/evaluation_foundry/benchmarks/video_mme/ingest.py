@@ -50,6 +50,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from evaluation_foundry.benchmarks.video_mme.file_validation import (
+    build_parquet_read_error,
+    validate_staged_dataset_file,
+)
+
 logger = logging.getLogger(__name__)
 
 BENCHMARK_NAME = "video_mme"
@@ -92,25 +97,35 @@ def _load_metadata(path: Path) -> list[VideoMMERecord]:
     """
     suffix = path.suffix.lower()
     if suffix == ".parquet":
+        validate_staged_dataset_file(path, label="Video-MME metadata")
         try:
+            import pyarrow as pa  # type: ignore[import-not-found]
             import pyarrow.parquet as pq  # type: ignore[import-not-found]
         except ImportError as e:  # pragma: no cover - operator environment issue
             raise RuntimeError(
                 "Reading parquet metadata requires `pyarrow`. "
                 "Install with `uv add pyarrow` or pre-convert to JSONL."
             ) from e
-        table = pq.read_table(path)
+        try:
+            table = pq.read_table(path)
+        except pa.ArrowException as e:
+            raise RuntimeError(
+                build_parquet_read_error(path, label="Video-MME metadata", detail=str(e))
+            ) from e
         rows = table.to_pylist()
     elif suffix == ".jsonl":
+        validate_staged_dataset_file(path, label="Video-MME metadata")
         rows = [
             json.loads(line)
             for line in path.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
     elif suffix == ".json":
+        validate_staged_dataset_file(path, label="Video-MME metadata")
         raw = json.loads(path.read_text(encoding="utf-8"))
         rows = raw if isinstance(raw, list) else raw.get("videos", [])
     elif suffix == ".csv":
+        validate_staged_dataset_file(path, label="Video-MME metadata")
         import csv
 
         with path.open(newline="", encoding="utf-8") as fh:
