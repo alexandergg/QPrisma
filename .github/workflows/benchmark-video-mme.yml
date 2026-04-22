@@ -1,0 +1,413 @@
+name: Benchmark Video-MME
+
+run-name: Benchmark Video-MME
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent-version:
+        description: 'Agent version override (e.g., "2"). Leave empty to auto-resolve.'
+        required: false
+        type: string
+      mode:
+        description: "Benchmark execution mode."
+        required: true
+        type: choice
+        options:
+          - full-pipeline
+          - eval-only
+        default: full-pipeline
+      api-base-url:
+        description: "QPrisma API base URL (required for full-pipeline mode)."
+        required: false
+        type: string
+      source-container:
+        description: "Blob container holding staged Video-MME mp4 files (full-pipeline mode)."
+        required: false
+        type: string
+      source-prefix:
+        description: "Optional blob prefix under source-container (full-pipeline mode)."
+        required: false
+        type: string
+        default: ""
+      questions-url:
+        description: "HTTPS/SAS URL to the Video-MME parquet/jsonl metadata/questions file."
+        required: true
+        type: string
+      manifest-url:
+        description: "HTTPS/SAS URL to manifest.json (required for eval-only mode)."
+        required: false
+        type: string
+      limit:
+        description: "Smoke/sample size. Use 0 for full set."
+        required: false
+        type: number
+        default: 5
+      subtitle-modes:
+        description: "Subtitle modes to evaluate."
+        required: false
+        type: choice
+        options:
+          - 'with without'
+          - 'with'
+          - 'without'
+        default: 'without'
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.mode }}
+  cancel-in-progress: true
+
+env:
+  AGENT_NAME: qprisma-video-agent
+  FOUNDRY_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+
+jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    environment: dev
+    outputs:
+      agent-id: ${{ steps.resolve.outputs.agent_id }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install SDK
+        run: pip install "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
+
+      - name: Resolve agent version
+        id: resolve
+        env:
+          AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          AGENT_NAME: ${{ env.AGENT_NAME }}
+        run: |
+          if [ -n "${{ inputs.agent-version }}" ]; then
+            AGENT_ID="${AGENT_NAME}:${{ inputs.agent-version }}"
+            echo "agent_id=${AGENT_ID}" >> "$GITHUB_OUTPUT"
+          else
+            python scripts/resolve_agent_version.py
+          fi
+
+  benchmark-video-mme:
+    runs-on: ubuntu-latest
+    needs: [resolve-version]
+    environment: dev
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate inputs
+        env:
+          BENCHMARK_API_TOKEN: ${{ secrets.BENCHMARK_API_TOKEN }}
+        run: |
+          if [ -z "${{ inputs.questions-url }}" ]; then
+            echo "::error::questions-url is required"
+            exit 1
+          fi
+          if [ "${{ inputs.mode }}" = "eval-only" ] && [ -z "${{ inputs.manifest-url }}" ]; then
+            echo "::error::manifest-url is required for eval-only mode"
+            exit 1
+          fi
+          if [ "${{ inputs.mode }}" = "full-pipeline" ]; then
+            if [ -z "${{ inputs.api-base-url }}" ] || [ -z "${{ inputs.source-container }}" ]; then
+              echo "::error::api-base-url and source-container are required for full-pipeline mode"
+              exit 1
+            fi
+            if [ -z "$BENCHMARK_API_TOKEN" ]; then
+              echo "::error::BENCHMARK_API_TOKEN secret is required for full-pipeline mode"
+              exit 1
+            fi
+          fi
+
+      - name: Install benchmark deps
+        working-directory: backend
+        run: |
+          pip install pandas pyarrow "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
+
+      - name: Prepare stage directory
+        run: |
+          STAGE_DIR="${RUNNER_TEMP}/vmme"
+          mkdir -p "$STAGE_DIR"
+          echo "STAGE_DIR=$STAGE_DIR" >> "$GITHUB_ENV"
+
+      - name: Download questions metadata
+        env:
+          QUESTIONS_URL: ${{ inputs.questions-url }}
+        run: |
+          QURL_PATH="${QUESTIONS_URL%%?*}"
+          case "$QURL_PATH" in
+            *.parquet) QFILE="questions.parquet" ;;
+            *.jsonl)   QFILE="questions.jsonl" ;;
+            *.json)    QFILE="questions.json" ;;
+            *)         QFILE="questions.parquet" ;;
+          esac
+          curl -sSL -o "$STAGE_DIR/$QFILE" "$QUESTIONS_URL"
+          echo "QFILE=$QFILE" >> "$GITHUB_ENV"
+
+      - name: Download manifest (eval-only)
+        if: ${{ inputs.mode == 'eval-only' }}
+        env:
+          MANIFEST_URL: ${{ inputs.manifest-url }}
+        run: |
+          curl -sSL -o "$STAGE_DIR/manifest.json" "$MANIFEST_URL"
+
+      - name: Build ingest batch (full-pipeline)
+        if: ${{ inputs.mode == 'full-pipeline' }}
+        working-directory: backend
+        env:
+          SOURCE_PREFIX: ${{ inputs.source-prefix }}
+          SOURCE_CONTAINER: ${{ inputs.source-container }}
+          VMME_LIMIT: ${{ inputs.limit }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from evaluation_foundry.benchmarks.video_mme.ingest import _load_metadata, stratified_sample
+
+          questions_path = Path(os.environ["STAGE_DIR"]) / os.environ["QFILE"]
+          limit = int(os.environ["VMME_LIMIT"])
+          sample_limit = None if limit == 0 else limit
+          source_prefix = os.environ.get("SOURCE_PREFIX", "").strip("/")
+          source_container = os.environ["SOURCE_CONTAINER"]
+
+          records = _load_metadata(questions_path)
+          sampled = stratified_sample(
+              records,
+              limit=sample_limit,
+              stratify_by="duration_bucket",
+              seed=42,
+          )
+          items = []
+          for rec in sampled:
+              blob_name = rec.filename
+              if source_prefix:
+                  blob_name = f"{source_prefix}/{blob_name}"
+              items.append(
+                  {
+                      "benchmark_name": "video_mme",
+                      "benchmark_video_id": rec.video_id,
+                      "benchmark_split": rec.duration_bucket,
+                      "source_container": source_container,
+                      "source_blob_name": blob_name,
+                      "original_filename": rec.filename,
+                      "preset": "benchmark",
+                  }
+              )
+
+          out_path = Path(os.environ["STAGE_DIR"]) / "ingest-batch.json"
+          out_path.write_text(json.dumps({"videos": items}, indent=2), encoding="utf-8")
+          print(f"Wrote {len(items)} ingest items to {out_path}")
+          PY
+
+      - name: Call benchmark ingest API (full-pipeline)
+        if: ${{ inputs.mode == 'full-pipeline' }}
+        env:
+          API_BASE_URL: ${{ inputs.api-base-url }}
+          BENCHMARK_API_TOKEN: ${{ secrets.BENCHMARK_API_TOKEN }}
+        run: |
+          curl --fail-with-body -sS \
+            -H "Content-Type: application/json" \
+            -H "X-Benchmark-Token: ${BENCHMARK_API_TOKEN}" \
+            -X POST \
+            --data @"$STAGE_DIR/ingest-batch.json" \
+            "${API_BASE_URL%/}/benchmark/ingest/batch" \
+            > "$STAGE_DIR/ingest-response.json"
+
+      - name: Poll benchmark ingest status (full-pipeline)
+        if: ${{ inputs.mode == 'full-pipeline' }}
+        env:
+          API_BASE_URL: ${{ inputs.api-base-url }}
+          BENCHMARK_API_TOKEN: ${{ secrets.BENCHMARK_API_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          stage_dir = Path(os.environ["STAGE_DIR"])
+          response = json.loads((stage_dir / "ingest-response.json").read_text(encoding="utf-8"))
+          video_ids = [item["benchmark_video_id"] for item in response["items"]]
+          params = [("benchmark_name", "video_mme")]
+          for video_id in video_ids:
+              params.append(("benchmark_video_id", video_id))
+          url = f"{os.environ['API_BASE_URL'].rstrip('/')}/benchmark/status?{urllib.parse.urlencode(params, doseq=True)}"
+          deadline = time.time() + 60 * 90
+          headers = {"X-Benchmark-Token": os.environ["BENCHMARK_API_TOKEN"]}
+
+          while time.time() < deadline:
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req) as resp:
+                  payload = json.loads(resp.read().decode("utf-8"))
+              (stage_dir / "status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+              statuses = [item["processing_status"] for item in payload["items"]]
+              if statuses and all(status == "completed" for status in statuses):
+                  print("All benchmark videos completed")
+                  break
+              if any(status in {"failed", "error"} for status in statuses):
+                  raise SystemExit(f"Benchmark ingest failed: {statuses}")
+              print(f"Waiting for benchmark ingest to complete: {statuses}")
+              time.sleep(30)
+          else:
+              raise SystemExit("Timed out waiting for benchmark ingest to complete")
+          PY
+
+      - name: Build manifest via benchmark API (full-pipeline)
+        if: ${{ inputs.mode == 'full-pipeline' }}
+        env:
+          API_BASE_URL: ${{ inputs.api-base-url }}
+          BENCHMARK_API_TOKEN: ${{ secrets.BENCHMARK_API_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          stage_dir = Path(os.environ["STAGE_DIR"])
+          status_payload = json.loads((stage_dir / "status.json").read_text(encoding="utf-8"))
+          body = json.dumps(
+              {
+                  "benchmark_name": "video_mme",
+                  "benchmark_video_ids": [
+                      item["benchmark_video_id"] for item in status_payload["items"]
+                  ],
+                  "version": "lmms-lab/Video-MME@main",
+                  "response_format": "letter_only",
+                  "agent_commit_sha": os.environ["GITHUB_SHA"],
+              }
+          ).encode("utf-8")
+          req = urllib.request.Request(
+              f"{os.environ['API_BASE_URL'].rstrip('/')}/benchmark/manifest",
+              data=body,
+              headers={
+                  "Content-Type": "application/json",
+                  "X-Benchmark-Token": os.environ["BENCHMARK_API_TOKEN"],
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req) as resp:
+              payload = json.loads(resp.read().decode("utf-8"))
+          (stage_dir / "manifest.json").write_text(
+              json.dumps(payload["manifest"], indent=2),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload manifest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-mme-manifest
+          path: ${{ runner.temp }}/vmme/manifest.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Emit Foundry JSONL
+        working-directory: backend
+        run: |
+          MODES="${{ inputs.subtitle-modes }}"
+          python -m evaluation_foundry.benchmarks.video_mme.emit_foundry_data \
+            --manifest "$STAGE_DIR/manifest.json" \
+            --questions "$STAGE_DIR/$QFILE" \
+            --subtitle-modes $MODES \
+            --limit ${{ inputs.limit }} \
+            --out "$STAGE_DIR/video-mme-eval.jsonl"
+          echo "Emitted $(wc -l <"$STAGE_DIR/video-mme-eval.jsonl") rows"
+
+      - name: Register Video-MME custom evaluator
+        working-directory: backend
+        env:
+          AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+        run: |
+          python -m evaluation_foundry.register_evaluators || echo "::warning::evaluator registration returned non-zero (may already exist)"
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup long-lived OIDC token refresh
+        run: |
+          TOKEN_FILE="${RUNNER_TEMP}/oidc-token"
+          curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
+            | jq -r '.value' > "$TOKEN_FILE"
+          (
+            while true; do
+              sleep 240
+              curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
+                | jq -r '.value' > "${TOKEN_FILE}.tmp" 2>/dev/null \
+                && mv "${TOKEN_FILE}.tmp" "$TOKEN_FILE"
+            done
+          ) &
+          echo "TOKEN_REFRESH_PID=$!" >> "$GITHUB_ENV"
+          echo "AZURE_FEDERATED_TOKEN_FILE=$TOKEN_FILE" >> "$GITHUB_ENV"
+          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> "$GITHUB_ENV"
+          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
+
+      - name: Run Video-MME evaluation
+        id: eval-vmme
+        continue-on-error: true
+        uses: microsoft/ai-agent-evals@22a09a8f9dbc407e3a5429db9635111fb669f463
+        with:
+          azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
+          data-path: ${{ runner.temp }}/vmme/video-mme-eval.jsonl
+          deployment-name: gpt-4o
+
+      - name: Cleanup token refresh
+        if: always()
+        run: kill "$TOKEN_REFRESH_PID" 2>/dev/null || true
+
+      - name: Upload Video-MME inputs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-mme-inputs
+          path: ${{ runner.temp }}/vmme/video-mme-eval.jsonl
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Video-MME regression check (advisory)
+        if: steps.eval-vmme.outcome == 'success'
+        continue-on-error: true
+        working-directory: backend
+        run: |
+          mkdir -p ../docs/benchmarks
+          python -m evaluation_foundry.scripts.check_vmme_regression \
+            --results-dir "${{ runner.temp }}" \
+            --history ../docs/benchmarks/vmme_history.json \
+            --window 7 --threshold 0.03 \
+            --append --sha "${{ github.sha }}"
+
+      - name: Report evaluation outcome
+        if: steps.eval-vmme.outcome == 'failure'
+        run: |
+          echo "::warning::Video-MME evaluation action failed. Results may still be available in the Azure AI Foundry portal."
+          echo "Check: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations"
+          exit 1

@@ -11,7 +11,18 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -59,6 +70,14 @@ class MediaModel(Base):
     """Media metadata table (videos, images)."""
 
     __tablename__ = "media"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "benchmark_name",
+            "benchmark_video_id",
+            name="uq_media_benchmark_key",
+        ),
+    )
 
     id = Column(String(64), primary_key=True, default=generate_uuid)
     user_id = Column(String(64), ForeignKey("users.id"), nullable=False, index=True)
@@ -83,6 +102,11 @@ class MediaModel(Base):
 
     # Chunked upload session (for resumability)
     upload_session = Column(JSON, nullable=True)
+
+    # Benchmark provenance (Video-MME, VideoRAG, etc.). NULL for normal user uploads.
+    benchmark_name = Column(String(64), nullable=True, index=True)
+    benchmark_video_id = Column(String(128), nullable=True, index=True)
+    benchmark_split = Column(String(32), nullable=True)
 
     # Pipeline configuration
     optimized_pipeline = Column(Boolean, default=False)
@@ -144,6 +168,9 @@ class MediaModel(Base):
             ),
             "storage_tier": self.storage_tier,
             "rehydration_status": self.rehydration_status,
+            "benchmark_name": self.benchmark_name,
+            "benchmark_video_id": self.benchmark_video_id,
+            "benchmark_split": self.benchmark_split,
         }
 
 

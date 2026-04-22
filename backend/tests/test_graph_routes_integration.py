@@ -237,7 +237,7 @@ class TestHybridSearch:
         assert resp.status_code in (401, 403)
 
     def test_happy_path(self, authenticated_client):
-        with (patch(f"{_P}.get_graph_search_service", return_value=_graph_search_service()),):
+        with patch(f"{_P}.get_graph_search_service", return_value=_graph_search_service()):
             resp = authenticated_client.post("/graph/search/hybrid", json=self._payload)
         assert resp.status_code == 200
         assert resp.json()["total_results"] == 0

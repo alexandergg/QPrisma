@@ -31,6 +31,10 @@ param neo4jPassword string
 @secure()
 param jwtSecretKey string = ''
 
+@description('Shared secret used by benchmark workflow automation to call /benchmark/* endpoints')
+@secure()
+param benchmarkApiToken string
+
 @description('Microsoft Entra ID tenant ID for backend token validation')
 param entraAuthTenantId string
 
@@ -277,6 +281,17 @@ resource redisUrlSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   ]
 }
 
+resource benchmarkApiTokenSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+  parent: keyVaultResource
+  name: 'benchmark-api-token'
+  properties: {
+    value: benchmarkApiToken
+  }
+  dependsOn: [
+    keyVault
+  ]
+}
+
 var appSecrets = [
   {
     name: 'neo4j-password'
@@ -296,6 +311,14 @@ var appSecrets = [
   {
     name: 'redis-url'
     keyVaultUrl: '${keyVault.outputs.uri}secrets/redis-url'
+    identity: runtimeIdentity.id
+  }
+]
+
+var benchmarkApiSecrets = [
+  {
+    name: 'benchmark-api-token'
+    keyVaultUrl: '${keyVault.outputs.uri}secrets/benchmark-api-token'
     identity: runtimeIdentity.id
   }
 ]
@@ -345,13 +368,17 @@ var appSecretEnvVars = [
   { name: 'JWT_SECRET_KEY', secretRef: 'jwt-secret-key' }
 ]
 
+var benchmarkApiSecretEnvVars = [
+  { name: 'BENCHMARK_API_TOKEN', secretRef: 'benchmark-api-token' }
+]
+
 // =====================================================================
 // Container Apps
 // =====================================================================
 
 module apiContainerApp 'modules/container-app-api.bicep' = {
   name: 'api-deployment'
-  dependsOn: [neo4jPasswordSecret, jwtSecretKeySecret, databaseUrlSecret, redisUrlSecret, runtimeAcrPullRole]
+  dependsOn: [neo4jPasswordSecret, jwtSecretKeySecret, databaseUrlSecret, redisUrlSecret, benchmarkApiTokenSecret, runtimeAcrPullRole]
   params: {
     name: apiContainerAppName
     location: location
@@ -361,8 +388,8 @@ module apiContainerApp 'modules/container-app-api.bicep' = {
     runtimeIdentityResourceId: runtimeIdentity.id
     enableProbes: !apiIsPlaceholder
     envVars: appEnvVars
-    secrets: appSecrets
-    secretEnvVars: appSecretEnvVars
+    secrets: concat(appSecrets, benchmarkApiSecrets)
+    secretEnvVars: concat(appSecretEnvVars, benchmarkApiSecretEnvVars)
     tags: tags
   }
 }

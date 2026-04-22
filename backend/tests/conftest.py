@@ -98,7 +98,20 @@ def app(reset_settings):
 
     Resets all singleton services to prevent test pollution.
     """
+    import starlette.routing as starlette_routing
+
     import api.dependencies as deps
+
+    original_router_init = starlette_routing.Router.__init__
+
+    def patched_router_init(self, *args, **kwargs):
+        on_startup = kwargs.pop("on_startup", None) or []
+        on_shutdown = kwargs.pop("on_shutdown", None) or []
+        self.on_startup = list(on_startup)
+        self.on_shutdown = list(on_shutdown)
+        return original_router_init(self, *args, **kwargs)
+
+    starlette_routing.Router.__init__ = patched_router_init
 
     # Reset singletons
     deps._blob_service = None
@@ -110,6 +123,10 @@ def app(reset_settings):
     deps._video_decoder = None
     deps._graph_search_service = None
 
+    import services.benchmark_ingest_service as _bis
+
+    _bis._benchmark_ingest_service = None
+
     # Reset async graph facade singleton to prevent real Neo4j connections
     import services.async_graph_facade as _agf
 
@@ -117,10 +134,11 @@ def app(reset_settings):
 
     from api.main import app as fastapi_app
 
-    yield fastapi_app
-
-    # Cleanup overrides
-    fastapi_app.dependency_overrides.clear()
+    try:
+        yield fastapi_app
+    finally:
+        fastapi_app.dependency_overrides.clear()
+        starlette_routing.Router.__init__ = original_router_init
 
 
 @pytest.fixture

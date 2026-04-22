@@ -222,9 +222,9 @@ class TestBuildSearchCacheKey:
         for param, value in mutations.items():
             mutated = {**self._base_params, param: value}
             mutated_key = self._build(**mutated)
-            assert mutated_key != base_key, (
-                f"Changing '{param}' to {value!r} did not produce a different key"
-            )
+            assert (
+                mutated_key != base_key
+            ), f"Changing '{param}' to {value!r} did not produce a different key"
 
     def test_key_is_hex_string_of_expected_length(self):
         """Key should be a 32-char hex substring of a SHA256 hash."""
@@ -281,9 +281,7 @@ class TestHybridSearchCacheBehavior:
         cache.get_search_result = AsyncMock(return_value=None)
 
         mock_embedding_svc = AsyncMock()
-        mock_embedding_svc.generate_embedding = AsyncMock(
-            return_value=[0.1] * 3072
-        )
+        mock_embedding_svc.generate_embedding = AsyncMock(return_value=[0.1] * 3072)
 
         mock_graph_svc = MagicMock()
         mock_graph_svc.get_session = MagicMock()
@@ -330,9 +328,7 @@ class TestHybridSearchCacheBehavior:
     async def test_cache_unavailable_degrades_gracefully(self):
         """When get_cache_service raises, search still works."""
         mock_embedding_svc = AsyncMock()
-        mock_embedding_svc.generate_embedding = AsyncMock(
-            return_value=[0.1] * 3072
-        )
+        mock_embedding_svc.generate_embedding = AsyncMock(return_value=[0.1] * 3072)
 
         mock_graph_svc = MagicMock()
 
@@ -377,9 +373,7 @@ class TestHybridSearchCacheBehavior:
         cache.set_search_result = AsyncMock(side_effect=RuntimeError("write error"))
 
         mock_embedding_svc = AsyncMock()
-        mock_embedding_svc.generate_embedding = AsyncMock(
-            return_value=[0.1] * 3072
-        )
+        mock_embedding_svc.generate_embedding = AsyncMock(return_value=[0.1] * 3072)
 
         with (
             patch(
@@ -736,9 +730,7 @@ class TestCacheInvalidation:
         assert resp.status_code == 200
         cache.invalidate_video.assert_called_once_with("vid-1")
 
-    def test_embeddings_generate_calls_invalidate_with_video_id(
-        self, authenticated_client
-    ):
+    def test_embeddings_generate_calls_invalidate_with_video_id(self, authenticated_client):
         """POST /embeddings/generate with video_id must invalidate cache."""
         cache = _mock_cache()
 
@@ -755,9 +747,7 @@ class TestCacheInvalidation:
         assert resp.status_code == 200
         cache.invalidate_video.assert_called_once_with("vid-1")
 
-    def test_embeddings_generate_skips_invalidation_without_video_id(
-        self, app, superuser
-    ):
+    def test_embeddings_generate_skips_invalidation_without_video_id(self, app, superuser):
         """POST /embeddings/generate WITHOUT video_id must NOT call invalidate."""
         from api.dependencies import get_current_user
 
@@ -793,9 +783,7 @@ class TestCacheInvalidation:
         assert resp.status_code == 200
         assert resp.json()["status"] == "success"
 
-    def test_invalidation_failure_does_not_break_hierarchy_process(
-        self, authenticated_client
-    ):
+    def test_invalidation_failure_does_not_break_hierarchy_process(self, authenticated_client):
         """If invalidate_video raises during hierarchy process, response is still OK."""
         cache = _mock_cache()
         cache.invalidate_video = AsyncMock(side_effect=RuntimeError("Redis gone"))

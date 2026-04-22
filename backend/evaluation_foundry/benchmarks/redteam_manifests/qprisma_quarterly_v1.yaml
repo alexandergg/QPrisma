@@ -1,0 +1,56 @@
+# QPrisma quarterly red-team benchmark manifest (E3)
+#
+# Mirrors the CLI flags in `backend/evaluation_foundry/redteam_eval.py`. This file
+# is the source of truth for the quarterly safety-regression benchmark and is
+# referenced from `docs/EVALUATION_GUIDE.md`. To run, translate each field below
+# into the matching `--flag` on `redteam_eval.py`.
+#
+# Versioning policy: bump the filename suffix (`_v2`, `_v3`, …) when changing
+# strategies / risk categories / num_turns. Never edit a published version
+# in-place — historical comparability depends on stable manifests.
+
+manifest_version: 1
+name: qprisma_quarterly_v1
+description: >-
+  Quarterly safety regression benchmark for the deployed qprisma-video-agent.
+  Runs the cloud Foundry red-team scan with a fixed strategy + risk-category
+  set so that quarter-over-quarter attack-success-rate is comparable.
+license: internal
+benchmark_kind: redteam
+cadence: quarterly
+
+# Foundry agent under test. Resolved at run-time from CI env if left null.
+agent:
+  name: qprisma-video-agent
+  version: null  # null → "latest"; pin a version for the published quarterly run.
+
+# Foundry project endpoint + judge model. Pinned for reproducibility.
+endpoint: ${AZURE_AI_PROJECT_ENDPOINT}
+model_deployment: gpt-4o
+
+# Attack surface — keep stable across quarters.
+strategies:
+  - base64
+  - flip
+  - indirect_jailbreak
+
+risk_categories:
+  - prohibited_actions  # cloud Foundry red-team currently supports this category only
+
+# Run shape.
+num_turns: 5
+poll_interval_seconds: 10
+timeout_seconds: 3600
+
+# Output. The CI job uploads this artifact and posts the summary back to the PR.
+output_path: redteam-results.json
+scan_name: qprisma-quarterly-redteam
+
+# Provenance — recorded into the run log alongside the manifest hash so two
+# quarterly runs can be compared without ambiguity.
+provenance:
+  manifest_path: backend/evaluation_foundry/benchmarks/redteam_manifests/qprisma_quarterly_v1.yaml
+  notes: >-
+    Stable across QPrisma releases. If a new attack strategy needs to be added,
+    create `qprisma_quarterly_v2.yaml` and run both for one quarter to baseline
+    the new metric before retiring v1.

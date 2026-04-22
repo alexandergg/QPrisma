@@ -14,6 +14,33 @@ on:
         required: false
         type: boolean
         default: false
+      run-video-mme:
+        description: 'Run Video-MME benchmark evaluation (requires manifest + questions staged in Blob Storage).'
+        required: false
+        type: boolean
+        default: false
+      video-mme-manifest-url:
+        description: 'HTTPS/SAS URL to download the Video-MME manifest.json (produced by ingest.py). Required when run-video-mme=true.'
+        required: false
+        type: string
+      video-mme-questions-url:
+        description: 'HTTPS/SAS URL to download the Video-MME questions parquet/jsonl. Required when run-video-mme=true.'
+        required: false
+        type: string
+      video-mme-limit:
+        description: 'Cap rows for the Video-MME run (0 = full set, stratified by duration_bucket).'
+        required: false
+        type: number
+        default: 50
+      video-mme-subtitle-modes:
+        description: 'Subtitle modes to evaluate.'
+        required: false
+        type: choice
+        options:
+          - 'with without'
+          - 'with'
+          - 'without'
+        default: 'with without'
 
 permissions:
   id-token: write
@@ -48,6 +75,15 @@ jobs:
           EVAL_MEDIA_ID_1: ${{ vars.EVAL_MEDIA_ID_1 }}
           EVAL_MEDIA_ID_2: ${{ vars.EVAL_MEDIA_ID_2 }}
           EVAL_USER_ID: ${{ secrets.EVAL_USER_ID }}
+          # F2: reproducibility metadata captured into run-metadata.json
+          AGENT_NAME: ${{ env.AGENT_NAME }}
+          AGENT_VERSION_OVERRIDE: ${{ inputs.agent-version }}
+          EVAL_JUDGE_MODEL: ${{ vars.EVAL_JUDGE_MODEL || 'gpt-4o' }}
+          EVAL_JUDGE_TEMPERATURE: ${{ vars.EVAL_JUDGE_TEMPERATURE || '0.0' }}
+          EVAL_JUDGE_N_RUNS: ${{ vars.EVAL_JUDGE_N_RUNS || '1' }}
+          EVAL_FRAME_SAMPLING_FPS: ${{ vars.EVAL_FRAME_SAMPLING_FPS }}
+          EVAL_MAX_FRAMES: ${{ vars.EVAL_MAX_FRAMES }}
+          EVAL_SUBTITLE_MODE: ${{ vars.EVAL_SUBTITLE_MODE }}
         run: |
           python -m evaluation_foundry.generate_eval_data \
             --output-dir "${{ runner.temp }}/eval-data"
@@ -152,7 +188,8 @@ jobs:
       - name: Run quality evaluation
         id: eval-quality
         continue-on-error: true
-        uses: microsoft/ai-agent-evals@v3-beta
+        # Pinned to v3-beta @ 22a09a8f9dbc407e3a5429db9635111fb669f463 for benchmark reproducibility (F1)
+        uses: microsoft/ai-agent-evals@22a09a8f9dbc407e3a5429db9635111fb669f463
         with:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
@@ -217,7 +254,8 @@ jobs:
       - name: Run agent evaluation
         id: eval-agent
         continue-on-error: true
-        uses: microsoft/ai-agent-evals@v3-beta
+        # Pinned to v3-beta @ 22a09a8f9dbc407e3a5429db9635111fb669f463 for benchmark reproducibility (F1)
+        uses: microsoft/ai-agent-evals@22a09a8f9dbc407e3a5429db9635111fb669f463
         with:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
@@ -282,7 +320,8 @@ jobs:
       - name: Run safety evaluation
         id: eval-safety
         continue-on-error: true
-        uses: microsoft/ai-agent-evals@v3-beta
+        # Pinned to v3-beta @ 22a09a8f9dbc407e3a5429db9635111fb669f463 for benchmark reproducibility (F1)
+        uses: microsoft/ai-agent-evals@22a09a8f9dbc407e3a5429db9635111fb669f463
         with:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
@@ -388,5 +427,155 @@ jobs:
         if: steps.redteam.outcome == 'failure'
         run: |
           echo "::warning::Red Team scan failed. Partial results (if any) were uploaded as an artifact."
+          echo "Check: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations"
+          exit 1
+
+  # ------------------------------------------------------------------
+  # Job 7: Video-MME benchmark evaluation (industry MCQ benchmark)
+  # ------------------------------------------------------------------
+  # Only runs when `run-video-mme=true` is dispatched. Operator must
+  # stage the manifest.json (produced by `ingest.py`) and the Video-MME
+  # questions parquet to a Blob Storage container and pass SAS URLs.
+  # See: docs/EVALUATION_GUIDE.md
+  evaluate-video-mme:
+    runs-on: ubuntu-latest
+    needs: [resolve-version]
+    environment: dev
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.run-video-mme == true
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate inputs
+        run: |
+          if [ -z "${{ inputs.video-mme-manifest-url }}" ] || [ -z "${{ inputs.video-mme-questions-url }}" ]; then
+            echo "::error::run-video-mme=true requires video-mme-manifest-url and video-mme-questions-url"
+            exit 1
+          fi
+
+      - name: Install Video-MME emitter deps
+        working-directory: backend
+        run: |
+          pip install pandas pyarrow
+
+      - name: Download manifest + questions
+        env:
+          MANIFEST_URL: ${{ inputs.video-mme-manifest-url }}
+          QUESTIONS_URL: ${{ inputs.video-mme-questions-url }}
+        run: |
+          STAGE_DIR="${RUNNER_TEMP}/vmme"
+          mkdir -p "$STAGE_DIR"
+          curl -sSL -o "$STAGE_DIR/manifest.json" "$MANIFEST_URL"
+          # Try to preserve extension by sniffing URL path before query string
+          QURL_PATH="${QUESTIONS_URL%%?*}"
+          case "$QURL_PATH" in
+            *.parquet) QFILE="questions.parquet" ;;
+            *.jsonl)   QFILE="questions.jsonl" ;;
+            *.json)    QFILE="questions.json" ;;
+            *)         QFILE="questions.parquet" ;;
+          esac
+          curl -sSL -o "$STAGE_DIR/$QFILE" "$QUESTIONS_URL"
+          echo "STAGE_DIR=$STAGE_DIR" >> "$GITHUB_ENV"
+          echo "QFILE=$QFILE" >> "$GITHUB_ENV"
+          echo "Manifest size: $(wc -c <"$STAGE_DIR/manifest.json") bytes"
+          echo "Questions size: $(wc -c <"$STAGE_DIR/$QFILE") bytes"
+
+      - name: Emit Foundry JSONL
+        working-directory: backend
+        run: |
+          # Convert "with without" -> "with without" tokens for argparse nargs
+          MODES="${{ inputs.video-mme-subtitle-modes }}"
+          python -m evaluation_foundry.benchmarks.video_mme.emit_foundry_data \
+            --manifest "$STAGE_DIR/manifest.json" \
+            --questions "$STAGE_DIR/$QFILE" \
+            --subtitle-modes $MODES \
+            --limit ${{ inputs.video-mme-limit }} \
+            --out "$STAGE_DIR/video-mme-eval.jsonl"
+          echo "Emitted $(wc -l <"$STAGE_DIR/video-mme-eval.jsonl") rows"
+
+      - name: Register Video-MME custom evaluator
+        working-directory: backend
+        env:
+          AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+        run: |
+          pip install "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
+          python -m evaluation_foundry.register_evaluators || echo "::warning::evaluator registration returned non-zero (may already exist)"
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup long-lived OIDC token refresh
+        run: |
+          TOKEN_FILE="${RUNNER_TEMP}/oidc-token"
+          curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
+            | jq -r '.value' > "$TOKEN_FILE"
+          (
+            while true; do
+              sleep 240
+              curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=api://AzureADTokenExchange" \
+                | jq -r '.value' > "${TOKEN_FILE}.tmp" 2>/dev/null \
+                && mv "${TOKEN_FILE}.tmp" "$TOKEN_FILE"
+            done
+          ) &
+          echo "TOKEN_REFRESH_PID=$!" >> "$GITHUB_ENV"
+          echo "AZURE_FEDERATED_TOKEN_FILE=$TOKEN_FILE" >> "$GITHUB_ENV"
+          echo "AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> "$GITHUB_ENV"
+          echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
+
+      - name: Run Video-MME evaluation
+        id: eval-vmme
+        continue-on-error: true
+        # Pinned to v3-beta @ 22a09a8f9dbc407e3a5429db9635111fb669f463 for benchmark reproducibility (F1)
+        uses: microsoft/ai-agent-evals@22a09a8f9dbc407e3a5429db9635111fb669f463
+        with:
+          azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
+          data-path: ${{ runner.temp }}/vmme/video-mme-eval.jsonl
+          deployment-name: gpt-4o
+
+      - name: Cleanup token refresh
+        if: always()
+        run: kill "$TOKEN_REFRESH_PID" 2>/dev/null || true
+
+      - name: Upload Video-MME inputs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-mme-inputs
+          path: ${{ runner.temp }}/vmme/video-mme-eval.jsonl
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Video-MME regression check (advisory)
+        # V5: best-effort regression alert on accuracy_long. Always advisory
+        # (exit 0 unless --strict). The script discovers the action's result
+        # file under runner.temp; if no parseable result is found it writes
+        # an info row to the step summary and returns cleanly.
+        if: steps.eval-vmme.outcome == 'success'
+        continue-on-error: true
+        working-directory: backend
+        run: |
+          mkdir -p ../docs/benchmarks
+          python -m evaluation_foundry.scripts.check_vmme_regression \
+            --results-dir "${{ runner.temp }}" \
+            --history ../docs/benchmarks/vmme_history.json \
+            --window 7 --threshold 0.03 \
+            --append --sha "${{ github.sha }}"
+
+      - name: Report evaluation outcome
+        if: steps.eval-vmme.outcome == 'failure'
+        run: |
+          echo "::warning::Video-MME evaluation action failed. Results may still be available in the Azure AI Foundry portal."
           echo "Check: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations"
           exit 1
