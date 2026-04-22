@@ -62,3 +62,62 @@ def test_parquet_loaders_wrap_corrupt_parquet_errors(tmp_path, loader) -> None:
 
     with pytest.raises(RuntimeError, match="raw parquet bytes"):
         loader(path)
+
+
+def _write_metadata_json(tmp_path, rows):
+    path = tmp_path / "metadata.json"
+    path.write_text(json.dumps(rows), encoding="utf-8")
+    return path
+
+
+def test_load_metadata_uses_youtube_id_for_filename(tmp_path) -> None:
+    path = _write_metadata_json(
+        tmp_path,
+        [
+            {
+                "video_id": "838",
+                "videoID": "fFjv93ACGo8",
+                "duration": "short",
+            }
+        ],
+    )
+
+    records = _load_metadata(path)
+
+    assert len(records) == 1
+    assert records[0].video_id == "838"
+    assert records[0].filename == "fFjv93ACGo8.mp4"
+
+
+def test_load_metadata_explicit_filename_wins_over_youtube_id(tmp_path) -> None:
+    path = _write_metadata_json(
+        tmp_path,
+        [
+            {
+                "video_id": "001",
+                "videoID": "fFjv93ACGo8",
+                "filename": "custom-name.mp4",
+                "duration": "short",
+            }
+        ],
+    )
+
+    records = _load_metadata(path)
+
+    assert records[0].filename == "custom-name.mp4"
+
+
+def test_load_metadata_falls_back_to_video_id_when_no_youtube_id(tmp_path) -> None:
+    path = _write_metadata_json(
+        tmp_path,
+        [
+            {
+                "video_id": "042",
+                "duration": "medium",
+            }
+        ],
+    )
+
+    records = _load_metadata(path)
+
+    assert records[0].filename == "042.mp4"
