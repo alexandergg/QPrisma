@@ -365,6 +365,8 @@ jobs:
       - name: Validate sampled source blobs (full-pipeline)
         if: ${{ inputs.mode == 'full-pipeline' }}
         env:
+          VMME_LIMIT: ${{ inputs.limit }}
+          PREFLIGHT_VALIDATION_SAMPLE_SIZE: 25
           QUESTIONS_URL: ${{ inputs.questions-url }}
           SOURCE_CONTAINER: ${{ inputs.source-container }}
           SOURCE_STORAGE_ACCOUNT: ${{ inputs.source-storage-account }}
@@ -393,9 +395,26 @@ jobs:
 
           stage_dir = Path(os.environ["STAGE_DIR"])
           payload = json.loads((stage_dir / "ingest-batch.json").read_text(encoding="utf-8"))
-          blob_names = [item["source_blob_name"] for item in payload["videos"]]
+          requested_limit = int(os.environ["VMME_LIMIT"])
+          validation_cap = int(os.environ["PREFLIGHT_VALIDATION_SAMPLE_SIZE"])
+          unique_blob_names = list(
+              dict.fromkeys(
+                  item["source_blob_name"]
+                  for item in payload["videos"]
+                  if item.get("source_blob_name")
+              )
+          )
+          blob_names = unique_blob_names
+          if requested_limit == 0 and len(unique_blob_names) > validation_cap:
+              blob_names = unique_blob_names[:validation_cap]
+              print(
+                  f"Prepared {len(blob_names)} of {len(unique_blob_names)} unique source blobs "
+                  "for preflight validation during full-set ingest."
+              )
+          else:
+              print(f"Prepared {len(blob_names)} unique source blobs for preflight validation.")
           (stage_dir / "sampled-source-blobs.txt").write_text(
-              "\n".join(blob_names),
+              ("\n".join(blob_names) + "\n") if blob_names else "",
               encoding="utf-8",
           )
           PY
