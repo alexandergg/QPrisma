@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from azure.core.exceptions import AzureError
@@ -126,7 +126,7 @@ async def test_ingest_video_returns_existing_row_after_concurrent_duplicate_inse
 
 
 @pytest.mark.unit
-async def test_ingest_video_sanitizes_duplicate_request_log_values():
+async def test_ingest_video_avoids_logging_user_values_for_duplicate_requests():
     existing = MagicMock()
     existing.id = "media_existing"
     existing.blob_name = "media_existing.mp4"
@@ -161,14 +161,13 @@ async def test_ingest_video_sanitizes_duplicate_request_log_values():
         )
 
     mock_logger.info.assert_called_once_with(
-        "Benchmark ingest deduplicated concurrent request for %s/%s",
-        "videomme",
-        "video_001bad",
+        "Benchmark ingest deduplicated concurrent request while creating media_id %s",
+        ANY,
     )
 
 
 @pytest.mark.unit
-def test_delete_target_blob_sanitizes_blob_name_in_warning_log():
+def test_delete_target_blob_omits_blob_name_from_warning_log():
     mock_db = MagicMock()
     mock_blob = MagicMock()
     mock_blob.get_blob_client.return_value.delete_blob.side_effect = AzureError("boom")
@@ -185,8 +184,7 @@ def test_delete_target_blob_sanitizes_blob_name_in_warning_log():
         service._delete_target_blob("duplicate\nblob.mp4")
 
     mock_logger.warning.assert_called_once_with(
-        "Failed to delete duplicate benchmark blob %s",
-        "duplicateblob.mp4",
+        "Failed to delete duplicate benchmark blob during dedup cleanup",
         exc_info=True,
     )
 

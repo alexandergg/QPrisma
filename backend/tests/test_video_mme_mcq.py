@@ -59,7 +59,9 @@ def test_code_text_runs_in_isolation() -> None:
     """The ``code_text`` blob registered with Foundry must be self-contained."""
     code_text = video_mme_mcq.CODE_DEFINITION_KWARGS["code_text"]
     namespace: dict[str, object] = {}
-    exec(code_text, namespace)  # noqa: S102 — executing our own trusted code blob registered with Foundry
+    exec(  # noqa: S102 - executing trusted evaluator code definition for isolation testing
+        code_text, namespace
+    )
     evaluate = namespace["evaluate"]
     assert evaluate(response="Answer: B", ground_truth="B") == {"accuracy": 1.0}
     assert evaluate(response="A", ground_truth="B") == {"accuracy": 0.0}

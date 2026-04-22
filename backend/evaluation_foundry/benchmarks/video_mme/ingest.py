@@ -168,7 +168,7 @@ def stratified_sample(
     if limit is None or limit >= len(records):
         return list(records)
 
-    rng = random.Random(seed)  # noqa: S311 — deterministic stratified sampling for benchmark reproducibility, not crypto
+    rng = random.Random(seed)  # noqa: S311 - deterministic benchmark sampling, not crypto
     if not stratify_by:
         sample = list(records)
         rng.shuffle(sample)

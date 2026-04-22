@@ -49,8 +49,13 @@ def create_test_video(output_path: str = "test_video.mp4", duration: int = 5, fp
     ]
 
     try:
-        # Ejecutar FFmpeg
-        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, check=True)
+        # Ejecutar FFmpeg con un comando construido por este helper de prueba.
+        result = subprocess.run(  # noqa: S603
+            ffmpeg_cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
 
         # Verificar que el archivo se creó
         if os.path.exists(output_path):
