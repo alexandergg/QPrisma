@@ -64,6 +64,7 @@ jobs:
               neo4jUser='${{ secrets.NEO4J_USER || 'neo4j' }}' \
               neo4jDatabase='${{ secrets.NEO4J_DATABASE || 'neo4j' }}' \
               jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}' \
+              benchmarkApiToken='${{ secrets.BENCHMARK_API_TOKEN }}' \
               entraAuthTenantId='${{ vars.ENTRA_TENANT_ID }}' \
               entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
               entraAuthApiScope='${{ vars.ENTRA_API_SCOPE }}'
@@ -81,6 +82,7 @@ jobs:
               neo4jUser='${{ secrets.NEO4J_USER || 'neo4j' }}' \
               neo4jDatabase='${{ secrets.NEO4J_DATABASE || 'neo4j' }}' \
               jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}' \
+              benchmarkApiToken='${{ secrets.BENCHMARK_API_TOKEN }}' \
               entraAuthTenantId='${{ vars.ENTRA_TENANT_ID }}' \
               entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
               entraAuthApiScope='${{ vars.ENTRA_API_SCOPE }}'
@@ -125,6 +127,7 @@ jobs:
                 neo4jUser='${{ secrets.NEO4J_USER || 'neo4j' }}' \
                 neo4jDatabase='${{ secrets.NEO4J_DATABASE || 'neo4j' }}' \
                 jwtSecretKey='${{ secrets.JWT_SECRET_KEY }}' \
+                benchmarkApiToken='${{ secrets.BENCHMARK_API_TOKEN }}' \
                 entraAuthTenantId='${{ vars.ENTRA_TENANT_ID }}' \
                 entraAuthClientId='${{ vars.ENTRA_CLIENT_ID }}' \
                 entraAuthApiScope='${{ vars.ENTRA_API_SCOPE }}'
