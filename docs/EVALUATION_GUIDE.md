@@ -24,16 +24,93 @@ Before running the evaluation flow, QPrisma needs:
 - `FOUNDRY_PROJECT_ENDPOINT` configured in repository variables
 - Evaluation media IDs and an evaluation user identity (`EVAL_MEDIA_ID_1`, `EVAL_MEDIA_ID_2`, `EVAL_USER_ID`)
 - Azure OIDC access from GitHub Actions for the evaluation workflow
+- For Blob-first Video-MME automation: the raw Video-MME mp4 files staged in an Azure Blob container, plus a `BENCHMARK_API_TOKEN` configured in the backend environment and in GitHub Actions secrets
 
 ## End-to-end workflow
 
-The evaluation workflow lives in [`.github/workflows/evaluate-agent.yml`](../.github/workflows/evaluate-agent.yml) and currently runs as a manual `workflow_dispatch`.
+QPrisma now has two manual evaluation workflows:
 
-1. **Generate evaluation data**: `backend/evaluation_foundry/generate_eval_data.py` produces quality, agent, and safety datasets from environment-backed media and user context.
+- [`.github/workflows/evaluate-agent.yml`](../.github/workflows/evaluate-agent.yml) for the existing quality / agent / safety / red-team lanes and the original SAS-driven Video-MME eval path
+- [`.github/workflows/benchmark-video-mme.yml`](../.github/workflows/benchmark-video-mme.yml) for the dedicated Video-MME automation path (`full-pipeline` or `eval-only`)
+
+1. **Generate evaluation data**: `backend/evaluation_foundry/generate_eval_data.py` produces quality, agent, and safety datasets from environment-backed media and user context. It also emits `run-metadata.json` (schema v1) capturing the agent commit SHA (`GITHUB_SHA`), judge model + temperature + run count, frame-sampling settings, dataset SHA-256 hash, and any active `[QPRISMA_BENCH]` benchmark identifiers — so a Foundry result row can be reproduced from the same agent version, dataset snapshot, and judge configuration. Cluster CSVs and Foundry runs cross-reference using `agent_commit_sha` + `dataset_hash`.
 2. **Resolve the agent version**: `scripts/resolve_agent_version.py` finds the current deployed agent version unless the workflow input overrides it.
-3. **Run parallel evaluation jobs**: Azure AI Foundry runs separate quality, agent, and safety evaluation jobs by using `microsoft/ai-agent-evals@v3-beta`.
+3. **Run parallel evaluation jobs**: Azure AI Foundry runs separate quality, agent, and safety evaluation jobs by using `microsoft/ai-agent-evals` pinned to a SHA.
 4. **Persist portal artifacts**: The Foundry portal captures run status, raw results, conversations, response payloads, and cluster-analysis exports.
 5. **Optionally run AI Red Teaming**: The workflow can launch `evaluation_foundry.redteam_eval` when `run-redteam=true` so higher-cost security probing stays explicit.
+
+## Running Video-MME benchmarks
+
+### Recommended path: Blob-first remote automation
+
+Use [`.github/workflows/benchmark-video-mme.yml`](../.github/workflows/benchmark-video-mme.yml) when the Video-MME dataset is already staged in Azure Blob Storage.
+
+#### One-time setup
+
+1. Keep the raw HuggingFace archive under a stable Blob root such as `evaluation-dataset/data/datasets/_private/video_mme/`.
+2. Extract the `videos_chunked_*.zip` archives and upload the resulting raw `*.mp4` files under a dedicated prefix such as `evaluation-dataset/data/datasets/_private/video_mme/videos/`, preserving the upstream filenames (`<video_id>.mp4`).
+3. Upload or retain the upstream parquet/jsonl metadata file and generate an HTTPS/SAS URL for it. For the standard HuggingFace layout this is `data/datasets/_private/video_mme/videomme/test-00000-of-00001.parquet`.
+4. Do not point `source-prefix` at the archive root while it still only contains zip files; the current `full-pipeline` workflow does not unzip source archives in Azure.
+5. Configure the backend with `BENCHMARK_API_TOKEN` so `/benchmark/*` endpoints can be called by automation.
+6. Add the same value to the GitHub Actions secret `BENCHMARK_API_TOKEN`.
+
+#### Full-pipeline mode
+
+This mode automates **both** V0 and V3.5:
+
+1. Download the metadata/questions file from `questions-url`
+2. Select the smoke subset (`limit=5` by default, stratified by `duration_bucket`)
+3. Call `POST /benchmark/ingest/batch` with `{source_container, source_blob_name, benchmark_video_id}`
+4. Poll `GET /benchmark/status` until all videos are `completed`
+5. Build `manifest.json` via `POST /benchmark/manifest`
+6. Emit Foundry JSONL and run `microsoft/ai-agent-evals`
+
+Example dispatch:
+
+```bash
+gh workflow run benchmark-video-mme.yml \
+  -f mode=full-pipeline \
+  -f api-base-url=https://<your-qprisma-api> \
+  -f source-container=evaluation-dataset \
+  -f source-prefix=data/datasets/_private/video_mme/videos \
+  -f questions-url="https://<storage>/evaluation-dataset/data/datasets/_private/video_mme/videomme/test-00000-of-00001.parquet?<sas>" \
+  -f limit=5 \
+  -f subtitle-modes=without
+```
+
+Use this path when you want the benchmark to run against the **deployed** QPrisma stack without a local Postgres / Neo4j / Redis / Celery environment.
+
+#### Eval-only mode
+
+Use this when you already have a `manifest.json` and only want to rerun the Foundry evaluation:
+
+```bash
+gh workflow run benchmark-video-mme.yml \
+  -f mode=eval-only \
+  -f manifest-url="https://<storage>/evaluation-dataset/runs/video-mme/<timestamp>/manifest.json?<sas>" \
+  -f questions-url="https://<storage>/evaluation-dataset/data/datasets/_private/video_mme/videomme/test-00000-of-00001.parquet?<sas>" \
+  -f limit=5 \
+  -f subtitle-modes=without
+```
+
+This mode skips ingest entirely and reuses the existing SAS-driven evaluation flow.
+
+### Local fallback
+
+Use `scripts/run_video_mme_benchmark.py` when you want to reproduce the smoke path locally:
+
+```bash
+python scripts/run_video_mme_benchmark.py \
+  --videos-dir data/datasets/_private/video_mme/videos \
+  --metadata data/datasets/_private/video_mme/videomme/test-00000-of-00001.parquet \
+  --storage-account <storage-account> \
+  --container evaluation-dataset \
+  --limit 5 \
+  --subtitle-modes without \
+  --wait
+```
+
+The local helper still runs `backend/evaluation_foundry/benchmarks/video_mme/ingest.py` on your machine, uploads the resulting `manifest.json` and metadata to Blob, and dispatches the dedicated benchmark workflow in `eval-only` mode.
 
 ## Why Azure AI Foundry is useful here
 
@@ -229,3 +306,21 @@ QPrisma is not a generic chat agent. It needs to:
 - Produce a **final answer that is readable, on-topic, and complete**
 
 Azure AI Foundry helps because it measures those concerns through a combination of evaluator scores, raw conversations, response artifacts, and clustered issue patterns. That makes the evaluation process useful not only for release confidence, but also for day-to-day debugging when a hosted-agent change shifts tool use or answer quality.
+
+## Filtering cluster CSVs by benchmark (E4)
+
+Every Foundry input row emitted by `backend/evaluation_foundry/benchmarks/<bench>/emit_foundry_data.py` carries a `metadata.benchmark` field whose value is the benchmark manifest name (e.g. `video_mme`). This is in addition to the longer `metadata.benchmark_name` kept for backward-compatibility with previously-emitted JSONL files.
+
+Use `metadata.benchmark` as the **stable, short cluster filter key** when slicing the cluster-analysis CSVs that Foundry produces. For example:
+
+- `metadata.benchmark = "video_mme"` → only Video-MME MCQ rows; safe to compute `accuracy_short` / `accuracy_medium` / `accuracy_long` on this slice.
+- `metadata.benchmark IS NULL` → the original synthetic query-template rows; use this to keep the historical baseline visible separately from leaderboard runs.
+- Any future benchmark adds its own value here, so cluster views never mix benchmarks silently.
+
+When adding a new benchmark, set `metadata.benchmark = <manifest.name>` in the emitter (see `emit_foundry_data.py`); do not invent a new key.
+
+## Quarterly red-team manifest (E3)
+
+The quarterly safety-regression benchmark is described declaratively in `backend/evaluation_foundry/benchmarks/redteam_manifests/qprisma_quarterly_v1.yaml`. The YAML keys mirror the CLI flags in `backend/evaluation_foundry/redteam_eval.py` 1:1 — `strategies`, `risk_categories`, `num_turns`, `model_deployment`, `scan_name`, etc.
+
+Versioning rule: bump the suffix (`_v2`, `_v3`, …) when changing strategies, risk categories, or `num_turns`. Never edit a published manifest in-place — quarter-over-quarter comparability depends on stable manifests. When introducing a new manifest, run both the old and new versions for one quarter to baseline the new metric before retiring the old one.

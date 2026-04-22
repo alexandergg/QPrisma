@@ -8,11 +8,12 @@ that are used across multiple route modules.
 import asyncio
 import logging
 import re
+import secrets
 from datetime import UTC, datetime, timedelta
 from functools import partial
 
 from azure.storage.blob import BlobSasPermissions, BlobServiceClient, generate_blob_sas
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openai import AsyncAzureOpenAI, AzureOpenAI
 
@@ -374,14 +375,15 @@ def build_blob_sas_url(
     permission: BlobSasPermissions,
     expiry: datetime,
     start: datetime | None = None,
+    container_name: str | None = None,
 ) -> str | None:
     """Build a blob SAS URL using managed identity or local fallback credentials."""
     blob_service = get_blob_service()
     if not blob_service:
         return None
 
-    container_name = get_storage_container_name()
-    blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
+    resolved_container = container_name or get_storage_container_name()
+    blob_client = blob_service.get_blob_client(container=resolved_container, blob=blob_name)
     start_time = start or (datetime.now(UTC) - timedelta(minutes=5))
 
     if uses_managed_identity_storage(
@@ -395,7 +397,7 @@ def build_blob_sas_url(
         )
         sas_token = generate_blob_sas(
             account_name=blob_client.account_name,
-            container_name=container_name,
+            container_name=resolved_container,
             blob_name=blob_name,
             user_delegation_key=user_delegation_key,
             permission=permission,
@@ -411,7 +413,7 @@ def build_blob_sas_url(
     account_name, account_key, _ = account_info
     sas_token = generate_blob_sas(
         account_name=account_name,
-        container_name=container_name,
+        container_name=resolved_container,
         blob_name=blob_name,
         account_key=account_key,
         permission=permission,
@@ -427,6 +429,7 @@ async def build_blob_sas_url_async(
     permission: BlobSasPermissions,
     expiry: datetime,
     start: datetime | None = None,
+    container_name: str | None = None,
 ) -> str | None:
     """Build a blob SAS URL without blocking the event loop."""
     loop = asyncio.get_running_loop()
@@ -438,6 +441,7 @@ async def build_blob_sas_url_async(
             permission=permission,
             expiry=expiry,
             start=start,
+            container_name=container_name,
         ),
     )
 
@@ -533,3 +537,24 @@ async def get_current_user_optional(
         return get_user_provisioning_service().ensure_user_exists(token_data)
     except Exception:
         return None
+
+
+async def require_benchmark_operator(
+    current_user: User | None = Depends(get_current_user_optional),
+    benchmark_token: str | None = Header(default=None, alias="X-Benchmark-Token"),
+) -> User | None:
+    """Authorize benchmark automation via superuser bearer token or shared secret."""
+    if current_user and current_user.is_superuser:
+        return current_user
+
+    configured_token = settings.benchmark.api_token
+    if (
+        configured_token
+        and benchmark_token
+        and secrets.compare_digest(benchmark_token, configured_token)
+    ):
+        return None
+
+    if current_user is not None:
+        raise HTTPException(status_code=403, detail="Benchmark automation requires admin access")
+    raise HTTPException(status_code=401, detail="Benchmark automation credentials required")

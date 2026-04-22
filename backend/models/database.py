@@ -84,6 +84,11 @@ class MediaModel(Base):
     # Chunked upload session (for resumability)
     upload_session = Column(JSON, nullable=True)
 
+    # Benchmark provenance (Video-MME, VideoRAG, etc.). NULL for normal user uploads.
+    benchmark_name = Column(String(64), nullable=True, index=True)
+    benchmark_video_id = Column(String(128), nullable=True, index=True)
+    benchmark_split = Column(String(32), nullable=True)
+
     # Pipeline configuration
     optimized_pipeline = Column(Boolean, default=False)
     pipeline_config = Column(JSON, nullable=True)
@@ -144,6 +149,9 @@ class MediaModel(Base):
             ),
             "storage_tier": self.storage_tier,
             "rehydration_status": self.rehydration_status,
+            "benchmark_name": self.benchmark_name,
+            "benchmark_video_id": self.benchmark_video_id,
+            "benchmark_split": self.benchmark_split,
         }
 
 

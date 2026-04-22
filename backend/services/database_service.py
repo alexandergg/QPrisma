@@ -88,6 +88,11 @@ class DatabaseService:
         migrations: list[tuple[str, str, str]] = [
             # (table_name, column_name, column_type_sql)
             ("media", "upload_session", "JSON"),
+            # Benchmark provenance (Video-MME, VideoRAG/LongerVideos, etc.)
+            # Allows DELETE FROM media WHERE benchmark_name IS NOT NULL to wipe a benchmark cleanly.
+            ("media", "benchmark_name", "VARCHAR(64)"),
+            ("media", "benchmark_video_id", "VARCHAR(128)"),
+            ("media", "benchmark_split", "VARCHAR(32)"),
         ]
         with self.engine.begin() as conn:
             inspector = sa_inspect(conn)
@@ -228,6 +233,47 @@ class DatabaseService:
                 .offset(offset)
                 .all()
             )
+            for media in media_list:
+                session.expunge(media)
+            return media_list
+
+    def get_media_by_benchmark_key(
+        self, user_id: str, benchmark_name: str, benchmark_video_id: str
+    ) -> MediaModel | None:
+        """Get a benchmark media row by its stable benchmark key."""
+        with self.get_session() as session:
+            media = (
+                session.query(MediaModel)
+                .filter(
+                    MediaModel.user_id == user_id,
+                    MediaModel.benchmark_name == benchmark_name,
+                    MediaModel.benchmark_video_id == benchmark_video_id,
+                )
+                .first()
+            )
+            if media:
+                session.expunge(media)
+            return media
+
+    def get_media_by_benchmark(
+        self,
+        user_id: str,
+        benchmark_name: str,
+        *,
+        benchmark_video_ids: list[str] | None = None,
+        media_ids: list[str] | None = None,
+    ) -> list[MediaModel]:
+        """List benchmark media rows for a user, optionally filtered by IDs."""
+        with self.get_session() as session:
+            query = session.query(MediaModel).filter(
+                MediaModel.user_id == user_id,
+                MediaModel.benchmark_name == benchmark_name,
+            )
+            if benchmark_video_ids:
+                query = query.filter(MediaModel.benchmark_video_id.in_(benchmark_video_ids))
+            if media_ids:
+                query = query.filter(MediaModel.id.in_(media_ids))
+            media_list = query.order_by(MediaModel.upload_date.asc()).all()
             for media in media_list:
                 session.expunge(media)
             return media_list

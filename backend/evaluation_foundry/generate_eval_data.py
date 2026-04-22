@@ -20,11 +20,13 @@ Environment variables:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
 import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from evaluation_foundry.config import (
@@ -293,6 +295,90 @@ def generate_data_file(
 # ---------------------------------------------------------------------------
 
 
+def _build_run_metadata(
+    *,
+    media_ids: list[str],
+    user_id: str | None,
+    eval_payloads: dict[str, dict],
+) -> dict:
+    """Build the reproducibility run-metadata document (F2).
+
+    Captures the fields needed to compare a Foundry result row against another
+    run of the same agent / dataset / judge configuration:
+
+    * judge model + temperature + run count (from env, with defaults)
+    * frame-sampling FPS / max frames / subtitle mode (from env)
+    * agent commit SHA (``GITHUB_SHA`` in CI; ``HEAD`` locally if available)
+    * stable hash of the generated eval payloads (so dataset drift is
+      detectable without diffing JSON)
+    * benchmark identifiers (``benchmark_name``, ``benchmark_version``) for
+      runs gated through the benchmark adapters
+
+    Read by ``microsoft/ai-agent-evals`` consumers / cluster-CSV analysis to
+    bucket rows by ``[QPRISMA_BENCH]`` and judge configuration.
+    """
+
+    def _env(name: str, default: str | None = None) -> str | None:
+        value = os.environ.get(name)
+        return value if value not in (None, "") else default
+
+    def _env_float(name: str) -> float | None:
+        raw = _env(name)
+        try:
+            return float(raw) if raw is not None else None
+        except ValueError:
+            return None
+
+    def _env_int(name: str) -> int | None:
+        raw = _env(name)
+        try:
+            return int(raw) if raw is not None else None
+        except ValueError:
+            return None
+
+    payload_bytes = json.dumps(eval_payloads, sort_keys=True).encode("utf-8")
+    dataset_hash = hashlib.sha256(payload_bytes).hexdigest()
+
+    return {
+        "schema_version": 1,
+        "created_at": datetime.now(UTC).isoformat(),
+        "agent": {
+            "name": _env("AGENT_NAME", "qprisma-video-agent"),
+            "commit_sha": _env("GITHUB_SHA") or _env("AGENT_COMMIT_SHA"),
+            "version_override": _env("AGENT_VERSION_OVERRIDE"),
+        },
+        "judge": {
+            "model": _env("EVAL_JUDGE_MODEL", "gpt-4o"),
+            "temperature": _env_float("EVAL_JUDGE_TEMPERATURE") or 0.0,
+            "n_runs": _env_int("EVAL_JUDGE_N_RUNS") or 1,
+        },
+        "frame_sampling": {
+            "fps": _env_float("EVAL_FRAME_SAMPLING_FPS"),
+            "max_frames": _env_int("EVAL_MAX_FRAMES"),
+            "subtitle_mode": _env("EVAL_SUBTITLE_MODE"),
+        },
+        "dataset": {
+            "hash": dataset_hash,
+            "media_ids": media_ids,
+            "user_id": user_id,
+            "n_quality": len(eval_payloads.get("quality", {}).get("data", [])),
+            "n_agent": len(eval_payloads.get("agent", {}).get("data", [])),
+            "n_safety": len(eval_payloads.get("safety", {}).get("data", [])),
+        },
+        "benchmark": {
+            "name": _env("EVAL_BENCHMARK_NAME"),
+            "version": _env("EVAL_BENCHMARK_VERSION"),
+            "manifest_path": _env("EVAL_BENCHMARK_MANIFEST"),
+        },
+        "github": {
+            "run_id": _env("GITHUB_RUN_ID"),
+            "run_attempt": _env("GITHUB_RUN_ATTEMPT"),
+            "ref": _env("GITHUB_REF"),
+            "workflow": _env("GITHUB_WORKFLOW"),
+        },
+    }
+
+
 def main() -> int:
     """Entry point for data generation."""
     parser = argparse.ArgumentParser(description="Generate Azure AI Foundry evaluation data files")
@@ -380,8 +466,28 @@ def main() -> int:
         response_mode=args.response_mode,
     )
 
+    # Reproducibility manifest (F2): captures judge/sampling/agent provenance
+    # so a Foundry run can be matched to an exact dataset snapshot, agent
+    # commit, and frame-sampling configuration. Emitted alongside the eval
+    # JSON files and uploaded as part of the ``eval-data`` artifact.
+    run_metadata = _build_run_metadata(
+        media_ids=media_ids,
+        user_id=user_id,
+        eval_payloads={"quality": quality, "agent": agent, "safety": safety},
+    )
+
     if args.dry_run:
-        print(json.dumps({"quality": quality, "agent": agent, "safety": safety}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "quality": quality,
+                    "agent": agent,
+                    "safety": safety,
+                    "run_metadata": run_metadata,
+                },
+                indent=2,
+            )
+        )
         return 0
 
     # Write files
@@ -398,6 +504,10 @@ def main() -> int:
     safety_path = args.output_dir / SAFETY_EVAL_FILE
     safety_path.write_text(json.dumps(safety, indent=2) + "\n", encoding="utf-8")
     logger.info("Wrote %s (%d queries)", safety_path, len(safety["data"]))
+
+    metadata_path = args.output_dir / "run-metadata.json"
+    metadata_path.write_text(json.dumps(run_metadata, indent=2) + "\n", encoding="utf-8")
+    logger.info("Wrote %s", metadata_path)
 
     # Summary
     total = len(quality["data"]) + len(agent["data"]) + len(safety["data"])

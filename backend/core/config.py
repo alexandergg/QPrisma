@@ -194,6 +194,18 @@ class RedisSettings(BaseSettings):
         return bool(self.url)
 
 
+class BenchmarkSettings(BaseSettings):
+    """Benchmark automation configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="BENCHMARK_", extra="ignore")
+
+    default_user_id: str = Field(default="user_7541242e88e3")
+    api_token: str | None = Field(
+        default=None,
+        description="Shared secret for GitHub Actions benchmark orchestration.",
+    )
+
+
 class ProcessingSettings(BaseSettings):
     """Video processing performance configuration."""
 
@@ -499,6 +511,7 @@ class Settings(BaseSettings):
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
+    benchmark: BenchmarkSettings = Field(default_factory=BenchmarkSettings)
     artifacts: ArtifactSettings = Field(default_factory=ArtifactSettings)
     community: CommunitySettings = Field(default_factory=CommunitySettings)
     search: SearchSettings = Field(default_factory=SearchSettings)

@@ -82,7 +82,9 @@ if __name__ == "__main__":
 
     # Generar video de prueba
     video_path = create_test_video(
-        output_path="test_data/test_video.mp4", duration=10, fps=30  # 10 segundos
+        output_path="test_data/test_video.mp4",
+        duration=10,
+        fps=30,  # 10 segundos
     )
 
     print("\n🎬 Puedes usar este video para probar el sistema:")

@@ -468,3 +468,34 @@ class TestBuildBlobSasUrl:
 
         assert result is None
         mock_generate.assert_not_called()
+
+    def test_uses_override_container_name(self):
+        permission = BlobSasPermissions(read=True)
+        expiry = datetime.now(UTC) + timedelta(hours=1)
+        mock_blob_service = MagicMock()
+        mock_blob_client = MagicMock(
+            url="https://mediaaccount.blob.core.windows.net/source/video.mp4"
+        )
+        mock_blob_service.get_blob_client.return_value = mock_blob_client
+
+        with (
+            patch("api.dependencies.get_blob_service", return_value=mock_blob_service),
+            patch("api.dependencies.uses_managed_identity_storage", return_value=False),
+            patch(
+                "api.dependencies.get_storage_account_info",
+                return_value=("mediaaccount", "secret-key", "media"),
+            ),
+            patch(
+                "api.dependencies.generate_blob_sas", return_value="override-sas"
+            ) as mock_generate,
+        ):
+            result = build_blob_sas_url(
+                "video.mp4",
+                container_name="source",
+                permission=permission,
+                expiry=expiry,
+            )
+
+        assert result == "https://mediaaccount.blob.core.windows.net/source/video.mp4?override-sas"
+        kwargs = mock_generate.call_args.kwargs
+        assert kwargs["container_name"] == "source"

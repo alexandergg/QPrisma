@@ -9,6 +9,25 @@ Usage:
 
 Environment variables:
     AZURE_AI_PROJECT_ENDPOINT — Foundry project endpoint URL
+
+Evaluator definition types
+--------------------------
+``azure-ai-projects==2.0.1`` exposes two evaluator-definition shapes (verified
+via ``azure.ai.projects.models._models``):
+
+* ``PromptBasedEvaluatorDefinition(prompt_text=..., metrics={...})`` — the
+  pattern used below for ``temporal_specificity`` and ``source_grounding``.
+  Use this for any judge-style evaluator scored by an LLM rubric.
+* ``CodeBasedEvaluatorDefinition(code_text=..., init_parameters=...,
+  data_schema=..., metrics=...)`` — pure-Python evaluator whose ``code_text``
+  runs server-side. Use this for **deterministic** evaluators where a regex /
+  string compare is the right answer (e.g. ``qprisma.video_mme_mcq``: extract
+  ``^[A-D]`` from the response and compare to ``ground_truth``). Falls back
+  gracefully to a strict ``PromptBasedEvaluatorDefinition`` returning ``1.0``
+  / ``0.0`` if a code-based path is unavailable in a given environment.
+
+Both definition types are accepted by ``EvaluatorVersion(definition=...)`` and
+registered via ``client.beta.evaluators.create_version(name, version)``.
 """
 
 from __future__ import annotations
@@ -17,6 +36,8 @@ import logging
 import os
 import sys
 
+from evaluation_foundry.evaluators import long_context_grounding as LONG_CONTEXT_GROUNDING
+from evaluation_foundry.evaluators import video_mme_mcq as VIDEO_MME_MCQ
 from evaluation_foundry.evaluators.source_grounding import (
     EVALUATOR_CONFIG as SOURCE_GROUNDING_CONFIG,
 )
@@ -28,6 +49,88 @@ logger = logging.getLogger(__name__)
 
 ALL_EVALUATORS = [TEMPORAL_SPECIFICITY_CONFIG, SOURCE_GROUNDING_CONFIG]
 
+# Code/prompt-fallback evaluators registered after the prompt-only ones.
+# Each entry has the shape (module) where ``module`` exposes ``EVALUATOR_NAME``,
+# ``EVALUATOR_DISPLAY_NAME``, ``EVALUATOR_DESCRIPTION``, ``CODE_DEFINITION_KWARGS``
+# and ``PROMPT_FALLBACK_CONFIG``. See ``video_mme_mcq.py`` for the canonical shape.
+CODE_OR_PROMPT_EVALUATORS = [VIDEO_MME_MCQ, LONG_CONTEXT_GROUNDING]
+
+
+def _register_code_or_prompt_evaluator(client, models_module, evaluator_module) -> bool:
+    """Register a deterministic evaluator with code-based-then-prompt fallback.
+
+    Tries ``CodeBasedEvaluatorDefinition`` first (preferred — runs server-side
+    Python, zero judge cost). Falls back to a strict prompt-judge defined by the
+    module's ``PROMPT_FALLBACK_CONFIG`` if the code-based path is unavailable in
+    this SDK build.
+    """
+    name = evaluator_module.EVALUATOR_NAME
+    EvaluatorMetric = models_module.EvaluatorMetric
+    EvaluatorVersion = models_module.EvaluatorVersion
+
+    metric_kwargs = evaluator_module.CODE_DEFINITION_KWARGS["metric"]
+    metric = EvaluatorMetric(
+        type=metric_kwargs["type"],
+        desirable_direction=metric_kwargs["desirable_direction"],
+        min_value=metric_kwargs["min_value"],
+        max_value=metric_kwargs["max_value"],
+        is_primary=metric_kwargs["is_primary"],
+    )
+    metric_name = evaluator_module.CODE_DEFINITION_KWARGS["metric_name"]
+
+    code_def_cls = getattr(models_module, "CodeBasedEvaluatorDefinition", None)
+    if code_def_cls is not None:
+        try:
+            definition = code_def_cls(
+                code_text=evaluator_module.CODE_DEFINITION_KWARGS["code_text"],
+                init_parameters=evaluator_module.CODE_DEFINITION_KWARGS["init_parameters"],
+                data_schema=evaluator_module.CODE_DEFINITION_KWARGS["data_schema"],
+                metrics={metric_name: metric},
+            )
+            client.beta.evaluators.create_version(
+                name,
+                EvaluatorVersion(
+                    version="1",
+                    display_name=evaluator_module.EVALUATOR_DISPLAY_NAME,
+                    description=evaluator_module.EVALUATOR_DESCRIPTION,
+                    definition=definition,
+                ),
+            )
+            logger.info("  ✓ Registered (code-based): %s", name)
+            return True
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            if "already exists" in exc_str or "conflict" in exc_str:
+                logger.info("  → Already exists: %s (skipping)", name)
+                return True
+            logger.warning("  Code-based registration failed (%s); trying prompt fallback", exc)
+
+    cfg = evaluator_module.PROMPT_FALLBACK_CONFIG
+    PromptBasedEvaluatorDefinition = models_module.PromptBasedEvaluatorDefinition
+    try:
+        definition = PromptBasedEvaluatorDefinition(
+            prompt_text=cfg["prompt"],
+            metrics={metric_name: metric},
+        )
+        client.beta.evaluators.create_version(
+            name,
+            EvaluatorVersion(
+                version="1",
+                display_name=cfg["display_name"],
+                description=cfg["description"],
+                definition=definition,
+            ),
+        )
+        logger.info("  ✓ Registered (prompt fallback): %s", name)
+        return True
+    except Exception as exc:
+        exc_str = str(exc).lower()
+        if "already exists" in exc_str or "conflict" in exc_str:
+            logger.info("  → Already exists: %s (skipping)", name)
+            return True
+        logger.error("  ✗ Failed to register %s: %s", name, exc)
+        return False
+
 
 def register_evaluators(endpoint: str, *, dry_run: bool = False) -> int:
     """Register all custom evaluators with the Foundry project.
@@ -38,10 +141,13 @@ def register_evaluators(endpoint: str, *, dry_run: bool = False) -> int:
     if dry_run:
         for cfg in ALL_EVALUATORS:
             logger.info("[DRY RUN] Would register: %s", cfg["name"])
-        return len(ALL_EVALUATORS)
+        for module in CODE_OR_PROMPT_EVALUATORS:
+            logger.info("[DRY RUN] Would register: %s", module.EVALUATOR_NAME)
+        return len(ALL_EVALUATORS) + len(CODE_OR_PROMPT_EVALUATORS)
 
     try:
         from azure.ai.projects import AIProjectClient
+        from azure.ai.projects import models as projects_models
         from azure.ai.projects.models import (
             EvaluatorMetric,
             EvaluatorVersion,
@@ -96,6 +202,12 @@ def register_evaluators(endpoint: str, *, dry_run: bool = False) -> int:
             else:
                 logger.error("  ✗ Failed to register %s: %s", name, exc)
 
+    # Register deterministic / code-or-prompt-fallback evaluators (V3 + E1).
+    for module in CODE_OR_PROMPT_EVALUATORS:
+        logger.info("Registering evaluator: %s", module.EVALUATOR_NAME)
+        if _register_code_or_prompt_evaluator(client, projects_models, module):
+            registered += 1
+
     return registered
 
 
@@ -115,7 +227,7 @@ def main() -> int:
         )
         return 1
 
-    total = len(ALL_EVALUATORS)
+    total = len(ALL_EVALUATORS) + len(CODE_OR_PROMPT_EVALUATORS)
     registered = register_evaluators(endpoint, dry_run=dry_run)
     logger.info("Registered %d/%d evaluators", registered, total)
 

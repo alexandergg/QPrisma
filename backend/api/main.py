@@ -251,6 +251,7 @@ from api.routes import (
     a2a_router,
     auth_router,
     batch_router,
+    benchmark_router,
     cache_router,
     chat_router,
     chunked_upload_router,
@@ -268,6 +269,7 @@ app.include_router(a2a_router, tags=["A2A Protocol"])
 
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(batch_router, tags=["Batch API"])
+app.include_router(benchmark_router, tags=["Benchmark"])
 app.include_router(cache_router, prefix="/cache", tags=["Cache"])
 app.include_router(chat_router, tags=["Chat & Search"])
 app.include_router(chunked_upload_router, tags=["Chunked Upload"])
