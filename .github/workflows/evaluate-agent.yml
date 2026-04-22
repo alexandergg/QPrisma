@@ -436,7 +436,7 @@ jobs:
   # Only runs when `run-video-mme=true` is dispatched. Operator must
   # stage the manifest.json (produced by `ingest.py`) and the Video-MME
   # questions parquet to a Blob Storage container and pass SAS URLs.
-  # See: backend/evaluation_foundry/benchmarks/video_mme/README.md
+  # See: docs/EVALUATION_GUIDE.md
   evaluate-video-mme:
     runs-on: ubuntu-latest
     needs: [resolve-version]

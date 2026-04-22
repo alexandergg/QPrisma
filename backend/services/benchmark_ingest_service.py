@@ -14,6 +14,7 @@ from typing import Any
 
 from azure.core.exceptions import AzureError, ResourceNotFoundError
 from azure.storage.blob import BlobSasPermissions
+from sqlalchemy.exc import IntegrityError
 
 from api.dependencies import (
     build_blob_sas_url,
@@ -82,17 +83,11 @@ class BenchmarkIngestService:
             request.benchmark_video_id,
         )
         if existing:
-            return BenchmarkIngestResponse(
+            return self._build_existing_response(
+                request=request,
+                existing=existing,
                 benchmark_name=benchmark_name,
-                benchmark_video_id=request.benchmark_video_id,
-                benchmark_split=existing.benchmark_split,
                 user_id=user_id,
-                media_id=existing.id,
-                blob_name=existing.blob_name,
-                source_blob_name=request.source_blob_name,
-                job_id=existing.job_id,
-                processing_status=existing.processing_status,
-                ingest_status="skipped_existing",
             )
 
         ext = Path(request.source_blob_name).suffix.lstrip(".").lower() or "mp4"
@@ -122,7 +117,28 @@ class BenchmarkIngestService:
             "benchmark_video_id": request.benchmark_video_id,
             "benchmark_split": request.benchmark_split,
         }
-        self._db.create_media(media_data)
+        try:
+            self._db.create_media(media_data)
+        except IntegrityError:
+            self._delete_target_blob(destination_blob_name)
+            existing = self._db.get_media_by_benchmark_key(
+                user_id,
+                benchmark_name,
+                request.benchmark_video_id,
+            )
+            if existing:
+                logger.info(
+                    "Benchmark ingest deduplicated concurrent request for %s/%s",
+                    benchmark_name,
+                    request.benchmark_video_id,
+                )
+                return self._build_existing_response(
+                    request=request,
+                    existing=existing,
+                    benchmark_name=benchmark_name,
+                    user_id=user_id,
+                )
+            raise
 
         from tasks.video_tasks import process_video_pipeline
 
@@ -296,6 +312,41 @@ class BenchmarkIngestService:
         raise TimeoutError(
             f"Timed out waiting for copy of {source_container}/{source_blob_name} to {destination_blob_name}"
         )
+
+    def _build_existing_response(
+        self,
+        *,
+        request: BenchmarkIngestRequest,
+        existing: Any,
+        benchmark_name: str,
+        user_id: str,
+    ) -> BenchmarkIngestResponse:
+        """Build a consistent response for an existing benchmark media row."""
+        return BenchmarkIngestResponse(
+            benchmark_name=benchmark_name,
+            benchmark_video_id=request.benchmark_video_id,
+            benchmark_split=existing.benchmark_split,
+            user_id=user_id,
+            media_id=existing.id,
+            blob_name=existing.blob_name,
+            source_blob_name=request.source_blob_name,
+            job_id=existing.job_id,
+            processing_status=existing.processing_status,
+            ingest_status="skipped_existing",
+        )
+
+    def _delete_target_blob(self, blob_name: str) -> None:
+        """Best-effort cleanup for a copied blob that lost a duplicate insert race."""
+        if self._blob_service is None:
+            return
+
+        try:
+            self._blob_service.get_blob_client(
+                container=self._target_container,
+                blob=blob_name,
+            ).delete_blob(delete_snapshots="include")
+        except AzureError:
+            logger.warning("Failed to delete duplicate benchmark blob %s", blob_name, exc_info=True)
 
 
 def get_benchmark_ingest_service() -> BenchmarkIngestService:

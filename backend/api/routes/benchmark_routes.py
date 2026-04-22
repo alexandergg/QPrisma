@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 
 from api.dependencies import require_benchmark_operator
+from core.config import settings
 from core.errors import bad_request, internal_error, service_unavailable
 from models.benchmark_schemas import (
     BenchmarkIngestBatchRequest,
@@ -74,6 +75,9 @@ async def ingest_benchmark_batch(
             raise bad_request(str(exc)) from exc
         except RuntimeError as exc:
             raise service_unavailable(str(exc)) from exc
+        except Exception as exc:
+            logger.error("Benchmark ingest failed: %s", exc, exc_info=True)
+            raise internal_error(detail="Benchmark ingest failed") from exc
     return BenchmarkIngestBatchResponse(total=len(items), items=items)
 
 
@@ -101,7 +105,9 @@ async def get_benchmark_status(
     except RuntimeError as exc:
         raise service_unavailable(str(exc)) from exc
     completed = sum(1 for item in items if item.processing_status == "completed")
-    resolved_user_id = user_id or (items[0].user_id if items else "")
+    resolved_user_id = user_id or (
+        items[0].user_id if items else settings.benchmark.default_user_id
+    )
     return BenchmarkStatusResponse(
         benchmark_name=benchmark_name,
         user_id=resolved_user_id,

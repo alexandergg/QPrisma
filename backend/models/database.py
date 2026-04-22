@@ -11,7 +11,18 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -59,6 +70,14 @@ class MediaModel(Base):
     """Media metadata table (videos, images)."""
 
     __tablename__ = "media"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "benchmark_name",
+            "benchmark_video_id",
+            name="uq_media_benchmark_key",
+        ),
+    )
 
     id = Column(String(64), primary_key=True, default=generate_uuid)
     user_id = Column(String(64), ForeignKey("users.id"), nullable=False, index=True)

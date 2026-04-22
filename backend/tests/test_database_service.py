@@ -76,6 +76,26 @@ class TestDatabaseInit:
             cols = {c["name"] for c in sa_inspect(conn).get_columns("media")}
         assert "upload_session" in cols
 
+        with service.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO media "
+                    "(id, user_id, blob_name, media_type, benchmark_name, benchmark_video_id) "
+                    "VALUES "
+                    "('media_dup_1', 'user_media_test', 'video.mp4', 'video', 'video_mme', 'video_001')"
+                )
+            )
+
+        with pytest.raises(IntegrityError), service.engine.begin() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO media "
+                    "(id, user_id, blob_name, media_type, benchmark_name, benchmark_video_id) "
+                    "VALUES "
+                    "('media_dup_2', 'user_media_test', 'video2.mp4', 'video', 'video_mme', 'video_001')"
+                )
+            )
+
     def test_health_check(self, db_service):
         result = db_service.health_check()
         assert result["status"] == "healthy"
@@ -211,6 +231,20 @@ class TestMediaCRUD:
     def test_get_media_by_user_empty(self, db_service):
         media_list = db_service.get_media_by_user("nonexistent_user")
         assert media_list == []
+
+    def test_create_duplicate_benchmark_media_key_raises(self, db_service):
+        media_data = {
+            "user_id": "user_media_test",
+            "blob_name": "benchmark.mp4",
+            "media_type": "video",
+            "benchmark_name": "video_mme",
+            "benchmark_video_id": "video_001",
+        }
+
+        db_service.create_media({"id": "media_benchmark_1", **media_data})
+
+        with pytest.raises(IntegrityError):
+            db_service.create_media({"id": "media_benchmark_2", **media_data})
 
     def test_update_media(self, db_service):
         db_service.create_media(

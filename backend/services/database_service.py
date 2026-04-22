@@ -111,8 +111,39 @@ class DatabaseService:
                             column,
                             e,
                         )
+            existing_indexes = {index["name"] for index in inspector.get_indexes("media")}
+            existing_unique_constraints = {
+                constraint["name"]
+                for constraint in inspector.get_unique_constraints("media")
+                if constraint.get("name")
+            }
+            benchmark_unique_index = "ix_media_benchmark_key_unique"
+            benchmark_unique_constraint = "uq_media_benchmark_key"
+            if (
+                benchmark_unique_index not in existing_indexes
+                and benchmark_unique_constraint not in existing_unique_constraints
+            ):
+                try:
+                    conn.execute(
+                        text(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS "
+                            "ix_media_benchmark_key_unique ON media "
+                            "(user_id, benchmark_name, benchmark_video_id) "
+                            "WHERE benchmark_name IS NOT NULL "
+                            "AND benchmark_video_id IS NOT NULL"
+                        )
+                    )
+                    applied += 1
+                except (OperationalError, ProgrammingError) as e:
+                    logger.warning(
+                        "Could not create benchmark media unique index %s: %s",
+                        benchmark_unique_index,
+                        e,
+                    )
             logger.info(
-                "Schema migrations checked (%d applied, %d total)", applied, len(migrations)
+                "Schema migrations checked (%d applied, %d total)",
+                applied,
+                len(migrations) + 1,
             )
 
     def health_check(self) -> dict[str, Any]:

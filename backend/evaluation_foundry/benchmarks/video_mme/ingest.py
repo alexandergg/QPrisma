@@ -198,9 +198,10 @@ def stratified_sample(
 def _existing_benchmark_media_ids(db: Any, user_id: str) -> dict[str, str]:
     """Return ``{benchmark_video_id: media_id}`` for already-ingested videos.
 
-    Uses raw SQL via the engine because the DB service has no benchmark-aware
-    helper yet. Safe under concurrent runs because rows are uniquely keyed by
-    ``(user_id, benchmark_name, benchmark_video_id)``.
+    Uses a narrow raw-SQL query via the engine to fetch only the ``id`` and
+    ``benchmark_video_id`` columns needed to build this lookup map. The DB
+    service now has benchmark-aware helpers, but this avoids hydrating full
+    ORM rows for a read-only CLI lookup.
     """
     from sqlalchemy import text
 

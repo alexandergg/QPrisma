@@ -104,12 +104,12 @@ def app(reset_settings):
 
     original_router_init = starlette_routing.Router.__init__
 
-    def patched_router_init(self, **kwargs):
+    def patched_router_init(self, *args, **kwargs):
         on_startup = kwargs.pop("on_startup", None) or []
         on_shutdown = kwargs.pop("on_shutdown", None) or []
         self.on_startup = list(on_startup)
         self.on_shutdown = list(on_shutdown)
-        return original_router_init(self, **kwargs)
+        return original_router_init(self, *args, **kwargs)
 
     starlette_routing.Router.__init__ = patched_router_init
 

@@ -49,8 +49,31 @@ class TestBenchmarkRoutes:
 
         assert resp.status_code == 200
         body = resp.json()
+        assert body["user_id"] == "user_7541242e88e3"
         assert body["completed"] == 1
         assert body["items"][0]["benchmark_video_id"] == "video_001"
+
+    def test_status_uses_default_user_id_for_empty_results(self, app):
+        app.dependency_overrides[require_benchmark_operator] = lambda: None
+        mock_service = MagicMock()
+        mock_service.list_status.return_value = []
+
+        from fastapi.testclient import TestClient
+
+        with (
+            patch(
+                "api.routes.benchmark_routes.get_benchmark_ingest_service",
+                return_value=mock_service,
+            ),
+            TestClient(app, raise_server_exceptions=False) as client,
+        ):
+            resp = client.get(
+                "/benchmark/status",
+                params={"benchmark_name": "video_mme"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["user_id"] == "user_7541242e88e3"
 
     def test_ingest_batch_success(self, app):
         app.dependency_overrides[require_benchmark_operator] = lambda: None
@@ -117,6 +140,37 @@ class TestBenchmarkRoutes:
 
         assert resp.status_code == 200
         assert resp.json()["total"] == 2
+
+    def test_ingest_batch_returns_internal_error_for_unexpected_exception(self, app):
+        app.dependency_overrides[require_benchmark_operator] = lambda: None
+        mock_service = MagicMock()
+        mock_service.ingest_video = AsyncMock(side_effect=Exception("boom"))
+
+        from fastapi.testclient import TestClient
+
+        with (
+            patch(
+                "api.routes.benchmark_routes.get_benchmark_ingest_service",
+                return_value=mock_service,
+            ),
+            TestClient(app, raise_server_exceptions=False) as client,
+        ):
+            resp = client.post(
+                "/benchmark/ingest/batch",
+                json={
+                    "videos": [
+                        {
+                            "benchmark_name": "video_mme",
+                            "benchmark_video_id": "video_001",
+                            "source_container": "benchmarks",
+                            "source_blob_name": "video_001.mp4",
+                        }
+                    ]
+                },
+            )
+
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Benchmark ingest failed"
 
     def test_manifest_success(self, app):
         app.dependency_overrides[require_benchmark_operator] = lambda: None
