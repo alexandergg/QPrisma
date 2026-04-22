@@ -50,9 +50,10 @@ Use [`.github/workflows/benchmark-video-mme.yml`](../.github/workflows/benchmark
 1. Keep the raw HuggingFace archive under a stable Blob root such as `evaluation-dataset/data/datasets/_private/video_mme/`.
 2. Extract the `videos_chunked_*.zip` archives and upload the resulting raw `*.mp4` files under a dedicated prefix such as `evaluation-dataset/data/datasets/_private/video_mme/videos/`, preserving the upstream filenames (`<video_id>.mp4`).
 3. Upload or retain the upstream parquet/jsonl/json metadata or questions file and provide an HTTPS blob URL for it. For the standard HuggingFace layout this is `data/datasets/_private/video_mme/videomme/test-00000-of-00001.parquet`. The workflow now attempts an Azure-authenticated blob download first when the URL points at Azure Blob Storage, and falls back to direct HTTPS/SAS download when needed. The URL must still resolve to the raw file bytes; browser/view URLs that return HTML or XML will fail workflow validation.
-4. Do not point `source-prefix` at the archive root while it still only contains zip files; the current `full-pipeline` workflow does not unzip source archives in Azure.
-5. Configure the backend with `BENCHMARK_API_TOKEN` so `/benchmark/*` endpoints can be called by automation. The durable path is to keep the value in the GitHub Actions secret `BENCHMARK_API_TOKEN` and let `deploy-infra.yml` publish it to Key Vault and the API Container App.
-6. Add the same value to the GitHub Actions secret `BENCHMARK_API_TOKEN`. The benchmark workflow uses that secret directly, and infra deployment now uses the same secret to keep the backend configuration persistent across future infra redeploys.
+4. If the sampled source videos live in a different Azure Storage account than the `questions-url` blob, pass `source-storage-account` when dispatching the workflow so the preflight blob validation can resolve the correct account.
+5. Do not point `source-prefix` at the archive root while it still only contains zip files; the current `full-pipeline` workflow does not unzip source archives in Azure.
+6. Configure the backend with `BENCHMARK_API_TOKEN` so `/benchmark/*` endpoints can be called by automation. The durable path is to keep the value in the GitHub Actions secret `BENCHMARK_API_TOKEN` and let `deploy-infra.yml` publish it to Key Vault and the API Container App.
+7. Add the same value to the GitHub Actions secret `BENCHMARK_API_TOKEN`. The benchmark workflow uses that secret directly, and infra deployment now uses the same secret to keep the backend configuration persistent across future infra redeploys.
 
 #### Full-pipeline mode
 
@@ -73,10 +74,13 @@ gh workflow run benchmark-video-mme.yml \
   -f api-base-url=https://<your-qprisma-api> \
   -f source-container=evaluation-dataset \
   -f source-prefix=data/datasets/_private/video_mme/videos \
+  -f source-storage-account=<storage-account> \
   -f questions-url="https://<storage>/evaluation-dataset/data/datasets/_private/video_mme/videomme/test-00000-of-00001.parquet?<sas>" \
   -f limit=5 \
   -f subtitle-modes=without
 ```
+
+`source-storage-account` is optional when `questions-url` already points at the same Azure Blob account as the staged videos. Set it explicitly when the metadata/questions file is hosted elsewhere or the videos live on a different account.
 
 Use this path when you want the benchmark to run against the **deployed** QPrisma stack without a local Postgres / Neo4j / Redis / Celery environment.
 
