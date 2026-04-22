@@ -470,7 +470,7 @@ jobs:
         run: |
           STAGE_DIR="${RUNNER_TEMP}/vmme"
           mkdir -p "$STAGE_DIR"
-          curl -sSL -o "$STAGE_DIR/manifest.json" "$MANIFEST_URL"
+          curl --fail-with-body -sSL -o "$STAGE_DIR/manifest.json" "$MANIFEST_URL"
           # Try to preserve extension by sniffing URL path before query string
           QURL_PATH="${QUESTIONS_URL%%?*}"
           case "$QURL_PATH" in
@@ -479,11 +479,28 @@ jobs:
             *.json)    QFILE="questions.json" ;;
             *)         QFILE="questions.parquet" ;;
           esac
-          curl -sSL -o "$STAGE_DIR/$QFILE" "$QUESTIONS_URL"
+          curl --fail-with-body -sSL -o "$STAGE_DIR/$QFILE" "$QUESTIONS_URL"
           echo "STAGE_DIR=$STAGE_DIR" >> "$GITHUB_ENV"
           echo "QFILE=$QFILE" >> "$GITHUB_ENV"
           echo "Manifest size: $(wc -c <"$STAGE_DIR/manifest.json") bytes"
           echo "Questions size: $(wc -c <"$STAGE_DIR/$QFILE") bytes"
+
+      - name: Validate Video-MME questions
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          from evaluation_foundry.benchmarks.video_mme.file_validation import validate_staged_dataset_file
+
+          path = Path(os.environ["STAGE_DIR"]) / os.environ["QFILE"]
+          inspection = validate_staged_dataset_file(path, label="Video-MME questions file")
+          print(
+              f"Validated {path.name}: detected={inspection.detected_format}, "
+              f"size={inspection.size_bytes} bytes"
+          )
+          PY
 
       - name: Emit Foundry JSONL
         working-directory: backend

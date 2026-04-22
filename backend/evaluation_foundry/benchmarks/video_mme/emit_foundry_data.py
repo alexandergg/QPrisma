@@ -40,6 +40,11 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
+from evaluation_foundry.benchmarks.video_mme.file_validation import (
+    build_parquet_read_error,
+    validate_staged_dataset_file,
+)
+
 logger = logging.getLogger(__name__)
 
 # Verbatim from Video-MME paper Appendix / lmms-eval implementation. Do NOT edit
@@ -59,19 +64,42 @@ PROMPT_TEMPLATE = (
 def _load_questions(path: Path) -> list[dict[str, Any]]:
     suffix = path.suffix.lower()
     if suffix == ".parquet":
+        validate_staged_dataset_file(path, label="Video-MME questions file")
         try:
+            import pyarrow as pa  # type: ignore[import-not-found]
             import pyarrow.parquet as pq  # type: ignore[import-not-found]
         except ImportError as e:  # pragma: no cover
             raise RuntimeError(
                 "Reading parquet requires `pyarrow`; install or pre-convert to JSONL."
             ) from e
-        return pq.read_table(path).to_pylist()
+        try:
+            return pq.read_table(path).to_pylist()
+        except pa.ArrowException as e:
+            raise RuntimeError(
+                build_parquet_read_error(path, label="Video-MME questions file", detail=str(e))
+            ) from e
     if suffix == ".jsonl":
+        validate_staged_dataset_file(path, label="Video-MME questions file")
         return [
             json.loads(line)
             for line in path.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
+    if suffix == ".json":
+        validate_staged_dataset_file(path, label="Video-MME questions file")
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(raw, list):
+            return raw
+        questions = raw.get("questions")
+        if questions is not None:
+            return questions
+        rows = raw.get("rows")
+        if rows is not None:
+            return rows
+        videos = raw.get("videos")
+        if videos is not None:
+            return videos
+        return []
     raise ValueError(f"Unsupported questions format: {path.suffix}")
 
 
