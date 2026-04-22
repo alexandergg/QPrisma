@@ -30,6 +30,11 @@ on:
         required: false
         type: string
         default: ""
+      source-storage-account:
+        description: "Optional Azure Storage account name for source-container validation. Defaults to the account inferred from questions-url when possible."
+        required: false
+        type: string
+        default: ""
       questions-url:
         description: "HTTPS/SAS URL to the Video-MME parquet/jsonl metadata/questions file."
         required: true
@@ -357,19 +362,137 @@ jobs:
           print(f"Wrote {len(items)} ingest items to {out_path}")
           PY
 
+      - name: Validate sampled source blobs (full-pipeline)
+        if: ${{ inputs.mode == 'full-pipeline' }}
+        env:
+          VMME_LIMIT: ${{ inputs.limit }}
+          PREFLIGHT_VALIDATION_SAMPLE_SIZE: 25
+          QUESTIONS_URL: ${{ inputs.questions-url }}
+          SOURCE_CONTAINER: ${{ inputs.source-container }}
+          SOURCE_STORAGE_ACCOUNT: ${{ inputs.source-storage-account }}
+        run: |
+          RESOLVED_ACCOUNT="$SOURCE_STORAGE_ACCOUNT"
+          if [ -z "$RESOLVED_ACCOUNT" ]; then
+            RESOLVED_ACCOUNT=$(FILE_URL="$QUESTIONS_URL" python - <<'PY'
+          from urllib.parse import urlparse
+          import os
+
+          host = (urlparse(os.environ["FILE_URL"]).hostname or "").lower()
+          print(host.split(".", 1)[0] if host.endswith(".blob.core.windows.net") else "")
+          PY
+            )
+          fi
+
+          if [ -z "$RESOLVED_ACCOUNT" ]; then
+            echo "::warning::Skipping source blob preflight because the storage account could not be resolved. Set source-storage-account when questions-url is not hosted on the same Azure Blob account."
+            exit 0
+          fi
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          stage_dir = Path(os.environ["STAGE_DIR"])
+          payload = json.loads((stage_dir / "ingest-batch.json").read_text(encoding="utf-8"))
+          requested_limit = int(os.environ["VMME_LIMIT"])
+          validation_cap = int(os.environ["PREFLIGHT_VALIDATION_SAMPLE_SIZE"])
+          unique_blob_names = list(
+              dict.fromkeys(
+                  item["source_blob_name"]
+                  for item in payload["videos"]
+                  if item.get("source_blob_name")
+              )
+          )
+          blob_names = unique_blob_names
+          if requested_limit == 0 and len(unique_blob_names) > validation_cap:
+              blob_names = unique_blob_names[:validation_cap]
+              print(
+                  f"Prepared {len(blob_names)} of {len(unique_blob_names)} unique source blobs "
+                  "for preflight validation during full-set ingest."
+              )
+          else:
+              print(f"Prepared {len(blob_names)} unique source blobs for preflight validation.")
+          (stage_dir / "sampled-source-blobs.txt").write_text(
+              ("\n".join(blob_names) + "\n") if blob_names else "",
+              encoding="utf-8",
+          )
+          PY
+
+          missing=()
+          while IFS= read -r blob_name; do
+            if [ -z "$blob_name" ]; then
+              continue
+            fi
+            exists=$(az storage blob exists \
+              --auth-mode login \
+              --account-name "$RESOLVED_ACCOUNT" \
+              --container-name "$SOURCE_CONTAINER" \
+              --name "$blob_name" \
+              --query exists \
+              -o tsv)
+            if [ "$exists" != "true" ]; then
+              missing+=("$blob_name")
+            fi
+          done < "$STAGE_DIR/sampled-source-blobs.txt"
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Sampled source blobs are missing from ${RESOLVED_ACCOUNT}/${SOURCE_CONTAINER}"
+            printf ' - %s\n' "${missing[@]:0:20}"
+            if [ "${#missing[@]}" -gt 20 ]; then
+              echo " ... and $((${#missing[@]} - 20)) more"
+            fi
+            exit 1
+          fi
+
+          echo "Validated $(wc -l < "$STAGE_DIR/sampled-source-blobs.txt") sampled source blobs in ${RESOLVED_ACCOUNT}/${SOURCE_CONTAINER}"
+
       - name: Call benchmark ingest API (full-pipeline)
         if: ${{ inputs.mode == 'full-pipeline' }}
         env:
           API_BASE_URL: ${{ inputs.api-base-url }}
           BENCHMARK_API_TOKEN: ${{ secrets.BENCHMARK_API_TOKEN }}
         run: |
-          curl --fail-with-body -sS \
+          set +e
+          HTTP_STATUS=$(curl -sS \
             -H "Content-Type: application/json" \
             -H "X-Benchmark-Token: ${BENCHMARK_API_TOKEN}" \
             -X POST \
             --data @"$STAGE_DIR/ingest-batch.json" \
-            "${API_BASE_URL%/}/benchmark/ingest/batch" \
-            > "$STAGE_DIR/ingest-response.json"
+            -o "$STAGE_DIR/ingest-response.json" \
+            -w "%{http_code}" \
+            "${API_BASE_URL%/}/benchmark/ingest/batch")
+          CURL_EXIT=$?
+          set -e
+
+          if [ "$CURL_EXIT" -ne 0 ]; then
+            echo "::error::curl failed while calling the benchmark ingest API"
+            if [ -s "$STAGE_DIR/ingest-response.json" ]; then
+              cat "$STAGE_DIR/ingest-response.json"
+            fi
+            exit "$CURL_EXIT"
+          fi
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "::error::Benchmark ingest API returned HTTP $HTTP_STATUS"
+            if [ -s "$STAGE_DIR/ingest-response.json" ]; then
+              python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["STAGE_DIR"]) / "ingest-response.json"
+          raw = path.read_text(encoding="utf-8")
+          try:
+              print(json.dumps(json.loads(raw), indent=2))
+          except json.JSONDecodeError:
+              print(raw)
+          PY
+            else
+              echo "::error::Benchmark ingest API returned no response body"
+            fi
+            exit 1
+          fi
 
       - name: Poll benchmark ingest status (full-pipeline)
         if: ${{ inputs.mode == 'full-pipeline' }}
