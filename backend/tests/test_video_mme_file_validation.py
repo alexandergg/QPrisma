@@ -42,6 +42,15 @@ def test_load_questions_accepts_json_payload(tmp_path) -> None:
     assert rows == [{"video_id": "vid-1", "question": "What?"}]
 
 
+def test_load_questions_preserves_empty_questions_list_in_json_payload(tmp_path) -> None:
+    path = tmp_path / "questions.json"
+    path.write_text(json.dumps({"questions": [], "videos": [{"video_id": "vid-1"}]}), encoding="utf-8")
+
+    rows = _load_questions(path)
+
+    assert rows == []
+
+
 @pytest.mark.parametrize("loader", [_load_metadata, _load_questions])
 def test_parquet_loaders_wrap_corrupt_parquet_errors(tmp_path, loader) -> None:
     pytest.importorskip("pyarrow")

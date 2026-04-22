@@ -89,11 +89,11 @@ class VideoMMERecord:
 
 
 def _load_metadata(path: Path) -> list[VideoMMERecord]:
-    """Load Video-MME metadata from a parquet/jsonl/csv file.
+    """Load Video-MME metadata from a parquet/jsonl/json/csv file.
 
     The upstream HuggingFace dataset ships parquet, but operators may pre-stage
-    a smaller jsonl/csv when they only have a subset locally. We accept all
-    three to keep the ingest flexible.
+    a smaller jsonl/json/csv file when they only have a subset locally. We
+    accept all four to keep the ingest flexible.
     """
     suffix = path.suffix.lower()
     if suffix == ".parquet":

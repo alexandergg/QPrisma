@@ -90,7 +90,16 @@ def _load_questions(path: Path) -> list[dict[str, Any]]:
         raw = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(raw, list):
             return raw
-        return raw.get("questions") or raw.get("rows") or raw.get("videos", [])
+        questions = raw.get("questions")
+        if questions is not None:
+            return questions
+        rows = raw.get("rows")
+        if rows is not None:
+            return rows
+        videos = raw.get("videos")
+        if videos is not None:
+            return videos
+        return []
     raise ValueError(f"Unsupported questions format: {path.suffix}")
 
 
