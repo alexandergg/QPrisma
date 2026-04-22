@@ -172,27 +172,27 @@ jobs:
             local dest="$3"
             local parsed=()
             readarray -t parsed < <(FILE_URL="$url" python - <<'PY'
-            from urllib.parse import urlparse, unquote
-            import os
+          from urllib.parse import urlparse, unquote
+          import os
 
-            parsed = urlparse(os.environ["FILE_URL"])
-            host = (parsed.hostname or "").lower()
-            path = parsed.path.lstrip("/")
-            account = ""
-            container = ""
-            blob = ""
-            is_blob = False
-            if host.endswith(".blob.core.windows.net") and "/" in path:
-                container, blob = path.split("/", 1)
-                container = unquote(container)
-                blob = unquote(blob)
-                account = host.split(".", 1)[0]
-                is_blob = bool(account and container and blob)
-            print("azure-blob" if is_blob else "url")
-            print(account)
-            print(container)
-            print(blob)
-            PY
+          parsed = urlparse(os.environ["FILE_URL"])
+          host = (parsed.hostname or "").lower()
+          path = parsed.path.lstrip("/")
+          account = ""
+          container = ""
+          blob = ""
+          is_blob = False
+          if host.endswith(".blob.core.windows.net") and "/" in path:
+              container, blob = path.split("/", 1)
+              container = unquote(container)
+              blob = unquote(blob)
+              account = host.split(".", 1)[0]
+              is_blob = bool(account and container and blob)
+          print("azure-blob" if is_blob else "url")
+          print(account)
+          print(container)
+          print(blob)
+          PY
             )
             local download_method="${parsed[0]}"
             local account_name="${parsed[1]}"
@@ -238,27 +238,27 @@ jobs:
             local dest="$3"
             local parsed=()
             readarray -t parsed < <(FILE_URL="$url" python - <<'PY'
-            from urllib.parse import urlparse, unquote
-            import os
+          from urllib.parse import urlparse, unquote
+          import os
 
-            parsed = urlparse(os.environ["FILE_URL"])
-            host = (parsed.hostname or "").lower()
-            path = parsed.path.lstrip("/")
-            account = ""
-            container = ""
-            blob = ""
-            is_blob = False
-            if host.endswith(".blob.core.windows.net") and "/" in path:
-                container, blob = path.split("/", 1)
-                container = unquote(container)
-                blob = unquote(blob)
-                account = host.split(".", 1)[0]
-                is_blob = bool(account and container and blob)
-            print("azure-blob" if is_blob else "url")
-            print(account)
-            print(container)
-            print(blob)
-            PY
+          parsed = urlparse(os.environ["FILE_URL"])
+          host = (parsed.hostname or "").lower()
+          path = parsed.path.lstrip("/")
+          account = ""
+          container = ""
+          blob = ""
+          is_blob = False
+          if host.endswith(".blob.core.windows.net") and "/" in path:
+              container, blob = path.split("/", 1)
+              container = unquote(container)
+              blob = unquote(blob)
+              account = host.split(".", 1)[0]
+              is_blob = bool(account and container and blob)
+          print("azure-blob" if is_blob else "url")
+          print(account)
+          print(container)
+          print(blob)
+          PY
             )
             local download_method="${parsed[0]}"
             local account_name="${parsed[1]}"
