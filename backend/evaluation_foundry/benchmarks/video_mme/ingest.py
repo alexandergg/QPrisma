@@ -83,7 +83,7 @@ class VideoMMERecord:
 
     video_id: str
     duration_bucket: str
-    filename: str  # e.g. "<video_id>.mp4"
+    filename: str  # e.g. "<youtube_id>.mp4" (HuggingFace layout) or "<video_id>.mp4"
     domain: str | None = None
     sub_category: str | None = None
 
@@ -149,7 +149,20 @@ def _load_metadata(path: Path) -> list[VideoMMERecord]:
             .strip()
             .lower()
         )
-        filename = str(row.get("filename") or row.get("video_file") or f"{video_id}.mp4").strip()
+        # Filename resolution priority:
+        #   1. explicit `filename` / `video_file` column (operator-provided)
+        #   2. YouTube `videoID` / `youtube_id` (matches HuggingFace
+        #      videos_chunked_*.zip extraction layout, e.g. "fFjv93ACGo8.mp4")
+        #   3. canonical numeric `video_id` (fallback when no YouTube id is
+        #      available, e.g. custom metadata files)
+        explicit_filename = row.get("filename") or row.get("video_file")
+        youtube_id = row.get("videoID") or row.get("youtube_id")
+        if explicit_filename:
+            filename = str(explicit_filename).strip()
+        elif youtube_id and str(youtube_id).strip():
+            filename = f"{str(youtube_id).strip()}.mp4"
+        else:
+            filename = f"{video_id}.mp4"
         # One record per video — Video-MME has multiple Q rows per video.
         if video_id in records:
             continue
