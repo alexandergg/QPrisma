@@ -44,7 +44,9 @@ def test_load_questions_accepts_json_payload(tmp_path) -> None:
 
 def test_load_questions_preserves_empty_questions_list_in_json_payload(tmp_path) -> None:
     path = tmp_path / "questions.json"
-    path.write_text(json.dumps({"questions": [], "videos": [{"video_id": "vid-1"}]}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"questions": [], "videos": [{"video_id": "vid-1"}]}), encoding="utf-8"
+    )
 
     rows = _load_questions(path)
 
