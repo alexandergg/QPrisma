@@ -175,8 +175,12 @@ def register_evaluators(endpoint: str, *, dry_run: bool = False) -> int:
     registered = 0
     for cfg in ALL_EVALUATORS:
         name = cfg["name"]
+        # Pull version from config (default "1" for back-compat). Foundry treats
+        # "already exists" as a no-op, so prompt edits without a version bump
+        # silently fail to propagate — same trap as the code-based evaluators.
+        version = cfg.get("version", "1")
         try:
-            logger.info("Registering evaluator: %s", name)
+            logger.info("Registering evaluator: %s (version %s)", name, version)
             metric_name = name.split(".")[-1]  # e.g. "temporal_specificity"
             definition = PromptBasedEvaluatorDefinition(
                 prompt_text=cfg["prompt"],
@@ -191,22 +195,22 @@ def register_evaluators(endpoint: str, *, dry_run: bool = False) -> int:
                 },
             )
             evaluator_version = EvaluatorVersion(
-                version="1",
+                version=version,
                 display_name=cfg["display_name"],
                 description=cfg["description"],
                 definition=definition,
             )
             client.beta.evaluators.create_version(name, evaluator_version)
-            logger.info("  ✓ Registered: %s", name)
+            logger.info("  ✓ Registered: %s v%s", name, version)
             registered += 1
         except Exception as exc:
             # Check if it's an "already exists" error
             exc_str = str(exc).lower()
             if "already exists" in exc_str or "conflict" in exc_str:
-                logger.info("  → Already exists: %s (skipping)", name)
+                logger.info("  → Already exists: %s v%s (skipping)", name, version)
                 registered += 1
             else:
-                logger.error("  ✗ Failed to register %s: %s", name, exc)
+                logger.error("  ✗ Failed to register %s v%s: %s", name, version, exc)
 
     # Register deterministic / code-or-prompt-fallback evaluators (V3 + E1).
     for module in CODE_OR_PROMPT_EVALUATORS:

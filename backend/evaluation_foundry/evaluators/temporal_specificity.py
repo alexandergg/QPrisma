@@ -73,6 +73,13 @@ Provide your score as a single integer from 1 to 5.
 
 EVALUATOR_CONFIG = {
     "name": EVALUATOR_NAME,
+    # Bump on any change to ``prompt`` / ``display_name`` / ``description`` /
+    # metric range. ``register_evaluators`` treats Foundry's "already exists"
+    # response as success, so without a fresh version Foundry keeps serving
+    # the previous prompt revision forever. See the parallel
+    # ``EVALUATOR_VERSION`` constant on the code-based evaluators for full
+    # rationale (``video_mme_mcq.EVALUATOR_VERSION``).
+    "version": "1",
     "display_name": EVALUATOR_DISPLAY_NAME,
     "description": EVALUATOR_DESCRIPTION,
     "prompt": EVALUATOR_PROMPT,
