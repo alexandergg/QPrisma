@@ -335,9 +335,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         logger.info("Wrote %d JSONL rows to %s", len(rows), args.out)
     else:
-        raise SystemExit(
-            f"--out must end in .json or .jsonl, got: {args.out.name!r}"
-        )
+        raise SystemExit(f"--out must end in .json or .jsonl, got: {args.out.name!r}")
     return 0 if rows else 1
 
 

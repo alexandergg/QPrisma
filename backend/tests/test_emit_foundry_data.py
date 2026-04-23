@@ -47,10 +47,14 @@ def _write_fixtures(tmp_path: Path) -> tuple[Path, Path]:
 
 def _base_args(out: Path, manifest_path: Path, questions_path: Path) -> list[str]:
     return [
-        "--manifest", str(manifest_path),
-        "--questions", str(questions_path),
-        "--subtitle-modes", "without",
-        "--out", str(out),
+        "--manifest",
+        str(manifest_path),
+        "--questions",
+        str(questions_path),
+        "--subtitle-modes",
+        "without",
+        "--out",
+        str(out),
     ]
 
 
@@ -76,8 +80,11 @@ def test_emit_foundry_data_honors_evaluators_and_name_flags(tmp_path: Path) -> N
     out = tmp_path / "custom.json"
 
     args = _base_args(out, manifest_path, questions_path) + [
-        "--name", "custom-eval",
-        "--evaluators", "qprisma.video_mme_mcq", "another.eval",
+        "--name",
+        "custom-eval",
+        "--evaluators",
+        "qprisma.video_mme_mcq",
+        "another.eval",
     ]
     assert main(args) == 0
 
@@ -94,9 +101,7 @@ def test_emit_foundry_data_jsonl_backwards_compat(tmp_path: Path) -> None:
 
     assert rc == 0
     lines = [
-        json.loads(line)
-        for line in out.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in out.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
     assert lines, "expected at least one JSONL row"
     for row in lines:
