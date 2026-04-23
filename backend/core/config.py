@@ -350,9 +350,7 @@ class FoundrySettings(BaseSettings):
     )
     memory_embedding_model: str | None = Field(
         default=None,
-        validation_alias=AliasChoices(
-            "MEMORY_EMBEDDING_MODEL", "FOUNDRY_MEMORY_EMBEDDING_MODEL"
-        ),
+        validation_alias=AliasChoices("MEMORY_EMBEDDING_MODEL", "FOUNDRY_MEMORY_EMBEDDING_MODEL"),
         description="Embedding model deployment for memory search (e.g., text-embedding-3-large)",
     )
 
