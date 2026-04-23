@@ -51,6 +51,6 @@ def test_agent_yaml_responses_version_matches_deploy_script() -> None:
     )
     match = pattern.search(manifest)
     assert match, f"Could not find responses protocol version in {AGENT_MANIFEST}"
-    assert match.group(1) == "1.0.0", (
-        f"agent.yaml responses version must equal '1.0.0'; got: {match.group(1)}"
-    )
+    assert (
+        match.group(1) == "1.0.0"
+    ), f"agent.yaml responses version must equal '1.0.0'; got: {match.group(1)}"
