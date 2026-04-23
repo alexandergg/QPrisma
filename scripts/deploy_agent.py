@@ -215,7 +215,7 @@ def main() -> None:
 
     definition = ImageBasedHostedAgentDefinition(
         container_protocol_versions=[
-            ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="v1"),
+            ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="1.0.0"),
             ProtocolVersionRecord(protocol="a2a", version="v0.2.1"),
         ],
         cpu="3.5",
