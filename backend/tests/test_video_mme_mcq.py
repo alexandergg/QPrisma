@@ -89,9 +89,9 @@ def test_code_text_exposes_top_level_grade_function() -> None:
     assert callable(namespace["grade"])
     # A wrong name (e.g. ``evaluate``) must NOT be left lying around: Foundry
     # only inspects ``grade`` and would silently ignore the rest.
-    assert "evaluate" not in namespace, (
-        "Found stale `evaluate` symbol — rename to `grade` and remove the alias."
-    )
+    assert (
+        "evaluate" not in namespace
+    ), "Found stale `evaluate` symbol — rename to `grade` and remove the alias."
 
 
 def test_evaluator_version_is_bumped_when_code_changes() -> None:
@@ -106,9 +106,9 @@ def test_evaluator_version_is_bumped_when_code_changes() -> None:
     bump trips the assertion. When intentionally bumping, update both this
     pinned value and ``EVALUATOR_VERSION`` in lockstep.
     """
-    assert video_mme_mcq.EVALUATOR_VERSION == "2", (
-        "If you changed CODE_TEXT, bump EVALUATOR_VERSION and update this test."
-    )
+    assert (
+        video_mme_mcq.EVALUATOR_VERSION == "2"
+    ), "If you changed CODE_TEXT, bump EVALUATOR_VERSION and update this test."
 
 
 def test_metric_is_primary_and_in_range() -> None:
