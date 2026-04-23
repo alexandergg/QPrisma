@@ -145,10 +145,36 @@ def test_code_text_is_self_contained() -> None:
     """The CODE_TEXT registered server-side must execute in a fresh namespace."""
     namespace: dict = {}
     exec(long_context_grounding.CODE_TEXT, namespace)  # noqa: S102 — testing inlined runtime code
-    evaluate = namespace["evaluate"]
-    assert evaluate("Look at [00:30].") == {"long_context_grounding": 1.0}
-    assert evaluate("It happens near the end.") == {"long_context_grounding": 0.5}
-    assert evaluate("Just an answer.") == {"long_context_grounding": 0.0}
+    # Foundry's python_grader requires the entry point literally named ``grade``;
+    # leaving a stale ``evaluate`` symbol would silently regress to the old bug.
+    assert "grade" in namespace, (
+        "CODE_TEXT must expose a top-level `grade` function — Foundry rejects "
+        "sources without it."
+    )
+    assert (
+        "evaluate" not in namespace
+    ), "Found stale `evaluate` symbol — rename to `grade` and remove the alias."
+    grade = namespace["grade"]
+    assert grade("Look at [00:30].") == {"long_context_grounding": 1.0}
+    assert grade("It happens near the end.") == {"long_context_grounding": 0.5}
+    assert grade("Just an answer.") == {"long_context_grounding": 0.0}
+
+
+def test_evaluator_version_is_bumped_when_code_changes() -> None:
+    """``EVALUATOR_VERSION`` must change whenever ``CODE_TEXT`` changes.
+
+    ``register_evaluators._register_code_or_prompt_evaluator`` treats Foundry's
+    "already exists" response as a no-op success, so a stale version keeps
+    serving the previous ``code_text``. Anyone editing ``CODE_TEXT`` MUST also
+    bump ``EVALUATOR_VERSION`` to force Foundry to publish a new revision.
+
+    This test pins the current version so a CODE_TEXT change without a version
+    bump trips the assertion. When intentionally bumping, update both this
+    pinned value and ``EVALUATOR_VERSION`` in lockstep.
+    """
+    assert (
+        long_context_grounding.EVALUATOR_VERSION == "2"
+    ), "If you changed CODE_TEXT, bump EVALUATOR_VERSION and update this test."
 
 
 def test_code_definition_kwargs_shape() -> None:

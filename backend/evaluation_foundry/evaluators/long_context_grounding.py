@@ -48,6 +48,13 @@ EVALUATOR_DESCRIPTION = (
     "frame indices). 1.0 = ≥1 precise citation; 0.5 = soft temporal reference only; "
     "0.0 = no grounding."
 )
+# See ``video_mme_mcq.EVALUATOR_VERSION`` for rationale. Bump on any
+# ``CODE_TEXT`` change so Foundry publishes a fresh revision instead of
+# silently returning "already exists" and serving the stale code.
+# v1: original ``evaluate()`` entry point — rejected by Foundry's
+#     PythonGrader ("top-level grade() function not found in source").
+# v2: rename to ``grade()`` to match Foundry's required entry point.
+EVALUATOR_VERSION = "2"
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +103,7 @@ def _has_precise_citation(response):
     return False
 
 
-def evaluate(response, **kwargs):
+def grade(response, **kwargs):
     text = response or ""
     if _has_precise_citation(text):
         return {"long_context_grounding": 1.0}
