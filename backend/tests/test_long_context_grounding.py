@@ -151,9 +151,9 @@ def test_code_text_is_self_contained() -> None:
         "CODE_TEXT must expose a top-level `grade` function — Foundry rejects "
         "sources without it."
     )
-    assert "evaluate" not in namespace, (
-        "Found stale `evaluate` symbol — rename to `grade` and remove the alias."
-    )
+    assert (
+        "evaluate" not in namespace
+    ), "Found stale `evaluate` symbol — rename to `grade` and remove the alias."
     grade = namespace["grade"]
     assert grade("Look at [00:30].") == {"long_context_grounding": 1.0}
     assert grade("It happens near the end.") == {"long_context_grounding": 0.5}
@@ -172,9 +172,9 @@ def test_evaluator_version_is_bumped_when_code_changes() -> None:
     bump trips the assertion. When intentionally bumping, update both this
     pinned value and ``EVALUATOR_VERSION`` in lockstep.
     """
-    assert long_context_grounding.EVALUATOR_VERSION == "2", (
-        "If you changed CODE_TEXT, bump EVALUATOR_VERSION and update this test."
-    )
+    assert (
+        long_context_grounding.EVALUATOR_VERSION == "2"
+    ), "If you changed CODE_TEXT, bump EVALUATOR_VERSION and update this test."
 
 
 def test_code_definition_kwargs_shape() -> None:
