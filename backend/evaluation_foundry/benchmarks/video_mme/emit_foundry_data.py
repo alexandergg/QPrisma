@@ -1,4 +1,4 @@
-"""Emit a Foundry JSONL data file from a Video-MME manifest (V2).
+"""Emit a Foundry-compatible eval data file from a Video-MME manifest (V2).
 
 Reads:
 
@@ -7,7 +7,7 @@ Reads:
 * the Video-MME questions parquet (``lmms-lab/Video-MME``) staged under
   ``data/datasets/_private/video_mme/``.
 
-Emits one JSONL row per (question × subtitle_mode) using the **verbatim
+Builds one row per (question x subtitle_mode) using the **verbatim
 Video-MME prompt template** the upstream leaderboard expects::
 
     Question: <question>
@@ -21,11 +21,22 @@ Video-MME prompt template** the upstream leaderboard expects::
 The query is wrapped with the existing ``[QPRISMA_CONTEXT:{user_id, media_ids}]``
 envelope (already parsed by the agent) and an additive
 ``[QPRISMA_BENCH:{eval_mode, format, with_subtitles, duration_bucket}]``
-envelope (additive — non-benchmark code paths ignore it).
+envelope (additive; non-benchmark code paths ignore it).
 
-Output schema matches what ``microsoft/ai-agent-evals`` consumes::
+Per-row schema::
 
     {"query": "...", "ground_truth": "C", "metadata": {...}}
+
+Output format is selected by the ``--out`` suffix:
+
+* ``.json`` writes a single wrapped object
+  ``{"name": ..., "evaluators": [...], "data": [<rows>]}`` matching what
+  ``microsoft/ai-agent-evals`` reads via ``json.loads(data_path.read_text())``.
+  This is the format used by the Video-MME GitHub Actions workflows.
+* ``.jsonl`` writes one row per line (legacy / local tooling).
+
+Any other suffix is rejected so callers fail fast instead of silently
+producing a file the upstream action cannot parse.
 """
 
 from __future__ import annotations

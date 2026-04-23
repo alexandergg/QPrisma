@@ -574,7 +574,7 @@ jobs:
           )
           PY
 
-      - name: Emit Foundry JSONL
+      - name: Emit Foundry eval data
         working-directory: backend
         run: |
           MODES="${{ inputs.video-mme-subtitle-modes }}"
