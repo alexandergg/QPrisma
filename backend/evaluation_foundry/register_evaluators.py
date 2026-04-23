@@ -77,6 +77,12 @@ def _register_code_or_prompt_evaluator(client, models_module, evaluator_module) 
         is_primary=metric_kwargs["is_primary"],
     )
     metric_name = evaluator_module.CODE_DEFINITION_KWARGS["metric_name"]
+    # Each evaluator module may declare its own version string. Bumping it on a
+    # source change is required because ``create_version`` returns "already
+    # exists" for an existing version and Foundry then keeps serving the stale
+    # ``code_text``/``prompt_text``. Default of "1" preserves prior behavior
+    # for evaluators that have not yet adopted ``EVALUATOR_VERSION``.
+    version = getattr(evaluator_module, "EVALUATOR_VERSION", "1")
 
     code_def_cls = getattr(models_module, "CodeBasedEvaluatorDefinition", None)
     if code_def_cls is not None:
@@ -90,18 +96,18 @@ def _register_code_or_prompt_evaluator(client, models_module, evaluator_module) 
             client.beta.evaluators.create_version(
                 name,
                 EvaluatorVersion(
-                    version="1",
+                    version=version,
                     display_name=evaluator_module.EVALUATOR_DISPLAY_NAME,
                     description=evaluator_module.EVALUATOR_DESCRIPTION,
                     definition=definition,
                 ),
             )
-            logger.info("  ✓ Registered (code-based): %s", name)
+            logger.info("  ✓ Registered (code-based): %s v%s", name, version)
             return True
         except Exception as exc:
             exc_str = str(exc).lower()
             if "already exists" in exc_str or "conflict" in exc_str:
-                logger.info("  → Already exists: %s (skipping)", name)
+                logger.info("  → Already exists: %s v%s (skipping)", name, version)
                 return True
             logger.warning("  Code-based registration failed (%s); trying prompt fallback", exc)
 
@@ -115,13 +121,13 @@ def _register_code_or_prompt_evaluator(client, models_module, evaluator_module) 
         client.beta.evaluators.create_version(
             name,
             EvaluatorVersion(
-                version="1",
+                version=version,
                 display_name=cfg["display_name"],
                 description=cfg["description"],
                 definition=definition,
             ),
         )
-        logger.info("  ✓ Registered (prompt fallback): %s", name)
+        logger.info("  ✓ Registered (prompt fallback): %s v%s", name, version)
         return True
     except Exception as exc:
         exc_str = str(exc).lower()

@@ -30,6 +30,13 @@ EVALUATOR_DESCRIPTION = (
     "Deterministic letter exact-match for Video-MME multiple-choice questions. "
     "Returns 1.0 if the first A/B/C/D in the response matches ground_truth, else 0.0."
 )
+# Bump this string whenever ``CODE_TEXT`` (or any registered field) changes —
+# Foundry's ``create_version`` is a no-op when the version already exists, so a
+# stale version will keep serving the previous ``code_text`` forever.
+# v1: original ``evaluate()`` entry point — REJECTED by Foundry's PythonGrader
+#     ("top-level grade() function not found in source").
+# v2: rename to ``grade()`` to match Foundry's required entry point name.
+EVALUATOR_VERSION = "2"
 
 # ---------------------------------------------------------------------------
 # Pure-Python scorer (also re-used by tests)
@@ -84,8 +91,12 @@ import re
 _LETTER_RE = re.compile(r"\\b([A-D])\\b")
 
 
-def evaluate(response: str = "", ground_truth: str = "", **_):
-    """Return {"accuracy": 1.0 | 0.0} for Video-MME letter exact-match."""
+def grade(response: str = "", ground_truth: str = "", **_):
+    """Return {"accuracy": 1.0 | 0.0} for Video-MME letter exact-match.
+
+    Foundry's Azure OpenAI ``python_grader`` requires the entry point to be a
+    top-level function literally named ``grade``.
+    """
     if not ground_truth:
         return {"accuracy": 0.0}
     if not response:
