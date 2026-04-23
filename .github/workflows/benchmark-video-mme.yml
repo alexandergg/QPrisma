@@ -31,7 +31,7 @@ on:
         type: string
         default: ""
       source-storage-account:
-        description: "Optional Azure Storage account name for source-container validation. Defaults to the account inferred from questions-url when possible."
+        description: "Optional Azure Storage account name for source-container validation (e.g., 'stqprismadev'). A *.blob.core.windows.net hostname or full blob URL is also accepted and will be normalized to the account name. Do NOT pass the QPrisma API base URL. Leave empty to infer from questions-url when it is hosted on Azure Blob."
         required: false
         type: string
         default: ""
@@ -371,17 +371,56 @@ jobs:
           SOURCE_CONTAINER: ${{ inputs.source-container }}
           SOURCE_STORAGE_ACCOUNT: ${{ inputs.source-storage-account }}
         run: |
-          RESOLVED_ACCOUNT="$SOURCE_STORAGE_ACCOUNT"
-          if [ -z "$RESOLVED_ACCOUNT" ]; then
-            RESOLVED_ACCOUNT=$(FILE_URL="$QUESTIONS_URL" python - <<'PY'
-          from urllib.parse import urlparse
+          RESOLVED_ACCOUNT=$(SOURCE_STORAGE_ACCOUNT="$SOURCE_STORAGE_ACCOUNT" QUESTIONS_URL_VALUE="$QUESTIONS_URL" python - <<'PY'
           import os
+          import re
+          import sys
+          from urllib.parse import urlparse
 
-          host = (urlparse(os.environ["FILE_URL"]).hostname or "").lower()
-          print(host.split(".", 1)[0] if host.endswith(".blob.core.windows.net") else "")
+          BLOB_SUFFIX = ".blob.core.windows.net"
+          ACCOUNT_RE = re.compile(r"^[a-z0-9]{3,24}$")
+
+
+          def normalize(raw: str) -> str:
+              value = (raw or "").strip()
+              if not value:
+                  return ""
+              # Accept full URLs or scheme-less hostnames.
+              candidate = value
+              if "://" not in candidate and "/" in candidate:
+                  candidate = candidate.split("/", 1)[0]
+              if "://" in candidate or candidate.endswith(BLOB_SUFFIX):
+                  parsed = urlparse(candidate if "://" in candidate else f"https://{candidate}")
+                  host = (parsed.hostname or "").lower()
+                  if host.endswith(BLOB_SUFFIX):
+                      return host[: -len(BLOB_SUFFIX)].split(".", 1)[0]
+                  print(
+                      f"::error::source-storage-account '{value}' is not an Azure Blob endpoint. "
+                      "Pass a storage account name (e.g., 'stqprismadev') or a *.blob.core.windows.net URL. "
+                      "Do NOT pass the QPrisma API base URL.",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+              # Bare token: must look like a valid storage account name.
+              lowered = candidate.lower()
+              if not ACCOUNT_RE.match(lowered):
+                  print(
+                      f"::error::source-storage-account '{value}' is not a valid Azure Storage account name "
+                      "(3-24 lowercase letters/digits) and is not a *.blob.core.windows.net URL.",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+              return lowered
+
+
+          explicit = normalize(os.environ.get("SOURCE_STORAGE_ACCOUNT", ""))
+          if explicit:
+              print(explicit)
+          else:
+              host = (urlparse(os.environ.get("QUESTIONS_URL_VALUE", "")).hostname or "").lower()
+              print(host[: -len(BLOB_SUFFIX)].split(".", 1)[0] if host.endswith(BLOB_SUFFIX) else "")
           PY
-            )
-          fi
+          )
 
           if [ -z "$RESOLVED_ACCOUNT" ]; then
             echo "::warning::Skipping source blob preflight because the storage account could not be resolved. Set source-storage-account when questions-url is not hosted on the same Azure Blob account."
