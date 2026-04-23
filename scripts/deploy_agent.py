@@ -49,6 +49,23 @@ def _optional_env(key: str, *, env: Mapping[str, str] | None = None) -> dict[str
     return {key: value} if value else {}
 
 
+def _optional_env_aliased(
+    target: str, *sources: str, env: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Return ``{target: value}`` reading from the first source key that is set.
+
+    Used to accept legacy env names (e.g. ``FOUNDRY_MEMORY_*``) while emitting
+    under the payload-safe key (``MEMORY_*``) since ``FOUNDRY_*`` / ``AGENT_*``
+    are reserved by the hosted-agent platform.
+    """
+    source = os.environ if env is None else env
+    for key in (target, *sources):
+        value = source.get(key, "")
+        if value:
+            return {target: value}
+    return {}
+
+
 def build_environment_variables(
     *, account_name: str = ACCOUNT_NAME, env: Mapping[str, str] | None = None
 ) -> dict[str, str]:
@@ -73,7 +90,8 @@ def build_environment_variables(
         "AZURE_USE_MANAGED_IDENTITY": source.get("AZURE_USE_MANAGED_IDENTITY", "true"),
         "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
         # --- Telemetry ---
-        **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING", env=source),
+        # NOTE: APPLICATIONINSIGHTS_CONNECTION_STRING is reserved by the Foundry
+        # hosted-agent platform and auto-injected; do not set it here.
         **_optional_env("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", env=source),
         **_optional_env("OTEL_SERVICE_NAME", env=source),
         # --- Neo4j Knowledge Graph ---
@@ -88,9 +106,15 @@ def build_environment_variables(
         # --- Azure Blob Storage ---
         **_optional_env("AZURE_STORAGE_CONNECTION_STRING", env=source),
         # --- Foundry Memory Store ---
-        **_optional_env("FOUNDRY_MEMORY_STORE_NAME", env=source),
-        **_optional_env("FOUNDRY_MEMORY_CHAT_MODEL", env=source),
-        **_optional_env("FOUNDRY_MEMORY_EMBEDDING_MODEL", env=source),
+        # NOTE: FOUNDRY_* and AGENT_* prefixes are reserved by the hosted-agent
+        # platform; we emit under MEMORY_* (which the backend FoundrySettings
+        # accepts via AliasChoices) but also accept the legacy FOUNDRY_MEMORY_*
+        # names as input so exporters using those env vars still work.
+        **_optional_env_aliased("MEMORY_STORE_NAME", "FOUNDRY_MEMORY_STORE_NAME", env=source),
+        **_optional_env_aliased("MEMORY_CHAT_MODEL", "FOUNDRY_MEMORY_CHAT_MODEL", env=source),
+        **_optional_env_aliased(
+            "MEMORY_EMBEDDING_MODEL", "FOUNDRY_MEMORY_EMBEDDING_MODEL", env=source
+        ),
         # --- Response mode (eval-friendly output) ---
         **_optional_env("QPRISMA_RESPONSE_MODE", env=source),
     }
@@ -218,8 +242,10 @@ def main() -> None:
             ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="1.0.0"),
             ProtocolVersionRecord(protocol="a2a", version="v0.2.1"),
         ],
-        cpu="3.5",
-        memory="7Gi",
+        # Foundry hosted-agent valid sandbox tiers:
+        # (0.25, 0.5Gi), (0.5, 1Gi), (1, 2Gi), (2, 4Gi). 2 / 4Gi is the max.
+        cpu="2",
+        memory="4Gi",
         image=container_image,
         environment_variables=environment_variables,
     )

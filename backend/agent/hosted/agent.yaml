@@ -63,12 +63,14 @@ template:
       secretKeyVaultUri: ${STORAGE_CONNECTION_KV_URI}
 
     # --- Foundry Memory Store ---
-    - name: FOUNDRY_MEMORY_STORE_NAME
-      value: "${FOUNDRY_MEMORY_STORE_NAME}"
-    - name: FOUNDRY_MEMORY_CHAT_MODEL
-      value: "${FOUNDRY_MEMORY_CHAT_MODEL}"
-    - name: FOUNDRY_MEMORY_EMBEDDING_MODEL
-      value: "${FOUNDRY_MEMORY_EMBEDDING_MODEL}"
+    # FOUNDRY_* and AGENT_* prefixes are reserved by the hosted-agent platform,
+    # so we expose memory-store config under non-reserved MEMORY_* names.
+    - name: MEMORY_STORE_NAME
+      value: "${MEMORY_STORE_NAME}"
+    - name: MEMORY_CHAT_MODEL
+      value: "${MEMORY_CHAT_MODEL}"
+    - name: MEMORY_EMBEDDING_MODEL
+      value: "${MEMORY_EMBEDDING_MODEL}"
 
     # --- Application ---
     - name: ENVIRONMENT
@@ -77,8 +79,8 @@ template:
       value: "INFO"
 
     # --- Telemetry / Tracing ---
-    - name: APPLICATIONINSIGHTS_CONNECTION_STRING
-      value: ${APPLICATIONINSIGHTS_CONNECTION_STRING}
+    # APPLICATIONINSIGHTS_CONNECTION_STRING is reserved and auto-injected by
+    # the Foundry hosted-agent platform; do not declare it here.
 
 resources:
   - kind: model

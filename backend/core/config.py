@@ -335,16 +335,22 @@ class FoundrySettings(BaseSettings):
         default=None,
         description="Name of the hosted agent in Foundry",
     )
+    # Memory-store fields use a non-reserved env name (MEMORY_*) because
+    # the FOUNDRY_* prefix is reserved by the Foundry hosted-agent platform.
+    # The legacy FOUNDRY_MEMORY_* names remain accepted for local dev / .env.
     memory_store_name: str | None = Field(
         default=None,
+        validation_alias=AliasChoices("MEMORY_STORE_NAME", "FOUNDRY_MEMORY_STORE_NAME"),
         description="Name of the Foundry Memory Store for long-term user memory",
     )
     memory_chat_model: str | None = Field(
         default=None,
+        validation_alias=AliasChoices("MEMORY_CHAT_MODEL", "FOUNDRY_MEMORY_CHAT_MODEL"),
         description="Chat model deployment for memory extraction (e.g., gpt-4o)",
     )
     memory_embedding_model: str | None = Field(
         default=None,
+        validation_alias=AliasChoices("MEMORY_EMBEDDING_MODEL", "FOUNDRY_MEMORY_EMBEDDING_MODEL"),
         description="Embedding model deployment for memory search (e.g., text-embedding-3-large)",
     )
 
