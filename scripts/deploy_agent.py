@@ -73,7 +73,8 @@ def build_environment_variables(
         "AZURE_USE_MANAGED_IDENTITY": source.get("AZURE_USE_MANAGED_IDENTITY", "true"),
         "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
         # --- Telemetry ---
-        **_optional_env("APPLICATIONINSIGHTS_CONNECTION_STRING", env=source),
+        # NOTE: APPLICATIONINSIGHTS_CONNECTION_STRING is reserved by the Foundry
+        # hosted-agent platform and auto-injected; do not set it here.
         **_optional_env("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", env=source),
         **_optional_env("OTEL_SERVICE_NAME", env=source),
         # --- Neo4j Knowledge Graph ---
@@ -88,9 +89,12 @@ def build_environment_variables(
         # --- Azure Blob Storage ---
         **_optional_env("AZURE_STORAGE_CONNECTION_STRING", env=source),
         # --- Foundry Memory Store ---
-        **_optional_env("FOUNDRY_MEMORY_STORE_NAME", env=source),
-        **_optional_env("FOUNDRY_MEMORY_CHAT_MODEL", env=source),
-        **_optional_env("FOUNDRY_MEMORY_EMBEDDING_MODEL", env=source),
+        # NOTE: FOUNDRY_* and AGENT_* prefixes are reserved by the hosted-agent
+        # platform; we use the MEMORY_* names which the backend FoundrySettings
+        # accepts via AliasChoices.
+        **_optional_env("MEMORY_STORE_NAME", env=source),
+        **_optional_env("MEMORY_CHAT_MODEL", env=source),
+        **_optional_env("MEMORY_EMBEDDING_MODEL", env=source),
         # --- Response mode (eval-friendly output) ---
         **_optional_env("QPRISMA_RESPONSE_MODE", env=source),
     }
@@ -218,8 +222,10 @@ def main() -> None:
             ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="1.0.0"),
             ProtocolVersionRecord(protocol="a2a", version="v0.2.1"),
         ],
-        cpu="3.5",
-        memory="7Gi",
+        # Foundry hosted-agent valid sandbox tiers:
+        # (0.25, 0.5Gi), (0.5, 1Gi), (1, 2Gi), (2, 4Gi). 2 / 4Gi is the max.
+        cpu="2",
+        memory="4Gi",
         image=container_image,
         environment_variables=environment_variables,
     )

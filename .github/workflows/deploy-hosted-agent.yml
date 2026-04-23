@@ -235,20 +235,8 @@ jobs:
             echo "::warning::Capability host not confirmed ready after ${MAX_WAIT}s. Proceeding anyway."
           fi
 
-      - name: Resolve App Insights connection string
-        id: appinsights
-        run: |
-          RG="${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}"
-          APPI_NAME="appi-qprisma-dev"
-          CONN_STR=$(az monitor app-insights component show \
-            --app "$APPI_NAME" --resource-group "$RG" \
-            --query "connectionString" -o tsv 2>/dev/null || echo "")
-          echo "connection_string=$CONN_STR" >> $GITHUB_OUTPUT
-          if [ -z "$CONN_STR" ]; then
-            echo "::warning::App Insights not found. Hosted agent telemetry will be disabled."
-          else
-            echo "App Insights connection string resolved"
-          fi
+      # App Insights connection string is auto-injected by the Foundry
+      # hosted-agent platform; we do not resolve or pass it ourselves.
 
       - name: Resolve backend service endpoints
         id: services
@@ -315,7 +303,8 @@ jobs:
           AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION || '2024-08-01-preview' }}
           AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-4o' }}
           AZURE_OPENAI_DEPLOYMENT_EMBEDDING: ${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING || 'text-embedding-3-large' }}
-          APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ steps.appinsights.outputs.connection_string }}
+          # APPLICATIONINSIGHTS_CONNECTION_STRING is reserved by the hosted-agent
+          # platform and auto-injected; do not pass it here.
           OTEL_SERVICE_NAME: qprisma-hosted-agent
           # Neo4j Knowledge Graph
           NEO4J_URI: ${{ secrets.NEO4J_URI }}
@@ -341,4 +330,4 @@ jobs:
           echo "| Version | ${{ steps.register.outputs.agent_version }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Running | ${{ steps.register.outputs.agent_running }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Method | Python SDK (AIProjectClient) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Resources | 3.5 CPU, 7Gi RAM |" >> $GITHUB_STEP_SUMMARY
+          echo "| Resources | 2 CPU, 4Gi RAM |" >> $GITHUB_STEP_SUMMARY
