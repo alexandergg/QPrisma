@@ -14,8 +14,8 @@ run completes.
 | Agent input tokens | ~3,000 | MCQ prompt + retrieved context (frames metadata, captions, graph hits) |
 | Agent output tokens | ~10 | Single-letter answer (`A`/`B`/`C`/`D`) per Video-MME prompt template |
 | Tool call overhead | ~2,000 | Average across `search_*`, `analyze_*`, hybrid retrieval |
-| Judge tokens (V3) | 0 | `qprisma.video_mme_mcq` is deterministic regex on the agent answer; **no judge call** in the code-based path |
-| Judge tokens (V3 fallback) | ~200 in / ~5 out | Only if SDK lacks `CodeBasedEvaluatorDefinition` and we use the prompt-judge fallback |
+| Judge tokens (deterministic path) | 0 | `qprisma.video_mme_mcq` is deterministic regex on the agent answer; **no judge call** in the code-based path |
+| Judge tokens (prompt fallback) | ~200 in / ~5 out | Only if SDK lacks `CodeBasedEvaluatorDefinition` and we use the prompt-judge fallback |
 | Storage write | 0 | Agent reads from the warm Postgres/Neo4j/Redis state; no new artifacts persisted per row |
 
 ### Per-run totals

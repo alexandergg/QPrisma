@@ -1,6 +1,6 @@
 """Video-MME MCQ evaluator (``qprisma.video_mme_mcq``).
 
-Deterministic letter exact-match evaluator (V3 in the plan).
+Deterministic letter exact-match evaluator.
 
 The agent is instructed by the verbatim Video-MME prompt template to respond
 **only** with the letter A/B/C/D. We extract the first such letter from the
@@ -36,7 +36,9 @@ EVALUATOR_DESCRIPTION = (
 # v1: original ``evaluate()`` entry point — REJECTED by Foundry's PythonGrader
 #     ("top-level grade() function not found in source").
 # v2: rename to ``grade()`` to match Foundry's required entry point name.
-EVALUATOR_VERSION = "2"
+# v5: republish a clean deterministic grader above the stale remote v4 revision
+#     that Foundry CI was still resolving by name.
+EVALUATOR_VERSION = "5"
 
 # ---------------------------------------------------------------------------
 # Pure-Python scorer (also re-used by tests)

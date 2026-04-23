@@ -66,6 +66,13 @@ This mode automates **both** V0 and V3.5:
 5. Build `manifest.json` via `POST /benchmark/manifest`
 6. Emit a Foundry-compatible eval data file (`video-mme-eval.json`) and run `microsoft/ai-agent-evals`
 
+> **Evaluator versioning:** the Video-MME eval payload currently passes evaluator
+> names, not explicit evaluator-version IDs, and `microsoft/ai-agent-evals`
+> resolves those names through the Foundry evaluator catalog. In practice that
+> means the workflow uses the latest published `qprisma.video_mme_mcq` revision,
+> so any `CODE_TEXT` change must bump `EVALUATOR_VERSION` and the registration
+> step must fail loudly if publication does not succeed.
+
 Example dispatch:
 
 ```bash

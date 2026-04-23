@@ -19,7 +19,8 @@ quarterly red-team) and by the `qprisma.long_context_grounding` evaluator.
 
 - `video_mme_overall` — accuracy on the full 2,700-question Video-MME set (mean
   of `with_subtitles` and `without_subtitles`). Comparable to the public Video-MME
-  leaderboard. Source: `qprisma.video_mme_mcq` evaluator (V3).
+  leaderboard. Source: the latest published `qprisma.video_mme_mcq` evaluator
+  revision in the Foundry catalog.
 - `video_mme_long` — accuracy on the long-duration bucket only. This is the
   primary signal for QPrisma's long-context retrieval pipeline (Neo4j +
   hierarchical context + hybrid search).
