@@ -212,7 +212,7 @@ def register_evaluators(endpoint: str, *, dry_run: bool = False) -> int:
             else:
                 logger.error("  ✗ Failed to register %s v%s: %s", name, version, exc)
 
-    # Register deterministic / code-or-prompt-fallback evaluators (V3 + E1).
+    # Register deterministic / code-or-prompt-fallback evaluators.
     for module in CODE_OR_PROMPT_EVALUATORS:
         logger.info("Registering evaluator: %s", module.EVALUATOR_NAME)
         if _register_code_or_prompt_evaluator(client, projects_models, module):

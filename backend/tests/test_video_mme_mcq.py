@@ -107,7 +107,7 @@ def test_evaluator_version_is_bumped_when_code_changes() -> None:
     pinned value and ``EVALUATOR_VERSION`` in lockstep.
     """
     assert (
-        video_mme_mcq.EVALUATOR_VERSION == "2"
+        video_mme_mcq.EVALUATOR_VERSION == "5"
     ), "If you changed CODE_TEXT, bump EVALUATOR_VERSION and update this test."
 
 

@@ -644,7 +644,7 @@ jobs:
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
         run: |
-          python -m evaluation_foundry.register_evaluators || echo "::warning::evaluator registration returned non-zero (may already exist)"
+          python -m evaluation_foundry.register_evaluators
 
       - name: Azure Login (OIDC)
         uses: azure/login@v2
