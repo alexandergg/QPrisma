@@ -574,18 +574,19 @@ jobs:
           )
           PY
 
-      - name: Emit Foundry JSONL
+      - name: Emit Foundry eval data
         working-directory: backend
         run: |
-          # Convert "with without" -> "with without" tokens for argparse nargs
           MODES="${{ inputs.video-mme-subtitle-modes }}"
           python -m evaluation_foundry.benchmarks.video_mme.emit_foundry_data \
             --manifest "$STAGE_DIR/manifest.json" \
             --questions "$STAGE_DIR/$QFILE" \
             --subtitle-modes $MODES \
             --limit ${{ inputs.video-mme-limit }} \
-            --out "$STAGE_DIR/video-mme-eval.jsonl"
-          echo "Emitted $(wc -l <"$STAGE_DIR/video-mme-eval.jsonl") rows"
+            --name video-mme \
+            --evaluators qprisma.video_mme_mcq \
+            --out "$STAGE_DIR/video-mme-eval.json"
+          echo "Emitted $(jq '.data | length' "$STAGE_DIR/video-mme-eval.json") rows"
 
       - name: Register Video-MME custom evaluator
         working-directory: backend
@@ -630,7 +631,7 @@ jobs:
         with:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
-          data-path: ${{ runner.temp }}/vmme/video-mme-eval.jsonl
+          data-path: ${{ runner.temp }}/vmme/video-mme-eval.json
           deployment-name: gpt-4o
 
       - name: Cleanup token refresh
@@ -642,7 +643,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: video-mme-inputs
-          path: ${{ runner.temp }}/vmme/video-mme-eval.jsonl
+          path: ${{ runner.temp }}/vmme/video-mme-eval.json
           retention-days: 30
           if-no-files-found: warn
 

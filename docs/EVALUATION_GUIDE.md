@@ -64,7 +64,7 @@ This mode automates **both** V0 and V3.5:
 3. Call `POST /benchmark/ingest/batch` with `{source_container, source_blob_name, benchmark_video_id}`
 4. Poll `GET /benchmark/status` until all videos are `completed`
 5. Build `manifest.json` via `POST /benchmark/manifest`
-6. Emit Foundry JSONL and run `microsoft/ai-agent-evals`
+6. Emit a Foundry-compatible eval data file (`video-mme-eval.json`) and run `microsoft/ai-agent-evals`
 
 Example dispatch:
 
@@ -98,6 +98,8 @@ gh workflow run benchmark-video-mme.yml \
 ```
 
 This mode skips ingest entirely and reuses the staged manifest/questions flow, preferring Azure-authenticated blob downloads for Azure Blob URLs and falling back to direct HTTPS/SAS downloads when needed.
+
+> **Reusing media from a prior run:** if you already ran `full-pipeline` and have the 5 (or more) videos ingested, grab `manifest.json` from the previous run's `video-mme-manifest` artifact and re-host it (Azure Blob with SAS works well). Then dispatch with `mode=eval-only`, the same `questions-url`, and `manifest-url` pointing at that re-hosted file. The Celery ingest step is skipped and the Foundry evaluation runs against the existing `media_id`s.
 
 > **Prerequisite:** Re-run `deploy-infra.yml` after pulling this change so the GitHub Actions OIDC principal receives the storage read role needed for authenticated benchmark downloads from the QPrisma-managed storage account.
 

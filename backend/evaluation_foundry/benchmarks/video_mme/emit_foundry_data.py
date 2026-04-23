@@ -1,4 +1,4 @@
-"""Emit a Foundry JSONL data file from a Video-MME manifest (V2).
+"""Emit a Foundry-compatible eval data file from a Video-MME manifest (V2).
 
 Reads:
 
@@ -7,7 +7,7 @@ Reads:
 * the Video-MME questions parquet (``lmms-lab/Video-MME``) staged under
   ``data/datasets/_private/video_mme/``.
 
-Emits one JSONL row per (question × subtitle_mode) using the **verbatim
+Builds one row per (question x subtitle_mode) using the **verbatim
 Video-MME prompt template** the upstream leaderboard expects::
 
     Question: <question>
@@ -21,11 +21,22 @@ Video-MME prompt template** the upstream leaderboard expects::
 The query is wrapped with the existing ``[QPRISMA_CONTEXT:{user_id, media_ids}]``
 envelope (already parsed by the agent) and an additive
 ``[QPRISMA_BENCH:{eval_mode, format, with_subtitles, duration_bucket}]``
-envelope (additive — non-benchmark code paths ignore it).
+envelope (additive; non-benchmark code paths ignore it).
 
-Output schema matches what ``microsoft/ai-agent-evals`` consumes::
+Per-row schema::
 
     {"query": "...", "ground_truth": "C", "metadata": {...}}
+
+Output format is selected by the ``--out`` suffix:
+
+* ``.json`` writes a single wrapped object
+  ``{"name": ..., "evaluators": [...], "data": [<rows>]}`` matching what
+  ``microsoft/ai-agent-evals`` reads via ``json.loads(data_path.read_text())``.
+  This is the format used by the Video-MME GitHub Actions workflows.
+* ``.jsonl`` writes one row per line (legacy / local tooling).
+
+Any other suffix is rejected so callers fail fast instead of silently
+producing a file the upstream action cannot parse.
 """
 
 from __future__ import annotations
@@ -208,10 +219,19 @@ def emit_rows(
             }
 
 
+DEFAULT_EVAL_NAME = "video-mme"
+DEFAULT_EVALUATORS: tuple[str, ...] = ("qprisma.video_mme_mcq",)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m evaluation_foundry.benchmarks.video_mme.emit_foundry_data",
-        description="Emit Foundry JSONL from a Video-MME manifest + questions file.",
+        description=(
+            "Emit a Foundry evaluation data file from a Video-MME manifest + "
+            "questions file. Writes a single Foundry-compatible JSON object "
+            "(name/evaluators/data) when --out ends in .json, or one row per "
+            "line when --out ends in .jsonl."
+        ),
     )
     p.add_argument("--manifest", type=Path, required=True)
     p.add_argument("--questions", type=Path, required=True)
@@ -233,6 +253,24 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=42,
         help="Random seed used by --limit stratified sampling.",
+    )
+    p.add_argument(
+        "--name",
+        default=DEFAULT_EVAL_NAME,
+        help=(
+            "Dataset name written into the Foundry JSON wrapper "
+            f"(default: {DEFAULT_EVAL_NAME}). Ignored for .jsonl output."
+        ),
+    )
+    p.add_argument(
+        "--evaluators",
+        nargs="+",
+        default=list(DEFAULT_EVALUATORS),
+        help=(
+            "Foundry evaluator names referenced by the dataset wrapper "
+            f"(default: {' '.join(DEFAULT_EVALUATORS)}). Ignored for .jsonl "
+            "output."
+        ),
     )
     return p
 
@@ -274,13 +312,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         rows = _stratified_sample(rows, args.limit, args.seed)
         logger.info("Stratified --limit %d: %d -> %d rows", args.limit, before, len(rows))
 
-    n = 0
-    with args.out.open("w", encoding="utf-8") as fh:
-        for row in rows:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-            n += 1
-    logger.info("Wrote %d rows to %s", n, args.out)
-    return 0 if n > 0 else 1
+    suffix = args.out.suffix.lower()
+    if suffix == ".json":
+        payload = {
+            "name": args.name,
+            "evaluators": list(args.evaluators),
+            "data": rows,
+        }
+        args.out.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        logger.info(
+            "Wrote Foundry JSON (%d rows, evaluators=%s) to %s",
+            len(rows),
+            payload["evaluators"],
+            args.out,
+        )
+    elif suffix == ".jsonl":
+        with args.out.open("w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        logger.info("Wrote %d JSONL rows to %s", len(rows), args.out)
+    else:
+        raise SystemExit(f"--out must end in .json or .jsonl, got: {args.out.name!r}")
+    return 0 if rows else 1
 
 
 if __name__ == "__main__":  # pragma: no cover
