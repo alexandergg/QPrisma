@@ -49,6 +49,23 @@ def _optional_env(key: str, *, env: Mapping[str, str] | None = None) -> dict[str
     return {key: value} if value else {}
 
 
+def _optional_env_aliased(
+    target: str, *sources: str, env: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Return ``{target: value}`` reading from the first source key that is set.
+
+    Used to accept legacy env names (e.g. ``FOUNDRY_MEMORY_*``) while emitting
+    under the payload-safe key (``MEMORY_*``) since ``FOUNDRY_*`` / ``AGENT_*``
+    are reserved by the hosted-agent platform.
+    """
+    source = os.environ if env is None else env
+    for key in (target, *sources):
+        value = source.get(key, "")
+        if value:
+            return {target: value}
+    return {}
+
+
 def build_environment_variables(
     *, account_name: str = ACCOUNT_NAME, env: Mapping[str, str] | None = None
 ) -> dict[str, str]:
@@ -90,11 +107,14 @@ def build_environment_variables(
         **_optional_env("AZURE_STORAGE_CONNECTION_STRING", env=source),
         # --- Foundry Memory Store ---
         # NOTE: FOUNDRY_* and AGENT_* prefixes are reserved by the hosted-agent
-        # platform; we use the MEMORY_* names which the backend FoundrySettings
-        # accepts via AliasChoices.
-        **_optional_env("MEMORY_STORE_NAME", env=source),
-        **_optional_env("MEMORY_CHAT_MODEL", env=source),
-        **_optional_env("MEMORY_EMBEDDING_MODEL", env=source),
+        # platform; we emit under MEMORY_* (which the backend FoundrySettings
+        # accepts via AliasChoices) but also accept the legacy FOUNDRY_MEMORY_*
+        # names as input so exporters using those env vars still work.
+        **_optional_env_aliased("MEMORY_STORE_NAME", "FOUNDRY_MEMORY_STORE_NAME", env=source),
+        **_optional_env_aliased("MEMORY_CHAT_MODEL", "FOUNDRY_MEMORY_CHAT_MODEL", env=source),
+        **_optional_env_aliased(
+            "MEMORY_EMBEDDING_MODEL", "FOUNDRY_MEMORY_EMBEDDING_MODEL", env=source
+        ),
         # --- Response mode (eval-friendly output) ---
         **_optional_env("QPRISMA_RESPONSE_MODE", env=source),
     }
