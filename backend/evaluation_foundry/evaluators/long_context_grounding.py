@@ -54,7 +54,9 @@ EVALUATOR_DESCRIPTION = (
 # v1: original ``evaluate()`` entry point — rejected by Foundry's
 #     PythonGrader ("top-level grade() function not found in source").
 # v2: rename to ``grade()`` to match Foundry's required entry point.
-EVALUATOR_VERSION = "2"
+# v3: remove ``re.compile(...)`` from registered ``CODE_TEXT`` because Foundry's
+#     source validator rejects any grader source containing ``compile(``.
+EVALUATOR_VERSION = "3"
 
 
 # ---------------------------------------------------------------------------
@@ -82,23 +84,28 @@ def score(response: str | None) -> float:
 CODE_TEXT = """
 import re
 
-_BRACKET_TS = re.compile(r"\\[\\s*(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*\\]")
-_PAREN_TS = re.compile(r"\\(\\s*(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*\\)")
-_BARE_TS = re.compile(r"(?<![\\d.])(\\d{1,2}):(\\d{2})(?::(\\d{2}))?(?!\\d)")
-_FRAME_RE = re.compile(r"\\bframe\\s*#?\\s*(\\d{1,7})\\b", re.IGNORECASE)
-_TEQ_RE = re.compile(r"\\bt\\s*=\\s*(\\d+(?:\\.\\d+)?)\\s*s\\b", re.IGNORECASE)
-_AT_SEC_RE = re.compile(r"\\bat\\s+(\\d+(?:\\.\\d+)?)\\s*(?:s|sec|secs|seconds?)\\b", re.IGNORECASE)
-_TIME_WORDS = re.compile(
-    r"\\b(beginning|middle|end|opening|closing|earlier|later|after|before)\\b",
-    re.IGNORECASE,
-)
+_BRACKET_TS = r"\\[\\s*(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*\\]"
+_PAREN_TS = r"\\(\\s*(\\d{1,2}):(\\d{2})(?::(\\d{2}))?\\s*\\)"
+_BARE_TS = r"(?<![\\d.])(\\d{1,2}):(\\d{2})(?::(\\d{2}))?(?!\\d)"
+_FRAME_RE = r"\\bframe\\s*#?\\s*(\\d{1,7})\\b"
+_TEQ_RE = r"\\bt\\s*=\\s*(\\d+(?:\\.\\d+)?)\\s*s\\b"
+_AT_SEC_RE = r"\\bat\\s+(\\d+(?:\\.\\d+)?)\\s*(?:s|sec|secs|seconds?)\\b"
+_TIME_WORDS = r"\\b(beginning|middle|end|opening|closing|earlier|later|after|before)\\b"
 
 
 def _has_precise_citation(response):
     if not response:
         return False
-    for pat in (_BRACKET_TS, _PAREN_TS, _BARE_TS, _FRAME_RE, _TEQ_RE, _AT_SEC_RE):
-        if pat.search(response):
+    patterns = (
+        (_BRACKET_TS, 0),
+        (_PAREN_TS, 0),
+        (_BARE_TS, 0),
+        (_FRAME_RE, re.IGNORECASE),
+        (_TEQ_RE, re.IGNORECASE),
+        (_AT_SEC_RE, re.IGNORECASE),
+    )
+    for pattern, flags in patterns:
+        if re.search(pattern, response, flags):
             return True
     return False
 
@@ -107,7 +114,7 @@ def grade(response, **kwargs):
     text = response or ""
     if _has_precise_citation(text):
         return {"long_context_grounding": 1.0}
-    if _TIME_WORDS.search(text):
+    if re.search(_TIME_WORDS, text, re.IGNORECASE):
         return {"long_context_grounding": 0.5}
     return {"long_context_grounding": 0.0}
 """.strip()

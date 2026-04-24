@@ -94,6 +94,12 @@ def test_code_text_exposes_top_level_grade_function() -> None:
     ), "Found stale `evaluate` symbol — rename to `grade` and remove the alias."
 
 
+def test_code_text_avoids_compile_keyword() -> None:
+    """Foundry rejects grader source containing ``compile(``, including ``re.compile``."""
+    code_text = video_mme_mcq.CODE_DEFINITION_KWARGS["code_text"]
+    assert "compile(" not in code_text.lower()
+
+
 def test_evaluator_version_is_bumped_when_code_changes() -> None:
     """``EVALUATOR_VERSION`` must change whenever ``CODE_TEXT`` changes.
 
@@ -107,7 +113,7 @@ def test_evaluator_version_is_bumped_when_code_changes() -> None:
     pinned value and ``EVALUATOR_VERSION`` in lockstep.
     """
     assert (
-        video_mme_mcq.EVALUATOR_VERSION == "5"
+        video_mme_mcq.EVALUATOR_VERSION == "6"
     ), "If you changed CODE_TEXT, bump EVALUATOR_VERSION and update this test."
 
 
