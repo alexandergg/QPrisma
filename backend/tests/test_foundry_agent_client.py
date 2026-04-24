@@ -106,11 +106,12 @@ async def test_send_message_uses_bound_agent_client_without_agent_reference():
 @pytest.mark.asyncio
 async def test_send_message_retries_with_new_conversation_when_stale():
     calls: list[dict[str, object]] = []
+    stale_conversation_id = "conv_stale\r\nforged"
 
     class FakeResponsesClient:
         def create(self, **kwargs):
             calls.append(kwargs)
-            if kwargs.get("conversation") == "conv_stale":
+            if kwargs.get("conversation") == stale_conversation_id:
                 raise RuntimeError("conversation not found")
             return types.SimpleNamespace(id="resp_456", output_text="Recovered response")
 
@@ -125,13 +126,14 @@ async def test_send_message_retries_with_new_conversation_when_stale():
         patch.object(client, "_get_openai_client", return_value=fake_openai_client),
         patch.object(client, "_is_retriable", return_value=True),
         patch.object(client, "create_conversation", AsyncMock(return_value="conv_fresh")),
+        patch("services.foundry_agent_client.logger.warning") as warning_mock,
     ):
         result = await client.send_message(
             "Try again",
             media_id="vid_999",
             user_id="user_456",
-            session_id="conv_stale",
-            conversation_id="conv_stale",
+            session_id=stale_conversation_id,
+            conversation_id=stale_conversation_id,
         )
 
     assert result == {
@@ -144,6 +146,13 @@ async def test_send_message_retries_with_new_conversation_when_stale():
             "session_id": "conv_fresh",
         },
     }
+    warning_mock.assert_called_once_with(
+        "Retrying send_message with new conversation",
+        extra={
+            "stale_conversation_id": "conv_staleforged",
+            "new_conversation_id": "conv_fresh",
+        },
+    )
     assert calls == [
         {
             "input": [
@@ -151,11 +160,11 @@ async def test_send_message_retries_with_new_conversation_when_stale():
                     "role": "user",
                     "content": (
                         '[QPRISMA_CONTEXT:{"media_id":"vid_999","user_id":"user_456",'
-                        '"session_id":"conv_stale"}]\nTry again'
+                        '"session_id":"conv_stale\\r\\nforged"}]\nTry again'
                     ),
                 }
             ],
-            "conversation": "conv_stale",
+            "conversation": "conv_stale\r\nforged",
         },
         {
             "input": [
@@ -170,3 +179,11 @@ async def test_send_message_retries_with_new_conversation_when_stale():
             "conversation": "conv_fresh",
         },
     ]
+
+
+@pytest.mark.unit
+def test_sanitize_log_value_strips_control_chars_and_truncates():
+    assert (
+        FoundryAgentClient._sanitize_log_value("abc\r\ndef\tghi", max_len=10)
+        == "abcdefghi"
+    )

@@ -32,6 +32,7 @@ Usage::
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -177,8 +178,12 @@ class FoundryAgentClient:
                 logger.warning(
                     "Retrying send_message with new conversation",
                     extra={
-                        "stale_conversation_id": conversation_id,
-                        "new_conversation_id": new_conversation_id,
+                        "stale_conversation_id": self._sanitize_log_value(
+                            conversation_id
+                        ),
+                        "new_conversation_id": self._sanitize_log_value(
+                            new_conversation_id
+                        ),
                     },
                 )
                 kwargs, metadata = _build_request(new_conversation_id, new_conversation_id)
@@ -197,7 +202,10 @@ class FoundryAgentClient:
             logger.error(
                 "Foundry agent call failed: %s",
                 e,
-                extra={"agent_name": self._agent_name, "media_id": media_id},
+                extra={
+                    "agent_name": self._agent_name,
+                    "media_id": self._sanitize_log_value(media_id),
+                },
             )
             raise
 
@@ -362,7 +370,10 @@ class FoundryAgentClient:
             logger.error(
                 "Foundry streaming failed: %s",
                 e,
-                extra={"agent_name": self._agent_name, "media_id": media_id},
+                extra={
+                    "agent_name": self._agent_name,
+                    "media_id": self._sanitize_log_value(media_id),
+                },
             )
             yield {"type": "error", "content": str(e)}
 
@@ -415,6 +426,13 @@ class FoundryAgentClient:
         if session_id:
             metadata["session_id"] = session_id
         return metadata
+
+    @staticmethod
+    def _sanitize_log_value(value: object | None, max_len: int = 200) -> str | None:
+        """Strip control characters and truncate request-derived log fields."""
+        if value is None:
+            return None
+        return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(value))[:max_len]
 
     @staticmethod
     def _extract_conversation_id(response: Any) -> str:
