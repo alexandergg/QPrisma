@@ -153,3 +153,67 @@ class TestAgentChat:
             session_id="conv_existing",
             conversation_id="conv_existing",
         )
+
+    def test_agent_chat_replaces_stale_session_id_when_agent_resets(self, authenticated_client):
+        mock_client = AsyncMock()
+        mock_client.create_conversation = AsyncMock(return_value="conv_fresh")
+        mock_client.send_message = AsyncMock(
+            return_value={
+                "content": "Recovered",
+                "thread_id": "resp_reset",
+                "conversation_id": "",
+            }
+        )
+
+        with patch(
+            "services.foundry_agent_client.get_foundry_agent_client",
+            return_value=mock_client,
+        ):
+            resp = authenticated_client.post(
+                "/chat/agent",
+                json={"message": "recover", "session_id": "conv_stale"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["session_id"] == "conv_fresh"
+        assert mock_client.create_conversation.await_count == 1
+        mock_client.send_message.assert_awaited_once_with(
+            message="recover",
+            media_id=None,
+            media_ids=None,
+            user_id="user_test123",
+            session_id="conv_stale",
+            conversation_id="conv_stale",
+        )
+
+    def test_agent_chat_replaces_unconfirmed_stale_session_id(self, authenticated_client):
+        mock_client = AsyncMock()
+        mock_client.create_conversation = AsyncMock(return_value="conv_reset")
+        mock_client.send_message = AsyncMock(
+            return_value={
+                "content": "Recovered",
+                "thread_id": "resp_reset",
+                "conversation_id": "",
+            }
+        )
+
+        with patch(
+            "services.foundry_agent_client.get_foundry_agent_client",
+            return_value=mock_client,
+        ):
+            resp = authenticated_client.post(
+                "/chat/agent",
+                json={"message": "retry", "session_id": "conv_stale"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["session_id"] == "conv_reset"
+        mock_client.create_conversation.assert_awaited_once()
+        mock_client.send_message.assert_awaited_once_with(
+            message="retry",
+            media_id=None,
+            media_ids=None,
+            user_id="user_test123",
+            session_id="conv_stale",
+            conversation_id="conv_stale",
+        )

@@ -108,7 +108,13 @@ async def agent_chat(
             conversation_id=conversation_id,
         )
 
-        real_session_id = result.get("conversation_id") or conversation_id
+        returned_conversation_id = result.get("conversation_id")
+        if returned_conversation_id:
+            real_session_id = returned_conversation_id
+        elif request.session_id:
+            real_session_id = await client.create_conversation()
+        else:
+            real_session_id = conversation_id
 
         return AgentChatResponse(
             response=result.get("content", ""),

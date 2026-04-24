@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import types
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -99,4 +99,74 @@ async def test_send_message_uses_bound_agent_client_without_agent_reference():
             ],
             "conversation": "conv_abc",
         }
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_send_message_retries_with_new_conversation_when_stale():
+    calls: list[dict[str, object]] = []
+
+    class FakeResponsesClient:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            if kwargs.get("conversation") == "conv_stale":
+                raise RuntimeError("conversation not found")
+            return types.SimpleNamespace(id="resp_456", output_text="Recovered response")
+
+    fake_openai_client = types.SimpleNamespace(responses=FakeResponsesClient())
+
+    client = FoundryAgentClient(
+        project_endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_name="qprisma-video-agent",
+    )
+
+    with (
+        patch.object(client, "_get_openai_client", return_value=fake_openai_client),
+        patch.object(client, "_is_retriable", return_value=True),
+        patch.object(client, "create_conversation", AsyncMock(return_value="conv_fresh")),
+    ):
+        result = await client.send_message(
+            "Try again",
+            media_id="vid_999",
+            user_id="user_456",
+            session_id="conv_stale",
+            conversation_id="conv_stale",
+        )
+
+    assert result == {
+        "content": "Recovered response",
+        "thread_id": "resp_456",
+        "conversation_id": "conv_fresh",
+        "metadata": {
+            "media_id": "vid_999",
+            "user_id": "user_456",
+            "session_id": "conv_fresh",
+        },
+    }
+    assert calls == [
+        {
+            "input": [
+                {
+                    "role": "user",
+                    "content": (
+                        '[QPRISMA_CONTEXT:{"media_id":"vid_999","user_id":"user_456",'
+                        '"session_id":"conv_stale"}]\nTry again'
+                    ),
+                }
+            ],
+            "conversation": "conv_stale",
+        },
+        {
+            "input": [
+                {
+                    "role": "user",
+                    "content": (
+                        '[QPRISMA_CONTEXT:{"media_id":"vid_999","user_id":"user_456",'
+                        '"session_id":"conv_fresh"}]\nTry again'
+                    ),
+                }
+            ],
+            "conversation": "conv_fresh",
+        },
     ]

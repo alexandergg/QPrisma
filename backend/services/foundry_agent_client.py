@@ -131,20 +131,29 @@ class FoundryAgentClient:
         """
         openai = self._get_openai_client()
 
-        metadata = self._build_metadata(
-            media_id=media_id,
-            media_ids=media_ids,
-            user_id=user_id,
-            session_id=session_id,
-        )
-        full_message = self._prepend_context(message, metadata)
+        def _build_request(
+            active_session_id: str | None,
+            active_conversation_id: str | None,
+        ) -> tuple[dict[str, Any], dict[str, Any]]:
+            request_metadata = self._build_metadata(
+                media_id=media_id,
+                media_ids=media_ids,
+                user_id=user_id,
+                session_id=active_session_id,
+            )
+            request_kwargs: dict[str, Any] = {
+                "input": [
+                    {
+                        "role": "user",
+                        "content": self._prepend_context(message, request_metadata),
+                    }
+                ]
+            }
+            if active_conversation_id:
+                request_kwargs["conversation"] = active_conversation_id
+            return request_kwargs, request_metadata
 
-        input_messages = [{"role": "user", "content": full_message}]
-        kwargs: dict[str, Any] = {
-            "input": input_messages,
-        }
-        if conversation_id:
-            kwargs["conversation"] = conversation_id
+        kwargs, metadata = _build_request(session_id, conversation_id)
 
         try:
             response = await asyncio.to_thread(
@@ -158,14 +167,21 @@ class FoundryAgentClient:
             return {
                 "content": content,
                 "thread_id": response_id,
-                "conversation_id": conversation_id or "",
+                "conversation_id": self._extract_conversation_id(response) or conversation_id or "",
                 "metadata": metadata,
             }
 
         except Exception as e:
             if conversation_id and self._is_retriable(e):
-                logger.warning("Retrying send_message without stale conversation")
-                kwargs.pop("conversation", None)
+                new_conversation_id = await self.create_conversation()
+                logger.warning(
+                    "Retrying send_message with new conversation",
+                    extra={
+                        "stale_conversation_id": conversation_id,
+                        "new_conversation_id": new_conversation_id,
+                    },
+                )
+                kwargs, metadata = _build_request(new_conversation_id, new_conversation_id)
                 response = await asyncio.to_thread(
                     openai.responses.create,
                     **kwargs,
@@ -173,7 +189,9 @@ class FoundryAgentClient:
                 return {
                     "content": response.output_text or "",
                     "thread_id": response.id or "",
-                    "conversation_id": "",
+                    "conversation_id": (
+                        self._extract_conversation_id(response) or new_conversation_id
+                    ),
                     "metadata": metadata,
                 }
             logger.error(
@@ -397,6 +415,20 @@ class FoundryAgentClient:
         if session_id:
             metadata["session_id"] = session_id
         return metadata
+
+    @staticmethod
+    def _extract_conversation_id(response: Any) -> str:
+        """Extract the active conversation ID from a Foundry response if present."""
+        conversation = getattr(response, "conversation", None)
+        if isinstance(conversation, str):
+            return conversation
+        if conversation is not None:
+            conversation_id = getattr(conversation, "id", None)
+            if isinstance(conversation_id, str):
+                return conversation_id
+
+        conversation_id = getattr(response, "conversation_id", None)
+        return conversation_id if isinstance(conversation_id, str) else ""
 
     @staticmethod
     def _prepend_context(message: str, metadata: dict[str, Any]) -> str:
