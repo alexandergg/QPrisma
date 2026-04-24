@@ -3,11 +3,11 @@ Foundry Agent Client
 ====================
 
 Wraps the Azure AI Projects SDK to communicate with QPrisma's
-hosted video agent via the Foundry Responses API with Conversations.
+hosted video agent via the dedicated Foundry agent endpoint.
 
 Hosted agents are containerized agents deployed to Azure AI Foundry
-Agent Service.  They are invoked through the OpenAI Responses API
-using an ``agent_reference`` — **not** the standard
+Agent Service. They are invoked through the OpenAI Responses API
+bound to the hosted agent's dedicated endpoint — **not** the standard
 Threads/Messages/Runs (assistants) pattern.
 
 Conversation continuity is achieved via the Foundry Conversations API:
@@ -32,6 +32,7 @@ Usage::
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -44,10 +45,9 @@ class FoundryAgentClient:
     """
     Client for communicating with QPrisma's Foundry Hosted Agent.
 
-    Uses ``AIProjectClient.get_openai_client()`` to obtain an OpenAI client
-    configured for the Foundry project, then calls ``openai.responses.create()``
-    with an ``agent_reference`` and optional ``conversation`` to route to the
-    hosted agent with conversation history.
+    Uses ``AIProjectClient.get_openai_client(agent_name=...)`` to obtain an
+    OpenAI client bound to the hosted agent's dedicated endpoint, then calls
+    ``openai.responses.create()`` with optional ``conversation`` continuity.
     """
 
     def __init__(
@@ -61,7 +61,7 @@ class FoundryAgentClient:
         self._openai_client = None
 
     def _get_openai_client(self):
-        """Lazy-initialize the OpenAI client via AIProjectClient."""
+        """Lazy-initialize the OpenAI client bound to the hosted agent endpoint."""
         if self._openai_client is not None:
             return self._openai_client
 
@@ -72,22 +72,21 @@ class FoundryAgentClient:
             self._project_client = AIProjectClient(
                 endpoint=self._project_endpoint,
                 credential=DefaultAzureCredential(),
+                allow_preview=True,
             )
-            self._openai_client = self._project_client.get_openai_client()
+            self._openai_client = self._project_client.get_openai_client(
+                agent_name=self._agent_name
+            )
             return self._openai_client
         except ImportError:
             logger.error(
                 "azure-ai-projects SDK not installed. "
-                "Install with: pip install 'azure-ai-projects>=2.0.0'"
+                "Install with: pip install 'azure-ai-projects>=2.1.0'"
             )
             raise
         except Exception as e:
             logger.error("Failed to create OpenAI client: %s", e)
             raise
-
-    def _agent_ref(self) -> dict[str, str]:
-        """Return the agent_reference body for Responses API calls."""
-        return {"name": self._agent_name, "type": "agent_reference"}
 
     async def create_conversation(self) -> str:
         """
@@ -133,23 +132,29 @@ class FoundryAgentClient:
         """
         openai = self._get_openai_client()
 
-        metadata = self._build_metadata(
-            media_id=media_id,
-            media_ids=media_ids,
-            user_id=user_id,
-            session_id=session_id,
-        )
-        full_message = self._prepend_context(message, metadata)
+        def _build_request(
+            active_session_id: str | None,
+            active_conversation_id: str | None,
+        ) -> tuple[dict[str, Any], dict[str, Any]]:
+            request_metadata = self._build_metadata(
+                media_id=media_id,
+                media_ids=media_ids,
+                user_id=user_id,
+                session_id=active_session_id,
+            )
+            request_kwargs: dict[str, Any] = {
+                "input": [
+                    {
+                        "role": "user",
+                        "content": self._prepend_context(message, request_metadata),
+                    }
+                ]
+            }
+            if active_conversation_id:
+                request_kwargs["conversation"] = active_conversation_id
+            return request_kwargs, request_metadata
 
-        input_messages = [{"role": "user", "content": full_message}]
-        extra: dict[str, Any] = {"agent_reference": self._agent_ref()}
-
-        kwargs: dict[str, Any] = {
-            "input": input_messages,
-            "extra_body": extra,
-        }
-        if conversation_id:
-            kwargs["conversation"] = conversation_id
+        kwargs, metadata = _build_request(session_id, conversation_id)
 
         try:
             response = await asyncio.to_thread(
@@ -163,14 +168,18 @@ class FoundryAgentClient:
             return {
                 "content": content,
                 "thread_id": response_id,
-                "conversation_id": conversation_id or "",
+                "conversation_id": self._extract_conversation_id(response) or conversation_id or "",
                 "metadata": metadata,
             }
 
         except Exception as e:
             if conversation_id and self._is_retriable(e):
-                logger.warning("Retrying send_message without stale conversation")
-                kwargs.pop("conversation", None)
+                new_conversation_id = await self.create_conversation()
+                logger.warning(
+                    "Retrying send_message with new conversation",
+                    extra={"agent_name": self._agent_name},
+                )
+                kwargs, metadata = _build_request(new_conversation_id, new_conversation_id)
                 response = await asyncio.to_thread(
                     openai.responses.create,
                     **kwargs,
@@ -178,13 +187,14 @@ class FoundryAgentClient:
                 return {
                     "content": response.output_text or "",
                     "thread_id": response.id or "",
-                    "conversation_id": "",
+                    "conversation_id": (
+                        self._extract_conversation_id(response) or new_conversation_id
+                    ),
                     "metadata": metadata,
                 }
-            logger.error(
-                "Foundry agent call failed: %s",
-                e,
-                extra={"agent_name": self._agent_name, "media_id": media_id},
+            logger.exception(
+                "Foundry agent call failed",
+                extra={"agent_name": self._agent_name},
             )
             raise
 
@@ -228,12 +238,9 @@ class FoundryAgentClient:
         full_message = self._prepend_context(message, metadata)
 
         input_messages = [{"role": "user", "content": full_message}]
-        extra: dict[str, Any] = {"agent_reference": self._agent_ref()}
-
         kwargs: dict[str, Any] = {
             "input": input_messages,
             "stream": True,
-            "extra_body": extra,
         }
         if conversation_id:
             kwargs["conversation"] = conversation_id
@@ -349,10 +356,9 @@ class FoundryAgentClient:
             }
 
         except Exception as e:
-            logger.error(
-                "Foundry streaming failed: %s",
-                e,
-                extra={"agent_name": self._agent_name, "media_id": media_id},
+            logger.exception(
+                "Foundry streaming failed",
+                extra={"agent_name": self._agent_name},
             )
             yield {"type": "error", "content": str(e)}
 
@@ -405,6 +411,27 @@ class FoundryAgentClient:
         if session_id:
             metadata["session_id"] = session_id
         return metadata
+
+    @staticmethod
+    def _sanitize_log_value(value: object | None, max_len: int = 200) -> str | None:
+        """Strip control characters and truncate request-derived log fields."""
+        if value is None:
+            return None
+        return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(value))[:max_len]
+
+    @staticmethod
+    def _extract_conversation_id(response: Any) -> str:
+        """Extract the active conversation ID from a Foundry response if present."""
+        conversation = getattr(response, "conversation", None)
+        if isinstance(conversation, str):
+            return conversation
+        if conversation is not None:
+            conversation_id = getattr(conversation, "id", None)
+            if isinstance(conversation_id, str):
+                return conversation_id
+
+        conversation_id = getattr(response, "conversation_id", None)
+        return conversation_id if isinstance(conversation_id, str) else ""
 
     @staticmethod
     def _prepend_context(message: str, metadata: dict[str, Any]) -> str:

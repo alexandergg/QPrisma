@@ -13,7 +13,7 @@ dependencies = [
     # Azure SDKs
     "azure-storage-blob>=12.24.0,<13.0.0",
     "azure-identity>=1.19.0,<2.0.0",
-    "azure-ai-projects>=2.0.0",
+    "azure-ai-projects>=2.1.0,<3.0.0",
     "azure-ai-agents>=1.0.0",
     "openai>=1.55.0",
     # Database (PostgreSQL)
