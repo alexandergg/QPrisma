@@ -177,14 +177,7 @@ class FoundryAgentClient:
                 new_conversation_id = await self.create_conversation()
                 logger.warning(
                     "Retrying send_message with new conversation",
-                    extra={
-                        "stale_conversation_id": self._sanitize_log_value(
-                            conversation_id
-                        ),
-                        "new_conversation_id": self._sanitize_log_value(
-                            new_conversation_id
-                        ),
-                    },
+                    extra={"agent_name": self._agent_name},
                 )
                 kwargs, metadata = _build_request(new_conversation_id, new_conversation_id)
                 response = await asyncio.to_thread(
@@ -199,13 +192,9 @@ class FoundryAgentClient:
                     ),
                     "metadata": metadata,
                 }
-            logger.error(
-                "Foundry agent call failed: %s",
-                e,
-                extra={
-                    "agent_name": self._agent_name,
-                    "media_id": self._sanitize_log_value(media_id),
-                },
+            logger.exception(
+                "Foundry agent call failed",
+                extra={"agent_name": self._agent_name},
             )
             raise
 
@@ -367,13 +356,9 @@ class FoundryAgentClient:
             }
 
         except Exception as e:
-            logger.error(
-                "Foundry streaming failed: %s",
-                e,
-                extra={
-                    "agent_name": self._agent_name,
-                    "media_id": self._sanitize_log_value(media_id),
-                },
+            logger.exception(
+                "Foundry streaming failed",
+                extra={"agent_name": self._agent_name},
             )
             yield {"type": "error", "content": str(e)}
 

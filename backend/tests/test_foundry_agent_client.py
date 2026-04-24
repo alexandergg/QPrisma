@@ -148,10 +148,7 @@ async def test_send_message_retries_with_new_conversation_when_stale():
     }
     warning_mock.assert_called_once_with(
         "Retrying send_message with new conversation",
-        extra={
-            "stale_conversation_id": "conv_staleforged",
-            "new_conversation_id": "conv_fresh",
-        },
+        extra={"agent_name": "qprisma-video-agent"},
     )
     assert calls == [
         {
@@ -186,4 +183,62 @@ def test_sanitize_log_value_strips_control_chars_and_truncates():
     assert (
         FoundryAgentClient._sanitize_log_value("abc\r\ndef\tghi", max_len=10)
         == "abcdefghi"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_send_message_failure_logs_without_request_fields():
+    class FakeResponsesClient:
+        def create(self, **kwargs):
+            raise RuntimeError("request failed")
+
+    fake_openai_client = types.SimpleNamespace(responses=FakeResponsesClient())
+    client = FoundryAgentClient(
+        project_endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_name="qprisma-video-agent",
+    )
+
+    with (
+        patch.object(client, "_get_openai_client", return_value=fake_openai_client),
+        patch("services.foundry_agent_client.logger.exception") as exception_mock,
+        pytest.raises(RuntimeError, match="request failed"),
+    ):
+        await client.send_message("Try again", media_id="vid_999\r\nforged")
+
+    exception_mock.assert_called_once_with(
+        "Foundry agent call failed",
+        extra={"agent_name": "qprisma-video-agent"},
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_send_streaming_message_failure_logs_without_request_fields():
+    class FakeResponsesClient:
+        def create(self, **kwargs):
+            raise RuntimeError("stream failed")
+
+    fake_openai_client = types.SimpleNamespace(responses=FakeResponsesClient())
+    client = FoundryAgentClient(
+        project_endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_name="qprisma-video-agent",
+    )
+
+    with (
+        patch.object(client, "_get_openai_client", return_value=fake_openai_client),
+        patch("services.foundry_agent_client.logger.exception") as exception_mock,
+    ):
+        events = [
+            event
+            async for event in client.send_streaming_message(
+                "Try again",
+                media_id="vid_999\r\nforged",
+            )
+        ]
+
+    assert events == [{"type": "error", "content": "stream failed"}]
+    exception_mock.assert_called_once_with(
+        "Foundry streaming failed",
+        extra={"agent_name": "qprisma-video-agent"},
     )
