@@ -69,9 +69,11 @@ def create_hosted_app():
     from core.config import settings
 
     _sdk_ep_var = "AZURE_AI_PROJECT_ENDPOINT"
-    _foundry_endpoint = os.environ.get(_sdk_ep_var) or settings.foundry.project_endpoint
+    _existing_sdk_endpoint = os.environ.get(_sdk_ep_var)
+    _foundry_endpoint = _existing_sdk_endpoint or settings.foundry.project_endpoint
     if _foundry_endpoint:
-        os.environ.setdefault(_sdk_ep_var, _foundry_endpoint)
+        if not _existing_sdk_endpoint:
+            os.environ[_sdk_ep_var] = _foundry_endpoint
         logger.info("FoundryToolRuntime: endpoint configured (%s)", _sdk_ep_var)
     else:
         logger.warning(
