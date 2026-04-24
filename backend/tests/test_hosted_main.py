@@ -6,7 +6,6 @@ import types
 from types import SimpleNamespace
 
 import pytest
-
 from agent.hosted.main import create_hosted_app
 
 
