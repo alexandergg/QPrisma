@@ -81,10 +81,10 @@ async def agent_chat(
     which can search video content, navigate structure, explore the
     knowledge graph, find highlights, and compare moments.
 
-    On first request for a session, the Responses API creates a new
-    response.  The returned ``session_id`` carries the response ID so
-    subsequent requests pass it as ``previous_response_id`` for
-    conversation continuity.
+    On the first request, the backend creates a Foundry conversation and
+    returns that conversation ID as ``session_id``. Subsequent requests
+    send the same ``session_id`` back so the hosted agent keeps the
+    platform-managed conversation history.
 
     Response includes:
     - Rich sources with timestamps and thumbnails
@@ -97,25 +97,18 @@ async def agent_chat(
     try:
         user_id = str(current_user.id) if current_user else None
 
-        # On first request session_id is None — send_message will create
-        # a new response and return its ID.  On follow-ups the frontend
-        # sends back the response ID it received previously, which is
-        # passed as previous_response_id for conversation continuity.
-        thread_id = request.session_id or None
-
         client = get_foundry_agent_client()
+        conversation_id = request.session_id or await client.create_conversation()
         result = await client.send_message(
             message=request.message,
             media_id=request.media_id,
             media_ids=request.get_effective_media_ids() or None,
             user_id=user_id,
-            session_id=request.session_id,
-            thread_id=thread_id,
+            session_id=conversation_id,
+            conversation_id=conversation_id,
         )
 
-        # The Foundry response ID becomes the session_id so the
-        # frontend can send it back for conversation continuity.
-        real_session_id = result.get("thread_id", "")
+        real_session_id = result.get("conversation_id") or conversation_id
 
         return AgentChatResponse(
             response=result.get("content", ""),

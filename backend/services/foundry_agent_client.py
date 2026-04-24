@@ -3,11 +3,11 @@ Foundry Agent Client
 ====================
 
 Wraps the Azure AI Projects SDK to communicate with QPrisma's
-hosted video agent via the Foundry Responses API with Conversations.
+hosted video agent via the dedicated Foundry agent endpoint.
 
 Hosted agents are containerized agents deployed to Azure AI Foundry
-Agent Service.  They are invoked through the OpenAI Responses API
-using an ``agent_reference`` — **not** the standard
+Agent Service. They are invoked through the OpenAI Responses API
+bound to the hosted agent's dedicated endpoint — **not** the standard
 Threads/Messages/Runs (assistants) pattern.
 
 Conversation continuity is achieved via the Foundry Conversations API:
@@ -44,10 +44,9 @@ class FoundryAgentClient:
     """
     Client for communicating with QPrisma's Foundry Hosted Agent.
 
-    Uses ``AIProjectClient.get_openai_client()`` to obtain an OpenAI client
-    configured for the Foundry project, then calls ``openai.responses.create()``
-    with an ``agent_reference`` and optional ``conversation`` to route to the
-    hosted agent with conversation history.
+    Uses ``AIProjectClient.get_openai_client(agent_name=...)`` to obtain an
+    OpenAI client bound to the hosted agent's dedicated endpoint, then calls
+    ``openai.responses.create()`` with optional ``conversation`` continuity.
     """
 
     def __init__(
@@ -61,7 +60,7 @@ class FoundryAgentClient:
         self._openai_client = None
 
     def _get_openai_client(self):
-        """Lazy-initialize the OpenAI client via AIProjectClient."""
+        """Lazy-initialize the OpenAI client bound to the hosted agent endpoint."""
         if self._openai_client is not None:
             return self._openai_client
 
@@ -72,22 +71,21 @@ class FoundryAgentClient:
             self._project_client = AIProjectClient(
                 endpoint=self._project_endpoint,
                 credential=DefaultAzureCredential(),
+                allow_preview=True,
             )
-            self._openai_client = self._project_client.get_openai_client()
+            self._openai_client = self._project_client.get_openai_client(
+                agent_name=self._agent_name
+            )
             return self._openai_client
         except ImportError:
             logger.error(
                 "azure-ai-projects SDK not installed. "
-                "Install with: pip install 'azure-ai-projects>=2.0.0'"
+                "Install with: pip install 'azure-ai-projects>=2.1.0'"
             )
             raise
         except Exception as e:
             logger.error("Failed to create OpenAI client: %s", e)
             raise
-
-    def _agent_ref(self) -> dict[str, str]:
-        """Return the agent_reference body for Responses API calls."""
-        return {"name": self._agent_name, "type": "agent_reference"}
 
     async def create_conversation(self) -> str:
         """
@@ -142,11 +140,8 @@ class FoundryAgentClient:
         full_message = self._prepend_context(message, metadata)
 
         input_messages = [{"role": "user", "content": full_message}]
-        extra: dict[str, Any] = {"agent_reference": self._agent_ref()}
-
         kwargs: dict[str, Any] = {
             "input": input_messages,
-            "extra_body": extra,
         }
         if conversation_id:
             kwargs["conversation"] = conversation_id
@@ -228,12 +223,9 @@ class FoundryAgentClient:
         full_message = self._prepend_context(message, metadata)
 
         input_messages = [{"role": "user", "content": full_message}]
-        extra: dict[str, Any] = {"agent_reference": self._agent_ref()}
-
         kwargs: dict[str, Any] = {
             "input": input_messages,
             "stream": True,
-            "extra_body": extra,
         }
         if conversation_id:
             kwargs["conversation"] = conversation_id

@@ -42,7 +42,7 @@ At a high level, the retrieval path looks like this:
 
 The primary simple entry point is `POST /chat/agent`.
 
-The request is handled by the backend and forwarded to `FoundryAgentClient`, which uses the OpenAI Responses API with `agent_reference` so the call is routed to the hosted agent in Azure AI Foundry.
+The request is handled by the backend and forwarded to `FoundryAgentClient`, which binds the OpenAI client to the hosted agent's dedicated Azure AI Foundry endpoint and uses the Responses API with a Foundry conversation ID for continuity.
 
 ### QPrisma-specific context pattern
 

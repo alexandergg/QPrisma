@@ -464,7 +464,7 @@ def run_redteam_scan(
         from azure.identity import DefaultAzureCredential
     except ImportError as exc:
         raise RuntimeError(
-            "azure-ai-projects>=2.0.0 and azure-identity are required. "
+            "azure-ai-projects>=2.1.0 and azure-identity are required. "
             "Install with `pip install azure-ai-projects azure-identity`."
         ) from exc
 
