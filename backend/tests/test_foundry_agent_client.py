@@ -180,10 +180,7 @@ async def test_send_message_retries_with_new_conversation_when_stale():
 
 @pytest.mark.unit
 def test_sanitize_log_value_strips_control_chars_and_truncates():
-    assert (
-        FoundryAgentClient._sanitize_log_value("abc\r\ndef\tghi", max_len=10)
-        == "abcdefghi"
-    )
+    assert FoundryAgentClient._sanitize_log_value("abc\r\ndef\tghi", max_len=10) == "abcdefghi"
 
 
 @pytest.mark.unit
