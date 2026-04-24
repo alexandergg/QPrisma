@@ -167,11 +167,12 @@ jobs:
       - name: Audit Python dependencies
         working-directory: backend
         run: |
-          pip install pip-audit
-          pip-audit --format json --output pip-audit-results.json || true
+          trap 'rm -f requirements-audit.txt' EXIT
+          uv pip compile pyproject.toml --python-version 3.11 -o requirements-audit.txt
+          uvx --from pip-audit pip-audit -r requirements-audit.txt --format json --output pip-audit-results.json || true
           echo ""
           echo "=== Python Dependency Security Audit ==="
-          pip-audit --desc on
+          uvx --from pip-audit pip-audit -r requirements-audit.txt --desc on
 
       - name: Upload pip-audit results
         if: always()
