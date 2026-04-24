@@ -173,8 +173,14 @@ def test_evaluator_version_is_bumped_when_code_changes() -> None:
     pinned value and ``EVALUATOR_VERSION`` in lockstep.
     """
     assert (
-        long_context_grounding.EVALUATOR_VERSION == "2"
+        long_context_grounding.EVALUATOR_VERSION == "3"
     ), "If you changed CODE_TEXT, bump EVALUATOR_VERSION and update this test."
+
+
+def test_code_text_avoids_compile_keyword() -> None:
+    """Foundry rejects grader source containing ``compile(``, including ``re.compile``."""
+    code_text = long_context_grounding.CODE_DEFINITION_KWARGS["code_text"]
+    assert "compile(" not in code_text.lower()
 
 
 def test_code_definition_kwargs_shape() -> None:

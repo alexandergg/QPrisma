@@ -55,6 +55,19 @@ ALL_EVALUATORS = [TEMPORAL_SPECIFICITY_CONFIG, SOURCE_GROUNDING_CONFIG]
 # and ``PROMPT_FALLBACK_CONFIG``. See ``video_mme_mcq.py`` for the canonical shape.
 CODE_OR_PROMPT_EVALUATORS = [VIDEO_MME_MCQ, LONG_CONTEXT_GROUNDING]
 
+FORBIDDEN_CODE_TEXT_TOKENS = ("compile(",)
+
+
+def _validate_code_text_compatibility(name: str, code_text: str) -> None:
+    """Reject grader sources that Foundry's python_grader is known to ban."""
+    lowered = code_text.lower()
+    for token in FORBIDDEN_CODE_TEXT_TOKENS:
+        if token in lowered:
+            raise ValueError(
+                f"{name} code_text contains forbidden token {token!r}; "
+                "Foundry rejects grader sources that reference compile()."
+            )
+
 
 def _register_code_or_prompt_evaluator(client, models_module, evaluator_module) -> bool:
     """Register a deterministic evaluator with code-based-then-prompt fallback.
@@ -87,8 +100,10 @@ def _register_code_or_prompt_evaluator(client, models_module, evaluator_module) 
     code_def_cls = getattr(models_module, "CodeBasedEvaluatorDefinition", None)
     if code_def_cls is not None:
         try:
+            code_text = evaluator_module.CODE_DEFINITION_KWARGS["code_text"]
+            _validate_code_text_compatibility(name, code_text)
             definition = code_def_cls(
-                code_text=evaluator_module.CODE_DEFINITION_KWARGS["code_text"],
+                code_text=code_text,
                 init_parameters=evaluator_module.CODE_DEFINITION_KWARGS["init_parameters"],
                 data_schema=evaluator_module.CODE_DEFINITION_KWARGS["data_schema"],
                 metrics={metric_name: metric},

@@ -38,7 +38,9 @@ EVALUATOR_DESCRIPTION = (
 # v2: rename to ``grade()`` to match Foundry's required entry point name.
 # v5: republish a clean deterministic grader above the stale remote v4 revision
 #     that Foundry CI was still resolving by name.
-EVALUATOR_VERSION = "5"
+# v6: remove ``re.compile(...)`` from registered ``CODE_TEXT`` because Foundry's
+#     source validator rejects any grader source containing ``compile(``.
+EVALUATOR_VERSION = "6"
 
 # ---------------------------------------------------------------------------
 # Pure-Python scorer (also re-used by tests)
@@ -90,7 +92,7 @@ def score(response: str | None, ground_truth: str | None) -> float:
 CODE_TEXT = '''
 import re
 
-_LETTER_RE = re.compile(r"\\b([A-D])\\b")
+_LETTER_PATTERN = r"\\b([A-D])\\b"
 
 
 def grade(response: str = "", ground_truth: str = "", **_):
@@ -103,7 +105,7 @@ def grade(response: str = "", ground_truth: str = "", **_):
         return {"accuracy": 0.0}
     if not response:
         return {"accuracy": 0.0}
-    m = _LETTER_RE.search(response.strip())
+    m = re.search(_LETTER_PATTERN, response.strip())
     extracted = m.group(1) if m else None
     return {"accuracy": 1.0 if extracted == ground_truth.strip().upper() else 0.0}
 '''
