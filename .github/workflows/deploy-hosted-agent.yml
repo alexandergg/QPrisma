@@ -6,10 +6,13 @@ on:
   push:
     branches: [main]
     paths:
+      - '.github/workflows/deploy-hosted-agent.yml'
       - 'backend/agent/**'
       - 'backend/core/**'
       - 'backend/services/**'
       - 'backend/models/**'
+      - 'infra/modules/ai-foundry.bicep'
+      - 'infra/parameters/ai-foundry-dev.bicepparam'
       - 'scripts/deploy_agent.py'
   workflow_dispatch:
 
@@ -165,6 +168,7 @@ jobs:
         run: |
           RG="rg-qprisma-dev"
           ACCOUNT="aif-qprisma-dev"
+          PROJECT="${ACCOUNT}-project"
           SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
 
           AI_ACCOUNT_ID=$(az cognitiveservices account show \
@@ -173,7 +177,7 @@ jobs:
 
           # Get project managed identity (used by hosted agent containers)
           PROJECT_PID=$(az rest --method GET \
-            --url "https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${ACCOUNT}-project?api-version=2025-06-01" \
+            --url "https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT}?api-version=2025-06-01" \
             --query identity.principalId -o tsv)
           echo "Project principal: ${PROJECT_PID:0:8}..."
 
@@ -186,8 +190,14 @@ jobs:
             --query identity.principalId -o tsv)
           echo "Account principal: ${ACCOUNT_PID:0:8}..."
 
+          AGENT_IDENTITY_NAME="${ACCOUNT}-${PROJECT}-AgentIdentity"
+          AGENT_IDENTITY_PID=$(az ad sp list \
+            --filter "displayName eq '${AGENT_IDENTITY_NAME}'" \
+            --query "[0].id" -o tsv)
+          echo "AgentIdentity principal: ${AGENT_IDENTITY_PID:0:8}..."
+
           NEED_WAIT=false
-          for PID in "$PROJECT_PID" "$ACCOUNT_PID"; do
+          for PID in "$PROJECT_PID" "$ACCOUNT_PID" "$AGENT_IDENTITY_PID"; do
             if [ -z "$PID" ]; then
               echo "::error::Could not resolve hosted agent execution principal"
               exit 1
@@ -216,7 +226,7 @@ jobs:
           az role assignment list \
             --scope "$AI_ACCOUNT_ID" \
             --role "$OPENAI_USER_ROLE" \
-            --query "[?principalId=='${PROJECT_PID}' || principalId=='${ACCOUNT_PID}'].{principal:principalId,type:principalType,role:roleDefinitionName}" \
+            --query "[?principalId=='${PROJECT_PID}' || principalId=='${ACCOUNT_PID}' || principalId=='${AGENT_IDENTITY_PID}'].{principal:principalId,type:principalType,role:roleDefinitionName}" \
             -o table
 
           if [ "$NEED_WAIT" = true ]; then
