@@ -200,9 +200,8 @@ class TestRestoreMediaContext:
 
     def test_single_media_ids_message_restores_single_video_context(self):
         """Video-MME media_ids=[id] context should bind single-video tools."""
-        from langchain_core.runnables import RunnableConfig
-
         from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
 
         state = {
             "messages": [
@@ -235,9 +234,8 @@ class TestRestoreMediaContext:
 
     def test_malformed_adjacent_benchmark_is_stripped_from_message(self, caplog):
         """A malformed benchmark envelope after valid context should not leak to the LLM."""
-        from langchain_core.runnables import RunnableConfig
-
         from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
 
         state = {
             "messages": [

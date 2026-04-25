@@ -1107,8 +1107,8 @@ class TestContextExtractionNestedBrackets:
             "Question text"
         )
 
-        metadata, benchmark_context, clean_query, malformed = (
-            extract_qprisma_envelopes_with_status(text)
+        metadata, benchmark_context, clean_query, malformed = extract_qprisma_envelopes_with_status(
+            text
         )
 
         assert metadata == {"media_ids": ["v1"], "user_id": "u1"}
@@ -1633,9 +1633,7 @@ class TestStateConverterResponseMode:
         assert result["input"]["messages"][0].content == "Compare them."
 
     @pytest.mark.asyncio
-    async def test_convert_request_normalizes_single_media_ids_and_benchmark(
-        self, monkeypatch
-    ):
+    async def test_convert_request_normalizes_single_media_ids_and_benchmark(self, monkeypatch):
         """A single media_ids entry behaves like single-video context for Video-MME."""
         from unittest.mock import AsyncMock
 
