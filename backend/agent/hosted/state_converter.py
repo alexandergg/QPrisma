@@ -53,9 +53,7 @@ from langchain_core import messages as lc_messages
 from langchain_core.messages import HumanMessage
 
 from agent.context_envelopes import (
-    QPRISMA_BENCH_PREFIX,
-    QPRISMA_CONTEXT_PREFIX,
-    extract_qprisma_envelopes,
+    extract_qprisma_envelopes_with_status,
     normalize_media_selection,
 )
 
@@ -71,10 +69,10 @@ _request_response_mode: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 def _extract_qprisma_envelopes(text: str) -> tuple[dict[str, Any], dict[str, Any], str]:
     """Parse QPrisma context/benchmark envelopes from the beginning of *text*."""
-    context, benchmark, cleaned = extract_qprisma_envelopes(text)
-    if cleaned == text and text.startswith(QPRISMA_CONTEXT_PREFIX):
+    context, benchmark, cleaned, malformed = extract_qprisma_envelopes_with_status(text)
+    if "QPRISMA_CONTEXT" in malformed:
         logger.warning("QPRISMA_CONTEXT prefix found but payload is malformed")
-    if cleaned == text and text.startswith(QPRISMA_BENCH_PREFIX):
+    if "QPRISMA_BENCH" in malformed:
         logger.warning("QPRISMA_BENCH prefix found but payload is malformed")
     return context, benchmark, cleaned
 

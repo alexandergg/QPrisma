@@ -13,7 +13,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from agent.context_envelopes import (
-    extract_qprisma_envelopes,
+    extract_qprisma_envelopes_with_status,
     is_letter_only_benchmark,
     normalize_media_selection,
 )
@@ -80,7 +80,13 @@ def _parse_qprisma_context_from_messages(
         msg = messages[i]
         if isinstance(msg, HumanMessage) and isinstance(msg.content, str):
             text = msg.content
-            metadata, benchmark_context, cleaned_text = extract_qprisma_envelopes(text)
+            metadata, benchmark_context, cleaned_text, malformed = (
+                extract_qprisma_envelopes_with_status(text)
+            )
+            if "QPRISMA_CONTEXT" in malformed:
+                logger.warning("QPRISMA_CONTEXT prefix found but payload is malformed")
+            if "QPRISMA_BENCH" in malformed:
+                logger.warning("QPRISMA_BENCH prefix found but payload is malformed")
             if not metadata and not benchmark_context:
                 break  # only check the last HumanMessage
 
@@ -234,7 +240,7 @@ def get_system_message(state: AgentState) -> SystemMessage:
     media_ids = state.get("media_ids")
     normalized_media_id, normalized_media_ids = normalize_media_selection(media_id, media_ids)
     media_id = normalized_media_id
-    media_ids = normalized_media_ids or media_ids
+    media_ids = normalized_media_ids
     conversation_context = state.get("conversation_context", [])
 
     # Determine mode: multi-video, single-video, or no video

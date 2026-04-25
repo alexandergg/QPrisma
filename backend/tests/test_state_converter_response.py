@@ -1097,6 +1097,33 @@ class TestContextExtractionNestedBrackets:
         assert benchmark_context == {"eval_mode": "mcq", "format": "letter_only"}
         assert clean_query == "Question text"
 
+    def test_partial_malformed_benchmark_is_reported_and_stripped(self, caplog):
+        from agent.context_envelopes import extract_qprisma_envelopes_with_status
+        from agent.hosted.state_converter import _extract_qprisma_envelopes
+
+        text = (
+            '[QPRISMA_CONTEXT:{"media_ids":["v1"],"user_id":"u1"}]'
+            "[QPRISMA_BENCH:{bad json}]\n"
+            "Question text"
+        )
+
+        metadata, benchmark_context, clean_query, malformed = (
+            extract_qprisma_envelopes_with_status(text)
+        )
+
+        assert metadata == {"media_ids": ["v1"], "user_id": "u1"}
+        assert benchmark_context == {}
+        assert clean_query == "Question text"
+        assert malformed == ("QPRISMA_BENCH",)
+
+        with caplog.at_level(logging.WARNING):
+            metadata, benchmark_context, clean_query = _extract_qprisma_envelopes(text)
+
+        assert metadata == {"media_ids": ["v1"], "user_id": "u1"}
+        assert benchmark_context == {}
+        assert clean_query == "Question text"
+        assert "QPRISMA_BENCH prefix found but payload is malformed" in caplog.text
+
     def test_single_video_simple(self):
         from agent.hosted.state_converter import _extract_qprisma_context
 

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 QPRISMA_CONTEXT_PREFIX = "[QPRISMA_CONTEXT:"
 QPRISMA_BENCH_PREFIX = "[QPRISMA_BENCH:"
+MalformedEnvelopeKind = Literal["QPRISMA_CONTEXT", "QPRISMA_BENCH"]
 
 _json_decoder = json.JSONDecoder()
 
@@ -34,18 +35,37 @@ def _parse_prefixed_json(text: str, prefix: str) -> tuple[dict[str, Any] | None,
     return metadata, text[rest_start:]
 
 
-def extract_qprisma_envelopes(text: str) -> tuple[dict[str, Any], dict[str, Any], str]:
-    """Extract leading QPrisma context and benchmark envelopes from text."""
+def _strip_malformed_envelope(text: str) -> str:
+    envelope_end = text.find("]")
+    if envelope_end == -1:
+        return ""
+
+    rest_start = envelope_end + 1
+    if rest_start < len(text) and text[rest_start] == "\n":
+        rest_start += 1
+
+    return text[rest_start:]
+
+
+def extract_qprisma_envelopes_with_status(
+    text: str,
+) -> tuple[dict[str, Any], dict[str, Any], str, tuple[MalformedEnvelopeKind, ...]]:
+    """Extract leading QPrisma envelopes and report malformed control envelopes."""
     context: dict[str, Any] = {}
     benchmark: dict[str, Any] = {}
     cleaned = text
     parsed_any = False
+    malformed: list[MalformedEnvelopeKind] = []
 
     while True:
         if cleaned.startswith(QPRISMA_CONTEXT_PREFIX):
             parsed, rest = _parse_prefixed_json(cleaned, QPRISMA_CONTEXT_PREFIX)
             if parsed is None or rest is None:
-                return (context, benchmark, cleaned) if parsed_any else ({}, {}, text)
+                malformed.append("QPRISMA_CONTEXT")
+                if not parsed_any:
+                    return {}, {}, text, tuple(malformed)
+                cleaned = _strip_malformed_envelope(cleaned)
+                continue
             context = parsed
             cleaned = rest
             parsed_any = True
@@ -54,13 +74,23 @@ def extract_qprisma_envelopes(text: str) -> tuple[dict[str, Any], dict[str, Any]
         if cleaned.startswith(QPRISMA_BENCH_PREFIX):
             parsed, rest = _parse_prefixed_json(cleaned, QPRISMA_BENCH_PREFIX)
             if parsed is None or rest is None:
-                return (context, benchmark, cleaned) if parsed_any else ({}, {}, text)
+                malformed.append("QPRISMA_BENCH")
+                if not parsed_any:
+                    return {}, {}, text, tuple(malformed)
+                cleaned = _strip_malformed_envelope(cleaned)
+                continue
             benchmark = parsed
             cleaned = rest
             parsed_any = True
             continue
 
-        return context, benchmark, cleaned
+        return context, benchmark, cleaned, tuple(malformed)
+
+
+def extract_qprisma_envelopes(text: str) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Extract leading QPrisma context and benchmark envelopes from text."""
+    context, benchmark, cleaned, _ = extract_qprisma_envelopes_with_status(text)
+    return context, benchmark, cleaned
 
 
 def normalize_media_selection(
