@@ -147,9 +147,9 @@ def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
     ai_foundry_bicep = (_REPO_ROOT / "infra" / "modules" / "ai-foundry.bicep").read_text(
         encoding="utf-8"
     )
-    hosted_workflow = (
-        _REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml"
-    ).read_text(encoding="utf-8")
+    hosted_workflow = (_REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml").read_text(
+        encoding="utf-8"
+    )
     ai_foundry_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleAiFoundry")
     project_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleProject")
 
