@@ -27,6 +27,9 @@ Per-row schema::
 
     {"query": "...", "ground_truth": "C", "metadata": {...}}
 
+Metadata values are emitted as strings because the Azure/OpenAI grader
+datasource schema validates metadata as string values.
+
 Output format is selected by the ``--out`` suffix:
 
 * ``.json`` writes a single wrapped object
@@ -163,6 +166,15 @@ def _build_query(
     return f"{envelope}\n{body}"
 
 
+def _metadata_value(value: Any) -> str:
+    """Return a Foundry datasource-safe metadata string."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
 def emit_rows(
     *,
     manifest_path: Path,
@@ -211,10 +223,10 @@ def emit_rows(
                     "benchmark_video_id": video_id,
                     "media_id": media_id,
                     "duration_bucket": bucket,
-                    "with_subtitles": with_subs,
-                    "domain": q.get("domain"),
-                    "sub_category": q.get("sub_category") or q.get("subfield"),
-                    "question_id": q.get("question_id") or q.get("qid"),
+                    "with_subtitles": _metadata_value(with_subs),
+                    "domain": _metadata_value(q.get("domain")),
+                    "sub_category": _metadata_value(q.get("sub_category") or q.get("subfield")),
+                    "question_id": _metadata_value(q.get("question_id") or q.get("qid")),
                 },
             }
 
