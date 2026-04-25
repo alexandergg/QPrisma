@@ -216,7 +216,10 @@ def test_wait_for_agent_active_surfaces_failure_details():
             assert agent_version == "9"
             return {
                 "status": "failed",
-                "error": {"code": "image_pull_failed", "message": "bad image"},
+                "error": {
+                    "code": "image_pull_failed",
+                    "message": "bad image",
+                },
             }
 
     fake_client = types.SimpleNamespace(agents=_AgentsClient())

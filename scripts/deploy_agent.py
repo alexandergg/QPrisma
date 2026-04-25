@@ -348,19 +348,19 @@ def main() -> None:
 
     # Poll until the agent reaches the current SDK's active state
     print("Waiting for agent version to reach 'active' state...")
-    running = wait_for_agent_active(client, str(agent.version))
+    active = wait_for_agent_active(client, str(agent.version))
 
     # Write version to GITHUB_OUTPUT for downstream steps
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a") as f:
             f.write(f"agent_version={agent.version}\n")
-            f.write(f"agent_running={'true' if running else 'false'}\n")
+            f.write(f"agent_active={'true' if active else 'false'}\n")
             f.write(
                 f"agent_identity_principal_id={agent_identity_principal_id or ''}\n"
             )
 
-    if not running:
+    if not active:
         print("WARNING: Agent may still be provisioning " "— check Foundry portal.")
         # Exit 0 to not fail the pipeline
         # — provisioning is async and may exceed our timeout
