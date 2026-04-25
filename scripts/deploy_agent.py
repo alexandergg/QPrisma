@@ -41,6 +41,9 @@ RETRY_WAIT_SECONDS = [120, 240]  # 2min, 4min between retries
 POLL_INTERVAL_SECONDS = 30
 POLL_TIMEOUT_SECONDS = 600
 
+AGENT_IDENTITY_LOOKUP_ATTEMPTS = 10
+AGENT_IDENTITY_LOOKUP_WAIT_SECONDS = 15
+
 
 def _optional_env(key: str, *, env: Mapping[str, str] | None = None) -> dict[str, str]:
     """Return {key: value} if the env var is set, otherwise empty dict."""
@@ -81,8 +84,12 @@ def build_environment_variables(
             "AZURE_OPENAI_ENDPOINT",
             f"https://{account_name}.openai.azure.com/",
         ),
-        "AZURE_OPENAI_API_VERSION": source.get("AZURE_OPENAI_API_VERSION", "2024-08-01-preview"),
-        "AZURE_OPENAI_DEPLOYMENT_GPT": source.get("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o"),
+        "AZURE_OPENAI_API_VERSION": source.get(
+            "AZURE_OPENAI_API_VERSION", "2024-08-01-preview"
+        ),
+        "AZURE_OPENAI_DEPLOYMENT_GPT": source.get(
+            "AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o"
+        ),
         "AZURE_OPENAI_DEPLOYMENT_EMBEDDING": source.get(
             "AZURE_OPENAI_DEPLOYMENT_EMBEDDING",
             "text-embedding-3-large",
@@ -110,8 +117,12 @@ def build_environment_variables(
         # platform; we emit under MEMORY_* (which the backend FoundrySettings
         # accepts via AliasChoices) but also accept the legacy FOUNDRY_MEMORY_*
         # names as input so exporters using those env vars still work.
-        **_optional_env_aliased("MEMORY_STORE_NAME", "FOUNDRY_MEMORY_STORE_NAME", env=source),
-        **_optional_env_aliased("MEMORY_CHAT_MODEL", "FOUNDRY_MEMORY_CHAT_MODEL", env=source),
+        **_optional_env_aliased(
+            "MEMORY_STORE_NAME", "FOUNDRY_MEMORY_STORE_NAME", env=source
+        ),
+        **_optional_env_aliased(
+            "MEMORY_CHAT_MODEL", "FOUNDRY_MEMORY_CHAT_MODEL", env=source
+        ),
         **_optional_env_aliased(
             "MEMORY_EMBEDDING_MODEL", "FOUNDRY_MEMORY_EMBEDDING_MODEL", env=source
         ),
@@ -126,6 +137,60 @@ def _run_az(*args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
     )
+
+
+def _extract_agent_identity_principal_id(agent: object) -> str | None:
+    """Extract the hosted agent instance identity principal ID from SDK models."""
+    instance_identity = getattr(agent, "instance_identity", None)
+    if instance_identity is None:
+        return None
+
+    if isinstance(instance_identity, Mapping):
+        principal_id = instance_identity.get("principal_id")
+        return principal_id if isinstance(principal_id, str) and principal_id else None
+
+    principal_id = getattr(instance_identity, "principal_id", None)
+    return principal_id if isinstance(principal_id, str) and principal_id else None
+
+
+def resolve_agent_identity_principal_id(
+    client: AIProjectClient,
+    *,
+    attempts: int = AGENT_IDENTITY_LOOKUP_ATTEMPTS,
+    wait_seconds: int = AGENT_IDENTITY_LOOKUP_WAIT_SECONDS,
+) -> str | None:
+    """Resolve the hosted agent instance identity principal ID via Foundry APIs."""
+    for attempt in range(1, attempts + 1):
+        try:
+            agent = client.agents.get(agent_name=AGENT_NAME)
+        except HttpResponseError as exc:
+            if attempt == attempts:
+                print(
+                    f"WARNING: Failed to fetch agent identity after {attempts} attempts: {exc}"
+                )
+                return None
+            print(
+                f"Agent identity not available yet (attempt {attempt}/{attempts}): {exc}"
+            )
+        else:
+            principal_id = _extract_agent_identity_principal_id(agent)
+            if principal_id:
+                print(
+                    f"Resolved hosted agent instance identity principal ID: {principal_id}"
+                )
+                return principal_id
+            if attempt == attempts:
+                print(
+                    "WARNING: Hosted agent instance identity principal ID was not returned."
+                )
+                return None
+            print(
+                f"Hosted agent instance identity not ready yet (attempt {attempt}/{attempts})."
+            )
+
+        time.sleep(wait_seconds)
+
+    return None
 
 
 def start_agent(version: str) -> bool:
@@ -225,6 +290,7 @@ def main() -> None:
     client = AIProjectClient(
         endpoint=project_endpoint,
         credential=DefaultAzureCredential(),
+        allow_preview=True,
     )
 
     environment_variables = build_environment_variables()
@@ -234,8 +300,13 @@ def main() -> None:
     missing = [v for v in _CRITICAL_VARS if v not in environment_variables]
     if missing:
         print(f"WARNING: Missing critical env vars " f"for backend services: {missing}")
-        print("  The hosted agent will fall back to " "localhost defaults and fail to connect.")
-        print("  Ensure the deploy workflow resolves " "these from Azure infrastructure.")
+        print(
+            "  The hosted agent will fall back to "
+            "localhost defaults and fail to connect."
+        )
+        print(
+            "  Ensure the deploy workflow resolves " "these from Azure infrastructure."
+        )
 
     definition = ImageBasedHostedAgentDefinition(
         container_protocol_versions=[
@@ -266,7 +337,10 @@ def main() -> None:
                 ),
                 definition=definition,
             )
-            print(f"Agent registered: {agent.name} " f"(id: {agent.id}, version: {agent.version})")
+            print(
+                f"Agent registered: {agent.name} "
+                f"(id: {agent.id}, version: {agent.version})"
+            )
             break
         except HttpResponseError as e:
             last_error = e
@@ -290,9 +364,12 @@ def main() -> None:
     started = start_agent(agent.version)
     if not started:
         print(
-            "WARNING: Agent registered but auto-start failed. " "Start manually in Foundry portal."
+            "WARNING: Agent registered but auto-start failed. "
+            "Start manually in Foundry portal."
         )
         sys.exit(1)
+
+    agent_identity_principal_id = resolve_agent_identity_principal_id(client)
 
     # Poll until the agent reaches Running state
     print("Waiting for agent to reach 'Running' state...")
@@ -304,6 +381,9 @@ def main() -> None:
         with open(github_output, "a") as f:
             f.write(f"agent_version={agent.version}\n")
             f.write(f"agent_running={'true' if running else 'false'}\n")
+            f.write(
+                f"agent_identity_principal_id={agent_identity_principal_id or ''}\n"
+            )
 
     if not running:
         print("WARNING: Agent may still be provisioning " "— check Foundry portal.")
