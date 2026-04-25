@@ -30,7 +30,7 @@ def _load_deploy_agent_module():
     azure_identity_module.DefaultAzureCredential = object
     azure_projects_module.AIProjectClient = object
 
-    class DummyImageBasedHostedAgentDefinition:
+    class DummyHostedAgentDefinition:
         def __init__(self, *args, **kwargs):
             self.args = args
             self.kwargs = kwargs
@@ -44,9 +44,7 @@ def _load_deploy_agent_module():
         pass
 
     azure_projects_models_module.AgentProtocol = types.SimpleNamespace(RESPONSES="responses")
-    azure_projects_models_module.ImageBasedHostedAgentDefinition = (
-        DummyImageBasedHostedAgentDefinition
-    )
+    azure_projects_models_module.HostedAgentDefinition = DummyHostedAgentDefinition
     azure_projects_models_module.ProtocolVersionRecord = DummyProtocolVersionRecord
     azure_core_exceptions_module.HttpResponseError = DummyHttpResponseError
 
@@ -171,6 +169,70 @@ def test_extract_agent_identity_principal_id_supports_mapping_and_model():
 
 
 @pytest.mark.unit
+def test_extract_agent_version_status_supports_mapping_and_model():
+    deploy_agent = _load_deploy_agent_module()
+
+    mapping_version = {"status": "creating"}
+    model_version = types.SimpleNamespace(status="active")
+    missing_version = types.SimpleNamespace(status=None)
+
+    assert deploy_agent._extract_agent_version_status(mapping_version) == "creating"
+    assert deploy_agent._extract_agent_version_status(model_version) == "active"
+    assert deploy_agent._extract_agent_version_status(missing_version) is None
+
+
+@pytest.mark.unit
+def test_wait_for_agent_active_polls_foundry_sdk_until_active():
+    deploy_agent = _load_deploy_agent_module()
+
+    class _AgentsClient:
+        def __init__(self):
+            self.calls = 0
+
+        def get_version(self, *, agent_name: str, agent_version: str):
+            self.calls += 1
+            assert agent_name == deploy_agent.AGENT_NAME
+            assert agent_version == "7"
+            if self.calls == 1:
+                return {"status": "creating"}
+            return types.SimpleNamespace(status="active")
+
+    fake_client = types.SimpleNamespace(agents=_AgentsClient())
+
+    with patch.object(deploy_agent.time, "sleep") as sleep_mock:
+        active = deploy_agent.wait_for_agent_active(fake_client, "7")
+
+    assert active is True
+    sleep_mock.assert_called_once_with(deploy_agent.POLL_INTERVAL_SECONDS)
+
+
+@pytest.mark.unit
+def test_wait_for_agent_active_surfaces_failure_details():
+    deploy_agent = _load_deploy_agent_module()
+
+    class _AgentsClient:
+        def get_version(self, *, agent_name: str, agent_version: str):
+            assert agent_name == deploy_agent.AGENT_NAME
+            assert agent_version == "9"
+            return {
+                "status": "failed",
+                "error": {
+                    "code": "image_pull_failed",
+                    "message": "bad image",
+                },
+            }
+
+    fake_client = types.SimpleNamespace(agents=_AgentsClient())
+
+    with patch("builtins.print") as print_mock:
+        active = deploy_agent.wait_for_agent_active(fake_client, "9")
+
+    assert active is False
+    printed = "\n".join(call.args[0] for call in print_mock.call_args_list if call.args)
+    assert "Provisioning error: image_pull_failed: bad image" in printed
+
+
+@pytest.mark.unit
 def test_resolve_agent_identity_principal_id_polls_foundry_api():
     deploy_agent = _load_deploy_agent_module()
 
@@ -237,5 +299,10 @@ def test_hosted_agent_openai_rbac_is_durable_and_graph_free():
     assert 'pip install "azure-ai-projects==2.1.0"' in hosted_workflow
     assert "resolve_agent_identity_principal_id" in deploy_agent_script
     assert "client.agents.get(agent_name=AGENT_NAME)" in deploy_agent_script
+    assert "HostedAgentDefinition" in deploy_agent_script
+    assert "client.agents.get_version(" in deploy_agent_script
+    assert "wait_for_agent_active" in deploy_agent_script
     assert "allow_preview=True" in deploy_agent_script
     assert "agent_identity_principal_id=" in deploy_agent_script
+    assert "agent start" not in deploy_agent_script
+    assert "agent show" not in deploy_agent_script

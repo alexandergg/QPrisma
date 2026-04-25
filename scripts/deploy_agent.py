@@ -1,7 +1,7 @@
 """Deploy QPrisma hosted agent to Microsoft Foundry.
 
-Registers (or updates) the hosted agent version in Foundry Agent Service,
-then starts the agent deployment so it transitions to 'Started' automatically.
+Registers (or updates) the hosted agent version in Foundry Agent Service and
+waits for the version to reach the documented `active` state.
 
 Usage:
     az login
@@ -14,9 +14,7 @@ Reference:
     https://learn.microsoft.com/azure/foundry/agents/how-to/manage-hosted-agent
 """
 
-import json
 import os
-import subprocess
 import sys
 import time
 from collections.abc import Mapping
@@ -24,7 +22,7 @@ from collections.abc import Mapping
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import (
     AgentProtocol,
-    ImageBasedHostedAgentDefinition,
+    HostedAgentDefinition,
     ProtocolVersionRecord,
 )
 from azure.core.exceptions import HttpResponseError
@@ -32,7 +30,6 @@ from azure.identity import DefaultAzureCredential
 
 AGENT_NAME = "qprisma-video-agent"
 ACCOUNT_NAME = "aif-qprisma-dev"
-PROJECT_NAME = "aif-qprisma-dev-project"
 
 MAX_RETRIES = 3
 RETRY_WAIT_SECONDS = [120, 240]  # 2min, 4min between retries
@@ -131,14 +128,6 @@ def build_environment_variables(
     }
 
 
-def _run_az(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603
-        ["az", *args],  # noqa: S607
-        capture_output=True,
-        text=True,
-    )
-
-
 def _extract_agent_identity_principal_id(agent: object) -> str | None:
     """Extract the hosted agent instance identity principal ID from SDK models."""
     instance_identity = getattr(agent, "instance_identity", None)
@@ -193,74 +182,69 @@ def resolve_agent_identity_principal_id(
     return None
 
 
-def start_agent(version: str) -> bool:
-    """Start the agent deployment using az cli."""
-    cmd = [
-        "cognitiveservices",
-        "agent",
-        "start",
-        "--account-name",
-        ACCOUNT_NAME,
-        "--project-name",
-        PROJECT_NAME,
-        "--name",
-        AGENT_NAME,
-        "--agent-version",
-        str(version),
-    ]
-    print(f"Starting agent with: az {' '.join(cmd)}")
-    result = _run_az(*cmd)
-    if result.returncode == 0:
-        print("Agent start command succeeded")
-        return True
+def _extract_agent_version_status(agent_version: object) -> str | None:
+    """Extract the hosted agent version status from SDK models or dicts."""
+    if isinstance(agent_version, Mapping):
+        status = agent_version.get("status")
+        return status if isinstance(status, str) and status else None
 
-    print(f"az cognitiveservices agent start failed (rc={result.returncode})")
-    if result.stderr:
-        print(f"  stderr: {result.stderr.strip()}")
-    return False
+    status = getattr(agent_version, "status", None)
+    return status if isinstance(status, str) and status else None
 
 
-def get_agent_status() -> str | None:
-    """Get the current agent deployment status via az cli."""
-    result = _run_az(
-        "cognitiveservices",
-        "agent",
-        "show",
-        "--account-name",
-        ACCOUNT_NAME,
-        "--project-name",
-        PROJECT_NAME,
-        "--name",
-        AGENT_NAME,
-        "--output",
-        "json",
-    )
-    if result.returncode != 0:
+def _extract_agent_version_error(agent_version: object) -> str | None:
+    """Extract a readable provisioning error from SDK models or dicts."""
+    if isinstance(agent_version, Mapping):
+        error = agent_version.get("error")
+    else:
+        error = getattr(agent_version, "error", None)
+
+    if error is None:
         return None
-    try:
-        data = json.loads(result.stdout)
-        return data.get("properties", {}).get("provisioningState") or data.get("status")
-    except (json.JSONDecodeError, KeyError):
-        return None
+    if isinstance(error, str):
+        return error or None
+    if isinstance(error, Mapping):
+        code = error.get("code")
+        message = error.get("message")
+    else:
+        code = getattr(error, "code", None)
+        message = getattr(error, "message", None)
+
+    parts = [part for part in (code, message) if isinstance(part, str) and part]
+    return ": ".join(parts) if parts else str(error)
 
 
-def wait_for_agent_running() -> bool:
-    """Poll agent status until it reaches a terminal state or times out."""
+def wait_for_agent_active(client: AIProjectClient, version: str) -> bool:
+    """Poll the hosted agent version until it reaches a terminal state."""
     start = time.time()
     last_status = None
 
     while time.time() - start < POLL_TIMEOUT_SECONDS:
-        status = get_agent_status()
+        try:
+            agent_version = client.agents.get_version(
+                agent_name=AGENT_NAME,
+                agent_version=version,
+            )
+        except HttpResponseError as exc:
+            elapsed = int(time.time() - start)
+            print(f"  [{elapsed}s] Failed to fetch version status: {exc}")
+            time.sleep(POLL_INTERVAL_SECONDS)
+            continue
+
+        status = _extract_agent_version_status(agent_version)
         if status != last_status:
             elapsed = int(time.time() - start)
             print(f"  [{elapsed}s] Agent status: {status or 'unknown'}")
             last_status = status
 
-        if status and status.lower() in ("running", "succeeded", "started"):
-            print(f"Agent is running! (status: {status})")
+        if status and status.lower() == "active":
+            print(f"Agent is active! (status: {status})")
             return True
-        if status and status.lower() in ("failed", "error"):
+        if status and status.lower() == "failed":
             print(f"Agent deployment failed (status: {status})")
+            error = _extract_agent_version_error(agent_version)
+            if error:
+                print(f"Provisioning error: {error}")
             return False
 
         time.sleep(POLL_INTERVAL_SECONDS)
@@ -308,7 +292,7 @@ def main() -> None:
             "  Ensure the deploy workflow resolves " "these from Azure infrastructure."
         )
 
-    definition = ImageBasedHostedAgentDefinition(
+    definition = HostedAgentDefinition(
         container_protocol_versions=[
             ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="1.0.0"),
             ProtocolVersionRecord(protocol="a2a", version="v0.2.1"),
@@ -360,32 +344,23 @@ def main() -> None:
         print(f"ERROR: All {MAX_RETRIES} attempts failed.")
         raise last_error  # type: ignore[misc]
 
-    # Auto-start the agent deployment
-    started = start_agent(agent.version)
-    if not started:
-        print(
-            "WARNING: Agent registered but auto-start failed. "
-            "Start manually in Foundry portal."
-        )
-        sys.exit(1)
-
     agent_identity_principal_id = resolve_agent_identity_principal_id(client)
 
-    # Poll until the agent reaches Running state
-    print("Waiting for agent to reach 'Running' state...")
-    running = wait_for_agent_running()
+    # Poll until the agent reaches the current SDK's active state
+    print("Waiting for agent version to reach 'active' state...")
+    active = wait_for_agent_active(client, str(agent.version))
 
     # Write version to GITHUB_OUTPUT for downstream steps
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a") as f:
             f.write(f"agent_version={agent.version}\n")
-            f.write(f"agent_running={'true' if running else 'false'}\n")
+            f.write(f"agent_active={'true' if active else 'false'}\n")
             f.write(
                 f"agent_identity_principal_id={agent_identity_principal_id or ''}\n"
             )
 
-    if not running:
+    if not active:
         print("WARNING: Agent may still be provisioning " "— check Foundry portal.")
         # Exit 0 to not fail the pipeline
         # — provisioning is async and may exceed our timeout
