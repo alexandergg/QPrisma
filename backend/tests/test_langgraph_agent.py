@@ -6,6 +6,7 @@ Tests for the LangGraph-based video agent.
 """
 
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -196,6 +197,71 @@ class TestRestoreMediaContext:
         result = restore_media_context(state, config)
 
         assert result["media_ids"] == ["vid-1", "vid-2"]
+
+    def test_single_media_ids_message_restores_single_video_context(self):
+        """Video-MME media_ids=[id] context should bind single-video tools."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        '[QPRISMA_CONTEXT:{"media_ids":["vid-123"],"user_id":"u1"}]'
+                        '[QPRISMA_BENCH:{"eval_mode":"mcq","format":"letter_only"}]\n'
+                        "Question: What color?"
+                    )
+                )
+            ],
+            "media_id": None,
+            "media_ids": None,
+            "video_context": None,
+            "user_id": None,
+        }
+        config = RunnableConfig(configurable={})
+
+        result = restore_media_context(state, config)
+
+        assert result["media_id"] == "vid-123"
+        assert result["media_ids"] == ["vid-123"]
+        assert result["video_context"]["media_id"] == "vid-123"
+        assert result["user_id"] == "u1"
+        assert result["benchmark_context"] == {
+            "eval_mode": "mcq",
+            "format": "letter_only",
+        }
+        assert result["messages"][0].content == "Question: What color?"
+
+    def test_malformed_adjacent_benchmark_is_stripped_from_message(self, caplog):
+        """A malformed benchmark envelope after valid context should not leak to the LLM."""
+        from agent.nodes.video_nodes import restore_media_context
+        from langchain_core.runnables import RunnableConfig
+
+        state = {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        '[QPRISMA_CONTEXT:{"media_ids":["vid-123"],"user_id":"u1"}]'
+                        "[QPRISMA_BENCH:{bad json}]\n"
+                        "Question: What color?"
+                    )
+                )
+            ],
+            "media_id": None,
+            "media_ids": None,
+            "video_context": None,
+            "user_id": None,
+        }
+        config = RunnableConfig(configurable={})
+
+        with caplog.at_level(logging.WARNING):
+            result = restore_media_context(state, config)
+
+        assert result["media_id"] == "vid-123"
+        assert result["media_ids"] == ["vid-123"]
+        assert "benchmark_context" not in result
+        assert result["messages"][0].content == "Question: What color?"
+        assert "QPRISMA_BENCH prefix found but payload is malformed" in caplog.text
 
     def test_graph_has_restore_media_context_node(self):
         """The compiled graph includes restore_media_context before call_model."""
@@ -1824,6 +1890,50 @@ class TestMultiVideoState:
 
         msg = get_system_message(state)
         assert "cross-video" not in msg.content.lower()
+
+    def test_single_media_ids_prompt_uses_video_context(self):
+        """A single media_ids entry should not trigger the no-video prompt."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": None,
+            "media_id": None,
+            "media_ids": ["vid-1"],
+        }
+
+        msg = get_system_message(state)
+        assert "no video loaded" not in msg.content.lower()
+        assert "cross-video" not in msg.content.lower()
+
+    def test_system_message_ignores_invalid_media_ids(self):
+        """Invalid media_ids entries should not be reintroduced after normalization."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": None,
+            "media_id": None,
+            "media_ids": [None, 123, ""],
+        }
+
+        msg = get_system_message(state)
+        assert "no video loaded" in msg.content.lower()
+        assert "Selected Videos" not in msg.content
+
+    def test_benchmark_prompt_overrides_final_answer_shape(self):
+        """Video-MME benchmark mode should suppress normal explanatory output."""
+        from agent.nodes.video_nodes import get_system_message
+
+        state = {
+            "video_context": {"media_id": "vid-1"},
+            "media_id": "vid-1",
+            "media_ids": ["vid-1"],
+            "benchmark_context": {"eval_mode": "mcq", "format": "letter_only"},
+        }
+
+        msg = get_system_message(state)
+        assert "Benchmark Response Mode" in msg.content
+        assert "exactly one uppercase letter" in msg.content
+        assert "follow-up questions" in msg.content
 
     def test_multi_video_prompt_lists_all_media_ids(self):
         """Test that multi-video prompt lists each media_id individually."""

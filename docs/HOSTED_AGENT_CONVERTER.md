@@ -62,9 +62,14 @@ Besides `response_mode`, `QPRISMA_CONTEXT` also carries:
 
 - `media_id` — injected into the LangGraph input state so tools can scope
   queries to a specific video. Required for video-aware queries.
+- `media_ids` — injected for multi-video/library queries. A single-element
+  `media_ids` list is normalized to the same single-video state as `media_id`
+  so benchmark payloads and UI payloads route to the same tools.
 - `user_id` — propagated for audit, personalization, and retrieval filters.
 - `session_id` — propagated for thread continuity so LangGraph memory and
   checkpointed state can resume the same conversation.
+- `benchmark_context` — derived from adjacent `QPRISMA_BENCH` envelopes for
+  benchmark-only response contracts, such as Video-MME MCQ letter-only output.
 
 These fields are forwarded to the graph's input state and are **not** included in
 the resulting prompt text.

@@ -10,7 +10,8 @@ Each benchmark (Video-MME, VideoRAG/LongerVideos) ships:
 2. An ``emit_foundry_data`` CLI that walks the resulting manifest and emits
    the JSONL file consumed by ``microsoft/ai-agent-evals`` (uses the existing
    ``[QPRISMA_CONTEXT:{...}]`` envelope plus an additive ``[QPRISMA_BENCH:{...}]``
-   envelope so non-benchmark code paths keep ignoring it).
+   envelope that hosted-agent benchmark paths parse and non-benchmark paths
+   never emit).
 3. A ``BenchmarkManifest`` (this module) describing what was ingested — pinned
    judge model, dataset version, license, and the ``media_id`` ↔
    ``benchmark_video_id`` mapping for reproducibility.

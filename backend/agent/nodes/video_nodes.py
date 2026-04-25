@@ -6,13 +6,17 @@ Nodes for the LangGraph-based video agent.
 Uses shared base implementation with video-specific configuration.
 """
 
-import json
 import logging
 from typing import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
+from agent.context_envelopes import (
+    extract_qprisma_envelopes_with_status,
+    is_letter_only_benchmark,
+    normalize_media_selection,
+)
 from agent.nodes.base import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_WARN_TOOL_ITERATIONS,
@@ -59,50 +63,37 @@ def _resolve_video_titles(media_ids: list[str]) -> dict[str, str]:
     return titles
 
 
-# Defense-in-depth parser for QPRISMA_CONTEXT prefix.  Uses
-# json.JSONDecoder.raw_decode() to handle nested JSON correctly
-# (e.g. media_ids arrays) without regex fragility.
-_CONTEXT_PREFIX = "[QPRISMA_CONTEXT:"
-_json_decoder = json.JSONDecoder()
+# Defense-in-depth parser for QPrisma envelopes. The shared helper uses
+# json.JSONDecoder.raw_decode() to handle nested JSON correctly.
 
 
 def _parse_qprisma_context_from_messages(
     messages: list,
-) -> tuple[dict, list | None]:
-    """Extract ``[QPRISMA_CONTEXT:{...}]`` from the last HumanMessage.
+) -> tuple[dict, dict, list | None]:
+    """Extract QPrisma envelopes from the last HumanMessage.
 
     Returns:
-        (metadata_dict, updated_messages) — if a prefix was found and stripped.
-        ({}, None) — if no prefix found (messages unchanged).
+        (context_dict, benchmark_dict, updated_messages) if a prefix was stripped.
+        ({}, {}, None) if no prefix was found (messages unchanged).
     """
     for i in range(len(messages) - 1, -1, -1):
         msg = messages[i]
         if isinstance(msg, HumanMessage) and isinstance(msg.content, str):
             text = msg.content
-            if not text.startswith(_CONTEXT_PREFIX):
+            metadata, benchmark_context, cleaned_text, malformed = (
+                extract_qprisma_envelopes_with_status(text)
+            )
+            if "QPRISMA_CONTEXT" in malformed:
+                logger.warning("QPRISMA_CONTEXT prefix found but payload is malformed")
+            if "QPRISMA_BENCH" in malformed:
+                logger.warning("QPRISMA_BENCH prefix found but payload is malformed")
+            if not metadata and not benchmark_context:
                 break  # only check the last HumanMessage
 
-            json_start = len(_CONTEXT_PREFIX)
-            try:
-                metadata, json_end = _json_decoder.raw_decode(text, json_start)
-            except (json.JSONDecodeError, ValueError):
-                return {}, None
-
-            if not isinstance(metadata, dict):
-                return {}, None
-
-            # Expect closing ']' after JSON
-            if json_end >= len(text) or text[json_end] != "]":
-                return {}, None
-
-            rest_start = json_end + 1
-            if rest_start < len(text) and text[rest_start] == "\n":
-                rest_start += 1
-
             new_messages = list(messages)
-            new_messages[i] = HumanMessage(content=text[rest_start:])
-            return metadata, new_messages
-    return {}, None
+            new_messages[i] = HumanMessage(content=cleaned_text)
+            return metadata, benchmark_context, new_messages
+    return {}, {}, None
 
 
 def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
@@ -126,8 +117,12 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     ``enduser.id``) so Azure AI Foundry can group traces by conversation.
     """
     configurable = config.get("configurable", {})
-    config_media_id = configurable.get("media_id")
-    config_media_ids = configurable.get("media_ids")
+    raw_config_media_id = configurable.get("media_id")
+    raw_config_media_ids = configurable.get("media_ids")
+    config_media_id, config_media_ids = normalize_media_selection(
+        raw_config_media_id,
+        raw_config_media_ids,
+    )
 
     # --- OpenTelemetry conversation/user attribution ---
     thread_id = configurable.get("thread_id")
@@ -153,42 +148,53 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     except Exception:  # noqa: S110
         pass  # OTel not available — safe to ignore
 
-    state_media_id = state.get("media_id")
-    state_media_ids = state.get("media_ids")
+    raw_state_media_id = state.get("media_id")
+    raw_state_media_ids = state.get("media_ids")
+    state_media_id, state_media_ids = normalize_media_selection(
+        raw_state_media_id,
+        raw_state_media_ids,
+    )
 
     # --- Defense-in-depth: parse QPRISMA_CONTEXT from messages ----------
     # Always attempt to strip QPRISMA_CONTEXT so it cannot leak into the LLM
     # prompt, even if state already has a media_id from a checkpoint.
     msg_media_id = None
-    msg_media_ids = None
+    msg_media_ids: list[str] = []
     updates: dict = {}
 
     messages = state.get("messages", [])
-    msg_ctx, cleaned_messages = _parse_qprisma_context_from_messages(messages)
-    if msg_ctx:
-        msg_media_id = msg_ctx.get("media_id")
-        msg_media_ids = msg_ctx.get("media_ids")
+    msg_ctx, msg_benchmark_context, cleaned_messages = _parse_qprisma_context_from_messages(
+        messages
+    )
+    if msg_ctx or msg_benchmark_context:
+        msg_media_id, msg_media_ids = normalize_media_selection(
+            msg_ctx.get("media_id"),
+            msg_ctx.get("media_ids"),
+        )
         msg_user_id = msg_ctx.get("user_id")
         if msg_user_id and not user_id:
             updates["user_id"] = msg_user_id
         if cleaned_messages is not None:
             updates["messages"] = cleaned_messages
+        if msg_benchmark_context:
+            updates["benchmark_context"] = msg_benchmark_context
         logger.info(
-            "restore_media_context: extracted QPRISMA_CONTEXT from messages — "
-            "media_id=%s, media_ids=%s",
+            "restore_media_context: extracted QPrisma envelopes from messages — "
+            "media_id=%s, media_ids=%s, benchmark=%s",
             msg_media_id,
             msg_media_ids,
+            bool(msg_benchmark_context),
         )
 
     # Resolve effective media_id: config > message > state (converter/checkpoint)
     effective_media_id = config_media_id or msg_media_id or state_media_id
     effective_media_ids = config_media_ids or msg_media_ids or state_media_ids
 
-    if effective_media_id and effective_media_id != state_media_id:
+    if effective_media_id and effective_media_id != raw_state_media_id:
         source = "config" if config_media_id else "message" if msg_media_id else "checkpoint"
         logger.info(
             f"restore_media_context: overriding state media_id "
-            f"'{state_media_id}' → '{effective_media_id}' (source={source})"
+            f"'{raw_state_media_id}' → '{effective_media_id}' (source={source})"
         )
         updates["media_id"] = effective_media_id
         updates["video_context"] = VideoContext(media_id=effective_media_id)
@@ -197,7 +203,7 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
         # media_id is consistent but video_context is missing
         updates["video_context"] = VideoContext(media_id=effective_media_id)
 
-    if effective_media_ids and effective_media_ids != state_media_ids:
+    if effective_media_ids and effective_media_ids != raw_state_media_ids:
         updates["media_ids"] = effective_media_ids
 
     if effective_media_ids and len(effective_media_ids) > 1:
@@ -232,6 +238,9 @@ def get_system_message(state: AgentState) -> SystemMessage:
     video_context = state.get("video_context")
     media_id = state.get("media_id")
     media_ids = state.get("media_ids")
+    normalized_media_id, normalized_media_ids = normalize_media_selection(media_id, media_ids)
+    media_id = normalized_media_id
+    media_ids = normalized_media_ids
     conversation_context = state.get("conversation_context", [])
 
     # Determine mode: multi-video, single-video, or no video
@@ -273,6 +282,15 @@ def get_system_message(state: AgentState) -> SystemMessage:
     if conversation_context:
         content += f"\n\n**Previous Topics Discussed:** {', '.join(conversation_context[-5:])}"
 
+    if is_letter_only_benchmark(state.get("benchmark_context")):
+        content += (
+            "\n\n## Benchmark Response Mode\n"
+            "This is a multiple-choice video benchmark. Use the available video tools "
+            "to inspect the selected video before answering. The final response must "
+            "be exactly one uppercase letter: A, B, C, or D. Do not include "
+            "explanations, citations, markdown, or follow-up questions."
+        )
+
     return SystemMessage(content=content)
 
 
@@ -287,11 +305,19 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
     video_context = state.get("video_context")
     media_id = state.get("media_id")
     media_ids = state.get("media_ids")
+    normalized_media_id, normalized_media_ids = normalize_media_selection(media_id, media_ids)
+    media_id = normalized_media_id
+    media_ids = normalized_media_ids or media_ids
 
     # Defense-in-depth: fall back to config if state lost media_id
     if not media_id:
         configurable = config.get("configurable", {})
-        media_id = configurable.get("media_id") or media_id
+        config_media_id, config_media_ids = normalize_media_selection(
+            configurable.get("media_id"),
+            configurable.get("media_ids"),
+        )
+        media_id = config_media_id or media_id
+        media_ids = config_media_ids or media_ids
         if media_id:
             logger.info(f"call_model: recovered media_id from config: {media_id}")
     if not media_ids:

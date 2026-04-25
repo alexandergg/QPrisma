@@ -148,6 +148,7 @@ class AgentState(TypedDict, total=False):
     # Metadata
     user_id: str | None
     session_id: str | None
+    benchmark_context: dict | None
 
 
 # =============================================================================
@@ -170,6 +171,7 @@ class AgentInputState(TypedDict, total=False):
     video_context: VideoContext | None
     user_id: str | None
     session_id: str | None
+    benchmark_context: dict | None
 
 
 class AgentOutputState(TypedDict, total=False):
