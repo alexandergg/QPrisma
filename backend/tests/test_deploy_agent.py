@@ -100,6 +100,11 @@ def _workflow_step_block(contents: str, step_name: str) -> str:
     return match.group(0)
 
 
+class _IdentityObject:
+    def __init__(self, principal_id: str):
+        self.principal_id = principal_id
+
+
 @pytest.mark.unit
 def test_build_environment_variables_defaults_to_secretless_hosted_contract():
     deploy_agent = _load_deploy_agent_module()
@@ -153,7 +158,48 @@ def test_hosted_manifest_openai_api_version_matches_script_default():
 
 
 @pytest.mark.unit
-def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
+def test_extract_agent_identity_principal_id_supports_mapping_and_model():
+    deploy_agent = _load_deploy_agent_module()
+
+    mapping_agent = types.SimpleNamespace(instance_identity={"principal_id": "pid-from-mapping"})
+    model_agent = types.SimpleNamespace(instance_identity=_IdentityObject("pid-from-model"))
+    missing_agent = types.SimpleNamespace(instance_identity=None)
+
+    assert deploy_agent._extract_agent_identity_principal_id(mapping_agent) == "pid-from-mapping"
+    assert deploy_agent._extract_agent_identity_principal_id(model_agent) == "pid-from-model"
+    assert deploy_agent._extract_agent_identity_principal_id(missing_agent) is None
+
+
+@pytest.mark.unit
+def test_resolve_agent_identity_principal_id_polls_foundry_api():
+    deploy_agent = _load_deploy_agent_module()
+
+    class _AgentsClient:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *, agent_name: str):
+            self.calls += 1
+            assert agent_name == deploy_agent.AGENT_NAME
+            if self.calls == 1:
+                return types.SimpleNamespace(instance_identity=None)
+            return types.SimpleNamespace(instance_identity={"principal_id": "pid-from-foundry"})
+
+    fake_client = types.SimpleNamespace(agents=_AgentsClient())
+
+    with patch.object(deploy_agent.time, "sleep") as sleep_mock:
+        principal_id = deploy_agent.resolve_agent_identity_principal_id(
+            fake_client,
+            attempts=3,
+            wait_seconds=1,
+        )
+
+    assert principal_id == "pid-from-foundry"
+    sleep_mock.assert_called_once_with(1)
+
+
+@pytest.mark.unit
+def test_hosted_agent_openai_rbac_is_durable_and_graph_free():
     ai_foundry_bicep = (_REPO_ROOT / "infra" / "modules" / "ai-foundry.bicep").read_text(
         encoding="utf-8"
     )
@@ -163,11 +209,9 @@ def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
     ai_foundry_workflow = (
         _REPO_ROOT / ".github" / "workflows" / "deploy-ai-foundry.yml"
     ).read_text(encoding="utf-8")
+    deploy_agent_script = _SCRIPT_PATH.read_text(encoding="utf-8")
     hosted_openai_step = _workflow_step_block(
-        hosted_workflow, "Ensure hosted agent identity has Azure OpenAI access"
-    )
-    ai_foundry_openai_step = _workflow_step_block(
-        ai_foundry_workflow, "Ensure hosted AgentIdentity has Azure OpenAI access"
+        hosted_workflow, "Ensure hosted agent instance identity has Azure OpenAI access"
     )
     ai_foundry_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleAiFoundry")
     project_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleProject")
@@ -182,12 +226,16 @@ def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
     assert _OPENAI_USER_ROLE_ID in hosted_openai_step
     assert "Cognitive Services OpenAI User" in hosted_openai_step
     assert "'infra/modules/ai-foundry.bicep'" in hosted_workflow
-    assert re.search(r"AGENT_IDENTITY_NAME=.*AgentIdentity", hosted_openai_step)
-    assert "AGENT_IDENTITY_PID=$(az ad sp list" in hosted_openai_step
-    assert re.search(r'for PID in .*"\$AGENT_IDENTITY_PID".*; do', hosted_openai_step)
-    assert '--assignee-object-id "$PID"' in hosted_openai_step
-    assert _OPENAI_USER_ROLE_ID in ai_foundry_openai_step
-    assert "Cognitive Services OpenAI User" in ai_foundry_openai_step
-    assert re.search(r"AGENT_IDENTITY_NAME=.*AgentIdentity", ai_foundry_openai_step)
-    assert "AGENT_IDENTITY_PID=$(az ad sp list" in ai_foundry_openai_step
-    assert '--assignee-object-id "$AGENT_IDENTITY_PID"' in ai_foundry_openai_step
+    assert (
+        "AGENT_IDENTITY_PID: ${{ steps.register.outputs.agent_identity_principal_id }}"
+        in hosted_openai_step
+    )
+    assert '--assignee-object-id "$AGENT_IDENTITY_PID"' in hosted_openai_step
+    assert "az ad sp list" not in hosted_workflow
+    assert "Ensure hosted AgentIdentity has Azure OpenAI access" not in ai_foundry_workflow
+    assert "az ad sp list" not in ai_foundry_workflow
+    assert 'pip install "azure-ai-projects==2.1.0"' in hosted_workflow
+    assert "resolve_agent_identity_principal_id" in deploy_agent_script
+    assert "client.agents.get(agent_name=AGENT_NAME)" in deploy_agent_script
+    assert "allow_preview=True" in deploy_agent_script
+    assert "agent_identity_principal_id=" in deploy_agent_script
