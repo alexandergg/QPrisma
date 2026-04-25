@@ -9,6 +9,13 @@ from evaluation_foundry.benchmarks import BenchmarkManifest, BenchmarkVideo
 from evaluation_foundry.benchmarks.video_mme.emit_foundry_data import main
 
 
+def _assert_metadata_values_are_strings(row: dict) -> None:
+    metadata = row["metadata"]
+    assert metadata, "expected row metadata"
+    assert all(isinstance(value, str) for value in metadata.values())
+    assert not any(isinstance(value, bool) for value in metadata.values())
+
+
 def _write_fixtures(tmp_path: Path) -> tuple[Path, Path]:
     manifest = BenchmarkManifest(
         name="video_mme",
@@ -73,6 +80,8 @@ def test_emit_foundry_data_writes_wrapped_json(tmp_path: Path) -> None:
     assert set(row) >= {"query", "ground_truth", "metadata"}
     assert row["ground_truth"] == "C"
     assert row["metadata"]["media_id"] == "media-abc"
+    assert row["metadata"]["with_subtitles"] == "false"
+    _assert_metadata_values_are_strings(row)
 
 
 def test_emit_foundry_data_honors_evaluators_and_name_flags(tmp_path: Path) -> None:
@@ -106,6 +115,8 @@ def test_emit_foundry_data_jsonl_backwards_compat(tmp_path: Path) -> None:
     assert lines, "expected at least one JSONL row"
     for row in lines:
         assert set(row) >= {"query", "ground_truth", "metadata"}
+        assert row["metadata"]["with_subtitles"] == "false"
+        _assert_metadata_values_are_strings(row)
 
 
 def test_emit_foundry_data_rejects_unknown_suffix(tmp_path: Path) -> None:
