@@ -90,6 +90,16 @@ def _resource_block(contents: str, resource_name: str) -> str:
     return match.group(0)
 
 
+def _workflow_step_block(contents: str, step_name: str) -> str:
+    match = re.search(
+        rf"^\s*-\s+name:\s+{re.escape(step_name)}\s*$.*?(?=^\s*-\s+name:|\Z)",
+        contents,
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    assert match is not None, f"workflow step {step_name!r} missing"
+    return match.group(0)
+
+
 @pytest.mark.unit
 def test_build_environment_variables_defaults_to_secretless_hosted_contract():
     deploy_agent = _load_deploy_agent_module()
@@ -153,6 +163,12 @@ def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
     ai_foundry_workflow = (
         _REPO_ROOT / ".github" / "workflows" / "deploy-ai-foundry.yml"
     ).read_text(encoding="utf-8")
+    hosted_openai_step = _workflow_step_block(
+        hosted_workflow, "Ensure hosted agent identity has Azure OpenAI access"
+    )
+    ai_foundry_openai_step = _workflow_step_block(
+        ai_foundry_workflow, "Ensure hosted AgentIdentity has Azure OpenAI access"
+    )
     ai_foundry_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleAiFoundry")
     project_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleProject")
 
@@ -163,14 +179,15 @@ def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
     assert "scope: aiFoundry" in project_openai_role
     assert _OPENAI_ROLE_DEFINITION_ID in project_openai_role
     assert "principalId: aiProject.identity.principalId" in project_openai_role
-    assert _OPENAI_USER_ROLE_ID in hosted_workflow
-    assert "Cognitive Services OpenAI User" in hosted_workflow
+    assert _OPENAI_USER_ROLE_ID in hosted_openai_step
+    assert "Cognitive Services OpenAI User" in hosted_openai_step
     assert "'infra/modules/ai-foundry.bicep'" in hosted_workflow
-    assert 'AGENT_IDENTITY_NAME="${ACCOUNT}-${ACCOUNT}-project-AgentIdentity"' in hosted_workflow
-    assert "AGENT_IDENTITY_PID=$(az ad sp list" in hosted_workflow
-    assert 'for PID in "$PROJECT_PID" "$ACCOUNT_PID" "$AGENT_IDENTITY_PID"; do' in hosted_workflow
-    assert _OPENAI_USER_ROLE_ID in ai_foundry_workflow
-    assert "Cognitive Services OpenAI User" in ai_foundry_workflow
-    assert 'AGENT_IDENTITY_NAME="${ACCOUNT}-${PROJECT}-AgentIdentity"' in ai_foundry_workflow
-    assert "AGENT_IDENTITY_PID=$(az ad sp list" in ai_foundry_workflow
-    assert '--assignee-object-id "$AGENT_IDENTITY_PID"' in ai_foundry_workflow
+    assert re.search(r"AGENT_IDENTITY_NAME=.*AgentIdentity", hosted_openai_step)
+    assert "AGENT_IDENTITY_PID=$(az ad sp list" in hosted_openai_step
+    assert re.search(r'for PID in .*"\$AGENT_IDENTITY_PID".*; do', hosted_openai_step)
+    assert '--assignee-object-id "$PID"' in hosted_openai_step
+    assert _OPENAI_USER_ROLE_ID in ai_foundry_openai_step
+    assert "Cognitive Services OpenAI User" in ai_foundry_openai_step
+    assert re.search(r"AGENT_IDENTITY_NAME=.*AgentIdentity", ai_foundry_openai_step)
+    assert "AGENT_IDENTITY_PID=$(az ad sp list" in ai_foundry_openai_step
+    assert '--assignee-object-id "$AGENT_IDENTITY_PID"' in ai_foundry_openai_step

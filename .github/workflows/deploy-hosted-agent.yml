@@ -168,6 +168,7 @@ jobs:
         run: |
           RG="rg-qprisma-dev"
           ACCOUNT="aif-qprisma-dev"
+          PROJECT="${ACCOUNT}-project"
           SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
 
           AI_ACCOUNT_ID=$(az cognitiveservices account show \
@@ -176,7 +177,7 @@ jobs:
 
           # Get project managed identity (used by hosted agent containers)
           PROJECT_PID=$(az rest --method GET \
-            --url "https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${ACCOUNT}-project?api-version=2025-06-01" \
+            --url "https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT}?api-version=2025-06-01" \
             --query identity.principalId -o tsv)
           echo "Project principal: ${PROJECT_PID:0:8}..."
 
@@ -189,7 +190,7 @@ jobs:
             --query identity.principalId -o tsv)
           echo "Account principal: ${ACCOUNT_PID:0:8}..."
 
-          AGENT_IDENTITY_NAME="${ACCOUNT}-${ACCOUNT}-project-AgentIdentity"
+          AGENT_IDENTITY_NAME="${ACCOUNT}-${PROJECT}-AgentIdentity"
           AGENT_IDENTITY_PID=$(az ad sp list \
             --filter "displayName eq '${AGENT_IDENTITY_NAME}'" \
             --query "[0].id" -o tsv)

@@ -133,9 +133,22 @@ jobs:
             --query id -o tsv)
 
           AGENT_IDENTITY_NAME="${ACCOUNT}-${PROJECT}-AgentIdentity"
-          AGENT_IDENTITY_PID=$(az ad sp list \
-            --filter "displayName eq '${AGENT_IDENTITY_NAME}'" \
-            --query "[0].id" -o tsv)
+          AGENT_IDENTITY_PID=""
+          for ATTEMPT in 1 2 3 4 5; do
+            AGENT_IDENTITY_PID=$(az ad sp list \
+              --filter "displayName eq '${AGENT_IDENTITY_NAME}'" \
+              --query "[0].id" -o tsv)
+
+            if [ -n "$AGENT_IDENTITY_PID" ]; then
+              break
+            fi
+
+            if [ "$ATTEMPT" -lt 5 ]; then
+              BACKOFF_SECONDS=$((ATTEMPT * 15))
+              echo "Hosted AgentIdentity service principal not found yet; retrying in ${BACKOFF_SECONDS}s..."
+              sleep "$BACKOFF_SECONDS"
+            fi
+          done
 
           if [ -z "$AGENT_IDENTITY_PID" ]; then
             echo "::error::Could not resolve hosted agent identity service principal: ${AGENT_IDENTITY_NAME}"
