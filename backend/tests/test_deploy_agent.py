@@ -9,6 +9,8 @@ from unittest.mock import patch
 import pytest
 
 _SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "deploy_agent.py"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_OPENAI_USER_ROLE_ID = "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
 
 
 def _load_deploy_agent_module():
@@ -123,3 +125,19 @@ def test_hosted_manifest_openai_api_version_matches_script_default():
             break
     else:
         pytest.fail("AZURE_OPENAI_API_VERSION missing from hosted agent manifest")
+
+
+@pytest.mark.unit
+def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
+    ai_foundry_bicep = (_REPO_ROOT / "infra" / "modules" / "ai-foundry.bicep").read_text(
+        encoding="utf-8"
+    )
+    hosted_workflow = (
+        _REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml"
+    ).read_text(encoding="utf-8")
+
+    assert f"var cognitiveServicesOpenAiUserRole = '{_OPENAI_USER_ROLE_ID}'" in ai_foundry_bicep
+    assert "principalId: aiFoundry.identity.principalId" in ai_foundry_bicep
+    assert "principalId: aiProject.identity.principalId" in ai_foundry_bicep
+    assert _OPENAI_USER_ROLE_ID in hosted_workflow
+    assert "Cognitive Services OpenAI User" in hosted_workflow
