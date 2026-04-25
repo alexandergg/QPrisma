@@ -52,11 +52,14 @@ from azure.ai.agentserver.langgraph.models.utils import extract_function_call
 from langchain_core import messages as lc_messages
 from langchain_core.messages import HumanMessage
 
+from agent.context_envelopes import (
+    QPRISMA_BENCH_PREFIX,
+    QPRISMA_CONTEXT_PREFIX,
+    extract_qprisma_envelopes,
+    normalize_media_selection,
+)
+
 logger = logging.getLogger(__name__)
-
-_CONTEXT_PREFIX = "[QPRISMA_CONTEXT:"  # Literal prefix that wraps the JSON context envelope
-
-_json_decoder = json.JSONDecoder()
 
 # Async-safe per-request response mode.  Set during convert_request() and
 # read by _create_qprisma_converter() so overlapping async requests never
@@ -66,8 +69,18 @@ _request_response_mode: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 
 
+def _extract_qprisma_envelopes(text: str) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Parse QPrisma context/benchmark envelopes from the beginning of *text*."""
+    context, benchmark, cleaned = extract_qprisma_envelopes(text)
+    if cleaned == text and text.startswith(QPRISMA_CONTEXT_PREFIX):
+        logger.warning("QPRISMA_CONTEXT prefix found but payload is malformed")
+    if cleaned == text and text.startswith(QPRISMA_BENCH_PREFIX):
+        logger.warning("QPRISMA_BENCH prefix found but payload is malformed")
+    return context, benchmark, cleaned
+
+
 def _extract_qprisma_context(text: str) -> tuple[dict[str, Any], str]:
-    """Parse ``[QPRISMA_CONTEXT:{...}]`` from the beginning of *text*.
+    """Parse ``[QPRISMA_CONTEXT:{...}]`` and adjacent eval envelopes from *text*.
 
     Uses :meth:`json.JSONDecoder.raw_decode` instead of a regex so that
     nested JSON structures (e.g. ``media_ids: [...]``) are handled
@@ -77,32 +90,8 @@ def _extract_qprisma_context(text: str) -> tuple[dict[str, Any], str]:
         A tuple of (parsed metadata dict, cleaned message text).
         If no prefix is found, returns ({}, original text).
     """
-    if not text.startswith(_CONTEXT_PREFIX):
-        return {}, text
-
-    json_start = len(_CONTEXT_PREFIX)
-    try:
-        metadata, json_end = _json_decoder.raw_decode(text, json_start)
-    except (json.JSONDecodeError, ValueError):
-        logger.warning("QPRISMA_CONTEXT prefix found but JSON is malformed")
-        return {}, text
-
-    if not isinstance(metadata, dict):
-        logger.warning(
-            "QPRISMA_CONTEXT payload is not a JSON object (got %s)", type(metadata).__name__
-        )
-        return {}, text
-
-    # Expect a closing ']' immediately after the JSON object
-    if json_end >= len(text) or text[json_end] != "]":
-        logger.warning("QPRISMA_CONTEXT: missing closing ']' after JSON payload")
-        return {}, text
-
-    rest_start = json_end + 1  # skip ']'
-    if rest_start < len(text) and text[rest_start] == "\n":
-        rest_start += 1  # skip optional newline
-
-    return metadata, text[rest_start:]
+    metadata, _, cleaned = _extract_qprisma_envelopes(text)
+    return metadata, cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -799,9 +788,9 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
         if not content:
             return result
 
-        metadata, cleaned_content = _extract_qprisma_context(content)
-        if not metadata:
-            logger.debug("No QPRISMA_CONTEXT prefix in user message")
+        metadata, benchmark_context, cleaned_content = _extract_qprisma_envelopes(content)
+        if not metadata and not benchmark_context:
+            logger.debug("No QPRISMA_CONTEXT/QPRISMA_BENCH prefix in user message")
             return result
 
         # Extract response_mode override before stripping metadata from the message
@@ -817,21 +806,27 @@ class QPrismaStateConverter(ResponseAPIDefaultConverter):
         # Inject QPrisma fields into the initial graph state.
         # Always set InjectedState targets (even as None / []) so that
         # LangGraph's ToolNode._inject_tool_args doesn't KeyError.
-        media_id = metadata.get("media_id")
-        media_ids = metadata.get("media_ids")
+        media_id, media_ids = normalize_media_selection(
+            metadata.get("media_id"),
+            metadata.get("media_ids"),
+        )
         user_id = metadata.get("user_id")
         session_id = metadata.get("session_id")
 
         input_data["media_id"] = media_id
-        input_data["media_ids"] = media_ids or []
+        input_data["media_ids"] = media_ids
         input_data["user_id"] = user_id
         input_data["session_id"] = session_id
+        if benchmark_context:
+            input_data["benchmark_context"] = benchmark_context
 
         logger.info(
-            "QPrismaStateConverter: injected context — media_id=%s, media_ids=%s, user_id=%s",
+            "QPrismaStateConverter: injected context — media_id=%s, media_ids=%s, "
+            "user_id=%s, benchmark=%s",
             media_id,
             [mid[:8] + "…" for mid in media_ids] if media_ids else None,
             user_id[:8] + "…" if user_id else None,
+            bool(benchmark_context),
         )
 
         return result

@@ -1082,6 +1082,21 @@ class TestContextExtractionNestedBrackets:
         assert metadata == {"media_ids": ["id1", "id2"], "user_id": "u1"}
         assert clean_query == "Query text"
 
+    def test_context_and_benchmark_envelopes_are_stripped(self):
+        from agent.hosted.state_converter import _extract_qprisma_envelopes
+
+        text = (
+            '[QPRISMA_CONTEXT:{"media_ids":["v1"],"user_id":"u1"}]'
+            '[QPRISMA_BENCH:{"eval_mode":"mcq","format":"letter_only"}]\n'
+            "Question text"
+        )
+
+        metadata, benchmark_context, clean_query = _extract_qprisma_envelopes(text)
+
+        assert metadata == {"media_ids": ["v1"], "user_id": "u1"}
+        assert benchmark_context == {"eval_mode": "mcq", "format": "letter_only"}
+        assert clean_query == "Question text"
+
     def test_single_video_simple(self):
         from agent.hosted.state_converter import _extract_qprisma_context
 
@@ -1589,6 +1604,42 @@ class TestStateConverterResponseMode:
         assert result["input"]["user_id"] == "u1"
         assert result["input"]["session_id"] == "conv_multi"
         assert result["input"]["messages"][0].content == "Compare them."
+
+    @pytest.mark.asyncio
+    async def test_convert_request_normalizes_single_media_ids_and_benchmark(
+        self, monkeypatch
+    ):
+        """A single media_ids entry behaves like single-video context for Video-MME."""
+        from unittest.mock import AsyncMock
+
+        from agent.hosted.state_converter import QPrismaStateConverter
+
+        conv = QPrismaStateConverter(graph=MagicMock())
+
+        msg_text = (
+            '[QPRISMA_CONTEXT:{"media_ids":["v1"],"user_id":"u1"}]'
+            '[QPRISMA_BENCH:{"eval_mode":"mcq","format":"letter_only"}]\n'
+            "Question: What color?"
+        )
+        super_result = {
+            "input": {"messages": [HumanMessage(content=msg_text)]},
+            "config": {},
+        }
+        monkeypatch.setattr(
+            "agent.hosted.state_converter.ResponseAPIDefaultConverter.convert_request",
+            AsyncMock(return_value=super_result),
+        )
+
+        result = await conv.convert_request(MagicMock())
+
+        assert result["input"]["media_id"] == "v1"
+        assert result["input"]["media_ids"] == ["v1"]
+        assert result["input"]["user_id"] == "u1"
+        assert result["input"]["benchmark_context"] == {
+            "eval_mode": "mcq",
+            "format": "letter_only",
+        }
+        assert result["input"]["messages"][0].content == "Question: What color?"
 
 
 # ---------------------------------------------------------------------------

@@ -79,6 +79,11 @@ def test_emit_foundry_data_writes_wrapped_json(tmp_path: Path) -> None:
     row = payload["data"][0]
     assert set(row) >= {"query", "ground_truth", "metadata"}
     assert row["ground_truth"] == "C"
+    assert row["query"].startswith(
+        '[QPRISMA_CONTEXT:{"user_id":"bench-user","media_id":"media-abc",'
+        '"media_ids":["media-abc"]}]'
+        '[QPRISMA_BENCH:{"eval_mode":"mcq","format":"letter_only",'
+    )
     assert row["metadata"]["media_id"] == "media-abc"
     assert row["metadata"]["with_subtitles"] == "false"
     _assert_metadata_values_are_strings(row)

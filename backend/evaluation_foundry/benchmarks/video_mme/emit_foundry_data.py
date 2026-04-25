@@ -18,10 +18,11 @@ Video-MME prompt template** the upstream leaderboard expects::
     Respond with only the letter (A, B, C, or D) of the correct option.
     The best answer is:
 
-The query is wrapped with the existing ``[QPRISMA_CONTEXT:{user_id, media_ids}]``
-envelope (already parsed by the agent) and an additive
+The query is wrapped with the existing
+``[QPRISMA_CONTEXT:{user_id, media_id, media_ids}]`` envelope (already parsed
+by the agent) and an additive
 ``[QPRISMA_BENCH:{eval_mode, format, with_subtitles, duration_bucket}]``
-envelope (additive; non-benchmark code paths ignore it).
+envelope.
 
 Per-row schema::
 
@@ -120,7 +121,10 @@ def _load_questions(path: Path) -> list[dict[str, Any]]:
 def _qprisma_envelopes(
     *, user_id: str, media_id: str, with_subtitles: bool, duration_bucket: str
 ) -> str:
-    ctx = json.dumps({"user_id": user_id, "media_ids": [media_id]}, separators=(",", ":"))
+    ctx = json.dumps(
+        {"user_id": user_id, "media_id": media_id, "media_ids": [media_id]},
+        separators=(",", ":"),
+    )
     bench = json.dumps(
         {
             "eval_mode": "mcq",
