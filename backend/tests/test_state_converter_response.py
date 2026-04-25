@@ -1560,6 +1560,36 @@ class TestStateConverterResponseMode:
         assert result["input"]["media_id"] == "v1"
         assert result["input"]["user_id"] == "u1"
 
+    @pytest.mark.asyncio
+    async def test_convert_request_injects_multi_video_context(self, monkeypatch):
+        """convert_request() injects multi-video context into the graph input."""
+        from unittest.mock import AsyncMock
+
+        from agent.hosted.state_converter import QPrismaStateConverter
+
+        conv = QPrismaStateConverter(graph=MagicMock())
+
+        msg_text = (
+            '[QPRISMA_CONTEXT:{"media_ids":["v1","v2"],'
+            '"user_id":"u1","session_id":"conv_multi"}]\nCompare them.'
+        )
+        super_result = {
+            "input": {"messages": [HumanMessage(content=msg_text)]},
+            "config": {},
+        }
+        monkeypatch.setattr(
+            "agent.hosted.state_converter.ResponseAPIDefaultConverter.convert_request",
+            AsyncMock(return_value=super_result),
+        )
+
+        result = await conv.convert_request(MagicMock())
+
+        assert result["input"]["media_id"] is None
+        assert result["input"]["media_ids"] == ["v1", "v2"]
+        assert result["input"]["user_id"] == "u1"
+        assert result["input"]["session_id"] == "conv_multi"
+        assert result["input"]["messages"][0].content == "Compare them."
+
 
 # ---------------------------------------------------------------------------
 # Test: content-shape invariant (v53 regression — Foundry eval stringified

@@ -104,6 +104,49 @@ async def test_send_message_uses_bound_agent_client_without_agent_reference():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_send_message_includes_multi_video_context():
+    calls: list[dict[str, object]] = []
+
+    class FakeResponsesClient:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return types.SimpleNamespace(id="resp_multi", output_text="Agent response")
+
+    fake_openai_client = types.SimpleNamespace(responses=FakeResponsesClient())
+
+    client = FoundryAgentClient(
+        project_endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_name="qprisma-video-agent",
+    )
+
+    with patch.object(client, "_get_openai_client", return_value=fake_openai_client):
+        await client.send_message(
+            "Compare these videos.",
+            media_ids=["vid_a", "vid_b"],
+            user_id="user_456",
+            session_id="conv_multi",
+            conversation_id="conv_multi",
+        )
+
+    assert calls == [
+        {
+            "input": [
+                {
+                    "role": "user",
+                    "content": (
+                        '[QPRISMA_CONTEXT:{"media_ids":["vid_a","vid_b"],'
+                        '"user_id":"user_456","session_id":"conv_multi"}]\n'
+                        "Compare these videos."
+                    ),
+                }
+            ],
+            "conversation": "conv_multi",
+        }
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_send_message_retries_with_new_conversation_when_stale():
     calls: list[dict[str, object]] = []
     stale_conversation_id = "conv_stale\r\nforged"

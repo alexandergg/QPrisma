@@ -1,6 +1,7 @@
 """Tests for hosted agent deployment environment wiring."""
 
 import importlib.util
+import re
 import sys
 import types
 from pathlib import Path
@@ -9,6 +10,12 @@ from unittest.mock import patch
 import pytest
 
 _SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "deploy_agent.py"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_OPENAI_USER_ROLE_ID = "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
+_OPENAI_ROLE_DEFINITION_ID = (
+    "roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', "
+    "cognitiveServicesOpenAiUserRole)"
+)
 
 
 def _load_deploy_agent_module():
@@ -73,6 +80,16 @@ def _load_deploy_agent_module():
     return module
 
 
+def _resource_block(contents: str, resource_name: str) -> str:
+    match = re.search(
+        rf"^resource {re.escape(resource_name)} '[^']+' = \{{.*?^}}",
+        contents,
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    assert match is not None, f"{resource_name} resource block missing"
+    return match.group(0)
+
+
 @pytest.mark.unit
 def test_build_environment_variables_defaults_to_secretless_hosted_contract():
     deploy_agent = _load_deploy_agent_module()
@@ -123,3 +140,25 @@ def test_hosted_manifest_openai_api_version_matches_script_default():
             break
     else:
         pytest.fail("AZURE_OPENAI_API_VERSION missing from hosted agent manifest")
+
+
+@pytest.mark.unit
+def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
+    ai_foundry_bicep = (_REPO_ROOT / "infra" / "modules" / "ai-foundry.bicep").read_text(
+        encoding="utf-8"
+    )
+    hosted_workflow = (_REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml").read_text(
+        encoding="utf-8"
+    )
+    ai_foundry_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleAiFoundry")
+    project_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleProject")
+
+    assert f"var cognitiveServicesOpenAiUserRole = '{_OPENAI_USER_ROLE_ID}'" in ai_foundry_bicep
+    assert "scope: aiFoundry" in ai_foundry_openai_role
+    assert _OPENAI_ROLE_DEFINITION_ID in ai_foundry_openai_role
+    assert "principalId: aiFoundry.identity.principalId" in ai_foundry_openai_role
+    assert "scope: aiFoundry" in project_openai_role
+    assert _OPENAI_ROLE_DEFINITION_ID in project_openai_role
+    assert "principalId: aiProject.identity.principalId" in project_openai_role
+    assert _OPENAI_USER_ROLE_ID in hosted_workflow
+    assert "Cognitive Services OpenAI User" in hosted_workflow

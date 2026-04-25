@@ -161,7 +161,7 @@ jobs:
           fi
           echo "RBAC roles configured"
 
-      - name: Ensure hosted agent identity has Cognitive Services access
+      - name: Ensure hosted agent identity has Azure OpenAI access
         run: |
           RG="rg-qprisma-dev"
           ACCOUNT="aif-qprisma-dev"
@@ -177,31 +177,54 @@ jobs:
             --query identity.principalId -o tsv)
           echo "Project principal: ${PROJECT_PID:0:8}..."
 
-          # Cognitive Services User — grants OpenAI data actions for the hosted container
-          CS_USER_ROLE="a97b65f3-24c7-4388-baec-2e87135dc908"
+          # Cognitive Services OpenAI User grants the chat/completions data action
+          # required by hosted agent containers using managed identity.
+          OPENAI_USER_ROLE="5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
 
-          echo "Assigning Cognitive Services User to project identity..."
-          az role assignment create \
-            --assignee-object-id "$PROJECT_PID" \
-            --assignee-principal-type ServicePrincipal \
-            --role "$CS_USER_ROLE" \
-            --scope "$AI_ACCOUNT_ID" \
-            --output none 2>&1 || echo "  (already assigned)"
-
-          # Also grant to AI Foundry account identity
           ACCOUNT_PID=$(az cognitiveservices account show \
             --name ${ACCOUNT} --resource-group ${RG} \
             --query identity.principalId -o tsv)
           echo "Account principal: ${ACCOUNT_PID:0:8}..."
 
-          az role assignment create \
-            --assignee-object-id "$ACCOUNT_PID" \
-            --assignee-principal-type ServicePrincipal \
-            --role "$CS_USER_ROLE" \
-            --scope "$AI_ACCOUNT_ID" \
-            --output none 2>&1 || echo "  (already assigned)"
+          NEED_WAIT=false
+          for PID in "$PROJECT_PID" "$ACCOUNT_PID"; do
+            if [ -z "$PID" ]; then
+              echo "::error::Could not resolve hosted agent execution principal"
+              exit 1
+            fi
 
-          echo "Cognitive Services access configured for hosted agents"
+            echo "Assigning Cognitive Services OpenAI User to principal ${PID:0:8}..."
+            RESULT=$(az role assignment create \
+              --assignee-object-id "$PID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "$OPENAI_USER_ROLE" \
+              --scope "$AI_ACCOUNT_ID" \
+              --output json 2>&1) && CREATED=true || CREATED=false
+
+            if echo "$RESULT" | grep -q "already exists"; then
+              echo "  Cognitive Services OpenAI User: already assigned"
+            elif [ "$CREATED" = true ]; then
+              echo "  Cognitive Services OpenAI User: newly assigned"
+              NEED_WAIT=true
+            else
+              echo "::error::Failed to assign Cognitive Services OpenAI User to ${PID}: $RESULT"
+              exit 1
+            fi
+          done
+
+          echo "Verifying Cognitive Services OpenAI User assignments..."
+          az role assignment list \
+            --scope "$AI_ACCOUNT_ID" \
+            --role "$OPENAI_USER_ROLE" \
+            --query "[?principalId=='${PROJECT_PID}' || principalId=='${ACCOUNT_PID}'].{principal:principalId,type:principalType,role:roleDefinitionName}" \
+            -o table
+
+          if [ "$NEED_WAIT" = true ]; then
+            echo "New role assignment(s) created — waiting 120s for RBAC propagation..."
+            sleep 120
+          fi
+
+          echo "Azure OpenAI access configured for hosted agents"
 
       - name: Wait for capability host readiness
         run: |

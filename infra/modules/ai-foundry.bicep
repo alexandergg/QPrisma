@@ -190,6 +190,7 @@ resource agentStorageConnection 'Microsoft.CognitiveServices/accounts/connection
 
 // RBAC — Storage Blob Data Contributor for AI Foundry managed identity
 var storageBlobDataContributorRole = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var cognitiveServicesOpenAiUserRole = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
 
 resource storageRoleAiFoundry 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(storageAccountId)) {
   name: guid(storageAccountId, aiFoundry.id, storageBlobDataContributorRole)
@@ -207,6 +208,28 @@ resource storageRoleProject 'Microsoft.Authorization/roleAssignments@2022-04-01'
   scope: existingAgentStorage
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRole)
+    principalId: aiProject.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// RBAC — Azure OpenAI data-plane access for hosted agent execution identities.
+// Hosted containers run under Foundry-managed identities, so app/worker grants are not enough.
+resource openAiRoleAiFoundry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aiFoundry.id, aiFoundry.id, cognitiveServicesOpenAiUserRole)
+  scope: aiFoundry
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAiUserRole)
+    principalId: aiFoundry.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource openAiRoleProject 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aiFoundry.id, aiProject.id, cognitiveServicesOpenAiUserRole)
+  scope: aiFoundry
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAiUserRole)
     principalId: aiProject.identity.principalId
     principalType: 'ServicePrincipal'
   }
