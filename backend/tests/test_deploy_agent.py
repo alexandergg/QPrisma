@@ -150,6 +150,9 @@ def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
     hosted_workflow = (_REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml").read_text(
         encoding="utf-8"
     )
+    ai_foundry_workflow = (
+        _REPO_ROOT / ".github" / "workflows" / "deploy-ai-foundry.yml"
+    ).read_text(encoding="utf-8")
     ai_foundry_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleAiFoundry")
     project_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleProject")
 
@@ -162,3 +165,12 @@ def test_hosted_agent_openai_rbac_is_durable_and_bootstrapped():
     assert "principalId: aiProject.identity.principalId" in project_openai_role
     assert _OPENAI_USER_ROLE_ID in hosted_workflow
     assert "Cognitive Services OpenAI User" in hosted_workflow
+    assert "'infra/modules/ai-foundry.bicep'" in hosted_workflow
+    assert 'AGENT_IDENTITY_NAME="${ACCOUNT}-${ACCOUNT}-project-AgentIdentity"' in hosted_workflow
+    assert "AGENT_IDENTITY_PID=$(az ad sp list" in hosted_workflow
+    assert 'for PID in "$PROJECT_PID" "$ACCOUNT_PID" "$AGENT_IDENTITY_PID"; do' in hosted_workflow
+    assert _OPENAI_USER_ROLE_ID in ai_foundry_workflow
+    assert "Cognitive Services OpenAI User" in ai_foundry_workflow
+    assert 'AGENT_IDENTITY_NAME="${ACCOUNT}-${PROJECT}-AgentIdentity"' in ai_foundry_workflow
+    assert "AGENT_IDENTITY_PID=$(az ad sp list" in ai_foundry_workflow
+    assert '--assignee-object-id "$AGENT_IDENTITY_PID"' in ai_foundry_workflow

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - '.github/workflows/deploy-ai-foundry.yml'
       - 'infra/modules/ai-foundry.bicep'
       - 'infra/parameters/ai-foundry-dev.bicepparam'
   workflow_dispatch:
@@ -120,6 +121,56 @@ jobs:
                 appInsightsInstrumentationKey='${{ steps.observability.outputs.app_insights_instrumentation_key }}' \
                 logAnalyticsWorkspaceId='${{ steps.observability.outputs.log_analytics_id }}' \
               --output none
+
+      - name: Ensure hosted AgentIdentity has Azure OpenAI access
+        run: |
+          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
+          ACCOUNT="aif-qprisma-dev"
+          PROJECT="${ACCOUNT}-project"
+
+          AI_ACCOUNT_ID=$(az cognitiveservices account show \
+            --name "$ACCOUNT" --resource-group "$RG" \
+            --query id -o tsv)
+
+          AGENT_IDENTITY_NAME="${ACCOUNT}-${PROJECT}-AgentIdentity"
+          AGENT_IDENTITY_PID=$(az ad sp list \
+            --filter "displayName eq '${AGENT_IDENTITY_NAME}'" \
+            --query "[0].id" -o tsv)
+
+          if [ -z "$AGENT_IDENTITY_PID" ]; then
+            echo "::error::Could not resolve hosted agent identity service principal: ${AGENT_IDENTITY_NAME}"
+            exit 1
+          fi
+          echo "AgentIdentity principal: ${AGENT_IDENTITY_PID:0:8}..."
+
+          # Cognitive Services OpenAI User grants the OpenAI chat/completions
+          # data action required by hosted agent containers using managed identity.
+          OPENAI_USER_ROLE="5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
+
+          RESULT=$(az role assignment create \
+            --assignee-object-id "$AGENT_IDENTITY_PID" \
+            --assignee-principal-type ServicePrincipal \
+            --role "$OPENAI_USER_ROLE" \
+            --scope "$AI_ACCOUNT_ID" \
+            --output json 2>&1) && CREATED=true || CREATED=false
+
+          if echo "$RESULT" | grep -q "already exists"; then
+            echo "Cognitive Services OpenAI User: already assigned"
+          elif [ "$CREATED" = true ]; then
+            echo "Cognitive Services OpenAI User: newly assigned"
+            echo "Waiting 120s for RBAC propagation..."
+            sleep 120
+          else
+            echo "::error::Failed to assign Cognitive Services OpenAI User to AgentIdentity: $RESULT"
+            exit 1
+          fi
+
+          echo "Verifying AgentIdentity OpenAI access..."
+          az role assignment list \
+            --scope "$AI_ACCOUNT_ID" \
+            --role "$OPENAI_USER_ROLE" \
+            --query "[?principalId=='${AGENT_IDENTITY_PID}'].{principal:principalId,type:principalType,role:roleDefinitionName}" \
+            -o table
 
       - name: Deployment summary
         run: |
