@@ -254,7 +254,7 @@ jobs:
             echo "::warning::Storage account not found — AZURE_STORAGE_CONNECTION_STRING will be missing"
           fi
 
-      - name: Register and start agent in Foundry
+      - name: Register agent in Foundry
         id: register
         env:
           AZURE_AI_PROJECT_ENDPOINT: https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
@@ -338,6 +338,6 @@ jobs:
           echo "| Agent | qprisma-video-agent |" >> $GITHUB_STEP_SUMMARY
           echo "| Image | \`${FULL_IMAGE}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Version | ${{ steps.register.outputs.agent_version }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Running | ${{ steps.register.outputs.agent_running }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Active | ${{ steps.register.outputs.agent_running }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Method | Python SDK (AIProjectClient) |" >> $GITHUB_STEP_SUMMARY
           echo "| Resources | 2 CPU, 4Gi RAM |" >> $GITHUB_STEP_SUMMARY
