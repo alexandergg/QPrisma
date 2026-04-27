@@ -265,17 +265,38 @@ async def get_transcript(
                 "start_time": effective_start,
                 "end_time": effective_end if not full_transcript else None,
                 "transcript": "",
-                "message": "No transcript found for this video. It may not have audio transcription.",
-                "_meta": tool_meta(is_complete=True, result_count=0),
+                "subtitle_segments": [],
+                "message": (
+                    "No transcript found for this video. Subtitle or caption generation "
+                    "requires transcript segments from audio transcription."
+                ),
+                "_meta": tool_meta(
+                    is_complete=True,
+                    result_count=0,
+                    detail_hint=(
+                        "Tell the user subtitles cannot be generated from available data "
+                        "because no transcript segments were found."
+                    ),
+                ),
             }
 
         transcript_parts = []
+        subtitle_segments: list[dict[str, Any]] = []
         speakers_found: set[str] = set()
 
         for seg in segments:
-            ts = format_timestamp(seg.get("timestamp", 0))
+            timestamp = seg.get("timestamp", 0)
+            ts = format_timestamp(timestamp)
             text = seg.get("text", "")
             speaker = seg.get("speaker")
+            subtitle_segments.append(
+                {
+                    "start_time": timestamp,
+                    "start_formatted": ts,
+                    "speaker": speaker if include_speakers else None,
+                    "text": text,
+                }
+            )
 
             if include_speakers and speaker:
                 speakers_found.add(speaker)
@@ -289,10 +310,17 @@ async def get_transcript(
             "start_formatted": format_timestamp(effective_start),
             "end_formatted": format_timestamp(effective_end) if not full_transcript else None,
             "transcript": "\n".join(transcript_parts),
+            "subtitle_segments": subtitle_segments,
             "segments_count": len(segments),
             "speakers": list(speakers_found) if include_speakers else [],
             "has_speaker_ids": len(speakers_found) > 0,
-            "_meta": tool_meta(result_count=len(segments)),
+            "_meta": tool_meta(
+                result_count=len(segments),
+                detail_hint=(
+                    "For subtitle/caption requests, use subtitle_segments as the source "
+                    "material and preserve timestamps exactly."
+                ),
+            ),
         }
 
     except Exception as e:

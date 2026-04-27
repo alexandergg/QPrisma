@@ -350,3 +350,63 @@ def test_common_entities_and_topics_add_user_filter():
     topics_params = session.run.call_args.kwargs
     assert "v.user_id = $user_id" in topics_query
     assert topics_params["user_id"] == "user-1"
+
+
+@pytest.mark.unit
+def test_common_entities_returns_video_titles_and_evidence():
+    session = MagicMock()
+    session.run.return_value = _iterable_result(
+        [
+            {
+                "name": "Alice",
+                "etype": "person",
+                "videos": ["vid-1", "vid-2"],
+                "total_appearances": 3,
+                "evidence": [
+                    {
+                        "video_id": "vid-1",
+                        "video_title": "Opening",
+                        "timestamp": 12.4,
+                        "timestamp_formatted": None,
+                        "description": "Alice speaks on stage.",
+                    },
+                    {
+                        "video_id": "vid-2",
+                        "video_title": "Follow-up",
+                        "timestamp": 70.0,
+                        "timestamp_formatted": None,
+                        "description": "Alice appears in an interview.",
+                    },
+                ],
+            }
+        ]
+    )
+    expander = GraphExpander(lambda *_args, **_kwargs: [], _session_context(session))
+
+    result = expander.find_common_entities(["vid-1", "vid-2"], user_id="user-1")
+
+    assert result == [
+        {
+            "name": "Alice",
+            "entity_type": "person",
+            "shared_across": ["vid-1", "vid-2"],
+            "videos_count": 2,
+            "total_appearances": 3,
+            "evidence": [
+                {
+                    "video_id": "vid-1",
+                    "video_title": "Opening",
+                    "timestamp": 12.4,
+                    "timestamp_formatted": "0:12",
+                    "description": "Alice speaks on stage.",
+                },
+                {
+                    "video_id": "vid-2",
+                    "video_title": "Follow-up",
+                    "timestamp": 70.0,
+                    "timestamp_formatted": "1:10",
+                    "description": "Alice appears in an interview.",
+                },
+            ],
+        }
+    ]

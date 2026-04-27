@@ -62,6 +62,12 @@ class AzureSettings(BaseSettings):
     openai_deployment_gpt: str = Field(default="gpt-4o")
     openai_deployment_embedding: str = Field(default="text-embedding-3-large")
     openai_deployment_whisper: str = Field(default="whisper")
+    openai_agent_temperature: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=2.0,
+        description="Temperature for hosted video-agent answer generation.",
+    )
     openai_whisper_rpm: int = Field(default=3, description="Whisper requests per minute limit")
     max_concurrent_transcriptions: int = Field(
         default=3,
