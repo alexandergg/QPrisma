@@ -211,6 +211,9 @@ class GraphExpander:
              collect(video_id) AS videos,
              sum(appearances_in_video) AS total_appearances
         WHERE size(videos) >= 2
+        WITH name, etype, videos, total_appearances
+        ORDER BY size(videos) DESC, total_appearances DESC
+        LIMIT $limit
         CALL {{
             WITH name, etype
             MATCH (frame:Frame)-[:CONTAINS]->(entity:Entity)
@@ -232,7 +235,6 @@ class GraphExpander:
         }}
         RETURN name, etype, videos, total_appearances, evidence
         ORDER BY size(videos) DESC, total_appearances DESC
-        LIMIT $limit
         """
 
         params: dict = {"video_ids": video_ids, "limit": limit}

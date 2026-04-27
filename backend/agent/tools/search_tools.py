@@ -266,11 +266,12 @@ async def get_transcript(
         )
 
         if not segments:
-            return {
+            empty_result: dict[str, Any] = {
                 "start_time": effective_start,
                 "end_time": effective_end if not full_transcript else None,
                 "transcript": "",
-                "subtitle_segments": [],
+                "subtitle_segments_available": False,
+                "segments_count": 0,
                 "message": (
                     "No transcript found for this video. Subtitle or caption generation "
                     "requires transcript segments from audio transcription."
@@ -284,6 +285,9 @@ async def get_transcript(
                     ),
                 ),
             }
+            if include_subtitle_segments:
+                empty_result["subtitle_segments"] = []
+            return empty_result
 
         transcript_parts = []
         subtitle_segments: list[dict[str, Any]] | None = [] if include_subtitle_segments else None

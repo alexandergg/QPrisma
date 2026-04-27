@@ -97,7 +97,7 @@ def create_model(
     Returns:
         Configured AzureChatOpenAI instance
     """
-    deployment = model_deployment or settings.azure.openai_deployment_gpt
+    deployment = model_deployment or settings.azure.agent_chat_deployment
 
     kwargs: dict = {
         "azure_deployment": deployment,

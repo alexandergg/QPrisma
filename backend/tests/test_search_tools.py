@@ -239,7 +239,9 @@ class TestGetTranscript:
 
         assert result["transcript"] == ""
         assert "No transcript" in result["message"]
-        assert result["subtitle_segments"] == []
+        assert result["subtitle_segments_available"] is False
+        assert result["segments_count"] == 0
+        assert "subtitle_segments" not in result
         assert "subtitles cannot be generated" in result["_meta"]["detail_hint"]
 
     @pytest.mark.asyncio

@@ -548,7 +548,7 @@ class VideoAgentGraph:
         model_deployment: str | None = None,
         checkpointer=None,
     ):
-        self.model_deployment = model_deployment or settings.azure.openai_deployment_gpt
+        self.model_deployment = model_deployment or settings.azure.agent_chat_deployment
         self.checkpointer = checkpointer
         self._graph = None
 
