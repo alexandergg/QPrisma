@@ -1072,6 +1072,42 @@ class TestDynamicToolBinding:
             "compare_videos" in tool_names or "search_across_videos" in tool_names
         ), f"Expected cross-video tool for compare query, got {tool_names}"
 
+    def test_multi_video_shared_entity_query_prioritizes_common_entities(self):
+        """Shared people/entity queries should start with find_common_entities."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Which people appear in both videos?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8, is_multi_video=True)
+
+        tool_names = [t.name for t in selected]
+        assert (
+            tool_names[0] == "find_common_entities"
+        ), f"Expected common entity first, got {tool_names}"
+        assert "search_across_videos" in tool_names
+
+    def test_subtitle_generation_prioritizes_transcript(self):
+        """Subtitle/caption tasks should route to transcript evidence before edit-like tools."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "Create subtitles for this video"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=5)
+
+        tool_names = [t.name for t in selected]
+        assert tool_names[0] == "get_transcript", f"Expected transcript first, got {tool_names}"
+        assert len(tool_names) == len(set(tool_names))
+
+    def test_prompts_include_evidence_contract_and_followup_guard(self):
+        """System prompts should constrain unsupported synthesis and noisy follow-ups."""
+        from agent.prompts import MULTI_VIDEO_SYSTEM_PROMPT, SYSTEM_PROMPT
+
+        assert "Evidence Contract" in SYSTEM_PROMPT
+        assert "Do not invent people" in SYSTEM_PROMPT
+        assert "Do **not** add suggested follow-ups" in SYSTEM_PROMPT
+        assert "Use `find_common_entities` first" in MULTI_VIDEO_SYSTEM_PROMPT
+        assert "no shared entities were found" in MULTI_VIDEO_SYSTEM_PROMPT
+
     # -- Selector regression tests for confusing tool pairs --
 
     def test_describe_scene_still_classified_as_search(self):
@@ -1125,14 +1161,10 @@ class TestDynamicToolBinding:
         assert "get_summary" in tool_names, f"get_summary missing from {tool_names}"
 
     def test_scene_context_routes_for_context_queries(self):
-        """get_scene_context is in subtitle category (name contains 'text' substring).
-        Verify it surfaces for subtitle/transcript queries."""
+        """Contextual transcript queries should include scene context deliberately."""
         from agent.nodes.base import select_tools_for_query
         from agent.tools import SEARCH_TOOLS
 
-        # get_scene_context is categorised as subtitle because the tool name
-        # "get_scene_context" contains the substring "text" (con-text).
-        # It surfaces when the query matches subtitle keywords.
         query = "What exactly was said around the 5 minute mark?"
         selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
         tool_names = [t.name for t in selected]

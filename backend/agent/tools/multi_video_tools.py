@@ -136,7 +136,8 @@ async def find_common_entities(
     multiple selected videos. Useful for discovering shared themes,
     recurring characters, or common topics.
 
-    Returns entities sorted by how many videos they appear in.
+    Returns entities sorted by how many videos they appear in, with
+    representative per-video timestamps and frame descriptions when available.
     """
     effective_ids = list(media_ids) if media_ids else []
     if media_id and media_id not in effective_ids:
@@ -162,14 +163,26 @@ async def find_common_entities(
             user_id=user_id,
         )
 
+        detail_hint = (
+            "Use the evidence timestamps/video_title fields to cite shared entities. "
+            "If total_found is 0, say no shared entities were found in the selected videos; "
+            "do not infer common people or objects from broad themes."
+        )
+
         return {
             "entities": entities,
             "total_found": len(entities),
             "videos_analyzed": len(effective_ids),
             "entity_type_filter": entity_type,
+            "message": (
+                "No common entities found in the selected videos with the current graph data."
+                if not entities
+                else None
+            ),
             "_meta": tool_meta(
                 result_count=len(entities),
                 total_available=len(entities),
+                detail_hint=detail_hint,
             ),
         }
     except Exception as e:

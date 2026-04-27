@@ -28,6 +28,7 @@ from agent.nodes.base import (
 from agent.prompts import MULTI_VIDEO_SYSTEM_PROMPT, NO_VIDEO_CONTEXT_PROMPT, SYSTEM_PROMPT
 from agent.state.agent_state import AgentState, VideoContext
 from agent.tools import SEARCH_TOOLS
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -361,7 +362,7 @@ async def call_model(state: AgentState, config: RunnableConfig) -> dict:
         system_message=system_message,
         max_iterations=MAX_TOOL_ITERATIONS,
         warn_iterations=WARN_TOOL_ITERATIONS,
-        temperature=1,
+        temperature=settings.azure.openai_agent_temperature,
     )
 
 

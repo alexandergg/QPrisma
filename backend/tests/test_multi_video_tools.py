@@ -166,7 +166,20 @@ class TestFindCommonEntitiesErrors:
     @pytest.mark.asyncio
     async def test_passes_user_id_to_knowledge_graph(self):
         with patch("services.knowledge_graph.get_knowledge_graph_service") as mock_factory:
-            mock_factory.return_value.find_common_entities.return_value = [{"name": "Alice"}]
+            mock_factory.return_value.find_common_entities.return_value = [
+                {
+                    "name": "Alice",
+                    "evidence": [
+                        {
+                            "video_id": "v1",
+                            "video_title": "Video 1",
+                            "timestamp": 12.0,
+                            "timestamp_formatted": "0:12",
+                            "description": "Alice is visible.",
+                        }
+                    ],
+                }
+            ]
 
             result = await find_common_entities.ainvoke(
                 {
@@ -185,6 +198,27 @@ class TestFindCommonEntitiesErrors:
             user_id="u1",
         )
         assert result["total_found"] == 1
+        assert result["entities"][0]["evidence"][0]["video_title"] == "Video 1"
+        assert "evidence timestamps" in result["_meta"]["detail_hint"]
+
+    @pytest.mark.asyncio
+    async def test_empty_result_has_no_hallucination_guidance(self):
+        with patch("services.knowledge_graph.get_knowledge_graph_service") as mock_factory:
+            mock_factory.return_value.find_common_entities.return_value = []
+
+            result = await find_common_entities.ainvoke(
+                {
+                    "entity_type": "person",
+                    "limit": 10,
+                    "user_id": "u1",
+                    "media_ids": ["v1", "v2"],
+                    "media_id": None,
+                }
+            )
+
+        assert result["total_found"] == 0
+        assert "No common entities found" in result["message"]
+        assert "do not infer common people" in result["_meta"]["detail_hint"]
 
     @pytest.mark.asyncio
     async def test_service_exception_includes_fallback_and_count(self):

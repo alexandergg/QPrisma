@@ -239,6 +239,8 @@ class TestGetTranscript:
 
         assert result["transcript"] == ""
         assert "No transcript" in result["message"]
+        assert result["subtitle_segments"] == []
+        assert "subtitles cannot be generated" in result["_meta"]["detail_hint"]
 
     @pytest.mark.asyncio
     async def test_full_transcript(self):
@@ -261,6 +263,21 @@ class TestGetTranscript:
         assert "Bob" in result["speakers"]
         assert result["has_speaker_ids"] is True
         assert "Hello world" in result["transcript"]
+        assert result["subtitle_segments"] == [
+            {
+                "start_time": 5.0,
+                "start_formatted": "0:05",
+                "speaker": "Alice",
+                "text": "Hello world",
+            },
+            {
+                "start_time": 10.0,
+                "start_formatted": "0:10",
+                "speaker": "Bob",
+                "text": "How are you",
+            },
+        ]
+        assert "subtitle_segments" in result["_meta"]["detail_hint"]
 
     @pytest.mark.asyncio
     async def test_time_range_transcript(self):

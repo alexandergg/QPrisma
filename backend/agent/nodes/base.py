@@ -1107,6 +1107,26 @@ def select_tools_for_query(
     """
     query_lower = query.lower()
 
+    tool_categories_by_name = {
+        "search_video": ("search",),
+        "describe_scene": ("search",),
+        "find_entity": ("entity",),
+        "get_transcript": ("subtitle",),
+        "get_scene_context": ("context", "search"),
+        "get_community_overview": ("structure", "analysis"),
+        "list_chapters": ("structure",),
+        "get_video_info": ("structure",),
+        "get_summary": ("structure",),
+        "get_related_content": ("analysis",),
+        "get_entity_timeline": ("entity", "analysis"),
+        "compare_moments": ("compare",),
+        "find_highlights": ("highlight", "search"),
+        "search_across_videos": ("library", "search"),
+        "compare_videos": ("library", "compare"),
+        "find_common_entities": ("library", "entity"),
+        "get_library_overview": ("library", "structure"),
+    }
+
     # Tool categories with keywords
     search_keywords = [
         "find",
@@ -1135,6 +1155,22 @@ def select_tools_for_query(
         "interviewer",
         "presenter",
         "speaker",
+    ]
+    shared_entity_keywords = [
+        "appear in both",
+        "appears in both",
+        "appear across",
+        "appears across",
+        "appear in multiple",
+        "appears in multiple",
+        "common",
+        "in common",
+        "same person",
+        "same people",
+        "same object",
+        "same objects",
+        "shared",
+        "who appears",
     ]
     structure_keywords = [
         "chapter",
@@ -1231,45 +1267,94 @@ def select_tools_for_query(
     edit_tools = []
     subtitle_tools = []
     analysis_tools = []
+    context_tools = []
+    highlight_tools = []
     library_tools = []
     other_tools = []
 
     for tool in all_tools:
         tool_name = tool.name.lower()
         tool_desc = (tool.description or "").lower()
+        explicit_categories = tool_categories_by_name.get(tool_name, ())
 
-        # Library tool detection is independent — a tool can appear in
-        # both library_tools and another category without conflict.
-        if any(kw in tool_name or kw in tool_desc for kw in library_tool_keywords):
+        if "library" in explicit_categories or any(kw in tool_desc for kw in library_tool_keywords):
             library_tools.append(tool)
 
-        if any(kw in tool_name or kw in tool_desc for kw in edit_keywords):
-            edit_tools.append(tool)
-        elif any(kw in tool_name or kw in tool_desc for kw in subtitle_keywords):
+        if "subtitle" in explicit_categories:
             subtitle_tools.append(tool)
-        elif any(kw in tool_name or kw in tool_desc for kw in compare_keywords):
+        if "context" in explicit_categories:
+            context_tools.append(tool)
+        if "highlight" in explicit_categories:
+            highlight_tools.append(tool)
+
+        if "compare" in explicit_categories:
             compare_tools.append(tool)
-        elif any(kw in tool_name or kw in tool_desc for kw in entity_keywords):
+        elif "entity" in explicit_categories:
             entity_tools.append(tool)
-        elif any(kw in tool_name or kw in tool_desc for kw in structure_keywords):
+        elif "structure" in explicit_categories:
             structure_tools.append(tool)
-        elif any(kw in tool_name or kw in tool_desc for kw in analysis_keywords):
+        elif "analysis" in explicit_categories:
             analysis_tools.append(tool)
-        elif any(kw in tool_name or kw in tool_desc for kw in search_keywords):
+        elif "search" in explicit_categories:
+            search_tools.append(tool)
+        elif any(kw in tool_desc for kw in edit_keywords):
+            edit_tools.append(tool)
+        elif any(kw in tool_desc for kw in subtitle_keywords):
+            subtitle_tools.append(tool)
+        elif any(kw in tool_desc for kw in compare_keywords):
+            compare_tools.append(tool)
+        elif any(kw in tool_desc for kw in entity_keywords):
+            entity_tools.append(tool)
+        elif any(kw in tool_desc for kw in structure_keywords):
+            structure_tools.append(tool)
+        elif any(kw in tool_desc for kw in analysis_keywords):
+            analysis_tools.append(tool)
+        elif any(kw in tool_desc for kw in search_keywords):
             search_tools.append(tool)
         else:
             other_tools.append(tool)
 
     # Check for multi-video / library intent in the query
     has_library_intent = is_multi_video and any(kw in query_lower for kw in library_keywords)
+    has_shared_entity_intent = is_multi_video and (
+        any(kw in query_lower for kw in shared_entity_keywords)
+        or (
+            any(kw in query_lower for kw in entity_keywords)
+            and any(kw in query_lower for kw in ("both", "all videos", "multiple", "across"))
+        )
+    )
+    has_subtitle_intent = any(kw in query_lower for kw in subtitle_keywords)
 
     # Select based on query intent
     selected = []
+
+    def append_tool(tool) -> None:
+        if tool and tool not in selected:
+            selected.append(tool)
+
+    def append_tool_by_name(tool_name: str) -> None:
+        append_tool(
+            next((candidate for candidate in all_tools if candidate.name == tool_name), None)
+        )
+
+    def extend_unique(tools: list) -> None:
+        for tool in tools:
+            append_tool(tool)
+
     is_generic_timeline_query = "timeline" in query_lower and not any(
         kw in query_lower for kw in entity_keywords
     )
 
-    if has_library_intent:
+    if has_shared_entity_intent:
+        append_tool_by_name("find_common_entities")
+        append_tool_by_name("search_across_videos")
+        append_tool_by_name("get_library_overview")
+        for tool in entity_tools + structure_tools:
+            if tool not in selected:
+                selected.append(tool)
+                if len(selected) >= max_tools:
+                    break
+    elif has_library_intent:
         # Multi-video mode with cross-video query: prioritise library tools
         selected.extend(library_tools[:3])
         for tool in search_tools + structure_tools:
@@ -1277,12 +1362,17 @@ def select_tools_for_query(
                 selected.append(tool)
                 if len(selected) >= max_tools:
                     break
+    elif has_subtitle_intent:
+        append_tool_by_name("get_transcript")
+        if any(kw in query_lower for kw in ("around", "before", "after", "context")):
+            append_tool_by_name("get_scene_context")
+        extend_unique(subtitle_tools[:3])
+        if any(kw in query_lower for kw in ("around", "before", "after", "context")):
+            extend_unique(context_tools[:1])
+        extend_unique(search_tools[:2])
     elif any(kw in query_lower for kw in edit_keywords):
         selected.extend(edit_tools[:4])
         selected.extend(search_tools[:2])  # Often need to search first
-    elif any(kw in query_lower for kw in subtitle_keywords):
-        selected.extend(subtitle_tools[:3])
-        selected.extend(edit_tools[:2])
     elif any(kw in query_lower for kw in compare_keywords):
         selected.extend(compare_tools[:2])
         selected.extend(search_tools[:3])
@@ -1334,6 +1424,8 @@ def select_tools_for_query(
         fallback = (
             structure_tools
             + analysis_tools
+            + context_tools
+            + highlight_tools
             + other_tools
             + search_tools
             + entity_tools
