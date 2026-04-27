@@ -139,6 +139,22 @@ def test_build_environment_variables_preserves_explicit_openai_overrides():
 
 
 @pytest.mark.unit
+def test_build_environment_variables_accepts_memory_contract_aliases():
+    deploy_agent = _load_deploy_agent_module()
+    env_vars = deploy_agent.build_environment_variables(
+        env={
+            "FOUNDRY_MEMORY_STORE_NAME": "qprisma-memory",
+            "FOUNDRY_MEMORY_CHAT_MODEL": "gpt-5.4-pro-1",
+            "FOUNDRY_MEMORY_EMBEDDING_MODEL": "text-embedding-3-large",
+        }
+    )
+
+    assert env_vars["MEMORY_STORE_NAME"] == "qprisma-memory"
+    assert env_vars["MEMORY_CHAT_MODEL"] == "gpt-5.4-pro-1"
+    assert env_vars["MEMORY_EMBEDDING_MODEL"] == "text-embedding-3-large"
+
+
+@pytest.mark.unit
 def test_hosted_manifest_openai_api_version_matches_script_default():
     deploy_agent = _load_deploy_agent_module()
     default_api_version = deploy_agent.build_environment_variables(env={})[
@@ -153,6 +169,32 @@ def test_hosted_manifest_openai_api_version_matches_script_default():
             break
     else:
         pytest.fail("AZURE_OPENAI_API_VERSION missing from hosted agent manifest")
+
+
+@pytest.mark.unit
+def test_hosted_manifest_chat_model_matches_provisioned_infra_default():
+    manifest = (_REPO_ROOT / "backend" / "agent" / "hosted" / "agent.yaml").read_text(
+        encoding="utf-8"
+    )
+    infra_main = (_REPO_ROOT / "infra" / "main.bicep").read_text(encoding="utf-8")
+
+    assert "id: gpt-4o" in manifest
+    assert "name: chat" in manifest
+    assert "{ name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }" in infra_main
+
+
+@pytest.mark.unit
+def test_deploy_hosted_agent_workflow_defaults_match_provisioned_chat_models():
+    hosted_workflow = (_REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml").read_text(
+        encoding="utf-8"
+    )
+    register_step = _workflow_step_block(hosted_workflow, "Register agent in Foundry")
+
+    assert (
+        "AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-4o' }}"
+        in register_step
+    )
+    assert "MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-4o' }}" in register_step
 
 
 @pytest.mark.unit
