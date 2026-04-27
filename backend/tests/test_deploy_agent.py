@@ -111,7 +111,7 @@ def test_build_environment_variables_defaults_to_secretless_hosted_contract():
     assert env_vars["ENVIRONMENT"] == "hosted"
     assert env_vars["AZURE_OPENAI_ENDPOINT"] == "https://aif-qprisma-dev.openai.azure.com/"
     assert env_vars["AZURE_OPENAI_API_VERSION"] == "2024-08-01-preview"
-    assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-4o"
+    assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-5.4-pro-1"
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-large"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "true"
 
@@ -136,6 +136,22 @@ def test_build_environment_variables_preserves_explicit_openai_overrides():
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-small"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "false"
     assert env_vars["NEO4J_URI"] == "neo4j+s://example.databases.neo4j.io"
+
+
+@pytest.mark.unit
+def test_build_environment_variables_accepts_memory_contract_aliases():
+    deploy_agent = _load_deploy_agent_module()
+    env_vars = deploy_agent.build_environment_variables(
+        env={
+            "FOUNDRY_MEMORY_STORE_NAME": "qprisma-memory",
+            "FOUNDRY_MEMORY_CHAT_MODEL": "gpt-5.4-pro-1",
+            "FOUNDRY_MEMORY_EMBEDDING_MODEL": "text-embedding-3-large",
+        }
+    )
+
+    assert env_vars["MEMORY_STORE_NAME"] == "qprisma-memory"
+    assert env_vars["MEMORY_CHAT_MODEL"] == "gpt-5.4-pro-1"
+    assert env_vars["MEMORY_EMBEDDING_MODEL"] == "text-embedding-3-large"
 
 
 @pytest.mark.unit
