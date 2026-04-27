@@ -1131,7 +1131,12 @@ class TestDynamicToolBinding:
 
         assert "Evidence Contract" in SYSTEM_PROMPT
         assert "Do not invent people" in SYSTEM_PROMPT
-        assert "Do **not** add suggested follow-ups" in SYSTEM_PROMPT
+        # Follow-ups are now mandatory after grounded answers (with strict exceptions),
+        # to ensure the frontend ---SUGGESTED_QUESTIONS--- parser keeps rendering them
+        # even on stricter reasoning models like gpt-5.4-pro.
+        assert "---SUGGESTED_QUESTIONS---" in SYSTEM_PROMPT
+        assert "you MUST append a verbatim block" in SYSTEM_PROMPT
+        assert "---SUGGESTED_QUESTIONS---" in MULTI_VIDEO_SYSTEM_PROMPT
         assert "Use `find_common_entities` first" in MULTI_VIDEO_SYSTEM_PROMPT
         assert "no shared entities were found" in MULTI_VIDEO_SYSTEM_PROMPT
 
@@ -1196,6 +1201,60 @@ class TestDynamicToolBinding:
         selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
         tool_names = [t.name for t in selected]
         assert "get_scene_context" in tool_names, f"get_scene_context missing from {tool_names}"
+
+
+class TestCreateModelTemperatureFilter:
+    """``create_model`` must omit the ``temperature`` kwarg for reasoning models.
+
+    Azure OpenAI rejects custom ``temperature`` values for ``gpt-5*`` reasoning
+    deployments (only the default of 1 is accepted). For non-reasoning
+    deployments such as ``gpt-4o`` the kwarg must be forwarded as before.
+    """
+
+    def _captured_kwargs(self, deployment: str) -> dict:
+        from unittest.mock import patch
+
+        import agent.nodes.base as base_module
+
+        # Reset the lru_cache so each parametrized call invokes the constructor.
+        base_module.create_model.cache_clear()
+
+        captured: dict = {}
+
+        class _StubChat:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        with (
+            patch.object(base_module, "AzureChatOpenAI", _StubChat),
+            patch.object(
+                base_module,
+                "build_openai_client_kwargs",
+                return_value={"azure_endpoint": "https://example.openai.azure.com/"},
+            ),
+        ):
+            base_module.create_model(model_deployment=deployment, temperature=0.2)
+
+        return captured
+
+    def test_temperature_preserved_for_gpt_4o(self):
+        kwargs = self._captured_kwargs("gpt-4o")
+        assert kwargs.get("temperature") == 0.2
+        assert kwargs.get("azure_deployment") == "gpt-4o"
+
+    def test_temperature_dropped_for_gpt_5_4_pro(self):
+        kwargs = self._captured_kwargs("gpt-5.4-pro")
+        assert "temperature" not in kwargs
+        assert kwargs.get("azure_deployment") == "gpt-5.4-pro"
+
+    def test_temperature_dropped_for_gpt_5_3_chat(self):
+        kwargs = self._captured_kwargs("gpt-5.3-chat")
+        assert "temperature" not in kwargs
+
+    def test_temperature_dropped_for_unknown_gpt_5_variant(self):
+        # Prefix match against the configured "gpt-5" reasoning token.
+        kwargs = self._captured_kwargs("gpt-5-turbo")
+        assert "temperature" not in kwargs
 
 
 class TestProductionCheckpointerFactory:

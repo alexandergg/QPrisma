@@ -27,7 +27,7 @@ agent:
 
 # Foundry project endpoint + judge model. Pinned for reproducibility.
 endpoint: ${AZURE_AI_PROJECT_ENDPOINT}
-model_deployment: gpt-5.4-pro-1
+model_deployment: gpt-5.4-pro
 
 # Attack surface — keep stable across quarters.
 strategies:

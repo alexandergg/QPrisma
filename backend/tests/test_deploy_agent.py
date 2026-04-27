@@ -111,7 +111,7 @@ def test_build_environment_variables_defaults_to_secretless_hosted_contract():
     assert env_vars["ENVIRONMENT"] == "hosted"
     assert env_vars["AZURE_OPENAI_ENDPOINT"] == "https://aif-qprisma-dev.openai.azure.com/"
     assert env_vars["AZURE_OPENAI_API_VERSION"] == "2024-08-01-preview"
-    assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-4o"
+    assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-5.4-pro"
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-large"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "true"
 
@@ -144,13 +144,13 @@ def test_build_environment_variables_accepts_memory_contract_aliases():
     env_vars = deploy_agent.build_environment_variables(
         env={
             "FOUNDRY_MEMORY_STORE_NAME": "qprisma-memory",
-            "FOUNDRY_MEMORY_CHAT_MODEL": "gpt-5.4-pro-1",
+            "FOUNDRY_MEMORY_CHAT_MODEL": "gpt-5.4-pro",
             "FOUNDRY_MEMORY_EMBEDDING_MODEL": "text-embedding-3-large",
         }
     )
 
     assert env_vars["MEMORY_STORE_NAME"] == "qprisma-memory"
-    assert env_vars["MEMORY_CHAT_MODEL"] == "gpt-5.4-pro-1"
+    assert env_vars["MEMORY_CHAT_MODEL"] == "gpt-5.4-pro"
     assert env_vars["MEMORY_EMBEDDING_MODEL"] == "text-embedding-3-large"
 
 
@@ -178,9 +178,9 @@ def test_hosted_manifest_chat_model_matches_provisioned_infra_default():
     )
     infra_main = (_REPO_ROOT / "infra" / "main.bicep").read_text(encoding="utf-8")
 
-    assert "id: gpt-4o" in manifest
+    assert "id: gpt-5.4-pro" in manifest
     assert "name: chat" in manifest
-    assert "{ name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }" in infra_main
+    assert "{ name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-5.4-pro' }" in infra_main
 
 
 @pytest.mark.unit
@@ -191,7 +191,7 @@ def test_deploy_hosted_agent_workflow_defaults_match_provisioned_chat_models():
     register_step = _workflow_step_block(hosted_workflow, "Register agent in Foundry")
 
     assert (
-        "AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-4o' }}"
+        "AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}"
         in register_step
     )
     assert "MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-4o' }}" in register_step

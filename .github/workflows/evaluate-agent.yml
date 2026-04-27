@@ -405,13 +405,13 @@ jobs:
         working-directory: backend
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro-1' }}
+          AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}
           QPRISMA_REDTEAM_NUM_TURNS: '5'
         run: |
           python -m evaluation_foundry.redteam_eval \
             --agent-id "${{ needs.resolve-version.outputs.agent-id }}" \
             --endpoint "${{ vars.FOUNDRY_PROJECT_ENDPOINT }}" \
-            --model-deployment "${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro-1' }}" \
+            --model-deployment "${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}" \
             --strategies "base64,flip,indirect_jailbreak" \
             --risk-categories "prohibited_actions" \
             --output "${{ runner.temp }}/redteam-results.json" \
