@@ -1333,7 +1333,9 @@ def select_tools_for_query(
             selected.append(tool)
 
     def append_tool_by_name(tool_name: str) -> None:
-        append_tool(next((candidate for candidate in all_tools if candidate.name == tool_name), None))
+        append_tool(
+            next((candidate for candidate in all_tools if candidate.name == tool_name), None)
+        )
 
     def extend_unique(tools: list) -> None:
         for tool in tools:

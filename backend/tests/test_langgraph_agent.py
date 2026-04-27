@@ -1081,7 +1081,9 @@ class TestDynamicToolBinding:
         selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8, is_multi_video=True)
 
         tool_names = [t.name for t in selected]
-        assert tool_names[0] == "find_common_entities", f"Expected common entity first, got {tool_names}"
+        assert (
+            tool_names[0] == "find_common_entities"
+        ), f"Expected common entity first, got {tool_names}"
         assert "search_across_videos" in tool_names
 
     def test_subtitle_generation_prioritizes_transcript(self):
