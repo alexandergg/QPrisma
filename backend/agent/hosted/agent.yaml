@@ -84,7 +84,7 @@ template:
 
 resources:
   - kind: model
-    id: gpt-5.4-pro-1
+    id: gpt-4o
     name: chat
   - kind: model
     id: text-embedding-3-large

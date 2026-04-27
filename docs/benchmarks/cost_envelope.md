@@ -44,7 +44,7 @@ run completes.
 | Component | Estimate | Notes |
 |---|---|---|
 | Per-strategy attack turns | ~5 turns × ~200 tokens in/out | From `num_turns: 5` in the manifest |
-| Strategies × risk categories | 3 × 1 = 3 attack streams | Per `qprisma_quarterly_v1.yaml` |
+| Strategies × risk categories | 3 × 1 = 3 attack streams | Per `qprisma_quarterly_v2.yaml` |
 | Total tokens / quarterly run | ~3K turns × ~400 tokens ≈ **1.2M tokens** | Includes Foundry-side judge for prohibited-actions classification |
 | Wall-clock | ~30-60 min | Bounded by `timeout_seconds: 3600` |
 | Cadence | Quarterly | Stable manifest; bump suffix on changes |

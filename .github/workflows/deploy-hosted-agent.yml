@@ -262,10 +262,10 @@ jobs:
           ENVIRONMENT: hosted
           AZURE_USE_MANAGED_IDENTITY: 'true'
           AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION || '2024-08-01-preview' }}
-          AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro-1' }}
+          AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-4o' }}
           AZURE_OPENAI_DEPLOYMENT_EMBEDDING: ${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING || 'text-embedding-3-large' }}
           MEMORY_STORE_NAME: ${{ vars.MEMORY_STORE_NAME }}
-          MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-5.4-pro-1' }}
+          MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-4o' }}
           MEMORY_EMBEDDING_MODEL: ${{ vars.MEMORY_EMBEDDING_MODEL || 'text-embedding-3-large' }}
           # APPLICATIONINSIGHTS_CONNECTION_STRING is reserved by the hosted-agent
           # platform and auto-injected; do not pass it here.

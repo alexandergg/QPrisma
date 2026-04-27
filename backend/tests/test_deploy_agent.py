@@ -111,7 +111,7 @@ def test_build_environment_variables_defaults_to_secretless_hosted_contract():
     assert env_vars["ENVIRONMENT"] == "hosted"
     assert env_vars["AZURE_OPENAI_ENDPOINT"] == "https://aif-qprisma-dev.openai.azure.com/"
     assert env_vars["AZURE_OPENAI_API_VERSION"] == "2024-08-01-preview"
-    assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-5.4-pro-1"
+    assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-4o"
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-large"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "true"
 
@@ -169,6 +169,32 @@ def test_hosted_manifest_openai_api_version_matches_script_default():
             break
     else:
         pytest.fail("AZURE_OPENAI_API_VERSION missing from hosted agent manifest")
+
+
+@pytest.mark.unit
+def test_hosted_manifest_chat_model_matches_provisioned_infra_default():
+    manifest = (_REPO_ROOT / "backend" / "agent" / "hosted" / "agent.yaml").read_text(
+        encoding="utf-8"
+    )
+    infra_main = (_REPO_ROOT / "infra" / "main.bicep").read_text(encoding="utf-8")
+
+    assert "id: gpt-4o" in manifest
+    assert "name: chat" in manifest
+    assert "{ name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-4o' }" in infra_main
+
+
+@pytest.mark.unit
+def test_deploy_hosted_agent_workflow_defaults_match_provisioned_chat_models():
+    hosted_workflow = (_REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml").read_text(
+        encoding="utf-8"
+    )
+    register_step = _workflow_step_block(hosted_workflow, "Register agent in Foundry")
+
+    assert (
+        "AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-4o' }}"
+        in register_step
+    )
+    assert "MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-4o' }}" in register_step
 
 
 @pytest.mark.unit

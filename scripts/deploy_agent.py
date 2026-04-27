@@ -85,7 +85,7 @@ def build_environment_variables(
             "AZURE_OPENAI_API_VERSION", "2024-08-01-preview"
         ),
         "AZURE_OPENAI_DEPLOYMENT_GPT": source.get(
-            "AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-5.4-pro-1"
+            "AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4o"
         ),
         "AZURE_OPENAI_DEPLOYMENT_EMBEDDING": source.get(
             "AZURE_OPENAI_DEPLOYMENT_EMBEDDING",
