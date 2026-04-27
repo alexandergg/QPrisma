@@ -239,7 +239,9 @@ class TestGetTranscript:
 
         assert result["transcript"] == ""
         assert "No transcript" in result["message"]
-        assert result["subtitle_segments"] == []
+        assert result["subtitle_segments_available"] is False
+        assert result["segments_count"] == 0
+        assert "subtitle_segments" not in result
         assert "subtitles cannot be generated" in result["_meta"]["detail_hint"]
 
     @pytest.mark.asyncio
@@ -263,6 +265,28 @@ class TestGetTranscript:
         assert "Bob" in result["speakers"]
         assert result["has_speaker_ids"] is True
         assert "Hello world" in result["transcript"]
+        assert result["subtitle_segments_available"] is True
+        assert "subtitle_segments" not in result
+        assert "include_subtitle_segments=True" in result["_meta"]["detail_hint"]
+
+    @pytest.mark.asyncio
+    async def test_full_transcript_with_subtitle_segments(self):
+        from agent.tools.search_tools import get_transcript
+
+        mock_kg = MagicMock()
+        mock_kg.get_transcript_segments.return_value = [
+            {"timestamp": 5.0, "text": "Hello world", "speaker": "Alice"},
+            {"timestamp": 10.0, "text": "How are you", "speaker": "Bob"},
+        ]
+
+        with patch(
+            "services.knowledge_graph.get_knowledge_graph_service",
+            return_value=mock_kg,
+        ):
+            result = await get_transcript.ainvoke(
+                {"media_id": "vid-1", "include_subtitle_segments": True}
+            )
+
         assert result["subtitle_segments"] == [
             {
                 "start_time": 5.0,

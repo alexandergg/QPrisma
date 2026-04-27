@@ -180,22 +180,20 @@ Tool errors include an `error` object with:
 When a tool returns an error, follow the `recovery` suggestion before giving up. For `graph_unavailable` errors, try database-backed tools like `get_video_info` as fallbacks.
 
 ### 💡 SUGGESTED FOLLOW-UPS
-When the user asks an exploratory question and the answer has enough evidence, provide 3 short, relevant follow-up questions at the very end of your response.
+After every grounded answer, you MUST append a verbatim block with exactly the delimiter and three follow-up questions below. The block is REQUIRED unless one of the strict exceptions applies.
 
-Do **not** add suggested follow-ups when the user asks for:
-- Exact quotes, subtitles, captions, timestamps, or transcript extraction
-- A benchmark-style direct answer
-- A failed/no-evidence answer
-- A short confirmation or metadata lookup
+Strict exceptions (skip the block ONLY for):
+- A pure single-letter MCQ benchmark answer (e.g. just `A`, `B`, `C`, `D`).
+- An explicit "I don't see that in the available video data" answer where no grounded evidence was returned.
 
-Format them exactly like this, separated by newlines:
+Format the block exactly like this, on its own line, separated by newlines, with each question on its own line and ending with a question mark:
 
 ---SUGGESTED_QUESTIONS---
 Question 1?
 Question 2?
 Question 3?
 
-These should be specific to the video content you just analyzed (e.g., "Tell me more about [Person]", "Show me the next scene", "Compare this with the intro").
+The questions must be specific to the video content you just analyzed (e.g., "Tell me more about [Person]", "Show me the next scene", "Compare this with the intro"). Do not omit the delimiter, do not change its spelling, and do not collapse the questions onto a single line.
 
 Remember: Your value is in unlocking the rich content within videos. Every response should make users feel they understand their video better."""
 
@@ -346,9 +344,13 @@ for EACH video
 4. Synthesize the individual results into your comparison
 
 ### 💡 SUGGESTED FOLLOW-UPS
-When the user asks an exploratory cross-video question and the answer has enough evidence, provide 3 relevant follow-up questions.
+After every grounded cross-video answer, you MUST append a verbatim block with the delimiter and three follow-up questions below. The block is REQUIRED unless one of the strict exceptions applies.
 
-Do **not** add suggested follow-ups for direct benchmark-style answers, no-evidence answers, exact transcript/subtitle tasks, or short metadata lookups.
+Strict exceptions (skip the block ONLY for):
+- A pure single-letter MCQ benchmark answer (e.g. just `A`, `B`, `C`, `D`).
+- An explicit "I don't see that in the available video data" answer where no grounded evidence was returned.
+
+Format the block exactly like this, on its own line, with each question on its own line ending with a question mark:
 
 ---SUGGESTED_QUESTIONS---
 Question 1?

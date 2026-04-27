@@ -197,30 +197,44 @@ class GraphExpander:
             type_filter = "AND e.entity_type = $entity_type"
 
         user_filter = "AND e.user_id = $user_id" if user_id else ""
+        evidence_user_filter = "AND entity.user_id = $user_id" if user_id else ""
 
         cypher = f"""
         MATCH (f:Frame)-[:CONTAINS]->(e:Entity)
         WHERE f.video_id IN $video_ids {user_filter} {type_filter}
-        WITH e.name AS name, e.entity_type AS etype, f
-        ORDER BY f.video_id, f.timestamp
+        WITH e.name AS name,
+             e.entity_type AS etype,
+             f.video_id AS video_id,
+             count(DISTINCT f) AS appearances_in_video
+        ORDER BY name, etype, video_id
         WITH name, etype,
-             collect(DISTINCT f.video_id) AS videos,
-             collect(DISTINCT f) AS frames,
-             count(DISTINCT f) AS total_appearances
+             collect(video_id) AS videos,
+             sum(appearances_in_video) AS total_appearances
         WHERE size(videos) >= 2
-        UNWIND frames AS frame
-        OPTIONAL MATCH (v:Video {{video_id: frame.video_id}})
-        WITH name, etype, videos, total_appearances,
-             collect({{
-                 video_id: frame.video_id,
-                 video_title: coalesce(v.title, frame.video_id),
-                 timestamp: frame.timestamp,
-                 timestamp_formatted: null,
-                 description: frame.description
-             }})[..8] AS evidence
-        RETURN name, etype, videos, total_appearances, evidence
+        WITH name, etype, videos, total_appearances
         ORDER BY size(videos) DESC, total_appearances DESC
         LIMIT $limit
+        CALL {{
+            WITH name, etype
+            MATCH (frame:Frame)-[:CONTAINS]->(entity:Entity)
+            WHERE frame.video_id IN $video_ids
+              AND entity.name = name
+              AND entity.entity_type = etype
+              {evidence_user_filter}
+            OPTIONAL MATCH (v:Video {{video_id: frame.video_id}})
+            WITH frame, v
+            ORDER BY frame.video_id, frame.timestamp
+            LIMIT 8
+            RETURN collect({{
+                video_id: frame.video_id,
+                video_title: coalesce(v.title, frame.video_id),
+                timestamp: frame.timestamp,
+                timestamp_formatted: null,
+                description: frame.description
+            }}) AS evidence
+        }}
+        RETURN name, etype, videos, total_appearances, evidence
+        ORDER BY size(videos) DESC, total_appearances DESC
         """
 
         params: dict = {"video_ids": video_ids, "limit": limit}
@@ -235,7 +249,7 @@ class GraphExpander:
                 {
                     "name": r["name"],
                     "entity_type": r["etype"],
-                    "shared_across": r["videos"],
+                    "shared_across": sorted(r["videos"] or []),
                     "videos_count": len(r["videos"] or []),
                     "total_appearances": r["total_appearances"],
                     "evidence": [
@@ -247,7 +261,17 @@ class GraphExpander:
                                 else None
                             ),
                         }
-                        for item in (r["evidence"] or [])
+                        for item in sorted(
+                            (r["evidence"] or []),
+                            key=lambda item: (
+                                item.get("video_id") or "",
+                                (
+                                    float("inf")
+                                    if item.get("timestamp") is None
+                                    else item["timestamp"]
+                                ),
+                            ),
+                        )
                     ],
                 }
                 for r in result

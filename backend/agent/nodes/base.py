@@ -84,22 +84,28 @@ def create_model(
     Uses API key when available, falls back to managed identity (AAD)
     for hosted agent containers.
 
+    For reasoning-class deployments (configured via
+    ``settings.azure.openai_reasoning_models``) the ``temperature`` kwarg
+    is omitted because Azure OpenAI rejects any value other than the
+    default (1) for these models.
+
     Args:
         model_deployment: Azure deployment name
-        temperature: Model temperature
+        temperature: Model temperature (ignored for reasoning models)
         streaming: Enable streaming responses
 
     Returns:
         Configured AzureChatOpenAI instance
     """
-    deployment = model_deployment or settings.azure.openai_deployment_gpt
+    deployment = model_deployment or settings.azure.agent_chat_deployment
 
-    kwargs = {
+    kwargs: dict = {
         "azure_deployment": deployment,
         "model": deployment,  # Needed for OpenTelemetry gen_ai instrumentation
-        "temperature": temperature,
         "streaming": streaming,
     }
+    if not _is_reasoning_model(deployment):
+        kwargs["temperature"] = temperature
     client_kwargs = build_openai_client_kwargs(
         endpoint=settings.azure.openai_endpoint,
         api_key=settings.azure.openai_api_key,
@@ -111,6 +117,29 @@ def create_model(
     kwargs.update(client_kwargs)
 
     return AzureChatOpenAI(**kwargs)
+
+
+def _is_reasoning_model(deployment: str | None) -> bool:
+    """Return True when the deployment is a reasoning-class model.
+
+    Reasoning models (e.g. gpt-5*) reject custom temperature values from
+    Azure OpenAI; matched against ``settings.azure.openai_reasoning_models``
+    as exact name or prefix-with-dot/dash.
+    """
+    if not deployment:
+        return False
+    raw = settings.azure.openai_reasoning_models or ""
+    name = deployment.strip().lower()
+    for entry in raw.split(","):
+        token = entry.strip().lower()
+        if not token:
+            continue
+        if name == token:
+            return True
+        # Prefix match: "gpt-5" matches "gpt-5.4-pro" / "gpt-5-turbo"
+        if name.startswith(f"{token}.") or name.startswith(f"{token}-"):
+            return True
+    return False
 
 
 # =============================================================================
@@ -1156,20 +1185,26 @@ def select_tools_for_query(
         "presenter",
         "speaker",
     ]
+    shared_entity_hint_keywords = entity_keywords + [
+        "entity",
+        "entities",
+        "object",
+        "objects",
+        "location",
+        "locations",
+        "place",
+        "places",
+        "concept",
+        "concepts",
+    ]
     shared_entity_keywords = [
         "appear in both",
         "appears in both",
-        "appear across",
-        "appears across",
-        "appear in multiple",
-        "appears in multiple",
-        "common",
         "in common",
         "same person",
         "same people",
         "same object",
         "same objects",
-        "shared",
         "who appears",
     ]
     structure_keywords = [
@@ -1319,7 +1354,7 @@ def select_tools_for_query(
     has_shared_entity_intent = is_multi_video and (
         any(kw in query_lower for kw in shared_entity_keywords)
         or (
-            any(kw in query_lower for kw in entity_keywords)
+            any(kw in query_lower for kw in shared_entity_hint_keywords)
             and any(kw in query_lower for kw in ("both", "all videos", "multiple", "across"))
         )
     )

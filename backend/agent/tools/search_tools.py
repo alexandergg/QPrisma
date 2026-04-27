@@ -222,6 +222,10 @@ async def get_transcript(
     start_time: Annotated[float | None, "Start time in seconds (omit for full transcript)"] = None,
     end_time: Annotated[float | None, "End time in seconds (omit for full transcript)"] = None,
     include_speakers: Annotated[bool, "Include speaker identification if available"] = True,
+    include_subtitle_segments: Annotated[
+        bool,
+        "Include timestamped subtitle segments. Leave off unless you need per-segment subtitle data.",
+    ] = False,
     target_video_id: Annotated[
         str | None,
         "When several videos are selected, specify which video's transcript to retrieve. "
@@ -235,6 +239,7 @@ async def get_transcript(
     Omit start_time and end_time to retrieve the full transcript.
     Provide both to retrieve a specific time range.
     Includes speaker identification when available.
+    Set include_subtitle_segments=True only when you need timestamped subtitle payloads.
     Uses sequential chain traversal when available for seamless cross-boundary retrieval.
     When several videos are selected, use target_video_id to get a specific video's transcript.
     """
@@ -261,11 +266,12 @@ async def get_transcript(
         )
 
         if not segments:
-            return {
+            empty_result: dict[str, Any] = {
                 "start_time": effective_start,
                 "end_time": effective_end if not full_transcript else None,
                 "transcript": "",
-                "subtitle_segments": [],
+                "subtitle_segments_available": False,
+                "segments_count": 0,
                 "message": (
                     "No transcript found for this video. Subtitle or caption generation "
                     "requires transcript segments from audio transcription."
@@ -279,9 +285,12 @@ async def get_transcript(
                     ),
                 ),
             }
+            if include_subtitle_segments:
+                empty_result["subtitle_segments"] = []
+            return empty_result
 
         transcript_parts = []
-        subtitle_segments: list[dict[str, Any]] = []
+        subtitle_segments: list[dict[str, Any]] | None = [] if include_subtitle_segments else None
         speakers_found: set[str] = set()
 
         for seg in segments:
@@ -289,14 +298,15 @@ async def get_transcript(
             ts = format_timestamp(timestamp)
             text = seg.get("text", "")
             speaker = seg.get("speaker")
-            subtitle_segments.append(
-                {
-                    "start_time": timestamp,
-                    "start_formatted": ts,
-                    "speaker": speaker if include_speakers else None,
-                    "text": text,
-                }
-            )
+            if subtitle_segments is not None:
+                subtitle_segments.append(
+                    {
+                        "start_time": timestamp,
+                        "start_formatted": ts,
+                        "speaker": speaker if include_speakers else None,
+                        "text": text,
+                    }
+                )
 
             if include_speakers and speaker:
                 speakers_found.add(speaker)
@@ -304,24 +314,31 @@ async def get_transcript(
             else:
                 transcript_parts.append(f"[{ts}] {text}")
 
-        return {
+        result = {
             "start_time": effective_start,
             "end_time": effective_end if not full_transcript else None,
             "start_formatted": format_timestamp(effective_start),
             "end_formatted": format_timestamp(effective_end) if not full_transcript else None,
             "transcript": "\n".join(transcript_parts),
-            "subtitle_segments": subtitle_segments,
+            "subtitle_segments_available": len(segments) > 0,
             "segments_count": len(segments),
             "speakers": list(speakers_found) if include_speakers else [],
             "has_speaker_ids": len(speakers_found) > 0,
             "_meta": tool_meta(
                 result_count=len(segments),
                 detail_hint=(
-                    "For subtitle/caption requests, use subtitle_segments as the source "
-                    "material and preserve timestamps exactly."
+                    "For subtitle/caption requests, rerun get_transcript with "
+                    "include_subtitle_segments=True to retrieve timestamped "
+                    "subtitle_segments."
+                    if subtitle_segments is None
+                    else "For subtitle/caption requests, use subtitle_segments as the "
+                    "source material and preserve timestamps exactly."
                 ),
             ),
         }
+        if subtitle_segments is not None:
+            result["subtitle_segments"] = subtitle_segments
+        return result
 
     except Exception as e:
         logger.error("get_transcript failed for %s: %s", effective_id, e)

@@ -59,7 +59,15 @@ class AzureSettings(BaseSettings):
     openai_endpoint: str | None = Field(default=None)
     openai_api_key: str | None = Field(default=None)
     openai_api_version: str = Field(default="2024-08-01-preview")
-    openai_deployment_gpt: str = Field(default="gpt-5.4-pro-1")
+    openai_deployment_gpt: str = Field(default="gpt-5.4-pro")
+    openai_deployment_gpt_chat: str | None = Field(
+        default=None,
+        description=(
+            "Optional override deployment name used by the hosted video agent's chat path. "
+            "When set, takes precedence over openai_deployment_gpt for agent model creation, "
+            "allowing different chat models to be A/B tested without redeploying infrastructure."
+        ),
+    )
     openai_deployment_embedding: str = Field(default="text-embedding-3-large")
     openai_deployment_whisper: str = Field(default="whisper")
     openai_agent_temperature: float = Field(
@@ -67,6 +75,13 @@ class AzureSettings(BaseSettings):
         ge=0.0,
         le=2.0,
         description="Temperature for hosted video-agent answer generation.",
+    )
+    openai_reasoning_models: str = Field(
+        default="gpt-5.4-pro,gpt-5.3-chat,gpt-5.2-chat,gpt-5",
+        description=(
+            "Comma-separated deployment names for reasoning-class models that reject "
+            "custom temperature values. Matched as exact name or as prefix (e.g. 'gpt-5')."
+        ),
     )
     openai_whisper_rpm: int = Field(default=3, description="Whisper requests per minute limit")
     max_concurrent_transcriptions: int = Field(
@@ -118,6 +133,16 @@ class AzureSettings(BaseSettings):
     def is_batch_configured(self) -> bool:
         """Check if Global Batch deployment is configured."""
         return bool(self.openai_deployment_gpt_batch)
+
+    @property
+    def agent_chat_deployment(self) -> str:
+        """Effective chat deployment for the hosted video agent.
+
+        Returns openai_deployment_gpt_chat when set, otherwise falls back to
+        openai_deployment_gpt. Allows operators to swap the agent's model
+        without changing the default deployment used by other services.
+        """
+        return self.openai_deployment_gpt_chat or self.openai_deployment_gpt
 
 
 class BatchAPISettings(BaseSettings):
@@ -352,7 +377,7 @@ class FoundrySettings(BaseSettings):
     memory_chat_model: str | None = Field(
         default=None,
         validation_alias=AliasChoices("MEMORY_CHAT_MODEL", "FOUNDRY_MEMORY_CHAT_MODEL"),
-        description="Chat model deployment for memory extraction (e.g., gpt-5.4-pro-1)",
+        description="Chat model deployment for memory extraction (e.g., gpt-5.4-pro)",
     )
     memory_embedding_model: str | None = Field(
         default=None,
