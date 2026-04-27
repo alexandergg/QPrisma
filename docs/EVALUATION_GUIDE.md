@@ -336,6 +336,6 @@ When adding a new benchmark, set `metadata.benchmark = <manifest.name>` in the e
 
 ## Quarterly red-team manifest (E3)
 
-The quarterly safety-regression benchmark is described declaratively in `backend/evaluation_foundry/benchmarks/redteam_manifests/qprisma_quarterly_v1.yaml`. The YAML keys mirror the CLI flags in `backend/evaluation_foundry/redteam_eval.py` 1:1 — `strategies`, `risk_categories`, `num_turns`, `model_deployment`, `scan_name`, etc.
+The quarterly safety-regression benchmark is described declaratively in `backend/evaluation_foundry/benchmarks/redteam_manifests/qprisma_quarterly_v2.yaml`. The YAML keys mirror the CLI flags in `backend/evaluation_foundry/redteam_eval.py` 1:1 — `strategies`, `risk_categories`, `num_turns`, `model_deployment`, `scan_name`, etc. Keep older published manifests (for example `qprisma_quarterly_v1.yaml`) unchanged so historical runs stay comparable.
 
-Versioning rule: bump the suffix (`_v2`, `_v3`, …) when changing strategies, risk categories, or `num_turns`. Never edit a published manifest in-place — quarter-over-quarter comparability depends on stable manifests. When introducing a new manifest, run both the old and new versions for one quarter to baseline the new metric before retiring the old one.
+Versioning rule: bump the suffix (`_v2`, `_v3`, …) when changing strategies, risk categories, `num_turns`, or the pinned `model_deployment` judge. Never edit a published manifest in-place — quarter-over-quarter comparability depends on stable manifests. When introducing a new manifest, run both the old and new versions for one quarter to baseline the new metric before retiring the old one.

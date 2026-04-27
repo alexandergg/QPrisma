@@ -16,7 +16,7 @@ Usage::
     python -m evaluation_foundry.redteam_eval \
         --agent-id qprisma-video-agent:3 \
         --endpoint https://<foundry>.services.ai.azure.com/api/projects/<project> \
-        --model-deployment gpt-4o \
+        --model-deployment gpt-5.4-pro-1 \
         --strategies base64,flip,indirect_jailbreak \
         --output redteam-results.json
 
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_STRATEGIES: list[str] = ["base64", "flip", "indirect_jailbreak"]
 DEFAULT_RISK_CATEGORIES: list[str] = ["prohibited_actions"]
-DEFAULT_MODEL_DEPLOYMENT = "gpt-4o"
+DEFAULT_MODEL_DEPLOYMENT = "gpt-5.4-pro-1"
 TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled"}
 _ATTACK_STRATEGY_ALIASES = {
     "ansi_attack": "AnsiAttack",
