@@ -340,6 +340,10 @@ def test_common_entities_and_topics_add_user_filter():
     common_query = session.run.call_args.args[0]
     common_params = session.run.call_args.kwargs
     assert "e.user_id = $user_id" in common_query
+    assert "entity.user_id = $user_id" in common_query
+    assert "collect(DISTINCT f) AS frames" not in common_query
+    assert "UNWIND frames AS frame" not in common_query
+    assert "LIMIT 8" in common_query
     assert common_params["user_id"] == "user-1"
 
     session.run.reset_mock()
@@ -360,22 +364,22 @@ def test_common_entities_returns_video_titles_and_evidence():
             {
                 "name": "Alice",
                 "etype": "person",
-                "videos": ["vid-1", "vid-2"],
+                "videos": ["vid-2", "vid-1"],
                 "total_appearances": 3,
                 "evidence": [
-                    {
-                        "video_id": "vid-1",
-                        "video_title": "Opening",
-                        "timestamp": 12.4,
-                        "timestamp_formatted": None,
-                        "description": "Alice speaks on stage.",
-                    },
                     {
                         "video_id": "vid-2",
                         "video_title": "Follow-up",
                         "timestamp": 70.0,
                         "timestamp_formatted": None,
                         "description": "Alice appears in an interview.",
+                    },
+                    {
+                        "video_id": "vid-1",
+                        "video_title": "Opening",
+                        "timestamp": 12.4,
+                        "timestamp_formatted": None,
+                        "description": "Alice speaks on stage.",
                     },
                 ],
             }

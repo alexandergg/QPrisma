@@ -1086,6 +1086,33 @@ class TestDynamicToolBinding:
         ), f"Expected common entity first, got {tool_names}"
         assert "search_across_videos" in tool_names
 
+    def test_multi_video_common_theme_query_does_not_prioritize_common_entities(self):
+        """Theme overlap queries should stay on cross-video analysis, not entity matching."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "What common themes appear across my videos?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8, is_multi_video=True)
+
+        tool_names = [t.name for t in selected]
+        assert (
+            tool_names[0] != "find_common_entities"
+        ), f"Did not expect common entity first for theme query, got {tool_names}"
+        assert "search_across_videos" in tool_names or "get_library_overview" in tool_names
+
+    def test_multi_video_shared_object_query_still_prioritizes_common_entities(self):
+        """Object overlap queries should still route to common-entity discovery."""
+        from agent.nodes.base import select_tools_for_query
+        from agent.tools import SEARCH_TOOLS
+
+        query = "What objects appear across my videos?"
+        selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8, is_multi_video=True)
+
+        tool_names = [t.name for t in selected]
+        assert (
+            tool_names[0] == "find_common_entities"
+        ), f"Expected common entity first for object overlap query, got {tool_names}"
+
     def test_subtitle_generation_prioritizes_transcript(self):
         """Subtitle/caption tasks should route to transcript evidence before edit-like tools."""
         from agent.nodes.base import select_tools_for_query

@@ -1156,20 +1156,26 @@ def select_tools_for_query(
         "presenter",
         "speaker",
     ]
+    shared_entity_hint_keywords = entity_keywords + [
+        "entity",
+        "entities",
+        "object",
+        "objects",
+        "location",
+        "locations",
+        "place",
+        "places",
+        "concept",
+        "concepts",
+    ]
     shared_entity_keywords = [
         "appear in both",
         "appears in both",
-        "appear across",
-        "appears across",
-        "appear in multiple",
-        "appears in multiple",
-        "common",
         "in common",
         "same person",
         "same people",
         "same object",
         "same objects",
-        "shared",
         "who appears",
     ]
     structure_keywords = [
@@ -1319,7 +1325,7 @@ def select_tools_for_query(
     has_shared_entity_intent = is_multi_video and (
         any(kw in query_lower for kw in shared_entity_keywords)
         or (
-            any(kw in query_lower for kw in entity_keywords)
+            any(kw in query_lower for kw in shared_entity_hint_keywords)
             and any(kw in query_lower for kw in ("both", "all videos", "multiple", "across"))
         )
     )
