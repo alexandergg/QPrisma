@@ -53,12 +53,11 @@ dependencies = [
     # Rate Limiting
     "slowapi>=0.1.9,<1.0.0",
     # Telemetry / Tracing (Azure Monitor + OpenTelemetry)
-    # Pin azure-monitor-opentelemetry<1.8.3: versions 1.8.3+ require opentelemetry-sdk==1.39
-    # which removed LogData from opentelemetry.sdk._logs, breaking azure-monitor-opentelemetry-exporter.
-    # Pin opentelemetry-sdk<1.39.0 to keep LogData available for the exporter import chain.
-    "azure-monitor-opentelemetry>=1.6.0,<1.8.3",
-    "opentelemetry-sdk>=1.36.0,<1.39.0",
-    "opentelemetry-api>=1.36.0,<1.39.0",
+    # azure-monitor-opentelemetry>=1.8.4 supports opentelemetry-sdk>=1.40 cleanly
+    # (the pre-1.8.4 LogData breakage with sdk 1.39 is resolved upstream).
+    "azure-monitor-opentelemetry>=1.8.4,<2.0.0",
+    "opentelemetry-sdk>=1.40.0,<2.0.0",
+    "opentelemetry-api>=1.40.0,<2.0.0",
     "opentelemetry-instrumentation-openai-v2>=2.0.0,<3.0.0",
 ]
 
@@ -67,11 +66,17 @@ gpu = [
     "faster-whisper>=1.1.0,<2.0.0",
 ]
 hosted = [
-    "azure-ai-agentserver-langgraph>=1.0.0b17",
+    # Refreshed Foundry hosted agent preview (Responses API runtime).
+    # See: https://learn.microsoft.com/azure/ai-foundry/agents/concepts/hosted-agents
+    "azure-ai-agentserver-responses>=1.0.0b5",
+    "azure-ai-agentserver-core>=2.0.0b3",
     "starlette>=1.0.0rc1,<2.0.0",
-    "azure-monitor-opentelemetry>=1.6.0,<1.8.3",
-    "opentelemetry-sdk>=1.36.0,<1.39.0",
-    "opentelemetry-api>=1.36.0,<1.39.0",
+    # OpenTelemetry: agentserver-core>=2.0.0b3 requires opentelemetry-sdk>=1.40.
+    # azure-monitor-opentelemetry>=1.8.4 is compatible with the post-1.39 SDK
+    # (the LogData breakage that affected earlier 1.8.x versions is resolved upstream).
+    "azure-monitor-opentelemetry>=1.8.4,<2.0.0",
+    "opentelemetry-sdk>=1.40.0,<2.0.0",
+    "opentelemetry-api>=1.40.0,<2.0.0",
     "opentelemetry-instrumentation-openai-v2>=2.0.0,<3.0.0",
     "langchain-azure-ai[opentelemetry]>=1.0.0",
 ]

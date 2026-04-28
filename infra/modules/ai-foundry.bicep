@@ -256,32 +256,16 @@ resource openAiRoleProject 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   }
 }
 
-// Capability Host with explicit connections — enables hosted agent container execution.
-// API 2025-10-01-preview requires ALL three connection types together.
-resource capabilityHostWithStorage 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-10-01-preview' = if (!empty(storageAccountId)) {
-  name: 'agents-host'
-  parent: aiFoundry
-  properties: {
-    capabilityHostKind: 'Agents'
-    enablePublicHostingEnvironment: true
-    storageConnections: [ agentStorageConnection.name ]
-    vectorStoreConnections: [ agentStorageConnection.name ]
-    threadStorageConnections: [ agentStorageConnection.name ]
-  }
-}
-
-// Fallback: bare capability host when no storage account is provided
-resource capabilityHostBare 'Microsoft.CognitiveServices/accounts/capabilityHosts@2025-10-01-preview' = if (empty(storageAccountId)) {
-  name: 'agents-host'
-  parent: aiFoundry
-  properties: {
-    capabilityHostKind: 'Agents'
-    enablePublicHostingEnvironment: true
-  }
-}
-
 // AcrPull role assignments are managed via CLI in deploy-hosted-agent.yml
 // (Bicep role assignments fail with RoleDefinitionDoesNotExist due to ARM scope resolution)
+
+// Note: The `agents-host` capability host (capabilityHostKind=Agents,
+// enablePublicHostingEnvironment=true) is no longer provisioned. The refreshed
+// Foundry hosted agent preview manages its own execution sandbox per agent
+// version and does not require an account-level capability host. The legacy
+// host caused `instance_identity.principal_id` to be returned empty after long
+// polling because the platform was provisioning identities against the new
+// per-agent sandbox while the capability host blocked materialization.
 
 // =====================================================================
 // Application Insights connection (enables Foundry portal tracing)

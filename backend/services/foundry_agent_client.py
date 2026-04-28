@@ -54,11 +54,13 @@ class FoundryAgentClient:
         self,
         project_endpoint: str,
         agent_name: str,
+        request_timeout_seconds: float = 120.0,
     ):
         self._project_endpoint = project_endpoint
         self._agent_name = agent_name
         self._project_client = None
         self._openai_client = None
+        self._request_timeout_seconds = request_timeout_seconds
 
     def _get_openai_client(self):
         """Lazy-initialize the OpenAI client bound to the hosted agent endpoint."""
@@ -143,13 +145,10 @@ class FoundryAgentClient:
                 session_id=active_session_id,
             )
             request_kwargs: dict[str, Any] = {
-                "input": [
-                    {
-                        "role": "user",
-                        "content": self._prepend_context(message, request_metadata),
-                    }
-                ]
+                "input": [{"role": "user", "content": message}],
             }
+            if request_metadata:
+                request_kwargs["metadata"] = request_metadata
             if active_conversation_id:
                 request_kwargs["conversation"] = active_conversation_id
             return request_kwargs, request_metadata
@@ -157,9 +156,9 @@ class FoundryAgentClient:
         kwargs, metadata = _build_request(session_id, conversation_id)
 
         try:
-            response = await asyncio.to_thread(
-                openai.responses.create,
-                **kwargs,
+            response = await asyncio.wait_for(
+                asyncio.to_thread(openai.responses.create, **kwargs),
+                timeout=self._request_timeout_seconds,
             )
 
             response_id = response.id or ""
@@ -172,6 +171,13 @@ class FoundryAgentClient:
                 "metadata": metadata,
             }
 
+        except TimeoutError:
+            logger.error(
+                "Foundry agent call timed out after %.1fs",
+                self._request_timeout_seconds,
+                extra={"agent_name": self._agent_name},
+            )
+            raise
         except Exception as e:
             if conversation_id and self._is_retriable(e):
                 new_conversation_id = await self.create_conversation()
@@ -180,9 +186,9 @@ class FoundryAgentClient:
                     extra={"agent_name": self._agent_name},
                 )
                 kwargs, metadata = _build_request(new_conversation_id, new_conversation_id)
-                response = await asyncio.to_thread(
-                    openai.responses.create,
-                    **kwargs,
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(openai.responses.create, **kwargs),
+                    timeout=self._request_timeout_seconds,
                 )
                 return {
                     "content": response.output_text or "",
@@ -235,13 +241,14 @@ class FoundryAgentClient:
             user_id=user_id,
             session_id=session_id,
         )
-        full_message = self._prepend_context(message, metadata)
 
-        input_messages = [{"role": "user", "content": full_message}]
+        input_messages = [{"role": "user", "content": message}]
         kwargs: dict[str, Any] = {
             "input": input_messages,
             "stream": True,
         }
+        if metadata:
+            kwargs["metadata"] = metadata
         if conversation_id:
             kwargs["conversation"] = conversation_id
 
@@ -272,7 +279,25 @@ class FoundryAgentClient:
             reader_task = asyncio.create_task(asyncio.to_thread(_stream_worker))
             try:
                 while True:
-                    item = await queue.get()
+                    try:
+                        item = await asyncio.wait_for(
+                            queue.get(),
+                            timeout=self._request_timeout_seconds,
+                        )
+                    except TimeoutError:
+                        logger.error(
+                            "Foundry streaming idle timeout after %.1fs",
+                            self._request_timeout_seconds,
+                            extra={"agent_name": self._agent_name},
+                        )
+                        yield {
+                            "type": "error",
+                            "content": (
+                                f"Foundry hosted agent did not produce output "
+                                f"within {self._request_timeout_seconds:.0f}s"
+                            ),
+                        }
+                        break
                     if item is None:
                         break
 
@@ -433,13 +458,6 @@ class FoundryAgentClient:
         conversation_id = getattr(response, "conversation_id", None)
         return conversation_id if isinstance(conversation_id, str) else ""
 
-    @staticmethod
-    def _prepend_context(message: str, metadata: dict[str, Any]) -> str:
-        """Prepend QPrisma context for the hosted agent to parse."""
-        if not metadata:
-            return message
-        return f'[QPRISMA_CONTEXT:{json.dumps(metadata, separators=(",", ":"))}]\n{message}'
-
 
 # ---------------------------------------------------------------------------
 # Singleton factory
@@ -471,6 +489,7 @@ def get_foundry_agent_client() -> FoundryAgentClient:
         _foundry_client = FoundryAgentClient(
             project_endpoint=endpoint,
             agent_name=agent_name,
+            request_timeout_seconds=settings.foundry.request_timeout_seconds,
         )
         logger.info("Foundry agent client initialized: %s @ %s", agent_name, endpoint)
 

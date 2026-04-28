@@ -58,63 +58,58 @@ class TestAzureAITracerTelemetryModule:
 
 
 @pytest.mark.unit
-class TestStateConverterTracerInjection:
-    """Tests for tracer callback injection in QPrismaStateConverter.
+class TestCompileTimeTracerInjection:
+    """Validate the refreshed-preview tracer wiring contract.
 
-    The converter's injection logic imports from ``agent.hosted.telemetry``
-    and injects the tracer into ``result["config"]["callbacks"]``.
-    These tests validate that logic by exercising the shared telemetry
-    singleton and simulating the config manipulation the converter performs.
+    The legacy ``QPrismaStateConverter`` injected the tracer into each request's
+    ``config.callbacks``. Under the refreshed Responses preview the tracer is
+    bound once at compile-time via ``graph.with_config({"callbacks": [tracer]})``
+    inside :func:`agent.hosted.main._get_graph`. These tests exercise the
+    shared singleton contract that ``_get_graph`` relies on, plus the
+    ``with_config`` invocation shape.
     """
 
-    def test_tracer_injected_when_available(self, monkeypatch: pytest.MonkeyPatch):
-        """When a tracer singleton exists, it gets added to config callbacks."""
+    def test_with_config_receives_tracer_when_available(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When tracer is set, it is passed to ``graph.with_config`` callbacks."""
+
         mock_tracer = MagicMock(name="mock_azure_tracer")
         monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", mock_tracer)
-
-        # Simulate the injection logic from convert_request
-        result = {"input": {"messages": []}, "config": {}}
         tracer = telemetry_mod.get_azure_ai_tracer()
-        assert tracer is not None
+        assert tracer is mock_tracer
 
-        config = result.get("config") or {}
-        callbacks = list(config.get("callbacks") or [])
-        if tracer not in callbacks:
-            callbacks.append(tracer)
-        config["callbacks"] = callbacks
-        result["config"] = config
+        graph = MagicMock(name="compiled_graph")
+        configured = MagicMock(name="configured_graph")
+        graph.with_config.return_value = configured
 
-        assert mock_tracer in result["config"]["callbacks"]
+        callbacks = [tracer] if tracer is not None else []
+        config: dict = {"tags": ["qprisma", "video-agent", "hosted"]}
+        if callbacks:
+            config["callbacks"] = callbacks
+        result = graph.with_config(config)
 
-    def test_tracer_not_duplicated(self, monkeypatch: pytest.MonkeyPatch):
-        """Tracer is not added twice if already present."""
-        mock_tracer = MagicMock(name="mock_azure_tracer")
-        monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", mock_tracer)
+        graph.with_config.assert_called_once()
+        passed = graph.with_config.call_args[0][0]
+        assert passed["callbacks"] == [mock_tracer]
+        assert "qprisma" in passed["tags"]
+        assert result is configured
 
-        result = {"input": {"messages": []}, "config": {"callbacks": [mock_tracer]}}
-        tracer = telemetry_mod.get_azure_ai_tracer()
+    def test_with_config_omits_callbacks_when_tracer_absent(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """When tracer singleton is None, no callbacks key is injected."""
 
-        config = result.get("config") or {}
-        callbacks = list(config.get("callbacks") or [])
-        if tracer not in callbacks:
-            callbacks.append(tracer)
-        config["callbacks"] = callbacks
-        result["config"] = config
-
-        assert result["config"]["callbacks"].count(mock_tracer) == 1
-
-    def test_no_error_when_tracer_not_configured(self, monkeypatch: pytest.MonkeyPatch):
-        """When tracer is None, injection is a no-op."""
         monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", None)
         tracer = telemetry_mod.get_azure_ai_tracer()
         assert tracer is None
 
-        result = {"input": {"messages": []}, "config": {}}
-        if tracer is not None:
-            config = result.get("config") or {}
-            callbacks = list(config.get("callbacks") or [])
-            callbacks.append(tracer)
+        graph = MagicMock(name="compiled_graph")
+        callbacks = [tracer] if tracer is not None else []
+        config: dict = {"tags": ["qprisma", "video-agent", "hosted"]}
+        if callbacks:
             config["callbacks"] = callbacks
-            result["config"] = config
+        graph.with_config(config)
 
-        assert "callbacks" not in result.get("config", {})
+        passed = graph.with_config.call_args[0][0]
+        assert "callbacks" not in passed

@@ -1,17 +1,18 @@
 """
-Hosted Agent Telemetry Singleton
-================================
+Hosted Agent Telemetry Helpers
+==============================
 
-Holds the ``AzureAIOpenTelemetryTracer`` singleton so that both
-``main.py`` (which creates it) and ``state_converter.py`` (which
-injects it as a callback) can access it without a circular import.
+Holds the ``AzureAIOpenTelemetryTracer`` singleton so that the hosted
+runtime (``main.py``) and any node code that wants to attach extra
+callbacks can share the same instance without a circular import.
 
 Also exposes :class:`SafeAzureAIOpenTelemetryTracer`, a thin adapter
 that swallows callback exceptions and normalizes LangGraph's list-shaped
 chain inputs into the dict shape expected by ``langchain-azure-ai==1.1.0b1``'s
 ``AzureAIOpenTelemetryTracer.on_chain_start`` (which calls ``.get(...)`` on
 ``inputs`` and raises ``AttributeError("'list' object has no attribute 'get'")``
-on every node start otherwise).
+on every node start otherwise). Once the upstream bug is fixed this wrapper
+can be deleted.
 """
 
 from __future__ import annotations
@@ -129,59 +130,3 @@ class SafeAzureAIOpenTelemetryTracer(BaseCallbackHandler):
 
     def on_retry(self, retry_state, **kwargs):  # type: ignore[override]
         return self._delegate("on_retry", retry_state, **kwargs)
-
-
-def patch_agentserver_history_fetch() -> bool:
-    """Monkeypatch ``azure.ai.agentserver``'s ``_fetch_historical_items``.
-
-    ``azure-ai-agentserver-langgraph==1.0.0b17`` does ``async for item in
-    openai_client.conversations.items.list(conversation_id):`` but in
-    ``openai>=2.x`` ``AsyncItems.list`` is a coroutine that resolves to an
-    async paginator, so the unawaited iteration raises immediately and
-    silently drops all conversation history between turns.
-
-    Returns ``True`` if the patch was applied, ``False`` otherwise (already
-    patched, library missing, or upstream signature has changed).
-    """
-    try:
-        from azure.ai.agentserver.langgraph.models import (  # type: ignore[import-not-found]
-            response_api_default_converter as _converter,
-        )
-    except Exception as exc:  # pragma: no cover - depends on installed lib
-        logger.debug("agentserver patch: module not importable (%s)", exc)
-        return False
-
-    if getattr(_converter, "_qprisma_history_patched", False):
-        return False
-
-    _original = getattr(_converter, "_fetch_historical_items", None)
-    if _original is None:
-        logger.debug("agentserver patch: _fetch_historical_items not found")
-        return False
-
-    async def _patched_fetch_historical_items(openai_client, conversation_id):  # type: ignore[no-untyped-def]
-        items: list[Any] = []
-        try:
-            paginator = openai_client.conversations.items.list(conversation_id)
-            # Some openai SDK versions return a coroutine that resolves to the
-            # async paginator; others return the paginator directly. Handle both.
-            if hasattr(paginator, "__await__"):
-                paginator = await paginator  # type: ignore[assignment]
-            async for item in paginator:
-                items.append(item)
-        except Exception as exc:
-            logger.warning(
-                "agentserver patched _fetch_historical_items failed for %s: %s",
-                conversation_id,
-                exc,
-            )
-            return []
-        return items
-
-    _converter._fetch_historical_items = _patched_fetch_historical_items
-    _converter._qprisma_history_patched = True
-    logger.info(
-        "agentserver patch: replaced _fetch_historical_items "
-        "(awaits AsyncItems.list before iterating)"
-    )
-    return True
