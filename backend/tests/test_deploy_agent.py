@@ -244,7 +244,7 @@ def test_wait_for_agent_active_polls_foundry_sdk_until_active():
     with patch.object(deploy_agent.time, "sleep") as sleep_mock:
         active = deploy_agent.wait_for_agent_active(fake_client, "7")
 
-    assert active is True
+    assert active == "active"
     sleep_mock.assert_called_once_with(deploy_agent.POLL_INTERVAL_SECONDS)
 
 
@@ -269,7 +269,7 @@ def test_wait_for_agent_active_surfaces_failure_details():
     with patch("builtins.print") as print_mock:
         active = deploy_agent.wait_for_agent_active(fake_client, "9")
 
-    assert active is False
+    assert active == "failed"
     printed = "\n".join(call.args[0] for call in print_mock.call_args_list if call.args)
     assert "Provisioning error: image_pull_failed: bad image" in printed
 
@@ -348,3 +348,135 @@ def test_hosted_agent_openai_rbac_is_durable_and_graph_free():
     assert "agent_identity_principal_id=" in deploy_agent_script
     assert "agent start" not in deploy_agent_script
     assert "agent show" not in deploy_agent_script
+
+
+def _read_github_output(path: Path) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" in line:
+            key, _, value = line.partition("=")
+            result[key] = value
+    return result
+
+
+def _make_main_test_client(deploy_agent):
+    fake_agent = types.SimpleNamespace(name="qprisma-video-agent", id="agent-id-1", version="42")
+
+    class _Agents:
+        def create_version(self, *, agent_name, description, definition):
+            assert agent_name == deploy_agent.AGENT_NAME
+            return fake_agent
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            self.agents = _Agents()
+
+    return _Client, fake_agent
+
+
+def _setup_main_env(monkeypatch, tmp_path: Path) -> Path:
+    output_path = tmp_path / "github_output.txt"
+    output_path.write_text("", encoding="utf-8")
+    monkeypatch.setenv("AZURE_AI_PROJECT_ENDPOINT", "https://fake.services.ai.azure.com/api/projects/fake")
+    monkeypatch.setenv("CONTAINER_IMAGE", "fakeacr.azurecr.io/qprisma-video-agent:test")
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
+    return output_path
+
+
+@pytest.mark.unit
+def test_main_active_with_identity_writes_outputs_and_succeeds(monkeypatch, tmp_path):
+    deploy_agent = _load_deploy_agent_module()
+    output_path = _setup_main_env(monkeypatch, tmp_path)
+    fake_client_cls, fake_agent = _make_main_test_client(deploy_agent)
+
+    monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
+    monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
+    monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "active")
+    monkeypatch.setattr(
+        deploy_agent,
+        "resolve_agent_identity_principal_id",
+        lambda *a, **kw: "principal-id-abc",
+    )
+
+    deploy_agent.main()
+
+    outputs = _read_github_output(output_path)
+    assert outputs["agent_version"] == str(fake_agent.version)
+    assert outputs["agent_active"] == "true"
+    assert outputs["agent_identity_principal_id"] == "principal-id-abc"
+
+
+@pytest.mark.unit
+def test_main_active_without_identity_exits_one(monkeypatch, tmp_path):
+    deploy_agent = _load_deploy_agent_module()
+    output_path = _setup_main_env(monkeypatch, tmp_path)
+    fake_client_cls, fake_agent = _make_main_test_client(deploy_agent)
+
+    monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
+    monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
+    monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "active")
+    monkeypatch.setattr(
+        deploy_agent, "resolve_agent_identity_principal_id", lambda *a, **kw: None
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        deploy_agent.main()
+
+    assert excinfo.value.code == 1
+    outputs = _read_github_output(output_path)
+    assert outputs["agent_version"] == str(fake_agent.version)
+    assert outputs["agent_active"] == "true"
+    assert outputs["agent_identity_principal_id"] == ""
+
+
+@pytest.mark.unit
+def test_main_failed_status_exits_one(monkeypatch, tmp_path):
+    deploy_agent = _load_deploy_agent_module()
+    output_path = _setup_main_env(monkeypatch, tmp_path)
+    fake_client_cls, fake_agent = _make_main_test_client(deploy_agent)
+
+    identity_calls: list[bool] = []
+
+    def _identity(*_a, **_kw):
+        identity_calls.append(True)
+        return "principal-id-should-not-appear"
+
+    monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
+    monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
+    monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "failed")
+    monkeypatch.setattr(deploy_agent, "resolve_agent_identity_principal_id", _identity)
+
+    with pytest.raises(SystemExit) as excinfo:
+        deploy_agent.main()
+
+    assert excinfo.value.code == 1
+    assert identity_calls == []  # Identity lookup must be skipped on failure.
+    outputs = _read_github_output(output_path)
+    assert outputs["agent_version"] == str(fake_agent.version)
+    assert outputs["agent_active"] == "false"
+    assert outputs["agent_identity_principal_id"] == ""
+
+
+@pytest.mark.unit
+def test_main_timeout_status_soft_exits_zero(monkeypatch, tmp_path):
+    deploy_agent = _load_deploy_agent_module()
+    output_path = _setup_main_env(monkeypatch, tmp_path)
+    fake_client_cls, fake_agent = _make_main_test_client(deploy_agent)
+
+    monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
+    monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
+    monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "timeout")
+    monkeypatch.setattr(
+        deploy_agent,
+        "resolve_agent_identity_principal_id",
+        lambda *a, **kw: pytest.fail("identity lookup must not run on timeout"),
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        deploy_agent.main()
+
+    assert excinfo.value.code == 0
+    outputs = _read_github_output(output_path)
+    assert outputs["agent_version"] == str(fake_agent.version)
+    assert outputs["agent_active"] == "false"
+    assert outputs["agent_identity_principal_id"] == ""

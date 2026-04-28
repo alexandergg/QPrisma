@@ -214,8 +214,14 @@ def _extract_agent_version_error(agent_version: object) -> str | None:
     return ": ".join(parts) if parts else str(error)
 
 
-def wait_for_agent_active(client: AIProjectClient, version: str) -> bool:
-    """Poll the hosted agent version until it reaches a terminal state."""
+def wait_for_agent_active(client: AIProjectClient, version: str) -> str:
+    """Poll the hosted agent version until it reaches a terminal state.
+
+    Returns one of:
+        ``"active"``  — version reached the SDK's active state.
+        ``"failed"``  — Foundry reported a terminal provisioning failure.
+        ``"timeout"`` — the poll loop exceeded ``POLL_TIMEOUT_SECONDS``.
+    """
     start = time.time()
     last_status = None
 
@@ -239,20 +245,20 @@ def wait_for_agent_active(client: AIProjectClient, version: str) -> bool:
 
         if status and status.lower() == "active":
             print(f"Agent is active! (status: {status})")
-            return True
+            return "active"
         if status and status.lower() == "failed":
             print(f"Agent deployment failed (status: {status})")
             error = _extract_agent_version_error(agent_version)
             if error:
                 print(f"Provisioning error: {error}")
-            return False
+            return "failed"
 
         time.sleep(POLL_INTERVAL_SECONDS)
 
     elapsed = int(time.time() - start)
     print(f"Timed out after {elapsed}s waiting for agent (last status: {last_status})")
     print("The agent may still be provisioning. Check Azure AI Foundry portal.")
-    return False
+    return "timeout"
 
 
 def main() -> None:
@@ -348,7 +354,8 @@ def main() -> None:
     # instance_identity is only populated by Foundry once the version is
     # active, so we must wait for active *before* resolving the identity.
     print("Waiting for agent version to reach 'active' state...")
-    active = wait_for_agent_active(client, str(agent.version))
+    wait_result = wait_for_agent_active(client, str(agent.version))
+    active = wait_result == "active"
 
     agent_identity_principal_id: str | None = None
     if active:
@@ -364,7 +371,14 @@ def main() -> None:
                 f"agent_identity_principal_id={agent_identity_principal_id or ''}\n"
             )
 
-    if not active:
+    if wait_result == "failed":
+        print(
+            "ERROR: Hosted agent provisioning reported a terminal failure. "
+            "Inspect the Foundry portal logs above for the root cause."
+        )
+        sys.exit(1)
+
+    if wait_result == "timeout":
         print("WARNING: Agent may still be provisioning " "— check Foundry portal.")
         # Exit 0 to not fail the pipeline
         # — provisioning is async and may exceed our timeout
@@ -375,7 +389,7 @@ def main() -> None:
             "ERROR: Agent version is active but instance_identity.principal_id "
             "was not returned by Foundry after "
             f"{AGENT_IDENTITY_LOOKUP_ATTEMPTS} attempts "
-            f"({AGENT_IDENTITY_LOOKUP_ATTEMPTS * AGENT_IDENTITY_LOOKUP_WAIT_SECONDS}s)."
+            f"({max(AGENT_IDENTITY_LOOKUP_ATTEMPTS - 1, 0) * AGENT_IDENTITY_LOOKUP_WAIT_SECONDS}s)."
         )
         print(
             "Re-run this workflow to retry, or inspect the agent in the "
