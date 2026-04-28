@@ -191,21 +191,20 @@ jobs:
           DEPLOYER_PID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv)
           PROJECT_SCOPE="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT_NAME}"
 
-          # Resolve the role definition GUID dynamically — names/IDs differ across tenants.
-          PM_ROLE_ID=$(az role definition list \
-            --name "Azure AI Project Manager" \
-            --query "[0].name" -o tsv 2>/dev/null || echo "")
-          if [ -z "$PM_ROLE_ID" ]; then
-            echo "::error::Could not resolve 'Azure AI Project Manager' role definition. Check that the role exists in this tenant."
+          # Verify the built-in role exists exactly once before assigning by name.
+          # Filter on roleName to avoid order-dependent matches when listing.
+          PM_ROLE_MATCHES=$(az role definition list \
+            --query "[?roleName=='Azure AI Project Manager'].name" -o tsv 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$PM_ROLE_MATCHES" != "1" ]; then
+            echo "::error::Expected exactly one 'Azure AI Project Manager' role definition, found ${PM_ROLE_MATCHES}. Check tenant role definitions."
             exit 1
           fi
-          echo "Azure AI Project Manager role: ${PM_ROLE_ID}"
 
           echo "Assigning Azure AI Project Manager on project scope to deployer ${DEPLOYER_PID:0:8}..."
           RESULT=$(az role assignment create \
             --assignee-object-id "$DEPLOYER_PID" \
             --assignee-principal-type ServicePrincipal \
-            --role "$PM_ROLE_ID" \
+            --role "Azure AI Project Manager" \
             --scope "$PROJECT_SCOPE" \
             --output json 2>&1) && CREATED=true || CREATED=false
 
@@ -392,21 +391,21 @@ jobs:
           # role at project scope. The legacy "Cognitive Services OpenAI User"
           # at account scope only covers direct *.openai.azure.com calls,
           # not the project-routed Responses API path used by the agent server.
-          AI_USER_ROLE=$(az role definition list \
-            --name "Azure AI User" \
-            --query "[0].name" -o tsv 2>/dev/null || echo "")
-          if [ -z "$AI_USER_ROLE" ]; then
-            echo "::error::Could not resolve 'Azure AI User' role definition GUID."
+          # Verify the built-in role exists exactly once before assigning by name.
+          # Filter on roleName to avoid order-dependent matches when listing.
+          AI_USER_MATCHES=$(az role definition list \
+            --query "[?roleName=='Azure AI User'].name" -o tsv 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$AI_USER_MATCHES" != "1" ]; then
+            echo "::error::Expected exactly one 'Azure AI User' role definition, found ${AI_USER_MATCHES}. Check tenant role definitions."
             exit 1
           fi
-          echo "Azure AI User role: ${AI_USER_ROLE}"
 
           NEW_ASSIGNMENT=false
           echo "[1/2] Assigning Azure AI User on PROJECT scope..."
           RESULT=$(az role assignment create \
             --assignee-object-id "$AGENT_IDENTITY_PID" \
             --assignee-principal-type ServicePrincipal \
-            --role "$AI_USER_ROLE" \
+            --role "Azure AI User" \
             --scope "$PROJECT_SCOPE" \
             --output json 2>&1) && CREATED=true || CREATED=false
 
