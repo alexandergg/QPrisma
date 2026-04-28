@@ -641,7 +641,7 @@ class TestRedisCheckpointer:
 
     @pytest.mark.asyncio
     async def test_checkpointer_fallback_to_memory(self):
-        """Test fallback to MemorySaver when no persistent stores available."""
+        """Test that get_shared_checkpointer always returns a MemorySaver."""
         import agent.graphs.video as module
         from langgraph.checkpoint.memory import MemorySaver
 
@@ -649,12 +649,8 @@ class TestRedisCheckpointer:
         module._shared_checkpointer = None
         module._checkpointer_lock = None
 
-        with (
-            patch.dict("os.environ", {"REDIS_URL": "", "DATABASE_URL": ""}, clear=False),
-            patch.object(module, "_create_checkpointer_candidate", return_value=None),
-        ):
-            checkpointer = await module.get_shared_checkpointer()
-            assert isinstance(checkpointer, MemorySaver)
+        checkpointer = await module.get_shared_checkpointer()
+        assert isinstance(checkpointer, MemorySaver)
 
         # Reset for other tests
         module._shared_checkpointer = None
