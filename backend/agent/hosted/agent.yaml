@@ -31,8 +31,13 @@ template:
     # --- Azure OpenAI ---
     - name: AZURE_OPENAI_ENDPOINT
       value: ${AZURE_OPENAI_ENDPOINT}
+    # Project-routed Foundry endpoint. Required so the hosted runtime hits the
+    # project Responses API path instead of falling back to the account-level
+    # *.openai.azure.com subdomain (which 404s for project-scoped deployments).
+    - name: AZURE_AI_PROJECT_ENDPOINT
+      value: ${AZURE_AI_PROJECT_ENDPOINT}
     - name: AZURE_OPENAI_API_VERSION
-      value: "2024-08-01-preview"
+      value: "2025-04-01-preview"
     - name: AZURE_USE_MANAGED_IDENTITY
       value: "true"
     - name: AZURE_OPENAI_DEPLOYMENT_GPT

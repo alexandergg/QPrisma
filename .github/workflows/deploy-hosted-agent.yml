@@ -175,6 +175,74 @@ jobs:
           fi
           echo "RBAC roles configured"
 
+      - name: Ensure deployer has Azure AI Project Manager on project
+        run: |
+          RG="rg-qprisma-dev"
+          ACCOUNT="aif-qprisma-dev"
+          PROJECT_NAME="${ACCOUNT}-project"
+          SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+          # Per official "hosted-agent-permissions" docs, Azure AI Developer
+          # is INSUFFICIENT for hosted agent scenarios. The deployer SP needs
+          # Azure AI Project Manager at PROJECT scope so the platform can
+          # automatically assign Azure AI User to the freshly created agent
+          # instance identity. Without this, identity provisioning stalls and
+          # instance_identity.principal_id is never returned.
+          DEPLOYER_PID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv)
+          PROJECT_SCOPE="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT_NAME}"
+
+          # Verify the built-in role exists exactly once before assigning by name.
+          # Filter on roleName to avoid order-dependent matches when listing.
+          PM_ROLE_MATCHES=$(az role definition list \
+            --query "[?roleName=='Azure AI Project Manager'].name" -o tsv 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$PM_ROLE_MATCHES" != "1" ]; then
+            echo "::error::Expected exactly one 'Azure AI Project Manager' role definition, found ${PM_ROLE_MATCHES}. Check tenant role definitions."
+            exit 1
+          fi
+
+          echo "Assigning Azure AI Project Manager on project scope to deployer ${DEPLOYER_PID:0:8}..."
+          RESULT=$(az role assignment create \
+            --assignee-object-id "$DEPLOYER_PID" \
+            --assignee-principal-type ServicePrincipal \
+            --role "Azure AI Project Manager" \
+            --scope "$PROJECT_SCOPE" \
+            --output json 2>&1) && CREATED=true || CREATED=false
+
+          if echo "$RESULT" | grep -q "already exists"; then
+            echo "  Azure AI Project Manager: already assigned"
+          elif [ "$CREATED" = true ]; then
+            echo "  Azure AI Project Manager: newly assigned — waiting 90s for RBAC propagation..."
+            sleep 90
+          else
+            echo "::error::Failed to assign Azure AI Project Manager to deployer: $RESULT"
+            exit 1
+          fi
+
+      - name: Preflight — verify chat deployment exists
+        env:
+          DEPLOYMENT_NAME: ${{ inputs.chat_deployment || vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}
+        run: |
+          RG="rg-qprisma-dev"
+          ACCOUNT="aif-qprisma-dev"
+
+          echo "Checking that chat deployment '${DEPLOYMENT_NAME}' exists on ${ACCOUNT}..."
+          DEP_INFO=$(az cognitiveservices account deployment show \
+            --name "$ACCOUNT" \
+            --resource-group "$RG" \
+            --deployment-name "$DEPLOYMENT_NAME" \
+            --query "{model:properties.model.name,version:properties.model.version,state:properties.provisioningState}" \
+            -o json 2>&1) && FOUND=true || FOUND=false
+
+          if [ "$FOUND" != true ]; then
+            echo "::error::Chat deployment '${DEPLOYMENT_NAME}' was not found on ${ACCOUNT}."
+            echo "$DEP_INFO"
+            echo "::error::Re-run deploy-ai-foundry.yml with the right deployment name, or set vars.AZURE_OPENAI_DEPLOYMENT_GPT to an existing deployment."
+            exit 1
+          fi
+
+          echo "Found deployment:"
+          echo "$DEP_INFO"
+
       - name: Wait for capability host readiness
         run: |
           echo "Checking capability host provisioning state..."
@@ -272,7 +340,7 @@ jobs:
           CONTAINER_IMAGE: ${{ env.FULL_IMAGE }}
           ENVIRONMENT: hosted
           AZURE_USE_MANAGED_IDENTITY: 'true'
-          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION || '2024-08-01-preview' }}
+          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION || '2025-04-01-preview' }}
           AZURE_OPENAI_DEPLOYMENT_GPT: ${{ inputs.chat_deployment || vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}
           AZURE_OPENAI_DEPLOYMENT_EMBEDDING: ${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING || 'text-embedding-3-large' }}
           MEMORY_STORE_NAME: ${{ vars.MEMORY_STORE_NAME }}
@@ -297,24 +365,67 @@ jobs:
       - name: Ensure hosted agent instance identity has Azure OpenAI access
         env:
           AGENT_IDENTITY_PID: ${{ steps.register.outputs.agent_identity_principal_id }}
+          AGENT_IDENTITY_SOURCE: ${{ steps.register.outputs.agent_identity_source }}
         run: |
           RG="rg-qprisma-dev"
           ACCOUNT="aif-qprisma-dev"
+          PROJECT_NAME="${ACCOUNT}-project"
+          SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
           AI_ACCOUNT_ID=$(az cognitiveservices account show \
             --name ${ACCOUNT} --resource-group ${RG} \
             --query id -o tsv)
+          PROJECT_SCOPE="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT_NAME}"
 
           if [ -z "$AGENT_IDENTITY_PID" ]; then
             echo "::error::Hosted agent instance identity principal ID was not returned by deploy_agent.py"
             exit 1
           fi
 
-          echo "AgentIdentity principal: ${AGENT_IDENTITY_PID:0:8}..."
+          echo "AgentIdentity principal: ${AGENT_IDENTITY_PID:0:8}... (resolved via: ${AGENT_IDENTITY_SOURCE:-unknown})"
 
-          # Cognitive Services OpenAI User grants the chat/completions data action
-          # required by the hosted agent runtime identity.
+          # PRIMARY GRANT: Azure AI User at PROJECT scope.
+          # Per Foundry hosted-agent-permissions docs, the agent runtime
+          # identity needs Microsoft.CognitiveServices/accounts/AIServices/responses/*
+          # on the project, which is granted via the "Azure AI User" built-in
+          # role at project scope. The legacy "Cognitive Services OpenAI User"
+          # at account scope only covers direct *.openai.azure.com calls,
+          # not the project-routed Responses API path used by the agent server.
+          # Verify the built-in role exists exactly once before assigning by name.
+          # Filter on roleName to avoid order-dependent matches when listing.
+          AI_USER_MATCHES=$(az role definition list \
+            --query "[?roleName=='Azure AI User'].name" -o tsv 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$AI_USER_MATCHES" != "1" ]; then
+            echo "::error::Expected exactly one 'Azure AI User' role definition, found ${AI_USER_MATCHES}. Check tenant role definitions."
+            exit 1
+          fi
+
+          NEW_ASSIGNMENT=false
+          echo "[1/2] Assigning Azure AI User on PROJECT scope..."
+          RESULT=$(az role assignment create \
+            --assignee-object-id "$AGENT_IDENTITY_PID" \
+            --assignee-principal-type ServicePrincipal \
+            --role "Azure AI User" \
+            --scope "$PROJECT_SCOPE" \
+            --output json 2>&1) && CREATED=true || CREATED=false
+
+          if echo "$RESULT" | grep -q "already exists"; then
+            echo "  Azure AI User (project): already assigned"
+          elif [ "$CREATED" = true ]; then
+            echo "  Azure AI User (project): newly assigned"
+            NEW_ASSIGNMENT=true
+          else
+            echo "::error::Failed to assign Azure AI User on project to ${AGENT_IDENTITY_PID}: $RESULT"
+            exit 1
+          fi
+
+          # SECONDARY GRANT (defensive): Cognitive Services OpenAI User at
+          # ACCOUNT scope. Covers any code path in the agent that still hits
+          # the account-level *.openai.azure.com subdomain instead of the
+          # project endpoint.
           OPENAI_USER_ROLE="5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
 
+          echo "[2/2] Assigning Cognitive Services OpenAI User on ACCOUNT scope (defensive)..."
           RESULT=$(az role assignment create \
             --assignee-object-id "$AGENT_IDENTITY_PID" \
             --assignee-principal-type ServicePrincipal \
@@ -323,23 +434,22 @@ jobs:
             --output json 2>&1) && CREATED=true || CREATED=false
 
           if echo "$RESULT" | grep -q "already exists"; then
-            echo "Cognitive Services OpenAI User: already assigned"
+            echo "  Cognitive Services OpenAI User (account): already assigned"
           elif [ "$CREATED" = true ]; then
-            echo "Cognitive Services OpenAI User: newly assigned"
+            echo "  Cognitive Services OpenAI User (account): newly assigned"
+            NEW_ASSIGNMENT=true
           else
-            echo "::error::Failed to assign Cognitive Services OpenAI User to ${AGENT_IDENTITY_PID}: $RESULT"
-            exit 1
+            echo "::warning::Failed to assign Cognitive Services OpenAI User on account: $RESULT"
           fi
 
-          echo "Verifying Cognitive Services OpenAI User assignment..."
+          echo "Verifying assignments on agent identity..."
           az role assignment list \
-            --scope "$AI_ACCOUNT_ID" \
-            --role "$OPENAI_USER_ROLE" \
-            --query "[?principalId=='${AGENT_IDENTITY_PID}'].{principal:principalId,type:principalType,role:roleDefinitionName}" \
+            --assignee "$AGENT_IDENTITY_PID" \
+            --query "[?roleDefinitionName=='Azure AI User' || roleDefinitionName=='Cognitive Services OpenAI User'].{role:roleDefinitionName,scope:scope}" \
             -o table
 
-          if [ "$CREATED" = true ]; then
-            echo "New role assignment created; waiting 120s for RBAC propagation..."
+          if [ "$NEW_ASSIGNMENT" = true ]; then
+            echo "New role assignment(s) created; waiting 120s for RBAC propagation..."
             sleep 120
           fi
 

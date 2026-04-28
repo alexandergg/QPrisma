@@ -14,7 +14,10 @@ Reference:
     https://learn.microsoft.com/azure/foundry/agents/how-to/manage-hosted-agent
 """
 
+import json
 import os
+import shutil
+import subprocess
 import sys
 import time
 from collections.abc import Mapping
@@ -38,7 +41,7 @@ RETRY_WAIT_SECONDS = [120, 240]  # 2min, 4min between retries
 POLL_INTERVAL_SECONDS = 30
 POLL_TIMEOUT_SECONDS = 600
 
-AGENT_IDENTITY_LOOKUP_ATTEMPTS = 20
+AGENT_IDENTITY_LOOKUP_ATTEMPTS = 40
 AGENT_IDENTITY_LOOKUP_WAIT_SECONDS = 15
 
 
@@ -81,8 +84,13 @@ def build_environment_variables(
             "AZURE_OPENAI_ENDPOINT",
             f"https://{account_name}.openai.azure.com/",
         ),
+        # Foundry project endpoint enables project-routed inference via
+        # AIProjectClient.inference.get_azure_openai_client(). The hosted
+        # runtime prefers this when set; AZURE_OPENAI_ENDPOINT remains as a
+        # fallback for code paths still using the account-level subdomain.
+        **_optional_env("AZURE_AI_PROJECT_ENDPOINT", env=source),
         "AZURE_OPENAI_API_VERSION": source.get(
-            "AZURE_OPENAI_API_VERSION", "2024-08-01-preview"
+            "AZURE_OPENAI_API_VERSION", "2025-04-01-preview"
         ),
         "AZURE_OPENAI_DEPLOYMENT_GPT": source.get(
             "AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-5.4-pro"
@@ -142,13 +150,82 @@ def _extract_agent_identity_principal_id(agent: object) -> str | None:
     return principal_id if isinstance(principal_id, str) and principal_id else None
 
 
+def _resolve_principal_id_via_rest(project_endpoint: str) -> str | None:
+    """Fallback: query the Foundry data-plane REST API for the agent identity.
+
+    The SDK occasionally fails to surface ``instance_identity.principal_id``
+    even after the agent reports ``active``. The data-plane endpoint exposes
+    the same field reliably once provisioning completes, so we shell out to
+    ``az rest`` (which already has the OIDC token from ``azure/login``).
+
+    Returns the principal ID string if found, ``None`` otherwise.
+    """
+    az_path = shutil.which("az")
+    if not az_path:
+        print("REST fallback skipped: 'az' CLI not found on PATH.")
+        return None
+
+    base = project_endpoint.rstrip("/")
+    url = f"{base}/agents/{AGENT_NAME}?api-version=v1"
+
+    try:
+        proc = subprocess.run(
+            [
+                az_path,
+                "rest",
+                "--method",
+                "GET",
+                "--url",
+                url,
+                "--resource",
+                "https://ai.azure.com",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        print(f"REST fallback failed to invoke 'az rest': {exc}")
+        return None
+
+    if proc.returncode != 0:
+        print(
+            f"REST fallback returned non-zero exit ({proc.returncode}): "
+            f"{(proc.stderr or proc.stdout or '').strip()[:500]}"
+        )
+        return None
+
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        print(f"REST fallback could not parse response JSON: {exc}")
+        return None
+
+    instance_identity = payload.get("instance_identity") or {}
+    principal_id = instance_identity.get("principal_id")
+    if isinstance(principal_id, str) and principal_id:
+        return principal_id
+
+    print(
+        "REST fallback succeeded but instance_identity.principal_id "
+        "is still empty in the response payload."
+    )
+    return None
+
+
 def resolve_agent_identity_principal_id(
     client: AIProjectClient,
     *,
     attempts: int = AGENT_IDENTITY_LOOKUP_ATTEMPTS,
     wait_seconds: int = AGENT_IDENTITY_LOOKUP_WAIT_SECONDS,
-) -> str | None:
-    """Resolve the hosted agent instance identity principal ID via Foundry APIs."""
+) -> tuple[str | None, str]:
+    """Resolve the hosted agent instance identity principal ID via Foundry APIs.
+
+    Returns a ``(principal_id, source)`` tuple. ``source`` is ``"sdk"`` when the
+    Python SDK returned the value, ``"rest"`` when the data-plane REST fallback
+    succeeded, or ``"none"`` when neither path produced a value.
+    """
     for attempt in range(1, attempts + 1):
         try:
             agent = client.agents.get(agent_name=AGENT_NAME)
@@ -157,7 +234,7 @@ def resolve_agent_identity_principal_id(
                 print(
                     f"WARNING: Failed to fetch agent identity after {attempts} attempts: {exc}"
                 )
-                return None
+                break
             print(
                 f"Agent identity not available yet (attempt {attempt}/{attempts}): {exc}"
             )
@@ -165,21 +242,34 @@ def resolve_agent_identity_principal_id(
             principal_id = _extract_agent_identity_principal_id(agent)
             if principal_id:
                 print(
-                    f"Resolved hosted agent instance identity principal ID: {principal_id}"
+                    f"Resolved hosted agent instance identity principal ID via SDK: {principal_id}"
                 )
-                return principal_id
+                return principal_id, "sdk"
             if attempt == attempts:
                 print(
-                    "WARNING: Hosted agent instance identity principal ID was not returned."
+                    "WARNING: Hosted agent instance identity principal ID was not returned by SDK."
                 )
-                return None
+                break
             print(
                 f"Hosted agent instance identity not ready yet (attempt {attempt}/{attempts})."
             )
 
         time.sleep(wait_seconds)
 
-    return None
+    project_endpoint = os.environ.get("AZURE_AI_PROJECT_ENDPOINT", "").strip()
+    if not project_endpoint:
+        print("REST fallback skipped: AZURE_AI_PROJECT_ENDPOINT is not set.")
+        return None, "none"
+
+    print("Falling back to data-plane REST endpoint for instance_identity...")
+    principal_id = _resolve_principal_id_via_rest(project_endpoint)
+    if principal_id:
+        print(
+            f"Resolved hosted agent instance identity principal ID via REST: {principal_id}"
+        )
+        return principal_id, "rest"
+
+    return None, "none"
 
 
 def _extract_agent_version_status(agent_version: object) -> str | None:
@@ -358,8 +448,11 @@ def main() -> None:
     active = wait_result == "active"
 
     agent_identity_principal_id: str | None = None
+    identity_source = "none"
     if active:
-        agent_identity_principal_id = resolve_agent_identity_principal_id(client)
+        agent_identity_principal_id, identity_source = (
+            resolve_agent_identity_principal_id(client)
+        )
 
     # Write version to GITHUB_OUTPUT for downstream steps
     github_output = os.environ.get("GITHUB_OUTPUT")
@@ -370,6 +463,7 @@ def main() -> None:
             f.write(
                 f"agent_identity_principal_id={agent_identity_principal_id or ''}\n"
             )
+            f.write(f"agent_identity_source={identity_source}\n")
 
     if wait_result == "failed":
         print(

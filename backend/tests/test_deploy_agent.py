@@ -110,7 +110,7 @@ def test_build_environment_variables_defaults_to_secretless_hosted_contract():
 
     assert env_vars["ENVIRONMENT"] == "hosted"
     assert env_vars["AZURE_OPENAI_ENDPOINT"] == "https://aif-qprisma-dev.openai.azure.com/"
-    assert env_vars["AZURE_OPENAI_API_VERSION"] == "2024-08-01-preview"
+    assert env_vars["AZURE_OPENAI_API_VERSION"] == "2025-04-01-preview"
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-5.4-pro"
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-large"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "true"
@@ -292,13 +292,14 @@ def test_resolve_agent_identity_principal_id_polls_foundry_api():
     fake_client = types.SimpleNamespace(agents=_AgentsClient())
 
     with patch.object(deploy_agent.time, "sleep") as sleep_mock:
-        principal_id = deploy_agent.resolve_agent_identity_principal_id(
+        principal_id, source = deploy_agent.resolve_agent_identity_principal_id(
             fake_client,
             attempts=3,
             wait_seconds=1,
         )
 
     assert principal_id == "pid-from-foundry"
+    assert source == "sdk"
     sleep_mock.assert_called_once_with(1)
 
 
@@ -397,7 +398,7 @@ def test_main_active_with_identity_writes_outputs_and_succeeds(monkeypatch, tmp_
     monkeypatch.setattr(
         deploy_agent,
         "resolve_agent_identity_principal_id",
-        lambda *a, **kw: "principal-id-abc",
+        lambda *a, **kw: ("principal-id-abc", "sdk"),
     )
 
     deploy_agent.main()
@@ -417,7 +418,9 @@ def test_main_active_without_identity_exits_one(monkeypatch, tmp_path):
     monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
     monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
     monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "active")
-    monkeypatch.setattr(deploy_agent, "resolve_agent_identity_principal_id", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        deploy_agent, "resolve_agent_identity_principal_id", lambda *a, **kw: (None, "none")
+    )
 
     with pytest.raises(SystemExit) as excinfo:
         deploy_agent.main()
@@ -439,7 +442,7 @@ def test_main_failed_status_exits_one(monkeypatch, tmp_path):
 
     def _identity(*_a, **_kw):
         identity_calls.append(True)
-        return "principal-id-should-not-appear"
+        return ("principal-id-should-not-appear", "sdk")
 
     monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
     monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
