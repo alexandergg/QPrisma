@@ -168,26 +168,44 @@ def build_environment_variables(
 
 
 def parse_account_and_project(project_endpoint: str) -> tuple[str, str]:
-    """Extract the cognitive-services account name and project name from a Foundry endpoint.
+    """Parse the Foundry project endpoint into (account_name, project_name).
 
-    Endpoints look like
+    Endpoints must look like
     ``https://<account>.services.ai.azure.com/api/projects/<project>``.
-    Returns ``(account_name, project_name)``; falls back to defaults when
-    parsing fails so callers always get usable strings.
+    Returns ``(account_name, project_name)`` and raises ``ValueError`` if the
+    endpoint does not match the expected shape.
     """
+    expected_shape = "https://<account>.services.ai.azure.com/api/projects/<project>"
     parsed = urlparse(project_endpoint.strip())
     host = parsed.netloc or ""
-    account = host.split(".", 1)[0] if host else DEFAULT_ACCOUNT_NAME
+    if not host:
+        raise ValueError(
+            "Invalid AZURE_AI_PROJECT_ENDPOINT: missing host. "
+            f"Expected format: {expected_shape}"
+        )
 
-    project = ""
+    account = host.split(".", 1)[0]
+    if not account:
+        raise ValueError(
+            "Invalid AZURE_AI_PROJECT_ENDPOINT: could not determine account name from host. "
+            f"Expected format: {expected_shape}"
+        )
+
     parts = [segment for segment in parsed.path.split("/") if segment]
-    if "projects" in parts:
-        idx = parts.index("projects")
-        if idx + 1 < len(parts):
-            project = parts[idx + 1]
-    if not project:
-        project = f"{account}-project"
+    if "projects" not in parts:
+        raise ValueError(
+            "Invalid AZURE_AI_PROJECT_ENDPOINT: missing '/api/projects/<project>' path. "
+            f"Expected format: {expected_shape}"
+        )
 
+    idx = parts.index("projects")
+    if idx + 1 >= len(parts) or not parts[idx + 1]:
+        raise ValueError(
+            "Invalid AZURE_AI_PROJECT_ENDPOINT: missing project name after '/api/projects/'. "
+            f"Expected format: {expected_shape}"
+        )
+
+    project = parts[idx + 1]
     return account, project
 
 

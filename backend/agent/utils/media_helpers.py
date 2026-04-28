@@ -7,8 +7,9 @@ preview hosting protocol has been removed. The frontend and the
 ``responses.create(metadata=...)`` field, and the hosted runtime exposes it
 through ``request.metadata``.
 
-These two helpers are kept because they are still used by both the agent
-nodes (``restore_media_context``) and the request-side metadata builder.
+These helpers are kept for agent-side media context restoration
+(``restore_media_context``) and for shared media-selection and benchmark
+normalization logic.
 """
 
 from __future__ import annotations

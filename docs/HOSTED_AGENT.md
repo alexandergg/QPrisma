@@ -146,16 +146,17 @@ await client.responses.create(
     metadata={
         "media_id": media_id,
         "user_id": user_id,
-        "media_ids": ",".join(media_ids),
+        "media_ids": media_ids,
     },
     timeout=settings.foundry.request_timeout_seconds,
 )
 ```
 
 Inside the host, `_build_initial_state` reads `request.metadata` and
-promotes it to first-class fields on the agent state. Unknown keys are
-preserved under `state["metadata"]` so downstream nodes can still consume
-them, but `restore_media_context` no longer parses any string envelope.
+promotes the supported values to first-class fields on the agent state.
+Arbitrary unknown metadata keys are not currently retained on
+`state["metadata"]`, but `restore_media_context` no longer parses any
+string envelope.
 
 ---
 
