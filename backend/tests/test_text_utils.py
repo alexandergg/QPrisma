@@ -1,7 +1,6 @@
 """Tests for agent.utils.text — shared text cleaning and content validation."""
 
 import pytest
-
 from agent.utils.text import (
     INVALID_CONTENT_PHRASES,
     SCENE_DESCRIPTION_PREFIXES,
