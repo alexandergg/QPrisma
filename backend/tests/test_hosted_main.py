@@ -25,7 +25,7 @@ def _install_sdk_shim(monkeypatch: pytest.MonkeyPatch) -> None:
     try:
         import azure.ai.agentserver.responses  # noqa: F401
         return
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     azure_mod = sys.modules.get("azure") or types.ModuleType("azure")

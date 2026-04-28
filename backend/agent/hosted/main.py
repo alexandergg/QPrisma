@@ -430,7 +430,7 @@ def main() -> None:
     """CLI entrypoint for the hosted runtime."""
     port_env = os.environ.get("PORT")
     port = int(port_env) if port_env else None
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port)  # noqa: S104
 
 
 if __name__ == "__main__":
