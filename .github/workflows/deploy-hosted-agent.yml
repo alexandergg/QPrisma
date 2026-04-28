@@ -15,6 +15,17 @@ on:
       - 'infra/parameters/ai-foundry-dev.bicepparam'
       - 'scripts/deploy_agent.py'
   workflow_dispatch:
+    inputs:
+      chat_deployment:
+        description: >-
+          Azure OpenAI chat deployment name to use for the hosted video agent.
+          Must already be provisioned in Foundry by deploy-ai-foundry.yml.
+          Switch models for A/B tests by re-running this workflow with a different value
+          (e.g. gpt-4o, gpt-5.4-pro). Falls back to the AZURE_OPENAI_DEPLOYMENT_GPT
+          repository variable, then to gpt-5.4-pro.
+        required: false
+        type: string
+        default: gpt-5.4-pro
 
 permissions:
   id-token: write
@@ -262,7 +273,7 @@ jobs:
           ENVIRONMENT: hosted
           AZURE_USE_MANAGED_IDENTITY: 'true'
           AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION || '2024-08-01-preview' }}
-          AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}
+          AZURE_OPENAI_DEPLOYMENT_GPT: ${{ inputs.chat_deployment || vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}
           AZURE_OPENAI_DEPLOYMENT_EMBEDDING: ${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING || 'text-embedding-3-large' }}
           MEMORY_STORE_NAME: ${{ vars.MEMORY_STORE_NAME }}
           MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-4o' }}

@@ -191,8 +191,8 @@ def test_deploy_hosted_agent_workflow_defaults_match_provisioned_chat_models():
     register_step = _workflow_step_block(hosted_workflow, "Register agent in Foundry")
 
     assert (
-        "AZURE_OPENAI_DEPLOYMENT_GPT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}"
-        in register_step
+        "AZURE_OPENAI_DEPLOYMENT_GPT: ${{ inputs.chat_deployment "
+        "|| vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}" in register_step
     )
     assert "MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-4o' }}" in register_step
 

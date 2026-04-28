@@ -342,7 +342,6 @@ var appEnvVars = [
   { name: 'AZURE_USE_MANAGED_IDENTITY', value: 'true' }
   { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storage.outputs.blobEndpoint }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-5.4-pro' }
-  { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_CHAT', value: 'gpt-5.3-chat' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_WHISPER', value: 'whisper' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_BATCH', value: 'gpt-4o-batch' }
