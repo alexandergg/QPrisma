@@ -384,7 +384,7 @@ class FoundryAgentClient:
                 try:
                     await reader_task
                 except asyncio.CancelledError:
-                    pass
+                    pass  # expected after cancel(); suppressing intentionally
 
             yield {
                 "type": "done",
