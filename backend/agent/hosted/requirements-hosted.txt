@@ -43,7 +43,7 @@ azure-ai-agentserver-langgraph==1.0.0b17
     # via qprisma-backend (pyproject.toml)
 azure-ai-inference==1.0.0b9
     # via langchain-azure-ai
-azure-ai-projects==2.0.1
+azure-ai-projects==2.1.0
     # via
     #   qprisma-backend (pyproject.toml)
     #   azure-ai-agentserver-core

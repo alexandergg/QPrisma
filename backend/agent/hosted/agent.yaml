@@ -32,7 +32,7 @@ template:
     - name: AZURE_OPENAI_ENDPOINT
       value: ${AZURE_OPENAI_ENDPOINT}
     - name: AZURE_OPENAI_API_VERSION
-      value: "2024-08-01-preview"
+      value: "2025-04-01-preview"
     - name: AZURE_USE_MANAGED_IDENTITY
       value: "true"
     - name: AZURE_OPENAI_DEPLOYMENT_GPT
