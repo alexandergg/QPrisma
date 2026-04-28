@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Entity timeline diagnostics**: `get_entity_timeline` now logs entity name length, type, and result counts for visual/audio appearances to aid debugging of missing entity extraction. (#122)
 
 ### Changed
+- **Hosted agent chat deployment override**: Reverted the `AZURE_OPENAI_DEPLOYMENT_GPT_CHAT` indirection introduced in PR #165. `AZURE_OPENAI_DEPLOYMENT_GPT` is once again the single knob for the hosted agent's chat model. `deploy-hosted-agent.yml` now exposes a `chat_deployment` `workflow_dispatch` input (default `gpt-5.4-pro`) so the model can be swapped per-redeploy without code changes, as long as the target deployment has been provisioned by `deploy-ai-foundry.yml`.
 - Upgraded `azure-ai-projects` from `>=1.0.0b7` to `>=2.0.0` to access Conversations and Memory Store APIs.
 - `FoundryAgentClient.send_message()` / `send_streaming_message()` now accept `conversation_id` parameter instead of `thread_id`.
 - `A2AAgentExecutor` creates Foundry conversations before yielding the initial task, ensuring the frontend receives the Foundry conversation ID as `contextId`.

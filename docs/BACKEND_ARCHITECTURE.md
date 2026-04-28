@@ -177,9 +177,6 @@ class AzureSettings(BaseSettings):
     openai_endpoint: str = Field(alias="AZURE_OPENAI_ENDPOINT")
     openai_api_key: str = Field(alias="AZURE_OPENAI_API_KEY")
     openai_deployment: str = Field(default="gpt-4o", alias="AZURE_OPENAI_DEPLOYMENT")
-    openai_deployment_gpt_chat: str = Field(
-        default="gpt-5.2-chat", alias="AZURE_OPENAI_DEPLOYMENT_GPT_CHAT"
-    )
     openai_embedding_deployment: str = Field(
         default="text-embedding-3-large", alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
     )
@@ -228,7 +225,6 @@ settings = Settings()
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | `https://xxx.openai.azure.com/` |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | `sk-...` |
 | `AZURE_OPENAI_DEPLOYMENT` | Primary GPT model deployment | `gpt-4o` |
-| `AZURE_OPENAI_DEPLOYMENT_GPT_CHAT` | Chat-optimized model deployment | `gpt-5.2-chat` |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://...` |
 | `NEO4J_URI` | Neo4j Bolt endpoint | `neo4j+s://xxx.neo4j.io` |
 | `NEO4J_PASSWORD` | Neo4j password | `...` |
