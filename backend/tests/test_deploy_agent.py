@@ -377,7 +377,9 @@ def _make_main_test_client(deploy_agent):
 def _setup_main_env(monkeypatch, tmp_path: Path) -> Path:
     output_path = tmp_path / "github_output.txt"
     output_path.write_text("", encoding="utf-8")
-    monkeypatch.setenv("AZURE_AI_PROJECT_ENDPOINT", "https://fake.services.ai.azure.com/api/projects/fake")
+    monkeypatch.setenv(
+        "AZURE_AI_PROJECT_ENDPOINT", "https://fake.services.ai.azure.com/api/projects/fake"
+    )
     monkeypatch.setenv("CONTAINER_IMAGE", "fakeacr.azurecr.io/qprisma-video-agent:test")
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
     return output_path
@@ -415,9 +417,7 @@ def test_main_active_without_identity_exits_one(monkeypatch, tmp_path):
     monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
     monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
     monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "active")
-    monkeypatch.setattr(
-        deploy_agent, "resolve_agent_identity_principal_id", lambda *a, **kw: None
-    )
+    monkeypatch.setattr(deploy_agent, "resolve_agent_identity_principal_id", lambda *a, **kw: None)
 
     with pytest.raises(SystemExit) as excinfo:
         deploy_agent.main()
