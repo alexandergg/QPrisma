@@ -346,10 +346,28 @@ jobs:
           PURGE_BEFORE_DEPLOY: ${{ inputs.purge_before_deploy && '1' || '' }}
         run: python scripts/deploy_agent.py
 
-      # Identity RBAC assignment (Azure AI User on project, Cognitive Services
-      # OpenAI User on account) is now performed by scripts/deploy_agent.py
-      # immediately after the agent identity is resolved. Removed redundant
-      # workflow step.
+      - name: Ensure hosted agent instance identity has Azure OpenAI access
+        env:
+          AGENT_IDENTITY_PID: ${{ steps.register.outputs.agent_identity_principal_id }}
+        run: |
+          if [ -z "$AGENT_IDENTITY_PID" ]; then
+            echo "::warning::agent_identity_principal_id is empty — skipping OpenAI role assignment"
+            exit 0
+          fi
+          RG="rg-qprisma-dev"
+          ACCOUNT="aif-qprisma-dev"
+          AI_ACCOUNT_ID=$(az cognitiveservices account show \
+            --name ${ACCOUNT} --resource-group ${RG} \
+            --query id -o tsv)
+          # Cognitive Services OpenAI User (5e0bd9bd-7b93-4f28-af87-19fc36ad61bd)
+          echo "Assigning Cognitive Services OpenAI User to agent identity ${AGENT_IDENTITY_PID:0:8}..."
+          az role assignment create \
+            --assignee-object-id "$AGENT_IDENTITY_PID" \
+            --assignee-principal-type ServicePrincipal \
+            --role "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd" \
+            --scope "$AI_ACCOUNT_ID" \
+            --output none 2>&1 || echo "  (already assigned)"
+          echo "Azure OpenAI access configured for hosted agent instance identity"
 
       - name: Deployment summary
         run: |

@@ -219,9 +219,10 @@ def _coerce_message(item: Any) -> BaseMessage | None:
         return SystemMessage(content=text)
     if role == "tool":
         tool_call_id = (
-            (item.get("tool_call_id") if isinstance(item, dict) else getattr(item, "tool_call_id", None))
-            or "unknown"
-        )
+            item.get("tool_call_id")
+            if isinstance(item, dict)
+            else getattr(item, "tool_call_id", None)
+        ) or "unknown"
         return ToolMessage(content=text, tool_call_id=tool_call_id)
     return HumanMessage(content=text)
 

@@ -24,6 +24,7 @@ def _install_sdk_shim(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     try:
         import azure.ai.agentserver.responses  # noqa: F401
+
         return
     except Exception:  # noqa: S110
         pass
@@ -76,8 +77,12 @@ def _install_sdk_shim(monkeypatch: pytest.MonkeyPatch) -> None:
 def hosted_main(monkeypatch: pytest.MonkeyPatch):
     _install_sdk_shim(monkeypatch)
     # Avoid grabbing real Azure credentials during import
-    monkeypatch.setenv("AZURE_AI_PROJECT_ENDPOINT", "https://example.services.ai.azure.com/api/projects/demo")
-    monkeypatch.setenv("FOUNDRY_PROJECT_ENDPOINT", "https://example.services.ai.azure.com/api/projects/demo")
+    monkeypatch.setenv(
+        "AZURE_AI_PROJECT_ENDPOINT", "https://example.services.ai.azure.com/api/projects/demo"
+    )
+    monkeypatch.setenv(
+        "FOUNDRY_PROJECT_ENDPOINT", "https://example.services.ai.azure.com/api/projects/demo"
+    )
     sys.modules.pop("agent.hosted.main", None)
     import agent.hosted.main as hosted_main  # noqa: PLC0415
 
@@ -167,7 +172,9 @@ class TestCoerceMessage:
 @pytest.mark.unit
 class TestMaskUri:
     def test_keeps_host_drops_path_and_query(self, hosted_main):
-        masked = hosted_main._mask_uri("https://example.services.ai.azure.com/api/projects/demo?key=abc")
+        masked = hosted_main._mask_uri(
+            "https://example.services.ai.azure.com/api/projects/demo?key=abc"
+        )
         assert "key=abc" not in masked
         assert "example.services.ai.azure.com" in masked
 
