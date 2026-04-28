@@ -418,7 +418,9 @@ def test_main_active_without_identity_exits_one(monkeypatch, tmp_path):
     monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
     monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
     monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "active")
-    monkeypatch.setattr(deploy_agent, "resolve_agent_identity_principal_id", lambda *a, **kw: (None, "none"))
+    monkeypatch.setattr(
+        deploy_agent, "resolve_agent_identity_principal_id", lambda *a, **kw: (None, "none")
+    )
 
     with pytest.raises(SystemExit) as excinfo:
         deploy_agent.main()
