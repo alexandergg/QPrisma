@@ -38,7 +38,7 @@ RETRY_WAIT_SECONDS = [120, 240]  # 2min, 4min between retries
 POLL_INTERVAL_SECONDS = 30
 POLL_TIMEOUT_SECONDS = 600
 
-AGENT_IDENTITY_LOOKUP_ATTEMPTS = 10
+AGENT_IDENTITY_LOOKUP_ATTEMPTS = 20
 AGENT_IDENTITY_LOOKUP_WAIT_SECONDS = 15
 
 
@@ -344,11 +344,15 @@ def main() -> None:
         print(f"ERROR: All {MAX_RETRIES} attempts failed.")
         raise last_error  # type: ignore[misc]
 
-    agent_identity_principal_id = resolve_agent_identity_principal_id(client)
-
-    # Poll until the agent reaches the current SDK's active state
+    # Poll until the agent reaches the current SDK's active state. The
+    # instance_identity is only populated by Foundry once the version is
+    # active, so we must wait for active *before* resolving the identity.
     print("Waiting for agent version to reach 'active' state...")
     active = wait_for_agent_active(client, str(agent.version))
+
+    agent_identity_principal_id: str | None = None
+    if active:
+        agent_identity_principal_id = resolve_agent_identity_principal_id(client)
 
     # Write version to GITHUB_OUTPUT for downstream steps
     github_output = os.environ.get("GITHUB_OUTPUT")
@@ -365,6 +369,19 @@ def main() -> None:
         # Exit 0 to not fail the pipeline
         # — provisioning is async and may exceed our timeout
         sys.exit(0)
+
+    if not agent_identity_principal_id:
+        print(
+            "ERROR: Agent version is active but instance_identity.principal_id "
+            "was not returned by Foundry after "
+            f"{AGENT_IDENTITY_LOOKUP_ATTEMPTS} attempts "
+            f"({AGENT_IDENTITY_LOOKUP_ATTEMPTS * AGENT_IDENTITY_LOOKUP_WAIT_SECONDS}s)."
+        )
+        print(
+            "Re-run this workflow to retry, or inspect the agent in the "
+            "Foundry portal to confirm the identity has been provisioned."
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
