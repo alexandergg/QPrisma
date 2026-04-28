@@ -2,10 +2,11 @@
 
 from unittest.mock import MagicMock
 
-import agent.hosted.telemetry as telemetry_mod
 import pytest
-from agent.utils.observability import ConversationIdSpanProcessor
 from opentelemetry.sdk.trace import SpanProcessor
+
+import agent.hosted.telemetry as telemetry_mod
+from agent.utils.observability import ConversationIdSpanProcessor
 
 
 @pytest.mark.unit
@@ -69,9 +70,7 @@ class TestCompileTimeTracerInjection:
     ``with_config`` invocation shape.
     """
 
-    def test_with_config_receives_tracer_when_available(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_with_config_receives_tracer_when_available(self, monkeypatch: pytest.MonkeyPatch):
         """When tracer is set, it is passed to ``graph.with_config`` callbacks."""
 
         mock_tracer = MagicMock(name="mock_azure_tracer")
@@ -95,9 +94,7 @@ class TestCompileTimeTracerInjection:
         assert "qprisma" in passed["tags"]
         assert result is configured
 
-    def test_with_config_omits_callbacks_when_tracer_absent(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_with_config_omits_callbacks_when_tracer_absent(self, monkeypatch: pytest.MonkeyPatch):
         """When tracer singleton is None, no callbacks key is injected."""
 
         monkeypatch.setattr(telemetry_mod, "_azure_ai_tracer", None)

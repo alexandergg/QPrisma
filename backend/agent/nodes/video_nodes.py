@@ -12,7 +12,6 @@ from typing import Literal
 from langchain_core.messages import SystemMessage
 from langchain_core.runnables import RunnableConfig
 
-from agent.utils.media_helpers import is_letter_only_benchmark, normalize_media_selection
 from agent.nodes.base import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_WARN_TOOL_ITERATIONS,
@@ -24,6 +23,7 @@ from agent.nodes.base import (
 from agent.prompts import MULTI_VIDEO_SYSTEM_PROMPT, NO_VIDEO_CONTEXT_PROMPT, SYSTEM_PROMPT
 from agent.state.agent_state import AgentState, VideoContext
 from agent.tools import SEARCH_TOOLS
+from agent.utils.media_helpers import is_letter_only_benchmark, normalize_media_selection
 from core.config import settings
 
 logger = logging.getLogger(__name__)

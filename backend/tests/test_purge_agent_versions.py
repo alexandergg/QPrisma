@@ -19,12 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 
-
-SCRIPT_PATH = (
-    Path(__file__).resolve().parent.parent.parent
-    / "scripts"
-    / "purge_agent_versions.py"
-)
+SCRIPT_PATH = Path(__file__).resolve().parent.parent.parent / "scripts" / "purge_agent_versions.py"
 
 
 @pytest.fixture(scope="module")
@@ -120,16 +115,12 @@ class TestListVersions:
 @pytest.mark.unit
 class TestDeleteVersion:
     def test_dry_run_does_not_call_sdk(self, purge_module, mock_client):
-        result = purge_module.delete_version(
-            mock_client, "agent", "v1", dry_run=True
-        )
+        result = purge_module.delete_version(mock_client, "agent", "v1", dry_run=True)
         assert result is False
         mock_client.agents.delete_version.assert_not_called()
 
     def test_successful_delete(self, purge_module, mock_client):
-        result = purge_module.delete_version(
-            mock_client, "agent", "v1", dry_run=False
-        )
+        result = purge_module.delete_version(mock_client, "agent", "v1", dry_run=False)
         assert result is True
         mock_client.agents.delete_version.assert_called_once_with(
             agent_name="agent", agent_version="v1"
@@ -139,28 +130,19 @@ class TestDeleteVersion:
         mock_client.agents.delete_version.side_effect = ResourceNotFoundError(
             response=MagicMock(status_code=404)
         )
-        assert (
-            purge_module.delete_version(mock_client, "agent", "v1", dry_run=False)
-            is False
-        )
+        assert purge_module.delete_version(mock_client, "agent", "v1", dry_run=False) is False
 
     def test_idempotent_on_http_404(self, purge_module, mock_client):
         err = HttpResponseError(response=MagicMock(status_code=404))
         err.status_code = 404
         mock_client.agents.delete_version.side_effect = err
-        assert (
-            purge_module.delete_version(mock_client, "agent", "v1", dry_run=False)
-            is False
-        )
+        assert purge_module.delete_version(mock_client, "agent", "v1", dry_run=False) is False
 
     def test_warns_on_other_http_error(self, purge_module, mock_client):
         err = HttpResponseError(response=MagicMock(status_code=500))
         err.status_code = 500
         mock_client.agents.delete_version.side_effect = err
-        assert (
-            purge_module.delete_version(mock_client, "agent", "v1", dry_run=False)
-            is False
-        )
+        assert purge_module.delete_version(mock_client, "agent", "v1", dry_run=False) is False
 
 
 # ---------------------------------------------------------------------------
@@ -184,26 +166,20 @@ class TestDeleteAgent:
         mock_client.agents.delete.side_effect = ResourceNotFoundError(
             response=MagicMock(status_code=404)
         )
-        assert (
-            purge_module.delete_agent(mock_client, "agent", dry_run=False) is False
-        )
+        assert purge_module.delete_agent(mock_client, "agent", dry_run=False) is False
 
     def test_idempotent_on_http_404(self, purge_module, mock_client):
         err = HttpResponseError(response=MagicMock(status_code=404))
         err.status_code = 404
         mock_client.agents.delete.side_effect = err
-        assert (
-            purge_module.delete_agent(mock_client, "agent", dry_run=False) is False
-        )
+        assert purge_module.delete_agent(mock_client, "agent", dry_run=False) is False
 
     def test_falls_back_to_rest_on_other_http_error(self, purge_module, mock_client):
         err = HttpResponseError(response=MagicMock(status_code=500))
         err.status_code = 500
         mock_client.agents.delete.side_effect = err
 
-        with patch.object(
-            purge_module, "_rest_delete_assistant", return_value=True
-        ) as rest_mock:
+        with patch.object(purge_module, "_rest_delete_assistant", return_value=True) as rest_mock:
             result = purge_module.delete_agent(
                 mock_client,
                 "agent",
@@ -218,9 +194,7 @@ class TestDeleteAgent:
         err.status_code = 500
         mock_client.agents.delete.side_effect = err
 
-        with patch.object(
-            purge_module, "_rest_delete_assistant"
-        ) as rest_mock:
+        with patch.object(purge_module, "_rest_delete_assistant") as rest_mock:
             result = purge_module.delete_agent(mock_client, "agent", dry_run=False)
         assert result is False
         rest_mock.assert_not_called()
@@ -236,9 +210,7 @@ class TestRestDeleteAssistant:
     def test_skipped_when_az_cli_missing(self, purge_module):
         with patch.object(purge_module.shutil, "which", return_value=None):
             assert (
-                purge_module._rest_delete_assistant(
-                    "https://example/api/projects/p1", "agent"
-                )
+                purge_module._rest_delete_assistant("https://example/api/projects/p1", "agent")
                 is False
             )
 
@@ -249,9 +221,7 @@ class TestRestDeleteAssistant:
             patch.object(purge_module.subprocess, "run", return_value=proc),
         ):
             assert (
-                purge_module._rest_delete_assistant(
-                    "https://example/api/projects/p1/", "agent"
-                )
+                purge_module._rest_delete_assistant("https://example/api/projects/p1/", "agent")
                 is True
             )
 
@@ -262,9 +232,7 @@ class TestRestDeleteAssistant:
             patch.object(purge_module.subprocess, "run", return_value=proc),
         ):
             assert (
-                purge_module._rest_delete_assistant(
-                    "https://example/api/projects/p1", "agent"
-                )
+                purge_module._rest_delete_assistant("https://example/api/projects/p1", "agent")
                 is True
             )
 
@@ -275,9 +243,7 @@ class TestRestDeleteAssistant:
             patch.object(purge_module.subprocess, "run", return_value=proc),
         ):
             assert (
-                purge_module._rest_delete_assistant(
-                    "https://example/api/projects/p1", "agent"
-                )
+                purge_module._rest_delete_assistant("https://example/api/projects/p1", "agent")
                 is False
             )
 
@@ -322,9 +288,7 @@ class TestMain:
         with (
             patch.object(purge_module, "AIProjectClient", return_value=client),
             patch.object(purge_module, "DefaultAzureCredential"),
-            patch.object(
-                purge_module, "list_versions", return_value=["v1", "v2"]
-            ) as list_mock,
+            patch.object(purge_module, "list_versions", return_value=["v1", "v2"]) as list_mock,
             patch.object(purge_module, "delete_version") as dv_mock,
             patch.object(purge_module, "delete_agent") as da_mock,
         ):
