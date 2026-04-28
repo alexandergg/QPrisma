@@ -185,7 +185,7 @@ class FoundryAgentClient:
                     "Retrying send_message with new conversation",
                     extra={"agent_name": self._agent_name},
                 )
-                kwargs, metadata = _build_request(session_id, new_conversation_id)
+                kwargs, metadata = _build_request(new_conversation_id, new_conversation_id)
                 response = await asyncio.wait_for(
                     asyncio.to_thread(openai.responses.create, **kwargs),
                     timeout=self._request_timeout_seconds,
