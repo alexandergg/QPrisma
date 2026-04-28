@@ -185,7 +185,7 @@ class FoundryAgentClient:
                     "Retrying send_message with new conversation",
                     extra={"agent_name": self._agent_name},
                 )
-                kwargs, metadata = _build_request(new_conversation_id, new_conversation_id)
+                kwargs, metadata = _build_request(session_id, new_conversation_id)
                 response = await asyncio.wait_for(
                     asyncio.to_thread(openai.responses.create, **kwargs),
                     timeout=self._request_timeout_seconds,
@@ -255,6 +255,7 @@ class FoundryAgentClient:
         try:
             loop = asyncio.get_running_loop()
             queue: asyncio.Queue[dict | None] = asyncio.Queue()
+            stop_event = asyncio.Event()
 
             def _stream_worker() -> None:
                 """Run the streaming call in a worker thread."""
@@ -262,6 +263,8 @@ class FoundryAgentClient:
                 try:
                     stream = openai.responses.create(**kwargs)
                     for event in stream:
+                        if stop_event.is_set():
+                            break
                         loop.call_soon_threadsafe(
                             queue.put_nowait,
                             {"type": event.type, "data": event},
@@ -290,6 +293,10 @@ class FoundryAgentClient:
                             self._request_timeout_seconds,
                             extra={"agent_name": self._agent_name},
                         )
+                        # Signal the reader and cancel its task so the generator
+                        # returns promptly instead of blocking in the finally clause.
+                        stop_event.set()
+                        reader_task.cancel()
                         yield {
                             "type": "error",
                             "content": (
@@ -371,7 +378,13 @@ class FoundryAgentClient:
                             if not accumulated_content:
                                 accumulated_content = getattr(resp, "output_text", "") or ""
             finally:
-                await reader_task
+                if not reader_task.done():
+                    stop_event.set()
+                    reader_task.cancel()
+                try:
+                    await reader_task
+                except asyncio.CancelledError:
+                    pass
 
             yield {
                 "type": "done",

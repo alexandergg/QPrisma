@@ -148,7 +148,7 @@ async def _get_graph() -> Any:
         if _graph is not None:
             return _graph
         checkpointer = MemorySaver()
-        graph = await create_video_agent_graph(checkpointer=checkpointer)
+        graph = create_video_agent_graph(checkpointer=checkpointer)
         callbacks = [_tracer] if _tracer is not None else []
         config: dict[str, Any] = {"tags": ["qprisma", "video-agent", "hosted"]}
         if callbacks:
