@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (Breaking)
+
+#### Foundry Hosted Agent — Refreshed Preview Migration
+- **Runtime**: `azure-ai-agentserver-langgraph==1.0.0b17` (deprecated) → `azure-ai-agentserver-responses==1.0.0b5` (refreshed public preview).
+- **Entrypoint**: `backend/agent/hosted/main.py` rewritten as `ResponsesAgentServerHost` with a single `@app.response_handler` that returns `TextResponse`. Removed the `from_langgraph(graph).run()` adapter.
+- **Persistence**: Foundry Conversations is now the single source of truth for chat history (via `context.get_history()`). Removed the Redis checkpointer from the hosted path; only `MemorySaver` per-process remains. Redis is still used for Celery, embeddings cache, and rate limiting.
+- **Per-message context**: the `[QPRISMA_CONTEXT:…]` envelope has been removed. Frontend and backend now use the per-message `metadata` field of the refreshed preview (`responses.create(input=…, metadata={...})`). The `restore_media_context` node reads directly from `request.metadata`.
+- **LLM**: the hosted path uses `ChatOpenAI(base_url=f"{FOUNDRY_PROJECT_ENDPOINT}/openai/v1")`. The non-hosted path retains `AzureChatOpenAI`.
+- **Tracer**: `AzureAIOpenTelemetryTracer` is injected at compile-time via `with_config({"callbacks":[tracer], "tags":["qprisma","video-agent"]})`.
+- **Bicep**: removed the `agents-host` resource (capability host) — the refreshed preview no longer requires it.
+- **Deploy**: `scripts/deploy_agent.py` absorbs post-deploy RBAC (Cognitive Services OpenAI User + Azure AI User) and polling of `instance_identity.principal_id` (≤ 80 × 15s). The `deploy-hosted-agent.yml` workflow becomes a thin wrapper.
+- **Cleanup**: new `scripts/purge_agent_versions.py` to clean up accumulated versions before the first refreshed deploy (idempotent, supports `--dry-run`).
+- **Removals**:
+  - `backend/agent/hosted/state_converter.py` (~39 KB).
+  - `backend/agent/context_envelopes.py`.
+  - `backend/tests/test_state_converter_response.py`.
+  - `docs/HOSTED_AGENT_CONVERTER.md`.
+- **⚠️ Evaluations broken**: `backend/evaluation_foundry/*` and the `benchmark-video-mme.yml` + `evaluate-agent.yml` workflows are broken until they are migrated to the metadata API. Addressed in a separate PR.
+- **New documentation**: `docs/HOSTED_AGENT.md` describes the refreshed architecture, identity flow, metadata contract, and environment variable listing.
+
 ### Added
 
 #### Frontend UI/UX Overhaul

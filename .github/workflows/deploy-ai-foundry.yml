@@ -94,13 +94,11 @@ jobs:
             echo "App Insights resolved: ${APPI_ID}"
           fi
 
-      # NOTE: Capability host updates are NOT supported by Azure API.
-      # If the host config needs to change, manually delete and recreate:
-      #   1. Azure AI Foundry portal → Project → Hosted Agents
-      #   2. For each agent version: delete its deployment first, then delete the version
-      #   3. Delete the agent itself: az cognitiveservices agent delete --account-name aif-qprisma-dev --project-name aif-qprisma-dev-project --name <agent>
-      #   4. Delete capability host: az rest --method DELETE --url ".../capabilityHosts/agents-host?api-version=2025-10-01-preview"
-      #   5. Re-run this workflow to recreate with new config
+      # NOTE: The legacy 'agents-host' capability host is no longer provisioned
+      # as part of the refreshed Foundry hosted-agent preview. The Bicep module
+      # has been updated to remove it. If the Foundry-managed environment ever
+      # needs reconfiguring, do so via the portal — capability host updates
+      # are not supported by the management API.
 
       - name: Deploy AI Foundry
         uses: nick-fields/retry@v3
@@ -131,5 +129,4 @@ jobs:
           echo "| AI Foundry | aif-qprisma-dev |" >> $GITHUB_STEP_SUMMARY
           echo "| Location | swedencentral |" >> $GITHUB_STEP_SUMMARY
           echo "| Models | gpt-4o, gpt-5.4-pro, gpt-5.3-chat, text-embedding-3-large, whisper, gpt-4o-batch |" >> $GITHUB_STEP_SUMMARY
-          echo "| Capability Host | agents-host (Agents managed environment) |" >> $GITHUB_STEP_SUMMARY
           echo "| App Insights | ${{ steps.observability.outputs.app_insights_id && 'Connected' || 'Not configured' }} |" >> $GITHUB_STEP_SUMMARY

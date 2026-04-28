@@ -88,15 +88,12 @@ async def test_send_message_uses_bound_agent_client_without_agent_reference():
     }
     assert calls == [
         {
-            "input": [
-                {
-                    "role": "user",
-                    "content": (
-                        '[QPRISMA_CONTEXT:{"media_id":"vid_123","user_id":"user_456",'
-                        '"session_id":"conv_abc"}]\nWhat happens first?'
-                    ),
-                }
-            ],
+            "input": [{"role": "user", "content": "What happens first?"}],
+            "metadata": {
+                "media_id": "vid_123",
+                "user_id": "user_456",
+                "session_id": "conv_abc",
+            },
             "conversation": "conv_abc",
         }
     ]
@@ -130,16 +127,12 @@ async def test_send_message_includes_multi_video_context():
 
     assert calls == [
         {
-            "input": [
-                {
-                    "role": "user",
-                    "content": (
-                        '[QPRISMA_CONTEXT:{"media_ids":["vid_a","vid_b"],'
-                        '"user_id":"user_456","session_id":"conv_multi"}]\n'
-                        "Compare these videos."
-                    ),
-                }
-            ],
+            "input": [{"role": "user", "content": "Compare these videos."}],
+            "metadata": {
+                "media_ids": ["vid_a", "vid_b"],
+                "user_id": "user_456",
+                "session_id": "conv_multi",
+            },
             "conversation": "conv_multi",
         }
     ]
@@ -195,27 +188,21 @@ async def test_send_message_retries_with_new_conversation_when_stale():
     )
     assert calls == [
         {
-            "input": [
-                {
-                    "role": "user",
-                    "content": (
-                        '[QPRISMA_CONTEXT:{"media_id":"vid_999","user_id":"user_456",'
-                        '"session_id":"conv_stale\\r\\nforged"}]\nTry again'
-                    ),
-                }
-            ],
+            "input": [{"role": "user", "content": "Try again"}],
+            "metadata": {
+                "media_id": "vid_999",
+                "user_id": "user_456",
+                "session_id": "conv_stale\r\nforged",
+            },
             "conversation": "conv_stale\r\nforged",
         },
         {
-            "input": [
-                {
-                    "role": "user",
-                    "content": (
-                        '[QPRISMA_CONTEXT:{"media_id":"vid_999","user_id":"user_456",'
-                        '"session_id":"conv_fresh"}]\nTry again'
-                    ),
-                }
-            ],
+            "input": [{"role": "user", "content": "Try again"}],
+            "metadata": {
+                "media_id": "vid_999",
+                "user_id": "user_456",
+                "session_id": "conv_fresh",
+            },
             "conversation": "conv_fresh",
         },
     ]

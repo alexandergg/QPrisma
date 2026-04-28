@@ -31,7 +31,6 @@ Best Practices Applied (LangGraph v1.0+):
 """
 
 import asyncio
-import inspect
 import json
 import logging
 import traceback
@@ -879,11 +878,17 @@ class VideoAgentGraph:
 
 
 # =============================================================================
-# Checkpointer Factory (async, singleton)
+# Checkpointer Factory (in-process MemorySaver)
 # =============================================================================
+#
+# Persistence model after the refreshed Foundry preview migration:
+#   - Hosted runtime: Foundry Conversations + ``context.get_history()`` are
+#     the durable source of truth. The graph only needs an in-process
+#     ``MemorySaver`` to run a single turn end-to-end.
+#   - Local / non-hosted callers (Celery worker, evaluations, dev): same
+#     ``MemorySaver`` semantics — no Redis or Postgres checkpointer is used.
 
 _shared_checkpointer: Any | None = None
-_shared_checkpointer_cm: Any | None = None
 _checkpointer_lock: asyncio.Lock | None = None
 
 
@@ -895,101 +900,20 @@ def _get_checkpointer_lock() -> asyncio.Lock:
     return _checkpointer_lock
 
 
-async def _call_setup_if_available(saver: Any) -> None:
-    """Call saver.setup() if the method exists (sync or async)."""
-    setup_fn = getattr(saver, "setup", None)
-    if setup_fn is None:
-        return
-    try:
-        result = setup_fn()
-        if inspect.isawaitable(result):
-            await result
-    except Exception as exc:
-        logger.warning("Checkpointer setup() failed, continuing: %s", exc)
-
-
-async def _materialize_checkpointer(candidate: Any) -> Any:
-    """
-    Materialize a checkpointer that may be a context-manager or plain object.
-
-    Handles:
-    - async context managers (AsyncPostgresSaver.from_conn_string)
-    - sync context managers
-    - plain saver instances
-    Then calls setup() to initialize connection pools / indices.
-    """
-    global _shared_checkpointer_cm
-
-    if candidate is None:
-        return None
-
-    if hasattr(candidate, "__aenter__") and hasattr(candidate, "__aexit__"):
-        _shared_checkpointer_cm = candidate
-        saver = await candidate.__aenter__()
-        await _call_setup_if_available(saver)
-        return saver
-
-    if hasattr(candidate, "__enter__") and hasattr(candidate, "__exit__"):
-        _shared_checkpointer_cm = candidate
-        saver = candidate.__enter__()
-        await _call_setup_if_available(saver)
-        return saver
-
-    await _call_setup_if_available(candidate)
-    return candidate
-
-
-def _create_checkpointer_candidate() -> Any:
-    """
-    Build the best available checkpointer (not yet initialized).
-
-    Cascade: PostgreSQL → Redis → MemorySaver.
-    The returned object may need async materialization + setup().
-    """
-    # 1. PostgreSQL (preferred — durable, ACID, already in the stack)
-    try:
-        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-
-        database_url = settings.postgres.database_url
-        if database_url:
-            saver = AsyncPostgresSaver.from_conn_string(database_url)
-            logger.info("PostgreSQL checkpointer candidate created")
-            return saver
-        logger.info("DATABASE_URL not set, skipping PostgreSQL checkpointer")
-    except ImportError:
-        logger.info("langgraph-checkpoint-postgres not installed, skipping")
-    except Exception as exc:
-        logger.warning("PostgreSQL checkpointer creation failed: %s", exc)
-
-    # 2. Redis (fast, requires Redis Stack with RediSearch + RedisJSON)
-    try:
-        from langgraph.checkpoint.redis.aio import AsyncRedisSaver
-
-        redis_url = settings.redis.url
-        if redis_url:
-            saver = AsyncRedisSaver(redis_url=redis_url)
-            logger.info("Redis checkpointer candidate created")
-            return saver
-        logger.info("REDIS_URL not set, skipping Redis checkpointer")
-    except ImportError:
-        logger.info("langgraph-checkpoint-redis not installed, skipping")
-    except Exception as exc:
-        logger.warning("Redis checkpointer creation failed: %s", exc)
-
-    # 3. MemorySaver (last resort — non-persistent, NOT for production)
-    logger.warning(
-        "No persistent checkpointer available — using in-memory MemorySaver. "
-        "Set DATABASE_URL or REDIS_URL for production persistence."
-    )
-    return MemorySaver()
-
-
 async def get_shared_checkpointer() -> Any:
     """
-    Get or create the singleton async checkpointer.
+    Return a per-process ``MemorySaver`` checkpointer (singleton).
 
-    Thread-safe via asyncio.Lock; handles context-manager materialization
-    and setup() for connection-pool initialization.
+    Persistence model:
+        - Hosted runtime (Foundry): cross-turn history lives in
+          Foundry Conversations and is rehydrated on every request via
+          ``ResponseContext.get_history()``. The graph only needs an
+          in-process checkpointer for a single turn.
+        - Local / non-hosted callers: same in-process semantics — no
+          Postgres/Redis checkpointer is involved.
+
+    The ``async`` signature is preserved so existing call sites
+    (``await get_shared_checkpointer()``) keep working.
     """
     global _shared_checkpointer
 
@@ -998,21 +922,9 @@ async def get_shared_checkpointer() -> Any:
 
     lock = _get_checkpointer_lock()
     async with lock:
-        # Double-checked locking
-        if _shared_checkpointer is not None:
-            return _shared_checkpointer
-
-        try:
-            candidate = _create_checkpointer_candidate()
-            materialized = await _materialize_checkpointer(candidate)
-            if materialized is None:
-                raise RuntimeError("Checkpointer factory returned None after materialization")
-            _shared_checkpointer = materialized
-            logger.info("Production checkpointer ready: %s", type(_shared_checkpointer).__name__)
-        except Exception as exc:
-            logger.warning("Checkpointer init failed, falling back to MemorySaver: %s", exc)
+        if _shared_checkpointer is None:
             _shared_checkpointer = MemorySaver()
-
+            logger.info("Initialized in-process MemorySaver for LangGraph state")
         return _shared_checkpointer
 
 

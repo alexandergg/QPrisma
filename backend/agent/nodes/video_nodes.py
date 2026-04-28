@@ -6,17 +6,14 @@ Nodes for the LangGraph-based video agent.
 Uses shared base implementation with video-specific configuration.
 """
 
+import json
 import logging
+import re
 from typing import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
-from agent.context_envelopes import (
-    extract_qprisma_envelopes_with_status,
-    is_letter_only_benchmark,
-    normalize_media_selection,
-)
 from agent.nodes.base import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_WARN_TOOL_ITERATIONS,
@@ -28,12 +25,76 @@ from agent.nodes.base import (
 from agent.prompts import MULTI_VIDEO_SYSTEM_PROMPT, NO_VIDEO_CONTEXT_PROMPT, SYSTEM_PROMPT
 from agent.state.agent_state import AgentState, VideoContext
 from agent.tools import SEARCH_TOOLS
+from agent.utils.media_helpers import is_letter_only_benchmark, normalize_media_selection
 from core.config import settings
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = DEFAULT_MAX_TOOL_ITERATIONS
 WARN_TOOL_ITERATIONS = DEFAULT_WARN_TOOL_ITERATIONS
+
+# Regex for QPRISMA_CONTEXT/QPRISMA_BENCH envelope prefixes embedded in
+# message content by the Video-MME evaluation pipeline.
+_CONTEXT_ENV_RE = re.compile(r"\[QPRISMA_CONTEXT:(\{[^{}]*\})\]")
+_BENCH_ENV_RE = re.compile(r"\[QPRISMA_BENCH:(\{[^{}]*\})\]")
+
+
+def _extract_message_envelopes(messages: list, updates: dict) -> None:
+    """Parse QPRISMA_CONTEXT/QPRISMA_BENCH envelope prefixes from the first HumanMessage.
+
+    The Video-MME evaluation pipeline embeds context into the message content
+    as ``[QPRISMA_CONTEXT:{...}][QPRISMA_BENCH:{...}]\\nActual question``.
+    This helper extracts those envelopes, populates *updates* with the resolved
+    media/benchmark fields, and rewrites the message with stripped content.
+    Only called when config and state both lack a ``media_id``.
+    """
+    if not messages:
+        return
+
+    first_msg = messages[0]
+    if not isinstance(first_msg, HumanMessage) or not isinstance(first_msg.content, str):
+        return
+
+    content = first_msg.content
+    ctx_match = _CONTEXT_ENV_RE.search(content)
+    if not ctx_match:
+        return
+
+    try:
+        ctx = json.loads(ctx_match.group(1))
+    except json.JSONDecodeError:
+        logger.warning("QPRISMA_CONTEXT prefix found but payload is malformed")
+        return
+
+    msg_media_ids = ctx.get("media_ids") or []
+    msg_media_id = ctx.get("media_id") or (msg_media_ids[0] if msg_media_ids else None)
+    msg_user_id = ctx.get("user_id")
+
+    if msg_media_id:
+        updates["media_id"] = msg_media_id
+        updates["video_context"] = VideoContext(media_id=msg_media_id)
+    if msg_media_ids:
+        updates["media_ids"] = msg_media_ids
+    if msg_user_id:
+        updates["user_id"] = msg_user_id
+
+    # Strip QPRISMA_CONTEXT envelope from content
+    content = content[: ctx_match.start()] + content[ctx_match.end() :]
+
+    # Parse and strip QPRISMA_BENCH envelope (whether valid or not)
+    bench_match = _BENCH_ENV_RE.search(content)
+    if bench_match:
+        try:
+            updates["benchmark_context"] = json.loads(bench_match.group(1))
+        except json.JSONDecodeError:
+            logger.warning("QPRISMA_BENCH prefix found but payload is malformed")
+        content = content[: bench_match.start()] + content[bench_match.end() :]
+
+    # Strip leading newlines left after removing envelopes
+    content = content.lstrip("\n")
+
+    # Rewrite the message with cleaned content (same ID triggers an upsert via add_messages)
+    updates["messages"] = [first_msg.model_copy(update={"content": content})] + list(messages[1:])
 
 
 def _resolve_video_titles(media_ids: list[str]) -> dict[str, str]:
@@ -64,52 +125,16 @@ def _resolve_video_titles(media_ids: list[str]) -> dict[str, str]:
     return titles
 
 
-# Defense-in-depth parser for QPrisma envelopes. The shared helper uses
-# json.JSONDecoder.raw_decode() to handle nested JSON correctly.
-
-
-def _parse_qprisma_context_from_messages(
-    messages: list,
-) -> tuple[dict, dict, list | None]:
-    """Extract QPrisma envelopes from the last HumanMessage.
-
-    Returns:
-        (context_dict, benchmark_dict, updated_messages) if a prefix was stripped.
-        ({}, {}, None) if no prefix was found (messages unchanged).
-    """
-    for i in range(len(messages) - 1, -1, -1):
-        msg = messages[i]
-        if isinstance(msg, HumanMessage) and isinstance(msg.content, str):
-            text = msg.content
-            metadata, benchmark_context, cleaned_text, malformed = (
-                extract_qprisma_envelopes_with_status(text)
-            )
-            if "QPRISMA_CONTEXT" in malformed:
-                logger.warning("QPRISMA_CONTEXT prefix found but payload is malformed")
-            if "QPRISMA_BENCH" in malformed:
-                logger.warning("QPRISMA_BENCH prefix found but payload is malformed")
-            if not metadata and not benchmark_context:
-                break  # only check the last HumanMessage
-
-            new_messages = list(messages)
-            new_messages[i] = HumanMessage(content=cleaned_text)
-            return metadata, benchmark_context, new_messages
-    return {}, {}, None
-
-
 def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     """
-    Restore media_id from RunnableConfig on every graph invocation,
-    falling back to the checkpointed state value.
+    Resolve media context from request metadata and checkpointed state.
 
     Priority order for resolving media_id:
-    1. ``config.configurable["media_id"]`` — fresh value from the current request
-    2. ``state["media_id"]`` — set by QPrismaStateConverter or checkpoint
-    3. ``[QPRISMA_CONTEXT:...]`` parsed from messages — defense-in-depth fallback
-
-    When ``create_agent_state()`` omits the ``media_id`` key (because the
-    frontend didn't send one), LangGraph preserves the checkpointed value
-    in ``state``.  This node ensures ``video_context`` stays in sync.
+    1. ``config.configurable["media_id"]`` — fresh value passed from the
+       refreshed-preview hosted runtime (`request.metadata`) or from a
+       direct LangGraph caller.
+    2. ``state["media_id"]`` — value already preserved on the AgentState
+       (e.g. seeded by ``main.py`` or carried over from a previous turn).
 
     In multi-video mode, also resolves human-readable video titles from the
     database so the system prompt can display them.
@@ -127,7 +152,7 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
 
     # --- OpenTelemetry conversation/user attribution ---
     thread_id = configurable.get("thread_id")
-    user_id = state.get("user_id")
+    user_id = state.get("user_id") or configurable.get("user_id")
 
     from agent.utils.observability import set_conversation_id, set_otel_user_id
 
@@ -156,43 +181,16 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
         raw_state_media_ids,
     )
 
-    # --- Defense-in-depth: parse QPRISMA_CONTEXT from messages ----------
-    # Always attempt to strip QPRISMA_CONTEXT so it cannot leak into the LLM
-    # prompt, even if state already has a media_id from a checkpoint.
-    msg_media_id = None
-    msg_media_ids: list[str] = []
     updates: dict = {}
+    if user_id and not state.get("user_id"):
+        updates["user_id"] = user_id
 
-    messages = state.get("messages", [])
-    msg_ctx, msg_benchmark_context, cleaned_messages = _parse_qprisma_context_from_messages(
-        messages
-    )
-    if msg_ctx or msg_benchmark_context:
-        msg_media_id, msg_media_ids = normalize_media_selection(
-            msg_ctx.get("media_id"),
-            msg_ctx.get("media_ids"),
-        )
-        msg_user_id = msg_ctx.get("user_id")
-        if msg_user_id and not user_id:
-            updates["user_id"] = msg_user_id
-        if cleaned_messages is not None:
-            updates["messages"] = cleaned_messages
-        if msg_benchmark_context:
-            updates["benchmark_context"] = msg_benchmark_context
-        logger.info(
-            "restore_media_context: extracted QPrisma envelopes from messages — "
-            "media_id=%s, media_ids=%s, benchmark=%s",
-            msg_media_id,
-            msg_media_ids,
-            bool(msg_benchmark_context),
-        )
-
-    # Resolve effective media_id: config > message > state (converter/checkpoint)
-    effective_media_id = config_media_id or msg_media_id or state_media_id
-    effective_media_ids = config_media_ids or msg_media_ids or state_media_ids
+    # Resolve effective media_id: config > state (checkpoint)
+    effective_media_id = config_media_id or state_media_id
+    effective_media_ids = config_media_ids or state_media_ids
 
     if effective_media_id and effective_media_id != raw_state_media_id:
-        source = "config" if config_media_id else "message" if msg_media_id else "checkpoint"
+        source = "config" if config_media_id else "checkpoint"
         logger.info(
             f"restore_media_context: overriding state media_id "
             f"'{raw_state_media_id}' → '{effective_media_id}' (source={source})"
@@ -225,6 +223,11 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
                 "restore_media_context: resolved video titles: %s",
                 {mid: titles.get(mid, "?") for mid in effective_media_ids},
             )
+
+    # Fallback: parse QPRISMA_CONTEXT/QPRISMA_BENCH envelopes embedded in the
+    # first message (used by the Video-MME evaluation pipeline).
+    if not effective_media_id:
+        _extract_message_envelopes(state.get("messages") or [], updates)
 
     if updates:
         logger.info(f"restore_media_context: applying updates {list(updates.keys())}")

@@ -14,6 +14,7 @@ Features:
 """
 
 import json
+import os
 import re
 import time
 from functools import lru_cache
@@ -21,7 +22,7 @@ from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import AzureChatOpenAI
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langgraph.graph import END
 
 from agent.state.agent_state import (
@@ -34,7 +35,7 @@ from agent.utils.observability import (
     Metrics,
     get_logger,
 )
-from core.azure_credentials import build_openai_client_kwargs
+from core.azure_credentials import build_openai_client_kwargs, get_openai_token_provider
 from core.config import settings
 
 logger = get_logger(__name__)
@@ -68,38 +69,71 @@ HYBRID_MEMORY_DETAIL_BUDGET_CHARS = 2200
 
 
 # =============================================================================
-# Model Creation (Cached)
+# Model Creation
 # =============================================================================
 
 
-@lru_cache(maxsize=8)
 def create_model(
     model_deployment: str | None = None,
     temperature: float = 1,
     streaming: bool = True,
-) -> AzureChatOpenAI:
+) -> AzureChatOpenAI | ChatOpenAI:
     """
-    Create Azure OpenAI chat model (cached by deployment + params).
+    Create the chat model used by LangGraph nodes (cached by params).
 
-    Uses API key when available, falls back to managed identity (AAD)
-    for hosted agent containers.
+    Routing:
+        - **Hosted on Foundry** (``FOUNDRY_HOSTING_ENVIRONMENT`` is set):
+          target the project-scoped, OpenAI-compatible endpoint at
+          ``{FOUNDRY_PROJECT_ENDPOINT}/openai/v1`` using a managed-identity
+          bearer token. Foundry routes traffic to the model deployment
+          named in ``settings.azure.openai_deployment_gpt``.
+        - **Local / non-hosted**: keep ``AzureChatOpenAI`` against the
+          Cognitive Services account endpoint with API key or AAD.
 
-    For reasoning-class deployments (configured via
-    ``settings.azure.openai_reasoning_models``) the ``temperature`` kwarg
-    is omitted because Azure OpenAI rejects any value other than the
-    default (1) for these models.
+    Reasoning models (matched via
+    ``settings.azure.openai_reasoning_models``) skip ``temperature``
+    because Azure OpenAI rejects custom values for them.
 
     Args:
         model_deployment: Azure deployment name
         temperature: Model temperature (ignored for reasoning models)
         streaming: Enable streaming responses
-
-    Returns:
-        Configured AzureChatOpenAI instance
     """
     deployment = model_deployment or settings.azure.openai_deployment_gpt
 
-    kwargs: dict = {
+    foundry_hosting = os.environ.get("FOUNDRY_HOSTING_ENVIRONMENT", "").strip()
+    foundry_endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT", "").strip()
+
+    if foundry_hosting and foundry_endpoint:
+        # NOT cached: the managed-identity bearer token expires ~1h, so a fresh
+        # token is fetched each time a new model instance is needed.
+        token_provider = get_openai_token_provider()
+        kwargs: dict = {
+            "model": deployment,
+            "base_url": f"{foundry_endpoint.rstrip('/')}/openai/v1",
+            "api_key": token_provider(),
+            "streaming": streaming,
+        }
+        if not _is_reasoning_model(deployment):
+            kwargs["temperature"] = temperature
+        logger.info(
+            "create_model -> ChatOpenAI hosted on Foundry",
+            deployment=deployment,
+        )
+        return ChatOpenAI(**kwargs)
+
+    return _create_azure_model_cached(model_deployment, temperature, streaming)
+
+
+@lru_cache(maxsize=8)
+def _create_azure_model_cached(
+    model_deployment: str | None = None,
+    temperature: float = 1,
+    streaming: bool = True,
+) -> AzureChatOpenAI:
+    """Non-hosted path (cached by parameters)."""
+    deployment = model_deployment or settings.azure.openai_deployment_gpt
+    kwargs = {
         "azure_deployment": deployment,
         "model": deployment,  # Needed for OpenTelemetry gen_ai instrumentation
         "streaming": streaming,
@@ -114,9 +148,7 @@ def create_model(
     )
     if client_kwargs is None:
         raise ValueError("Azure OpenAI chat model is not configured")
-    kwargs.update(client_kwargs)
-
-    return AzureChatOpenAI(**kwargs)
+    return AzureChatOpenAI(**kwargs, **client_kwargs)
 
 
 def _is_reasoning_model(deployment: str | None) -> bool:
@@ -682,11 +714,21 @@ async def base_call_model(
     )
 
     if should_bind_tools:
-        model = model.bind_tools(tools)
+        # parallel_tool_calls=True lets the model emit multiple tool calls per
+        # turn when independent (e.g. graph_search + transcript_search). gpt-5.x
+        # and gpt-4o all support it; older models silently ignore the flag.
+        parallel_tool_calls_applied = False
+        try:
+            model = model.bind_tools(tools, parallel_tool_calls=True)
+            parallel_tool_calls_applied = True
+        except TypeError:
+            # Provider does not accept the kwarg — fall back gracefully.
+            model = model.bind_tools(tools)
         logger.debug(
             "Tools bound to model",
             tool_count=len(tools),
             iteration=tool_calls_count,
+            parallel_tool_calls=parallel_tool_calls_applied,
         )
     elif approaching_limit:
         logger.info(

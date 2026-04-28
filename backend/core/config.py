@@ -366,6 +366,13 @@ class FoundrySettings(BaseSettings):
         validation_alias=AliasChoices("MEMORY_EMBEDDING_MODEL", "FOUNDRY_MEMORY_EMBEDDING_MODEL"),
         description="Embedding model deployment for memory search (e.g., text-embedding-3-large)",
     )
+    request_timeout_seconds: float = Field(
+        default=120.0,
+        description="Per-call timeout (seconds) applied to the Foundry Responses API "
+        "from the backend client. Wraps `responses.create` in `asyncio.wait_for` so "
+        "frontend requests cannot hang indefinitely if the hosted agent stalls.",
+        gt=0,
+    )
 
 
 class TelemetrySettings(BaseSettings):

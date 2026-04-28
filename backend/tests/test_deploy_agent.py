@@ -401,7 +401,7 @@ def test_main_active_with_identity_writes_outputs_and_succeeds(monkeypatch, tmp_
         lambda *a, **kw: ("principal-id-abc", "sdk"),
     )
 
-    deploy_agent.main()
+    deploy_agent.main([])
 
     outputs = _read_github_output(output_path)
     assert outputs["agent_version"] == str(fake_agent.version)
@@ -423,7 +423,7 @@ def test_main_active_without_identity_exits_one(monkeypatch, tmp_path):
     )
 
     with pytest.raises(SystemExit) as excinfo:
-        deploy_agent.main()
+        deploy_agent.main([])
 
     assert excinfo.value.code == 1
     outputs = _read_github_output(output_path)
@@ -450,7 +450,7 @@ def test_main_failed_status_exits_one(monkeypatch, tmp_path):
     monkeypatch.setattr(deploy_agent, "resolve_agent_identity_principal_id", _identity)
 
     with pytest.raises(SystemExit) as excinfo:
-        deploy_agent.main()
+        deploy_agent.main([])
 
     assert excinfo.value.code == 1
     assert identity_calls == []  # Identity lookup must be skipped on failure.
@@ -476,7 +476,7 @@ def test_main_timeout_status_soft_exits_zero(monkeypatch, tmp_path):
     )
 
     with pytest.raises(SystemExit) as excinfo:
-        deploy_agent.main()
+        deploy_agent.main([])
 
     assert excinfo.value.code == 0
     outputs = _read_github_output(output_path)

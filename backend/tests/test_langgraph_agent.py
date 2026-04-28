@@ -7,7 +7,7 @@ Tests for the LangGraph-based video agent.
 
 import json
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -641,7 +641,7 @@ class TestRedisCheckpointer:
 
     @pytest.mark.asyncio
     async def test_checkpointer_fallback_to_memory(self):
-        """Test fallback to MemorySaver when no persistent stores available."""
+        """Test that get_shared_checkpointer always returns a MemorySaver."""
         import agent.graphs.video as module
         from langgraph.checkpoint.memory import MemorySaver
 
@@ -649,12 +649,8 @@ class TestRedisCheckpointer:
         module._shared_checkpointer = None
         module._checkpointer_lock = None
 
-        with (
-            patch.dict("os.environ", {"REDIS_URL": "", "DATABASE_URL": ""}, clear=False),
-            patch.object(module, "_create_checkpointer_candidate", return_value=None),
-        ):
-            checkpointer = await module.get_shared_checkpointer()
-            assert isinstance(checkpointer, MemorySaver)
+        checkpointer = await module.get_shared_checkpointer()
+        assert isinstance(checkpointer, MemorySaver)
 
         # Reset for other tests
         module._shared_checkpointer = None
@@ -1217,7 +1213,8 @@ class TestCreateModelTemperatureFilter:
         import agent.nodes.base as base_module
 
         # Reset the lru_cache so each parametrized call invokes the constructor.
-        base_module.create_model.cache_clear()
+        # create_model itself is not cached; the cache lives on the internal helper.
+        base_module._create_azure_model_cached.cache_clear()
 
         captured: dict = {}
 
@@ -1262,41 +1259,30 @@ class TestProductionCheckpointerFactory:
 
     @pytest.mark.asyncio
     async def test_checkpointer_cascade_fallback(self):
-        """Test that factory falls back to MemorySaver when no stores available."""
+        """Test that factory returns MemorySaver when no shared checkpointer exists."""
         import agent.graphs.video as module
         from langgraph.checkpoint.memory import MemorySaver
 
         module._shared_checkpointer = None
         module._checkpointer_lock = None
 
-        with patch.object(module, "_create_checkpointer_candidate", return_value=None):
-            checkpointer = await module.get_shared_checkpointer()
-            assert isinstance(checkpointer, MemorySaver)
+        checkpointer = await module.get_shared_checkpointer()
+        assert isinstance(checkpointer, MemorySaver)
 
         module._shared_checkpointer = None
 
     @pytest.mark.asyncio
     async def test_checkpointer_materializes_candidate(self):
-        """Test that a valid candidate is materialized and returned."""
+        """Test that get_shared_checkpointer returns a non-None MemorySaver."""
         import agent.graphs.video as module
-
-        mock_saver = MagicMock()
-        mock_saver.setup = AsyncMock()
+        from langgraph.checkpoint.memory import MemorySaver
 
         module._shared_checkpointer = None
         module._checkpointer_lock = None
 
-        with (
-            patch.object(module, "_create_checkpointer_candidate", return_value=mock_saver),
-            patch.object(
-                module,
-                "_materialize_checkpointer",
-                new_callable=AsyncMock,
-                return_value=mock_saver,
-            ),
-        ):
-            checkpointer = await module.get_shared_checkpointer()
-            assert checkpointer is mock_saver
+        checkpointer = await module.get_shared_checkpointer()
+        assert checkpointer is not None
+        assert isinstance(checkpointer, MemorySaver)
 
         module._shared_checkpointer = None
 
@@ -1305,23 +1291,12 @@ class TestProductionCheckpointerFactory:
         """Test that get_shared_checkpointer returns the same instance."""
         import agent.graphs.video as module
 
-        mock_saver = MagicMock()
-
         module._shared_checkpointer = None
         module._checkpointer_lock = None
 
-        with (
-            patch.object(module, "_create_checkpointer_candidate", return_value=mock_saver),
-            patch.object(
-                module,
-                "_materialize_checkpointer",
-                new_callable=AsyncMock,
-                return_value=mock_saver,
-            ),
-        ):
-            cp1 = await module.get_shared_checkpointer()
-            cp2 = await module.get_shared_checkpointer()
-            assert cp1 is cp2
+        cp1 = await module.get_shared_checkpointer()
+        cp2 = await module.get_shared_checkpointer()
+        assert cp1 is cp2
 
         module._shared_checkpointer = None
 

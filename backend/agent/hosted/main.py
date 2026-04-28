@@ -1,266 +1,437 @@
 """
-Foundry Hosted Agent Entry Point
-=================================
+QPrisma Video Agent — hosted runtime entrypoint.
 
-Starts the QPrisma Video Agent as an Azure AI Foundry Hosted Agent.
-Uses the ``from_langgraph()`` adapter to expose the existing
-``VideoAgentGraph`` via Foundry's managed HTTP server (port 8088).
+Targets the Azure AI Foundry **refreshed public preview** for hosted agents:
 
-Usage (local dev):
-    python -m agent.hosted.main
+* Runtime SDK: ``azure-ai-agentserver-responses==1.0.0b5`` (+ ``core>=2.0.0b3``).
+* Protocol: OpenAI Responses (``protocol.version: "1.0.0"`` in ``agent.yaml``).
+* Persistence: **Foundry Conversations** (Sessions / Conversations / Responses).
+  In-process LangGraph state uses ``MemorySaver`` only for the duration of a
+  single turn; cross-turn history is recovered via ``context.get_history()``.
+* Per-request inputs (media_id, media_ids, user_id, …) arrive via
+  ``request.metadata``. The legacy ``[QPRISMA_CONTEXT:…]`` message envelope
+  has been removed.
 
-Usage (container):
-    The Dockerfile CMD runs this module directly.
-
-Protocols supported:
-    - Responses API (OpenAI-compatible POST /responses)
-    - A2A Protocol v0.2.1 (Agent-to-Agent task lifecycle)
+Local development falls back to ``InMemoryResponseProvider`` automatically when
+``FOUNDRY_HOSTING_ENVIRONMENT`` is unset (handled by ``ResponsesAgentServerHost``).
 """
 
+from __future__ import annotations
+
+import asyncio
 import logging
 import os
-import re
 import sys
+from collections.abc import AsyncIterable
+from typing import Any
+from urllib.parse import urlparse
 
-# Ensure the backend directory is on the Python path so that
-# all QPrisma modules (agent, services, core, models) are importable.
-_backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if _backend_dir not in sys.path:
-    sys.path.insert(0, _backend_dir)
+from azure.ai.agentserver.responses import (
+    CreateResponse,
+    ResponseContext,
+    ResponsesAgentServerHost,
+    TextResponse,
+)
+from azure.identity import DefaultAzureCredential
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langgraph.checkpoint.memory import MemorySaver
 
-from core.logging_config import setup_logging  # noqa: E402
+from agent.graphs.video import create_video_agent_graph
+from agent.hosted.telemetry import SafeAzureAIOpenTelemetryTracer
+from agent.state.agent_state import AgentInputState
 
-setup_logging()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("qprisma.hosted")
+
+# ---------------------------------------------------------------------------
+# Foundry env-var bridge
+# ---------------------------------------------------------------------------
+# Foundry reserves the ``FOUNDRY_*`` namespace for the runtime contract.
+# Existing QPrisma code reads ``AZURE_AI_PROJECT_*``; mirror them so the
+# hosted environment can populate either side.
+
+_FOUNDRY_ENV_BRIDGE: dict[str, str] = {
+    "FOUNDRY_PROJECT_ENDPOINT": "AZURE_AI_PROJECT_ENDPOINT",
+    "FOUNDRY_PROJECT_ARM_ID": "AZURE_AI_PROJECT_ARM_ID",
+    "FOUNDRY_AGENT_NAME": "AZURE_AI_AGENT_NAME",
+    "FOUNDRY_AGENT_VERSION": "AZURE_AI_AGENT_VERSION",
+    "FOUNDRY_AGENT_SESSION_ID": "AZURE_AI_AGENT_SESSION_ID",
+}
+for foundry_key, qprisma_key in _FOUNDRY_ENV_BRIDGE.items():
+    value = os.environ.get(foundry_key)
+    if value and not os.environ.get(qprisma_key):
+        os.environ[qprisma_key] = value
 
 
-def create_hosted_app():
-    """
-    Build the Foundry hosting adapter around the QPrisma video agent graph.
-
-    Returns the adapter application that Foundry's runtime will serve.
-    """
-    from langgraph.checkpoint.memory import MemorySaver
-
-    from agent.graphs.video import create_video_agent_graph
-
+def _mask_uri(uri: str | None) -> str:
+    if not uri:
+        return "<unset>"
     try:
-        from azure.ai.agentserver.langgraph import from_langgraph
-    except ImportError as exc:
-        logger.error(
-            "azure-ai-agentserver-langgraph is not installed. "
-            "Install with: pip install 'azure-ai-agentserver-langgraph>=1.0.0b17'"
-        )
-        raise SystemExit(1) from exc
-
-    # Use MemorySaver for within-turn state.
-    # Foundry manages cross-turn conversation persistence.
-    checkpointer = MemorySaver()
-
-    logger.info("Creating QPrisma VideoAgentGraph for Foundry hosted mode")
-    graph = create_video_agent_graph(checkpointer=checkpointer)
-
-    # Bridge FOUNDRY_PROJECT_ENDPOINT → AZURE_AI_PROJECT_ENDPOINT before
-    # calling from_langgraph(). The SDK's get_project_endpoint() reads
-    # AZURE_AI_PROJECT_ENDPOINT; if absent it returns None and
-    # create_tool_runtime() falls back to ThrowingFoundryToolRuntime, which
-    # crashes on every POST /responses even when no Foundry tools are
-    # registered (the resolver calls catalog.list() unconditionally).
-    from core.config import settings
-
-    _sdk_ep_var = "AZURE_AI_PROJECT_ENDPOINT"
-    _existing_sdk_endpoint = os.environ.get(_sdk_ep_var)
-    _foundry_endpoint = _existing_sdk_endpoint or settings.foundry.project_endpoint
-    if _foundry_endpoint:
-        if not _existing_sdk_endpoint:
-            os.environ[_sdk_ep_var] = _foundry_endpoint
-        logger.info("FoundryToolRuntime: endpoint configured (%s)", _sdk_ep_var)
-    else:
-        logger.warning(
-            "FoundryToolRuntime: %s is not set — "
-            "set FOUNDRY_PROJECT_ENDPOINT or %s to prevent POST /responses crashes.",
-            _sdk_ep_var,
-            _sdk_ep_var,
-        )
-
-    logger.info("Wrapping graph with Foundry from_langgraph() adapter")
-    from agent.hosted.state_converter import QPrismaStateConverter
-
-    converter = QPrismaStateConverter(graph=graph)
-    app = from_langgraph(graph, converter=converter)
-    logger.info("Using QPrismaStateConverter for media_id/media_ids injection")
-
-    return app
+        parsed = urlparse(uri)
+        host = parsed.hostname or "<unknown>"
+        return f"{parsed.scheme or 'https'}://{host}"
+    except Exception:
+        return "<malformed>"
 
 
-def _setup_telemetry() -> None:
-    """Configure Azure Monitor tracing for the hosted agent container.
+# ---------------------------------------------------------------------------
+# Telemetry
+# ---------------------------------------------------------------------------
 
-    Sets up four layers of instrumentation:
-    1. ``configure_azure_monitor()`` — base OTel pipeline to Application Insights
-    2. ``OpenAIInstrumentor`` — auto-instruments raw OpenAI API calls (Response traces)
-    3. ``AzureAIOpenTelemetryTracer`` — LangGraph callback handler that emits
-       agent-level spans (invoke_agent, execute_tool, graph transitions) needed
-       for the **Conversation** view in the Foundry portal
-    4. ``ConversationIdSpanProcessor`` — belt-and-suspenders stamping of
-       ``gen_ai.conversation.id`` on every span
+_tracer: SafeAzureAIOpenTelemetryTracer | None = None
+
+
+def _setup_telemetry() -> SafeAzureAIOpenTelemetryTracer | None:
+    """Initialise Azure AI OpenTelemetry tracer (best-effort).
+
+    Returns the LangChain callback or ``None`` if telemetry is unavailable.
+    Failures are logged but never block startup — the agent must remain
+    serviceable even if telemetry export is degraded.
     """
-    import os
 
-    from agent.hosted.telemetry import (
-        SafeAzureAIOpenTelemetryTracer,
-        patch_agentserver_history_fetch,
-        set_azure_ai_tracer,
+    project_endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT") or os.environ.get(
+        "AZURE_AI_PROJECT_ENDPOINT"
+    )
+    if not project_endpoint:
+        logger.warning(
+            "FOUNDRY_PROJECT_ENDPOINT/AZURE_AI_PROJECT_ENDPOINT not set; "
+            "skipping AzureAIOpenTelemetryTracer.",
+        )
+        return None
+
+    agent_id = os.environ.get("FOUNDRY_AGENT_NAME") or os.environ.get(
+        "AZURE_AI_AGENT_NAME", "qprisma-video-agent"
     )
 
-    # Apply the agentserver history-fetch patch unconditionally (no-op when
-    # the upstream signature changes). This restores cross-turn history that
-    # is otherwise silently dropped on every conversation.
     try:
-        patch_agentserver_history_fetch()
-    except Exception as e:
-        logger.warning("agentserver patch: failed to apply (%s)", e)
+        from langchain_azure_ai.callbacks.tracers import AzureAIOpenTelemetryTracer
 
-    conn_str = os.environ.get("APPLICATIONINSIGHTS_CONNECTION_STRING")
-    if not conn_str:
-        logger.info("Application Insights: not configured (no connection string)")
-        return
-
-    try:
-        from azure.monitor.opentelemetry import configure_azure_monitor
-        from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
-
-        os.environ.setdefault("OTEL_SERVICE_NAME", "qprisma-hosted-agent")
-        os.environ.setdefault("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "false")
-        os.environ.setdefault("AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING", "true")
-
-        configure_azure_monitor(connection_string=conn_str)
-        OpenAIInstrumentor().instrument()
-
-        # Register span processor so gen_ai.conversation.id appears in Foundry traces
-        try:
-            from opentelemetry.trace import get_tracer_provider
-
-            from agent.utils.observability import ConversationIdSpanProcessor
-
-            provider = get_tracer_provider()
-            if hasattr(provider, "add_span_processor"):
-                provider.add_span_processor(ConversationIdSpanProcessor())
-                logger.info("ConversationIdSpanProcessor: registered")
-        except Exception as e:
-            logger.warning("ConversationIdSpanProcessor: failed to register (%s)", e)
-
-        # Set up AzureAIOpenTelemetryTracer for LangGraph conversation-level traces.
-        # This creates the agent span hierarchy (invoke_agent, execute_tool, etc.)
-        # that the Foundry Conversation view requires.
-        try:
-            from langchain_azure_ai.callbacks.tracers import AzureAIOpenTelemetryTracer
-
-            content_recording = os.environ.get(
-                "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", "false"
-            ).lower() in ("true", "1", "yes")
-
-            _tracer = AzureAIOpenTelemetryTracer(
-                connection_string=conn_str,
-                enable_content_recording=content_recording,
-                name="QPrisma Video Agent",
-                agent_id="qprisma-video-agent",
-                auto_configure_azure_monitor=False,
-            )
-            # Wrap so that LangGraph list-shaped chain inputs (which the
-            # 1.1.0b1 tracer mishandles) and any other callback errors are
-            # contained to debug-level logs instead of flooding stderr on
-            # every node start.
-            set_azure_ai_tracer(SafeAzureAIOpenTelemetryTracer(_tracer))
-            logger.info(
-                "AzureAIOpenTelemetryTracer: enabled (content_recording=%s)",
-                content_recording,
-            )
-        except ImportError:
-            logger.warning(
-                "AzureAIOpenTelemetryTracer: langchain-azure-ai not installed "
-                "(pip install 'langchain-azure-ai[opentelemetry]')"
-            )
-        except Exception as e:
-            logger.warning("AzureAIOpenTelemetryTracer: failed to initialize (%s)", e)
-
-        logger.info("Application Insights: enabled (service=qprisma-hosted-agent)")
-    except ImportError:
-        logger.warning(
-            "Application Insights: packages not installed "
-            "(pip install azure-monitor-opentelemetry opentelemetry-instrumentation-openai-v2)"
+        inner = AzureAIOpenTelemetryTracer(
+            project_endpoint=project_endpoint,
+            credential=DefaultAzureCredential(),
+            agent_id=agent_id,
+            trace_all_langgraph_nodes=True,
         )
-    except Exception as e:
-        logger.warning("Application Insights: failed to initialize (%s)", e)
+        wrapped = SafeAzureAIOpenTelemetryTracer(inner)
+        logger.info(
+            "AzureAIOpenTelemetryTracer initialised (endpoint=%s agent_id=%s)",
+            _mask_uri(project_endpoint),
+            agent_id,
+        )
+        return wrapped
+    except ImportError as exc:
+        logger.warning("langchain-azure-ai tracer unavailable: %s", exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to initialise AzureAIOpenTelemetryTracer: %s", exc)
+        return None
 
 
-def _mask_uri(uri: str) -> str:
-    """Mask credentials in a connection URI for safe logging."""
-    return re.sub(r"://[^@]*@", "://***:***@", uri)
+# ---------------------------------------------------------------------------
+# Graph factory (compiled once per process)
+# ---------------------------------------------------------------------------
+
+_graph_lock = asyncio.Lock()
+_graph: Any | None = None
 
 
-def _check_service_health() -> None:
-    """Log connectivity status for backend services at startup.
+async def _get_graph() -> Any:
+    global _graph
+    if _graph is not None:
+        return _graph
+    async with _graph_lock:
+        if _graph is not None:
+            return _graph
+        checkpointer = MemorySaver()
+        graph = create_video_agent_graph(checkpointer=checkpointer)
+        callbacks = [_tracer] if _tracer is not None else []
+        config: dict[str, Any] = {"tags": ["qprisma", "video-agent", "hosted"]}
+        if callbacks:
+            config["callbacks"] = callbacks
+        _graph = graph.with_config(config)
+        logger.info(
+            "Video agent graph compiled (tracer=%s).",
+            "enabled" if callbacks else "disabled",
+        )
+        return _graph
 
-    May block briefly on network checks — logs warnings but never prevents the agent from starting.
+
+# ---------------------------------------------------------------------------
+# History helpers
+# ---------------------------------------------------------------------------
+
+
+def _coerce_message(item: Any) -> BaseMessage | None:
+    """Best-effort coercion of an SDK history/input item into a LangChain message.
+
+    The refreshed Responses preview returns provider-shaped dicts. We accept
+    the common variants and fall back to ``HumanMessage`` for unknown roles.
     """
-    from core.config import settings
 
-    # --- Neo4j ---
+    if isinstance(item, BaseMessage):
+        return item
+
+    role: str | None = None
+    content: Any = None
+
+    if isinstance(item, dict):
+        role = (item.get("role") or item.get("type") or "").lower() or None
+        content = item.get("content") or item.get("text") or item.get("message")
+    else:
+        role = (getattr(item, "role", None) or getattr(item, "type", None) or "").lower() or None
+        content = (
+            getattr(item, "content", None)
+            or getattr(item, "text", None)
+            or getattr(item, "message", None)
+        )
+
+    if content is None:
+        return None
+
+    text: str
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                value = part.get("text") or part.get("content") or part.get("value")
+                if isinstance(value, str):
+                    parts.append(value)
+        text = "\n".join(p for p in parts if p)
+    else:
+        text = str(content)
+
+    text = text.strip()
+    if not text:
+        return None
+
+    if role in {"assistant", "ai"}:
+        return AIMessage(content=text)
+    if role in {"system", "developer"}:
+        return SystemMessage(content=text)
+    if role == "tool":
+        tool_call_id = (
+            item.get("tool_call_id")
+            if isinstance(item, dict)
+            else getattr(item, "tool_call_id", None)
+        ) or "unknown"
+        return ToolMessage(content=text, tool_call_id=tool_call_id)
+    return HumanMessage(content=text)
+
+
+async def _collect_history(context: ResponseContext) -> list[BaseMessage]:
+    raw: list[Any] = []
     try:
-        neo4j_uri = settings.neo4j.uri
-        logger.info("Neo4j: configured uri=%s, user=%s", _mask_uri(neo4j_uri), settings.neo4j.user)
-        from services.knowledge_graph import get_knowledge_graph_service
+        history = await context.get_history()
+        if history:
+            raw.extend(history)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("context.get_history() failed: %s", exc)
 
-        kg = get_knowledge_graph_service()
-        if not kg.is_connected:
-            kg.connect()
-        if kg.is_connected:
-            logger.info("Neo4j: connected ✓")
-        else:
-            logger.warning("Neo4j: connection FAILED at %s", _mask_uri(neo4j_uri))
-    except Exception as e:
-        logger.warning("Neo4j: health check error — %s", e)
-
-    # --- PostgreSQL ---
     try:
-        pg_url = settings.postgres.database_url
-        logger.info("PostgreSQL: configured url=%s", _mask_uri(pg_url))
-        from services.database_service import get_database_service
+        inputs = await context.get_input_items()
+        if inputs:
+            raw.extend(inputs)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("context.get_input_items() failed: %s", exc)
 
-        db = get_database_service()
-        health = db.health_check()
-        if health.get("status") == "healthy":
-            logger.info("PostgreSQL: connected ✓")
-        else:
-            logger.warning("PostgreSQL: connection FAILED — %s", health.get("error", "unknown"))
-    except Exception as e:
-        logger.warning("PostgreSQL: health check error — %s", e)
+    messages: list[BaseMessage] = []
+    for item in raw:
+        coerced = _coerce_message(item)
+        if coerced is not None:
+            messages.append(coerced)
 
-    # --- Redis ---
+    if not messages:
+        try:
+            text = await context.get_input_text()
+        except Exception:  # noqa: BLE001
+            text = None
+        if text:
+            messages.append(HumanMessage(content=text))
+
+    return messages
+
+
+# ---------------------------------------------------------------------------
+# Metadata extraction
+# ---------------------------------------------------------------------------
+
+
+def _normalise_media_ids(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None and str(v).strip()]
+    if isinstance(value, str):
+        return [piece.strip() for piece in value.split(",") if piece.strip()]
+    return [str(value)]
+
+
+def _build_initial_state(
+    metadata: dict[str, Any],
+    messages: list[BaseMessage],
+) -> AgentInputState:
+    media_id_raw = metadata.get("media_id")
+    media_ids_raw = metadata.get("media_ids")
+
+    media_ids = _normalise_media_ids(media_ids_raw)
+    media_id = (
+        str(media_id_raw).strip()
+        if media_id_raw is not None and str(media_id_raw).strip()
+        else (media_ids[0] if media_ids else None)
+    )
+    if media_id and media_id not in media_ids:
+        media_ids.insert(0, media_id)
+
+    state: dict[str, Any] = {
+        "messages": messages,
+        "media_id": media_id,
+        "media_ids": media_ids or None,
+        "user_id": metadata.get("user_id") or metadata.get("userId"),
+    }
+
+    session_id = metadata.get("session_id") or metadata.get("sessionId")
+    if session_id:
+        state["session_id"] = str(session_id)
+
+    benchmark_context = metadata.get("benchmark_context")
+    if isinstance(benchmark_context, dict) and benchmark_context:
+        state["benchmark_context"] = benchmark_context
+
+    video_titles = metadata.get("video_titles")
+    if isinstance(video_titles, dict) and video_titles:
+        state["video_titles"] = {str(k): str(v) for k, v in video_titles.items()}
+
+    return state  # type: ignore[return-value]
+
+
+# ---------------------------------------------------------------------------
+# Streaming
+# ---------------------------------------------------------------------------
+
+
+async def _stream_tokens(
+    graph: Any,
+    state: AgentInputState,
+    config: dict[str, Any],
+    cancellation_signal: asyncio.Event,
+) -> AsyncIterable[str]:
+    """Stream LangGraph LLM token deltas as plain text chunks.
+
+    ``TextResponse`` consumes an ``AsyncIterable[str]``; the SDK wraps each
+    yielded chunk in the appropriate Responses streaming event.
+    """
+
     try:
-        redis_url = settings.redis.url
-        logger.info("Redis: configured url=%s", _mask_uri(redis_url))
-    except Exception as e:
-        logger.warning("Redis: config check error — %s", e)
+        async for event in graph.astream_events(state, config=config, version="v2"):
+            if cancellation_signal.is_set():
+                logger.info("Cancellation requested mid-stream; aborting graph events.")
+                break
+
+            event_type = event.get("event")
+            if event_type != "on_chat_model_stream":
+                continue
+
+            chunk = event.get("data", {}).get("chunk")
+            if chunk is None:
+                continue
+
+            content = getattr(chunk, "content", None)
+            if isinstance(content, str) and content:
+                yield content
+            elif isinstance(content, list):
+                for piece in content:
+                    if isinstance(piece, str) and piece:
+                        yield piece
+                    elif isinstance(piece, dict):
+                        text = piece.get("text")
+                        if isinstance(text, str) and text:
+                            yield text
+    except asyncio.CancelledError:
+        logger.info("Token stream cancelled.")
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Graph streaming failed: %s", exc)
+        yield f"\n\n[error] Agent execution failed: {exc}"
 
 
-def main():
-    """Start the Foundry hosted agent server."""
-    logger.info("Starting QPrisma Video Agent (Foundry Hosted Mode)")
-    logger.info("Protocols: Responses API + A2A v0.2.1 | Port: 8088")
+# ---------------------------------------------------------------------------
+# Server
+# ---------------------------------------------------------------------------
 
-    # Initialize tracing before the graph/adapter so spans are captured
-    _setup_telemetry()
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stream=sys.stdout,
+)
 
-    # Log backend service connectivity (non-blocking)
-    _check_service_health()
+_tracer = _setup_telemetry()
+app = ResponsesAgentServerHost()
 
-    app = create_hosted_app()
 
-    # from_langgraph().run() starts the HTTP server on localhost:8088
-    # Foundry's sidecar proxy handles external routing and TLS.
-    app.run()
+@app.response_handler
+async def handle_response(
+    request: CreateResponse,
+    context: ResponseContext,
+    cancellation_signal: asyncio.Event,
+) -> TextResponse:
+    """Refreshed-preview entrypoint: ingest a Responses request, stream tokens."""
+
+    metadata: dict[str, Any] = dict(request.metadata) if request.metadata else {}
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Incoming response request response_id=%s metadata_keys=%s",
+            getattr(context, "response_id", None),
+            sorted(metadata.keys()),
+        )
+
+    history = await _collect_history(context)
+    if not history:
+        logger.warning(
+            "No input messages resolved (response_id=%s); replying with stub.",
+            getattr(context, "response_id", None),
+        )
+        return TextResponse(
+            context,
+            request,
+            text="I didn't receive any user input. Please send a message and try again.",
+        )
+
+    graph = await _get_graph()
+    state = _build_initial_state(metadata, history)
+
+    response_id = getattr(context, "response_id", None) or "unknown"
+    config: dict[str, Any] = {
+        "configurable": {
+            "thread_id": response_id,
+            "media_id": state.get("media_id"),
+            "media_ids": state.get("media_ids"),
+            "user_id": state.get("user_id"),
+        },
+        "metadata": metadata,
+    }
+
+    return TextResponse(
+        context,
+        request,
+        text=_stream_tokens(graph, state, config, cancellation_signal),
+    )
+
+
+def main() -> None:
+    """CLI entrypoint for the hosted runtime."""
+    port_env = os.environ.get("PORT")
+    port = int(port_env) if port_env else None
+    app.run(host="0.0.0.0", port=port)  # noqa: S104
 
 
 if __name__ == "__main__":
