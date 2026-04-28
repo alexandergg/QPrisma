@@ -1213,7 +1213,8 @@ class TestCreateModelTemperatureFilter:
         import agent.nodes.base as base_module
 
         # Reset the lru_cache so each parametrized call invokes the constructor.
-        base_module.create_model.cache_clear()
+        # create_model itself is not cached; the cache lives on the internal helper.
+        base_module._create_azure_model_cached.cache_clear()
 
         captured: dict = {}
 
