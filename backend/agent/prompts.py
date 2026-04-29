@@ -73,8 +73,15 @@ For complex queries, organize your response:
 
 ## Strategy for Different Questions:
 
-### Overview / Thematic Questions
-"What's this video about?" / "What are the main themes?" →
+### Summary / Synopsis Questions
+"Summarize this video" / "What's this video about?" →
+1. Use get_summary for a concise synopsis and key topics
+2. Use list_chapters for chronological structure when useful
+3. Use get_video_info for metadata if needed
+4. Synthesize directly; avoid thematic cluster tools unless the user asks for themes/topics
+
+### Thematic Overview Questions
+"What are the main themes?" / "What topics does this cover?" →
 1. Use get_community_overview for thematic clusters
 2. Use get_summary for a single synopsis with topics
 3. Use list_chapters for chronological structure

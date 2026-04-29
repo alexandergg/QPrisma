@@ -18,6 +18,7 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from collections.abc import AsyncIterable
 from typing import Any
 from urllib.parse import urlparse
@@ -375,6 +376,7 @@ async def _stream_tokens(
     cancellation_signal: asyncio.Event,
 ) -> AsyncIterable[str]:
     """Stream LangGraph LLM token deltas as plain text chunks."""
+    tool_start_times: dict[str, float] = {}
     try:
         async for event in graph.astream_events(state, config=config, version="v2"):
             if cancellation_signal.is_set():
@@ -382,6 +384,29 @@ async def _stream_tokens(
                 break
 
             event_type = event.get("event")
+            if event_type == "on_tool_start":
+                run_id = str(event.get("run_id", "unknown"))
+                tool_name = str(event.get("name", "unknown"))
+                tool_start_times[run_id] = time.perf_counter()
+                logger.info("Hosted graph tool started: tool=%s run_id=%s", tool_name, run_id)
+                continue
+
+            if event_type == "on_tool_end":
+                run_id = str(event.get("run_id", "unknown"))
+                tool_name = str(event.get("name", "unknown"))
+                started_at = tool_start_times.pop(run_id, None)
+                elapsed_seconds = time.perf_counter() - started_at if started_at else None
+                output = event.get("data", {}).get("output")
+                success = not (isinstance(output, dict) and output.get("error"))
+                logger.info(
+                    "Hosted graph tool finished: tool=%s run_id=%s success=%s elapsed_seconds=%s",
+                    tool_name,
+                    run_id,
+                    success,
+                    f"{elapsed_seconds:.3f}" if elapsed_seconds is not None else "unknown",
+                )
+                continue
+
             if event_type != "on_chat_model_stream":
                 continue
 

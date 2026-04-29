@@ -109,6 +109,52 @@ class TestStandaloneInstantiation:
         assert exp._get_session is sess_fn
 
 
+@pytest.mark.unit
+class TestGraphExpanderCommunityContext:
+    """Community context queries should stay bounded."""
+
+    def _make_expander_with_session(self, records=None):
+        from services.graph_expander import GraphExpander
+
+        session = MagicMock()
+        session.run.return_value = records or []
+        session.__enter__ = MagicMock(return_value=session)
+        session.__exit__ = MagicMock(return_value=False)
+
+        return GraphExpander(MagicMock(), MagicMock(return_value=session)), session
+
+    def test_no_topic_query_includes_limit_parameter(self):
+        expander, session = self._make_expander_with_session()
+
+        result = expander.get_community_context("video-1")
+
+        assert result == []
+        cypher = session.run.call_args.args[0]
+        params = session.run.call_args.kwargs
+        assert "LIMIT $limit" in cypher
+        assert params["video_id"] == "video-1"
+        assert params["limit"] == 10
+
+    def test_topic_query_uses_configured_limit_parameter(self):
+        expander, session = self._make_expander_with_session()
+
+        expander.get_community_context("video-1", topic="safety", limit=5)
+
+        cypher = session.run.call_args.args[0]
+        params = session.run.call_args.kwargs
+        assert "LIMIT $limit" in cypher
+        assert params["topic"] == "safety"
+        assert params["limit"] == 5
+
+    def test_limit_must_be_positive(self):
+        expander, session = self._make_expander_with_session()
+
+        with pytest.raises(ValueError, match="limit must be greater than 0"):
+            expander.get_community_context("video-1", limit=0)
+
+        session.run.assert_not_called()
+
+
 # ===========================================================================
 # Singleton accessor
 # ===========================================================================

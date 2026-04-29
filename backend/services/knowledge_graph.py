@@ -864,9 +864,11 @@ class KnowledgeGraphService:
         """Delete all Community nodes for a video."""
         return self.nodes.delete_video_communities(video_id)
 
-    def get_community_context(self, video_id: str, topic: str | None = None) -> list[dict]:
+    def get_community_context(
+        self, video_id: str, topic: str | None = None, limit: int = 10
+    ) -> list[dict]:
         """Retrieve community summaries for a video, optionally filtered by topic."""
-        return self.expander.get_community_context(video_id, topic)
+        return self.expander.get_community_context(video_id, topic, limit)
 
     # =========================================================================
     # Delegation — Topic operations

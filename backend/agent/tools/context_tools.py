@@ -18,6 +18,9 @@ from agent.utils.tool_meta import tool_error, tool_meta, truncate_with_notice
 
 logger = logging.getLogger(__name__)
 
+COMMUNITY_OVERVIEW_LIMIT = 10
+COMMUNITY_OVERVIEW_TIMEOUT_SECONDS = 20.0
+
 
 def _generate_scene_title(scene: dict) -> str | None:
     """Generate a scene title from the scene node's own properties.
@@ -550,8 +553,13 @@ async def get_community_overview(
 
         kg = get_knowledge_graph_service()
 
-        communities = await asyncio.to_thread(
-            lambda: kg.get_community_context(effective_id, topic=topic)
+        communities = await asyncio.wait_for(
+            asyncio.to_thread(
+                lambda: kg.get_community_context(
+                    effective_id, topic=topic, limit=COMMUNITY_OVERVIEW_LIMIT
+                )
+            ),
+            timeout=COMMUNITY_OVERVIEW_TIMEOUT_SECONDS,
         )
 
         if not communities:
@@ -577,6 +585,17 @@ async def get_community_overview(
             "_meta": tool_meta(result_count=len(communities)),
         }
 
+    except TimeoutError:
+        logger.warning(
+            "get_community_overview timed out for %s after %.1fs",
+            effective_id,
+            COMMUNITY_OVERVIEW_TIMEOUT_SECONDS,
+        )
+        return tool_error(
+            "timeout",
+            "Community overview query timed out. Use get_summary for a concise synopsis "
+            "or ask about a specific topic.",
+        )
     except Exception as e:
         logger.error("get_community_overview failed for %s: %s", effective_id, e)
         return tool_error("query_error", f"Failed to get communities: {e}")

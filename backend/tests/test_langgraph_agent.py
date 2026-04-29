@@ -1187,6 +1187,9 @@ class TestDynamicToolBinding:
         selected = select_tools_for_query(query, SEARCH_TOOLS, max_tools=8)
         tool_names = [t.name for t in selected]
         assert "get_summary" in tool_names, f"get_summary missing from {tool_names}"
+        assert "list_chapters" in tool_names, f"list_chapters missing from {tool_names}"
+        if "get_community_overview" in tool_names:
+            assert tool_names.index("get_summary") < tool_names.index("get_community_overview")
 
     def test_scene_context_routes_for_context_queries(self):
         """Contextual transcript queries should include scene context deliberately."""

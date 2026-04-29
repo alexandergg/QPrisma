@@ -1439,6 +1439,34 @@ def select_tools_for_query(
     is_generic_timeline_query = "timeline" in query_lower and not any(
         kw in query_lower for kw in entity_keywords
     )
+    simple_summary_markers = [
+        "summary",
+        "summarize",
+        "summarise",
+        "synopsis",
+        "recap",
+        "what's this video about",
+        "what is this video about",
+        "what is the video about",
+        "what's it about",
+        "what is it about",
+    ]
+    thematic_markers = [
+        "main theme",
+        "main themes",
+        "theme",
+        "themes",
+        "topic",
+        "topics",
+        "pattern",
+        "patterns",
+        "cluster",
+        "clusters",
+        "community",
+        "communities",
+    ]
+    has_simple_summary_intent = any(marker in query_lower for marker in simple_summary_markers)
+    has_thematic_intent = any(marker in query_lower for marker in thematic_markers)
 
     if has_shared_entity_intent:
         append_tool_by_name("find_common_entities")
@@ -1496,7 +1524,16 @@ def select_tools_for_query(
                 if len(selected) >= max_tools:
                     break
     elif any(kw in query_lower for kw in structure_keywords):
-        selected.extend(structure_tools[:3])
+        if has_simple_summary_intent and not has_thematic_intent:
+            for preferred_name in (
+                "get_summary",
+                "list_chapters",
+                "get_video_info",
+                "get_community_overview",
+            ):
+                append_tool_by_name(preferred_name)
+        else:
+            selected.extend(structure_tools[:3])
         selected.extend(search_tools[:2])
     elif any(kw in query_lower for kw in analysis_keywords):
         selected.extend(analysis_tools[:3])
