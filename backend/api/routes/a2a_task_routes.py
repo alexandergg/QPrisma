@@ -11,14 +11,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
-from api.dependencies import get_current_user_optional
+from api.dependencies import get_current_user
 from api.rate_limit import limiter
 from api.routes.a2a_agent_cards import get_executor
+from api.routes.a2a_security import task_belongs_to_user, task_not_found
 from models.a2a_models import (
     ListTasksResponse,
     StreamResponse,
     Task,
-    TaskNotFoundError,
     TaskState,
     TaskStatusUpdateEvent,
     UnsupportedOperationError,
@@ -35,8 +35,8 @@ async def get_task(
     request: Request,
     task_id: str,
     response: Response,
+    current_user: Annotated[User, Depends(get_current_user)],
     historyLength: int | None = Query(None, description="Max messages to include in history"),
-    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ):
     """
     Get the current state of a task.
@@ -47,13 +47,10 @@ async def get_task(
     task = await executor.get_task(task_id, history_length=historyLength)
 
     if not task:
-        raise HTTPException(
-            status_code=404,
-            detail=TaskNotFoundError(
-                detail=f"Task with ID '{task_id}' not found",
-                taskId=task_id,
-            ).model_dump(),
-        )
+        raise task_not_found(task_id)
+
+    if not task_belongs_to_user(task, current_user):
+        raise task_not_found(task_id)
 
     return task
 
@@ -63,13 +60,13 @@ async def get_task(
 async def list_tasks(
     request: Request,
     response: Response,
+    current_user: Annotated[User, Depends(get_current_user)],
     contextId: str | None = Query(None, description="Filter by context ID"),
     status: TaskState | None = Query(None, description="Filter by status"),
     pageSize: int = Query(50, ge=1, le=100, description="Max tasks to return"),
     pageToken: str | None = Query(None, description="Pagination token"),
     historyLength: int | None = Query(None, description="Max messages per task history"),
     includeArtifacts: bool = Query(False, description="Include artifacts in response"),
-    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
 ):
     """
     List tasks with optional filtering and pagination.
@@ -83,6 +80,7 @@ async def list_tasks(
         status=status,
         page_size=pageSize,
         include_artifacts=includeArtifacts,
+        user_id=None if current_user.is_superuser else current_user.id,
     )
 
     return ListTasksResponse(
@@ -99,7 +97,7 @@ async def cancel_task(
     request: Request,
     task_id: str,
     response: Response,
-    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     """
     Cancel an ongoing task.
@@ -107,30 +105,23 @@ async def cancel_task(
     Returns the updated task with canceled status, or error if not cancellable.
     """
     executor = get_executor("video")
+    existing = await executor.get_task(task_id)
+    if not existing or not task_belongs_to_user(existing, current_user):
+        raise task_not_found(task_id)
+
     task = await executor.cancel_task(task_id)
 
     if not task:
-        # Check if task exists
-        existing = await executor.get_task(task_id)
-        if not existing:
-            raise HTTPException(
-                status_code=404,
-                detail=TaskNotFoundError(
-                    detail=f"Task with ID '{task_id}' not found",
-                    taskId=task_id,
-                ).model_dump(),
-            )
-        else:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "type": "https://a2a-protocol.org/errors/task-not-cancelable",
-                    "title": "Task Not Cancelable",
-                    "status": 409,
-                    "detail": f"Task '{task_id}' is not in a cancelable state",
-                    "taskId": task_id,
-                },
-            )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "type": "https://a2a-protocol.org/errors/task-not-cancelable",
+                "title": "Task Not Cancelable",
+                "status": 409,
+                "detail": f"Task '{task_id}' is not in a cancelable state",
+                "taskId": task_id,
+            },
+        )
 
     return task
 
@@ -140,7 +131,7 @@ async def cancel_task(
 async def subscribe_to_task(
     request: Request,
     task_id: str,
-    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     """
     Subscribe to task updates via SSE.
@@ -152,13 +143,10 @@ async def subscribe_to_task(
     task = await executor.get_task(task_id)
 
     if not task:
-        raise HTTPException(
-            status_code=404,
-            detail=TaskNotFoundError(
-                detail=f"Task with ID '{task_id}' not found",
-                taskId=task_id,
-            ).model_dump(),
-        )
+        raise task_not_found(task_id)
+
+    if not task_belongs_to_user(task, current_user):
+        raise task_not_found(task_id)
 
     # Check if task is in terminal state
     terminal_states = {

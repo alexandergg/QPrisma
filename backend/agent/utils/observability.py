@@ -11,6 +11,7 @@ Features:
 - Request context management
 """
 
+import hashlib
 import logging
 import time
 import uuid
@@ -31,6 +32,17 @@ _request_context: ContextVar[dict[str, Any] | None] = ContextVar("request_contex
 # OpenTelemetry conversation/user context (read by ConversationIdSpanProcessor)
 _otel_conversation_id: ContextVar[str | None] = ContextVar("otel_conversation_id", default=None)
 _otel_user_id: ContextVar[str | None] = ContextVar("otel_user_id", default=None)
+_otel_media_id: ContextVar[str | None] = ContextVar("otel_media_id", default=None)
+_otel_media_ids: ContextVar[list[str] | None] = ContextVar("otel_media_ids", default=None)
+_otel_session_id: ContextVar[str | None] = ContextVar("otel_session_id", default=None)
+
+
+def hash_identifier(value: str | None) -> str | None:
+    """Return a deterministic non-reversible identifier for telemetry metadata."""
+    if not value:
+        return None
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return f"sha256:{digest[:24]}"
 
 
 def set_conversation_id(conversation_id: str | None) -> None:
@@ -44,13 +56,85 @@ def get_conversation_id() -> str | None:
 
 
 def set_otel_user_id(user_id: str | None) -> None:
-    """Set the user ID for OpenTelemetry span attribution."""
+    """Set the raw user ID for OpenTelemetry attribution.
+
+    Span/log writers must call ``hash_identifier`` before recording it.
+    """
     _otel_user_id.set(user_id)
 
 
 def get_otel_user_id() -> str | None:
     """Get the current user ID for OpenTelemetry spans."""
     return _otel_user_id.get()
+
+
+def set_otel_media_context(
+    media_id: str | None = None,
+    media_ids: list[str] | None = None,
+    session_id: str | None = None,
+) -> None:
+    """Set media/session context for safe OpenTelemetry attribution."""
+    _otel_media_id.set(media_id)
+    _otel_media_ids.set(media_ids)
+    _otel_session_id.set(session_id)
+
+
+def _safe_span_attributes(
+    *,
+    conversation_id: str | None = None,
+    user_id: str | None = None,
+    media_id: str | None = None,
+    media_ids: list[str] | None = None,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    """Build safe span attributes without raw user/media/session identifiers."""
+    attributes: dict[str, Any] = {
+        "qprisma.runtime": "foundry_hosted",
+        "qprisma.hosted_agent": True,
+    }
+
+    if conversation_id:
+        # Foundry uses this raw conversation identifier to group trace trees.
+        attributes["gen_ai.conversation.id"] = conversation_id
+
+    user_hash = hash_identifier(user_id)
+    if user_hash:
+        attributes["enduser.id"] = user_hash
+        attributes["qprisma.user.id.hash"] = user_hash
+
+    media_hash = hash_identifier(media_id)
+    if media_hash:
+        attributes["qprisma.media.id.hash"] = media_hash
+
+    if media_ids:
+        attributes["qprisma.media.count"] = len(media_ids)
+        attributes["qprisma.media.ids.hash"] = [
+            hashed for media_value in media_ids if (hashed := hash_identifier(media_value))
+        ]
+
+    session_hash = hash_identifier(session_id)
+    if session_hash:
+        attributes["qprisma.session.id.hash"] = session_hash
+
+    return attributes
+
+
+def set_safe_span_attributes(span, **kwargs: Any) -> None:
+    """Set Foundry-compatible span attributes with sensitive identifiers hashed."""
+    for key, value in _safe_span_attributes(**kwargs).items():
+        span.set_attribute(key, value)
+
+
+def stamp_current_span(**kwargs: Any) -> None:
+    """Stamp the current OpenTelemetry span if tracing is available."""
+    try:
+        from opentelemetry import trace
+    except ImportError:
+        return
+
+    span = trace.get_current_span()
+    if span and span.is_recording():
+        set_safe_span_attributes(span, **kwargs)
 
 
 @dataclass
@@ -77,9 +161,9 @@ class RequestContext:
         """Convert to dict for logging."""
         return {
             "request_id": self.request_id,
-            "user_id": self.user_id,
-            "session_id": self.session_id,
-            "media_id": self.media_id,
+            "user_id_hash": hash_identifier(self.user_id),
+            "session_id_hash": hash_identifier(self.session_id),
+            "media_id_hash": hash_identifier(self.media_id),
             "project_id": self.project_id,
             "elapsed_ms": int((time.time() - self.start_time) * 1000),
             "node_count": len(self.node_path),
@@ -183,8 +267,8 @@ class StructuredLogger:
         # Build structured log data
         log_data = {
             "request_id": ctx.request_id,
-            "user_id": ctx.user_id,
-            "session_id": ctx.session_id,
+            "user_id_hash": hash_identifier(ctx.user_id),
+            "session_id_hash": hash_identifier(ctx.session_id),
             "elapsed_ms": int((time.time() - ctx.start_time) * 1000),
             **kwargs,
         }
@@ -558,7 +642,7 @@ def inject_request_context_to_config(config: dict, context: RequestContext | Non
         config["metadata"] = {}
 
     config["metadata"]["request_id"] = ctx.request_id
-    config["metadata"]["user_id"] = ctx.user_id
+    config["metadata"]["user_id_hash"] = hash_identifier(ctx.user_id)
 
     return config
 
@@ -580,12 +664,13 @@ except ImportError:  # SDK not installed
 
 class ConversationIdSpanProcessor(_SpanProcessorBase):
     """
-    Custom SpanProcessor that stamps ``gen_ai.conversation.id`` and
-    ``enduser.id`` on every span using values from ContextVars.
+    Custom SpanProcessor that stamps Foundry grouping and redacted QPrisma
+    context attributes on every span using values from ContextVars.
 
     Azure AI Foundry uses ``gen_ai.conversation.id`` to group traces
     by conversation in the Traces UI.  The Playground SDK sets this
-    automatically; hosted agents must do it explicitly.
+    automatically; hosted agents must do it explicitly. User, media, and
+    session identifiers are recorded only as deterministic hashes.
 
     Register this processor after ``configure_azure_monitor()``::
 
@@ -595,13 +680,14 @@ class ConversationIdSpanProcessor(_SpanProcessorBase):
     """
 
     def on_start(self, span, parent_context=None) -> None:
-        conversation_id = _otel_conversation_id.get()
-        if conversation_id:
-            span.set_attribute("gen_ai.conversation.id", conversation_id)
-
-        user_id = _otel_user_id.get()
-        if user_id:
-            span.set_attribute("enduser.id", user_id)
+        set_safe_span_attributes(
+            span,
+            conversation_id=_otel_conversation_id.get(),
+            user_id=_otel_user_id.get(),
+            media_id=_otel_media_id.get(),
+            media_ids=_otel_media_ids.get(),
+            session_id=_otel_session_id.get(),
+        )
 
     def on_end(self, span) -> None:
         pass

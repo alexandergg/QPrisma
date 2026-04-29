@@ -641,7 +641,7 @@ class TestRedisCheckpointer:
 
     @pytest.mark.asyncio
     async def test_checkpointer_fallback_to_memory(self):
-        """Test that get_shared_checkpointer always returns a MemorySaver."""
+        """Test fallback to MemorySaver when no persistent stores available."""
         import agent.graphs.video as module
         from langgraph.checkpoint.memory import MemorySaver
 
@@ -1259,7 +1259,7 @@ class TestProductionCheckpointerFactory:
 
     @pytest.mark.asyncio
     async def test_checkpointer_cascade_fallback(self):
-        """Test that factory returns MemorySaver when no shared checkpointer exists."""
+        """Test that factory falls back to MemorySaver when no stores available."""
         import agent.graphs.video as module
         from langgraph.checkpoint.memory import MemorySaver
 
@@ -2201,17 +2201,3 @@ class TestMultiVideoApiSchemas:
                 message="test",
                 media_ids=[f"v-{i}" for i in range(15)],
             )
-
-    def test_agent_chat_request_media_ids(self):
-        """Test AgentChatRequest with media_ids."""
-        from models.api_schemas import AgentChatRequest
-
-        req = AgentChatRequest(
-            message="Compare",
-            media_id="vid-1",
-            media_ids=["vid-2", "vid-3"],
-        )
-        ids = req.get_effective_media_ids()
-        assert "vid-1" in ids
-        assert "vid-2" in ids
-        assert "vid-3" in ids

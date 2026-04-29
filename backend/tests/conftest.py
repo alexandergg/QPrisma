@@ -18,6 +18,13 @@ from fastapi.testclient import TestClient
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# These must be present before test modules import application code that
+# initializes the module-level settings singleton.
+os.environ.setdefault("APP_ENV", "test")
+os.environ.setdefault("LOG_LEVEL", "WARNING")
+os.environ.setdefault("DISABLE_REDIS_PUBSUB", "1")
+os.environ.setdefault("DISABLE_STARTUP_HEALTHCHECKS", "1")
+
 
 def _env_enabled(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes"}

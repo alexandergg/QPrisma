@@ -41,6 +41,7 @@ It ingests media, extracts visual/audio context, builds semantic and graph index
 
 - **Video understanding**: Frame-level analysis, scene structure, and multimodal interpretation.
 - **Conversational retrieval (RAG)**: Ask natural language questions across one or many videos.
+- **Hosted video agent API**: Azure AI Foundry hosted agent exposed through authenticated A2A message/task endpoints.
 - **Knowledge graph enrichment**: Entity type normalization (30+ alias mappings with CONCEPT fallback), description enrichment (up to 5 accumulated descriptions per entity), semantic relation storage (evidence_count, weight), and multi-pass gleaning extraction for improved recall.
 - **Community detection**: Leiden-based hierarchical entity clustering (multi-resolution, leidenalg/igraph) with LLM-generated thematic summaries, integrated into hybrid search. Louvain fallback when leidenalg is unavailable.
 - **Graph hierarchy**: Chapter nodes (Video→Chapter→Scene with LLM titles/summaries), Topic graph nodes (ABOUT edges to Video and Entity), cross-video entity resolution (SAME_ENTITY edges with similarity scores), and LLM-calibrated relationship strength weights (1–10 → 0.1–1.0) on semantic edges.
@@ -53,10 +54,10 @@ It ingests media, extracts visual/audio context, builds semantic and graph index
 
 QPrisma uses layered memory to maintain answer quality on long workflows:
 
-- **Operational state** via LangGraph checkpointer (resume/retry continuity).
+- **Foundry-native Hosted Agent history** via Foundry Responses/Conversations for production sessions, responses, streaming lifecycle, tool-call traces, and portal visibility with redacted QPrisma metadata.
+- **Backend-direct operational state** via LangGraph checkpointer when the graph runs outside Hosted Agent mode.
 - **Full tool payload artifacts** in Redis + Blob + PostgreSQL metadata.
 - **Long-term user memory** via Azure AI Foundry Memory Store (per-user, Entra ID scoped).
-- **Server-side conversation history** via Foundry Conversations API.
 - **Prompt-time ranking** with recency and semantic/lexical signals.
 
 ## Frontend Preview
@@ -183,6 +184,7 @@ QPrisma includes multiple layers of security hardening:
 - **Microsoft Entra ID authentication** (MSAL v5 popup flow) on protected REST and WebSocket endpoints; some operational endpoints remain public, including `GET /cache/health`
 - **Token/session invalidation** is handled by Microsoft Entra ID and the client-side MSAL token lifecycle; there is no backend `POST /auth/logout` route or Redis-backed JTI denylist
 - **Rate limiting** (slowapi) on auth, A2A, and media endpoints
+- **A2A ownership isolation** — hosted-agent message/task endpoints require bearer JWT, validate media ownership, and hide cross-user task continuations as 404
 - **Security headers** middleware (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, etc.)
 - **Dev autologin guard** — `allow_dev_autologin` is rejected in production/staging by config validators
 - **Error sanitization** — no internal details leaked in API error responses
@@ -287,6 +289,11 @@ infra/
 
 - Validate endpoint/key/API version in `backend/.env`.
 - Confirm model deployments exist and names match configuration.
+
+### Hosted agent PermissionDenied errors
+
+- Ensure the hosted agent runtime identity has `Azure AI User` at both the Azure AI Foundry account and project scopes.
+- Re-run `.github/workflows/deploy-hosted-agent.yml` after agent registration or version changes; the workflow registers the version, reconciles Foundry, Key Vault, and Storage RBAC for the runtime identity, and then starts the agent.
 
 ## Development Scripts
 

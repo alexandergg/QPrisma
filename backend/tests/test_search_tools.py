@@ -137,12 +137,18 @@ class TestSearchVideo:
         assert result["results"][0]["type"] == "audio"
 
     @pytest.mark.asyncio
-    async def test_exception_returns_query_error(self):
+    async def test_exception_returns_query_error_when_fallback_fails(self):
         from agent.tools.search_tools import search_video
 
-        with patch(
-            "services.graph_search_service.get_graph_search_service",
-            side_effect=RuntimeError("boom"),
+        with (
+            patch(
+                "services.graph_search_service.get_graph_search_service",
+                side_effect=RuntimeError("hybrid boom"),
+            ),
+            patch(
+                "services.knowledge_graph.get_knowledge_graph_service",
+                side_effect=RuntimeError("fallback boom"),
+            ),
         ):
             result = await search_video.ainvoke({"query": "q", "media_id": "vid-1"})
 

@@ -71,9 +71,11 @@ The authentication routes currently exposed by the backend are:
 
 ## A2A Protocol (Agent-to-Agent)
 
-QPrisma implements the [A2A Protocol](https://a2a-protocol.org/) for standardized agent communication. This enables interoperability with other A2A-compliant agents.
+QPrisma implements the [A2A Protocol](https://a2a-protocol.org/) as the canonical API for the Azure AI Foundry hosted video agent. Legacy `/chat/agent` access has been removed; use `/chat` for classic RAG chat and A2A for hosted-agent task execution.
 
 > **Rate Limiting**: All A2A endpoints are rate-limited via slowapi. Message endpoints allow 60 requests/minute; task listing allows 120/minute; task cancellation allows 30/minute.
+>
+> **Authentication and ownership**: Agent discovery endpoints are public. Message and task lifecycle endpoints require `Authorization: Bearer <token>`. The server validates `media_id`/`media_ids` ownership, overwrites client-supplied `user_id`, and returns 404 for cross-user task or conversation continuation attempts.
 
 ### Agent Discovery
 
@@ -94,6 +96,14 @@ GET /.well-known/agent-card.json
     "pushNotifications": false,
     "stateTransitionHistory": true
   },
+  "securitySchemes": {
+    "bearerAuth": {
+      "type": "http",
+      "scheme": "bearer",
+      "bearerFormat": "JWT"
+    }
+  },
+  "security": [{"bearerAuth": []}],
   "skills": [
     {
       "id": "video-search",
@@ -116,6 +126,7 @@ GET /a2a/agent-card.json
 ```http
 POST /a2a/message:send
 Content-Type: application/json
+Authorization: Bearer eyJhbGc...
 
 {
   "message": {
@@ -149,6 +160,7 @@ Content-Type: application/json
 ```http
 POST /a2a/message:stream
 Content-Type: application/json
+Authorization: Bearer eyJhbGc...
 
 {
   "message": {
@@ -175,6 +187,7 @@ data: {"statusUpdate":{"taskId":"task-id","status":{"state":"TASK_STATE_COMPLETE
 #### Get Task
 ```http
 GET /a2a/tasks/{task_id}?historyLength=10
+Authorization: Bearer eyJhbGc...
 ```
 
 **Response:**
@@ -191,16 +204,19 @@ GET /a2a/tasks/{task_id}?historyLength=10
 #### List Tasks
 ```http
 GET /a2a/tasks?contextId=session-uuid&status=TASK_STATE_COMPLETED&pageSize=20
+Authorization: Bearer eyJhbGc...
 ```
 
 #### Cancel Task
 ```http
 POST /a2a/tasks/{task_id}:cancel
+Authorization: Bearer eyJhbGc...
 ```
 
 #### Subscribe to Task Updates
 ```http
 POST /a2a/tasks/{task_id}:subscribe
+Authorization: Bearer eyJhbGc...
 ```
 
 **Response (SSE Stream):**
@@ -534,6 +550,7 @@ Content-Type: application/json
 ```http
 POST /a2a/message:stream
 Content-Type: application/json
+Authorization: Bearer eyJhbGc...
 
 {
   "message": {
@@ -549,6 +566,7 @@ Content-Type: application/json
 ```http
 POST /a2a/message:stream
 Content-Type: application/json
+Authorization: Bearer eyJhbGc...
 
 {
   "message": {
@@ -561,6 +579,7 @@ Content-Type: application/json
 ```
 
 > **Note**: Both `media_id` and `media_ids` can be provided simultaneously. They will be merged, deduplicated, and capped at 10 videos maximum.
+> The server validates every referenced media item against the authenticated user. Continue a hosted-agent session by passing the returned Foundry `contextId`; cross-user continuation attempts are hidden as 404.
 
 **Response (Streaming A2A Format):**
 ```
@@ -578,6 +597,10 @@ When using `media_ids`, the agent has access to specialized cross-video tools:
 - `compare_videos`: Compare specific aspects between videos
 - `find_common_entities`: Find entities that appear in multiple videos
 - `get_library_overview`: Get high-level overview of video collection
+
+### Hosted Agent Deployment RBAC
+
+The hosted agent container runs with a dedicated Microsoft Entra runtime identity. Before invocation tests, that principal must have the `Azure AI User` role at both the Azure AI Foundry account scope and the Foundry project scope. The `deploy-hosted-agent.yml` workflow enforces this after agent registration so the runtime can call Foundry Responses, Conversations, and storage/history APIs.
 
 ### Knowledge Graph
 

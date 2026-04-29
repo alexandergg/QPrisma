@@ -4,6 +4,8 @@ Tests for services/database_service.py
 Uses SQLite in-memory for fast, isolated tests of CRUD operations.
 """
 
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy import inspect as sa_inspect
@@ -99,6 +101,41 @@ class TestDatabaseInit:
     def test_health_check(self, db_service):
         result = db_service.health_check()
         assert result["status"] == "healthy"
+
+
+@pytest.mark.unit
+class TestA2ATaskPersistence:
+    def test_list_a2a_tasks_filters_by_user_id(self, db_service):
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        db_service.upsert_a2a_task(
+            {
+                "id": "task-owned",
+                "context_id": "ctx-1",
+                "status_state": "TASK_STATE_COMPLETED",
+                "status_timestamp": now,
+                "status_payload": {"state": "TASK_STATE_COMPLETED"},
+                "artifacts": [],
+                "history": [],
+                "task_metadata": {"user_id": "user_test123"},
+            }
+        )
+        db_service.upsert_a2a_task(
+            {
+                "id": "task-other",
+                "context_id": "ctx-1",
+                "status_state": "TASK_STATE_COMPLETED",
+                "status_timestamp": now,
+                "status_payload": {"state": "TASK_STATE_COMPLETED"},
+                "artifacts": [],
+                "history": [],
+                "task_metadata": {"user_id": "other-user"},
+            }
+        )
+
+        rows, total = db_service.list_a2a_tasks(context_id="ctx-1", user_id="user_test123")
+
+        assert total == 1
+        assert [row.id for row in rows] == ["task-owned"]
 
 
 # =============================================================================

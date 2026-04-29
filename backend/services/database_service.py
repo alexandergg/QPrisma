@@ -479,6 +479,7 @@ class DatabaseService:
         context_id: str | None = None,
         status_state: str | None = None,
         page_size: int = 50,
+        user_id: str | None = None,
     ) -> tuple[list[A2ATaskModel], int]:
         """List persisted A2A tasks with optional filtering."""
         with self.get_session() as session:
@@ -489,6 +490,9 @@ class DatabaseService:
 
             if status_state:
                 query = query.filter(A2ATaskModel.status_state == status_state)
+
+            if user_id:
+                query = query.filter(A2ATaskModel.task_metadata["user_id"].as_string() == user_id)
 
             total = query.count()
 

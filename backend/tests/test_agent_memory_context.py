@@ -44,6 +44,78 @@ class TestAgentMemoryContext:
         assert updated["artifact_refs"] == []
         assert len(updated["partial_results"]) == 1
         assert updated["partial_results"][0]["artifact_id"] is None
+        assert updated["partial_results"][0]["tool_call_id"] == "tc-1"
+
+    @pytest.mark.asyncio
+    async def test_update_context_processes_multiple_recent_tool_messages(self):
+        state = {
+            "messages": [
+                HumanMessage(content="Find key moments and entities"),
+                ToolMessage(
+                    content='{"count": 1, "results": [{"timestamp": 12.5}]}',
+                    tool_call_id="tc-1",
+                    name="search_video",
+                ),
+                ToolMessage(
+                    content='{"count": 1, "entities": [{"name": "Alice"}]}',
+                    tool_call_id="tc-2",
+                    name="find_entities",
+                ),
+            ],
+            "conversation_context": [],
+            "partial_results": [],
+            "memory_context": [],
+            "artifact_refs": [],
+            "session_id": "session-multi",
+            "user_id": "user-1",
+            "media_id": "media-1",
+            "project_context": None,
+        }
+        config = RunnableConfig(configurable={"thread_id": "session-multi"})
+
+        with patch("core.config.settings.azure.storage_connection_string", None):
+            updated = await update_context_node(state, config)
+
+        assert len(updated["memory_context"]) == 2
+        assert [result["tool_call_id"] for result in updated["partial_results"]] == [
+            "tc-1",
+            "tc-2",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_update_context_skips_duplicate_tool_call_ids(self):
+        state = {
+            "messages": [
+                HumanMessage(content="Find key moments"),
+                ToolMessage(
+                    content='{"count": 1, "results": [{"timestamp": 12.5}]}',
+                    tool_call_id="tc-1",
+                    name="search_video",
+                ),
+            ],
+            "conversation_context": [],
+            "partial_results": [
+                {
+                    "tool": "search_video",
+                    "summary": "search_video: returned 1 results",
+                    "artifact_id": None,
+                    "tool_call_id": "tc-1",
+                }
+            ],
+            "memory_context": ["search_video: returned 1 results"],
+            "artifact_refs": [],
+            "session_id": "session-dupe",
+            "user_id": "user-1",
+            "media_id": "media-1",
+            "project_context": None,
+        }
+        config = RunnableConfig(configurable={"thread_id": "session-dupe"})
+
+        with patch("core.config.settings.azure.storage_connection_string", None):
+            updated = await update_context_node(state, config)
+
+        assert len(updated["memory_context"]) == 1
+        assert len(updated["partial_results"]) == 1
 
     @pytest.mark.asyncio
     async def test_update_context_adds_artifact_reference_when_enabled(self):

@@ -29,6 +29,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent.hosted.context_envelope import format_qprisma_context
+
 from evaluation_foundry.config import (
     AGENT_EVAL_EVALUATORS,
     AGENT_EVAL_FILE,
@@ -48,12 +50,6 @@ from evaluation_foundry.tool_definitions import TOOL_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 USER_ID_RUNTIME_PATTERN = re.compile(r"^user_[0-9a-f]{12}$")
-
-# ---------------------------------------------------------------------------
-# QPRISMA_CONTEXT formatting
-# ---------------------------------------------------------------------------
-
-CONTEXT_PREFIX = "[QPRISMA_CONTEXT:{ctx}]\n"
 
 
 def _format_context(
@@ -90,7 +86,7 @@ def _format_context(
         parts["response_mode"] = response_mode
     if not parts:
         return ""
-    return CONTEXT_PREFIX.format(ctx=json.dumps(parts, separators=(",", ":")))
+    return format_qprisma_context(parts, "")
 
 
 # ---------------------------------------------------------------------------

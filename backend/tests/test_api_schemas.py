@@ -9,7 +9,6 @@ import pytest
 from pydantic import ValidationError
 
 from models.api_schemas import (
-    AgentChatRequest,
     ChatRequest,
     JobStatus,
     ProcessingConfig,
@@ -58,36 +57,6 @@ class TestChatRequest:
                 message="hi",
                 media_ids=[f"v{i}" for i in range(11)],  # 11 > max_length=10
             )
-
-
-# =============================================================================
-# AgentChatRequest
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestAgentChatRequest:
-    def test_minimal(self):
-        req = AgentChatRequest(message="find highlights")
-        assert req.session_id is None
-        assert req.output_format == "markdown"
-
-    def test_with_session_id(self):
-        req = AgentChatRequest(message="more", session_id="sess_123")
-        assert req.session_id == "sess_123"
-
-    def test_deduplication(self):
-        req = AgentChatRequest(
-            message="compare",
-            media_id="v1",
-            media_ids=["v1", "v2"],
-        )
-        assert req.get_effective_media_ids() == ["v1", "v2"]
-
-    def test_output_format_options(self):
-        for fmt in ("markdown", "json", "structured"):
-            req = AgentChatRequest(message="hi", output_format=fmt)
-            assert req.output_format == fmt
 
 
 # =============================================================================

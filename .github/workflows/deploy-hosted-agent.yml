@@ -258,59 +258,33 @@ jobs:
       # App Insights connection string is auto-injected by the Foundry
       # hosted-agent platform; we do not resolve or pass it ourselves.
 
-      - name: Resolve backend service endpoints
+      - name: Resolve hosted agent runtime configuration
         id: services
-        env:
-          DB_ADMIN_PASSWORD: ${{ secrets.DB_ADMIN_PASSWORD }}
         run: |
+          set -euo pipefail
           RG="${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}"
+          KEY_VAULT_NAME="${{ vars.KEY_VAULT_NAME || 'kv-qprisma-dev' }}"
 
-          # Neo4j AuraDB — URI from GitHub secrets (no Container App to resolve)
-          echo "Neo4j URI provided via secrets (AuraDB)"
-
-          # PostgreSQL Flexible Server
-          PG_FQDN=$(az postgres flexible-server show \
-            --name psql-qprisma-dev --resource-group "$RG" \
-            --query "fullyQualifiedDomainName" -o tsv 2>/dev/null || echo "")
-          if [ -n "$PG_FQDN" ]; then
-            echo "pg_fqdn=${PG_FQDN}" >> $GITHUB_OUTPUT
-            DB_URL="postgresql://qprismaadmin:${DB_ADMIN_PASSWORD}@${PG_FQDN}:5432/qprisma?sslmode=require"
-            echo "::add-mask::${DB_URL}"
-            echo "database_url=${DB_URL}" >> $GITHUB_OUTPUT
-            echo "PostgreSQL FQDN: ${PG_FQDN}"
+          KEY_VAULT_URI=$(az keyvault show \
+            --name "$KEY_VAULT_NAME" --resource-group "$RG" \
+            --query properties.vaultUri -o tsv 2>/dev/null || echo "")
+          if [ -n "$KEY_VAULT_URI" ]; then
+            echo "neo4j_password_key_vault_uri=${KEY_VAULT_URI}secrets/neo4j-password" >> $GITHUB_OUTPUT
+            echo "database_url_key_vault_uri=${KEY_VAULT_URI}secrets/database-url" >> $GITHUB_OUTPUT
+            echo "redis_url_key_vault_uri=${KEY_VAULT_URI}secrets/redis-url" >> $GITHUB_OUTPUT
+            echo "Key Vault secret URIs resolved for hosted runtime"
           else
-            echo "::warning::PostgreSQL Flexible Server not found — DATABASE_URL will be missing"
+            echo "::warning::Key Vault not found — hosted runtime secret URIs will be missing"
           fi
 
-          # Azure Managed Redis Enterprise (Microsoft.Cache/redisEnterprise)
-          REDIS_HOST=$(az redisenterprise show \
-            --name redis-qprisma-dev --resource-group "$RG" \
-            --query "hostName" -o tsv 2>/dev/null || echo "")
-          REDIS_PORT="${REDIS_PORT:-10000}"
-          # Azure CLI resolves Redis Enterprise database keys at the cluster scope.
-          REDIS_KEY=$(az redisenterprise database list-keys \
-            --cluster-name redis-qprisma-dev --resource-group "$RG" \
-            --query "primaryKey" -o tsv 2>/dev/null || echo "")
-          if [ -n "$REDIS_HOST" ] && [ -n "$REDIS_KEY" ]; then
-            echo "::add-mask::${REDIS_KEY}"
-            echo "redis_url=rediss://:${REDIS_KEY}@${REDIS_HOST}:${REDIS_PORT}/0" >> $GITHUB_OUTPUT
-            echo "Redis host: ${REDIS_HOST}:${REDIS_PORT}"
-          elif [ -z "$REDIS_HOST" ]; then
-            echo "::warning::Redis Enterprise cluster not found — REDIS_URL will be missing"
-          else
-            echo "::warning::Redis Enterprise access keys unavailable — REDIS_URL will be missing"
-          fi
-
-          # Azure Storage Account
-          STORAGE_CONN=$(az storage account show-connection-string \
+          STORAGE_ACCOUNT_URL=$(az storage account show \
             --name stqprismadev --resource-group "$RG" \
-            --query "connectionString" -o tsv 2>/dev/null || echo "")
-          if [ -n "$STORAGE_CONN" ]; then
-            echo "::add-mask::${STORAGE_CONN}"
-            echo "storage_connection_string=${STORAGE_CONN}" >> $GITHUB_OUTPUT
-            echo "Storage connection string resolved"
+            --query "primaryEndpoints.blob" -o tsv 2>/dev/null || echo "")
+          if [ -n "$STORAGE_ACCOUNT_URL" ]; then
+            echo "azure_storage_account_url=${STORAGE_ACCOUNT_URL}" >> $GITHUB_OUTPUT
+            echo "Storage account URL resolved for managed identity access"
           else
-            echo "::warning::Storage account not found — AZURE_STORAGE_CONNECTION_STRING will be missing"
+            echo "::warning::Storage account not found — AZURE_STORAGE_ACCOUNT_URL will be missing"
           fi
 
       - name: Register agent in Foundry
@@ -334,40 +308,102 @@ jobs:
           # Neo4j Knowledge Graph
           NEO4J_URI: ${{ secrets.NEO4J_URI }}
           NEO4J_USER: ${{ secrets.NEO4J_USER || 'neo4j' }}
-          NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
+          NEO4J_PASSWORD_KEY_VAULT_URI: ${{ steps.services.outputs.neo4j_password_key_vault_uri }}
           NEO4J_DATABASE: ${{ secrets.NEO4J_DATABASE || 'neo4j' }}
-          # PostgreSQL (built conditionally in resolver step — empty if PG not found)
-          DATABASE_URL: ${{ steps.services.outputs.database_url }}
+          # PostgreSQL
+          DATABASE_URL_KEY_VAULT_URI: ${{ steps.services.outputs.database_url_key_vault_uri }}
           # Redis
-          REDIS_URL: ${{ steps.services.outputs.redis_url }}
-          # Azure Blob Storage
-          AZURE_STORAGE_CONNECTION_STRING: ${{ steps.services.outputs.storage_connection_string }}
+          REDIS_URL_KEY_VAULT_URI: ${{ steps.services.outputs.redis_url_key_vault_uri }}
+          # Azure Blob Storage (managed identity)
+          AZURE_STORAGE_ACCOUNT_URL: ${{ steps.services.outputs.azure_storage_account_url }}
           # Optional: purge the agent + all versions before registering a new one.
           PURGE_BEFORE_DEPLOY: ${{ inputs.purge_before_deploy && '1' || '' }}
         run: python scripts/deploy_agent.py
 
       - name: Ensure hosted agent instance identity has Azure OpenAI access
+        id: runtime_rbac
         env:
           AGENT_IDENTITY_PID: ${{ steps.register.outputs.agent_identity_principal_id }}
         run: |
-          if [ -z "$AGENT_IDENTITY_PID" ]; then
-            echo "::warning::agent_identity_principal_id is empty — skipping OpenAI role assignment"
-            exit 0
-          fi
+          set -euo pipefail
+
           RG="rg-qprisma-dev"
           ACCOUNT="aif-qprisma-dev"
-          AI_ACCOUNT_ID=$(az cognitiveservices account show \
-            --name ${ACCOUNT} --resource-group ${RG} \
+          PROJECT="${ACCOUNT}-project"
+          AGENT="qprisma-video-agent"
+          SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          KEY_VAULT_NAME="${{ vars.KEY_VAULT_NAME || 'kv-qprisma-dev' }}"
+          STORAGE_ACCOUNT="stqprismadev"
+
+          ACCOUNT_SCOPE=$(az cognitiveservices account show \
+            --name "$ACCOUNT" --resource-group "$RG" \
             --query id -o tsv)
-          # Cognitive Services OpenAI User (5e0bd9bd-7b93-4f28-af87-19fc36ad61bd)
-          echo "Assigning Cognitive Services OpenAI User to agent identity ${AGENT_IDENTITY_PID:0:8}..."
-          az role assignment create \
-            --assignee-object-id "$AGENT_IDENTITY_PID" \
-            --assignee-principal-type ServicePrincipal \
-            --role "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd" \
-            --scope "$AI_ACCOUNT_ID" \
-            --output none 2>&1 || echo "  (already assigned)"
-          echo "Azure OpenAI access configured for hosted agent instance identity"
+          PROJECT_SCOPE="${ACCOUNT_SCOPE}/projects/${PROJECT}"
+          KEY_VAULT_SCOPE=$(az keyvault show \
+            --name "$KEY_VAULT_NAME" --resource-group "$RG" \
+            --query id -o tsv)
+          STORAGE_SCOPE=$(az storage account show \
+            --name "$STORAGE_ACCOUNT" --resource-group "$RG" \
+            --query id -o tsv)
+          COGNITIVE_SERVICES_OPENAI_USER_ROLE="5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
+          AZURE_AI_USER_ROLE="53ca6127-db72-4b80-b1b0-d745d6d5456d"
+          KEY_VAULT_SECRETS_USER_ROLE="4633458b-17de-408a-b874-0445c86b69e6"
+          STORAGE_BLOB_DATA_CONTRIBUTOR_ROLE="ba92f5b4-2d11-453d-a403-e96b0029c9fe"
+
+          AGENT_PID="$AGENT_IDENTITY_PID"
+
+          if [ -z "$AGENT_PID" ] || [ "$AGENT_PID" = "null" ]; then
+            echo "::error::Register step did not return hosted agent runtime identity for ${AGENT}"
+            exit 1
+          fi
+
+          echo "Hosted agent runtime principal: ${AGENT_PID:0:8}..."
+          ASSIGNMENT_CREATED=0
+
+          assign_role() {
+            local scope="$1"
+            local label="$2"
+            local role_id="$3"
+            local role_name="$4"
+            local existing
+            existing=$(az role assignment list \
+              --assignee "$AGENT_PID" \
+              --scope "$scope" \
+              --query "[?roleDefinitionId=='/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${role_id}'].id | [0]" \
+              -o tsv)
+
+            if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+              echo "  ${role_name} already assigned at ${label}"
+              return
+            fi
+
+            echo "  Assigning ${role_name} at ${label}..."
+            az role assignment create \
+              --assignee-object-id "$AGENT_IDENTITY_PID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "$role_id" \
+              --scope "$scope" \
+              --output none
+            ASSIGNMENT_CREATED=1
+          }
+
+          assign_role "$ACCOUNT_SCOPE" "Foundry account scope" "$COGNITIVE_SERVICES_OPENAI_USER_ROLE" "Cognitive Services OpenAI User"
+          assign_role "$ACCOUNT_SCOPE" "Foundry account scope" "$AZURE_AI_USER_ROLE" "Azure AI User"
+          assign_role "$PROJECT_SCOPE" "Foundry project scope" "$AZURE_AI_USER_ROLE" "Azure AI User"
+          assign_role "$KEY_VAULT_SCOPE" "Key Vault scope" "$KEY_VAULT_SECRETS_USER_ROLE" "Key Vault Secrets User"
+          assign_role "$STORAGE_SCOPE" "Storage account scope" "$STORAGE_BLOB_DATA_CONTRIBUTOR_ROLE" "Storage Blob Data Contributor"
+
+          if [ "$ASSIGNMENT_CREATED" = "1" ]; then
+            echo "Waiting for hosted runtime role assignment propagation..."
+            sleep 60
+          fi
+
+          az role assignment list \
+            --assignee "$AGENT_PID" \
+            --scope "$ACCOUNT_SCOPE" \
+            --include-inherited \
+            --query "[?roleDefinitionId=='/subscriptions/${SUB}/providers/Microsoft.Authorization/roleDefinitions/${AZURE_AI_USER_ROLE}'].{role:roleDefinitionName,scope:scope}" \
+            -o table
 
       - name: Deployment summary
         run: |

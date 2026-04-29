@@ -14,6 +14,7 @@ from typing import Literal
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
+from agent.hosted.context_envelope import extract_qprisma_context
 from agent.nodes.base import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     DEFAULT_WARN_TOOL_ITERATIONS,
@@ -56,14 +57,19 @@ def _extract_message_envelopes(messages: list, updates: dict) -> None:
         return
 
     content = first_msg.content
-    ctx_match = _CONTEXT_ENV_RE.search(content)
-    if not ctx_match:
-        return
+    ctx, cleaned_content = extract_qprisma_context(content)
+    if not ctx:
+        ctx_match = _CONTEXT_ENV_RE.search(content)
+        if not ctx_match:
+            return
+        try:
+            ctx = json.loads(ctx_match.group(1))
+        except json.JSONDecodeError:
+            logger.warning("QPRISMA_CONTEXT prefix found but payload is malformed")
+            return
+        cleaned_content = content[: ctx_match.start()] + content[ctx_match.end() :]
 
-    try:
-        ctx = json.loads(ctx_match.group(1))
-    except json.JSONDecodeError:
-        logger.warning("QPRISMA_CONTEXT prefix found but payload is malformed")
+    if not ctx:
         return
 
     msg_media_ids = ctx.get("media_ids") or []
@@ -78,8 +84,7 @@ def _extract_message_envelopes(messages: list, updates: dict) -> None:
     if msg_user_id:
         updates["user_id"] = msg_user_id
 
-    # Strip QPRISMA_CONTEXT envelope from content
-    content = content[: ctx_match.start()] + content[ctx_match.end() :]
+    content = cleaned_content
 
     # Parse and strip QPRISMA_BENCH envelope (whether valid or not)
     bench_match = _BENCH_ENV_RE.search(content)
@@ -139,8 +144,9 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     In multi-video mode, also resolves human-readable video titles from the
     database so the system prompt can display them.
 
-    Also stamps OpenTelemetry span attributes (``gen_ai.conversation.id``,
-    ``enduser.id``) so Azure AI Foundry can group traces by conversation.
+    Also stamps OpenTelemetry span attributes so Azure AI Foundry can group
+    traces by conversation while QPrisma user/media/session identifiers are
+    recorded only as deterministic hashes.
     """
     configurable = config.get("configurable", {})
     raw_config_media_id = configurable.get("media_id")
@@ -153,26 +159,19 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     # --- OpenTelemetry conversation/user attribution ---
     thread_id = configurable.get("thread_id")
     user_id = state.get("user_id") or configurable.get("user_id")
+    session_id = state.get("session_id") or configurable.get("session_id")
 
-    from agent.utils.observability import set_conversation_id, set_otel_user_id
+    from agent.utils.observability import (
+        set_conversation_id,
+        set_otel_media_context,
+        set_otel_user_id,
+        stamp_current_span,
+    )
 
     if thread_id and thread_id != "default":
         set_conversation_id(thread_id)
     if user_id:
         set_otel_user_id(user_id)
-
-    # Also stamp directly on the current span (belt-and-suspenders)
-    try:
-        from opentelemetry import trace
-
-        span = trace.get_current_span()
-        if span and span.is_recording():
-            if thread_id and thread_id != "default":
-                span.set_attribute("gen_ai.conversation.id", thread_id)
-            if user_id:
-                span.set_attribute("enduser.id", user_id)
-    except Exception:  # noqa: S110
-        pass  # OTel not available — safe to ignore
 
     raw_state_media_id = state.get("media_id")
     raw_state_media_ids = state.get("media_ids")
@@ -188,6 +187,22 @@ def restore_media_context(state: AgentState, config: RunnableConfig) -> dict:
     # Resolve effective media_id: config > state (checkpoint)
     effective_media_id = config_media_id or state_media_id
     effective_media_ids = config_media_ids or state_media_ids
+
+    media_ids_for_telemetry = effective_media_ids or (
+        [effective_media_id] if effective_media_id else None
+    )
+    set_otel_media_context(
+        media_id=effective_media_id,
+        media_ids=media_ids_for_telemetry,
+        session_id=session_id,
+    )
+    stamp_current_span(
+        conversation_id=thread_id if thread_id and thread_id != "default" else None,
+        user_id=user_id,
+        media_id=effective_media_id,
+        media_ids=media_ids_for_telemetry,
+        session_id=session_id,
+    )
 
     if effective_media_id and effective_media_id != raw_state_media_id:
         source = "config" if config_media_id else "checkpoint"

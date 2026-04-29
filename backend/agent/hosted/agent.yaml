@@ -50,22 +50,22 @@ template:
       value: ${NEO4J_URI}
     - name: NEO4J_USER
       value: ${NEO4J_USER}
-    - name: NEO4J_PASSWORD
-      secretKeyVaultUri: ${NEO4J_PASSWORD_KV_URI}
+    - name: NEO4J_PASSWORD_KEY_VAULT_URI
+      value: ${NEO4J_PASSWORD_KEY_VAULT_URI}
     - name: NEO4J_DATABASE
       value: ${NEO4J_DATABASE}
 
     # --- Redis ---
-    - name: REDIS_URL
-      secretKeyVaultUri: ${REDIS_URL_KV_URI}
+    - name: REDIS_URL_KEY_VAULT_URI
+      value: ${REDIS_URL_KEY_VAULT_URI}
 
     # --- PostgreSQL ---
-    - name: DATABASE_URL
-      secretKeyVaultUri: ${DATABASE_URL_KV_URI}
+    - name: DATABASE_URL_KEY_VAULT_URI
+      value: ${DATABASE_URL_KEY_VAULT_URI}
 
-    # --- Azure Blob Storage ---
-    - name: AZURE_STORAGE_CONNECTION_STRING
-      secretKeyVaultUri: ${STORAGE_CONNECTION_KV_URI}
+    # --- Azure Blob Storage (managed identity) ---
+    - name: AZURE_STORAGE_ACCOUNT_URL
+      value: ${AZURE_STORAGE_ACCOUNT_URL}
 
     # --- Foundry Memory Store ---
     # FOUNDRY_* and AGENT_* prefixes are reserved by the hosted-agent platform,
@@ -86,6 +86,12 @@ template:
     # --- Telemetry / Tracing ---
     # APPLICATIONINSIGHTS_CONNECTION_STRING is reserved and auto-injected by
     # the Foundry hosted-agent platform; do not declare it here.
+    - name: OTEL_SERVICE_NAME
+      value: "qprisma-hosted-agent"
+    - name: AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED
+      value: "false"
+    - name: AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING
+      value: "true"
 
 resources:
   - kind: model
