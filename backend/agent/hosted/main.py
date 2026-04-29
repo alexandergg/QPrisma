@@ -1,19 +1,15 @@
 """
-QPrisma Video Agent — hosted runtime entrypoint.
+QPrisma Video Agent - Foundry hosted runtime entrypoint.
 
-Targets the Azure AI Foundry **refreshed public preview** for hosted agents:
+Targets the Azure AI Foundry refreshed public preview for hosted agents:
 
-* Runtime SDK: ``azure-ai-agentserver-responses==1.0.0b5`` (+ ``core>=2.0.0b3``).
+* Runtime SDK: ``azure-ai-agentserver-responses==1.0.0b5``.
 * Protocol: OpenAI Responses (``protocol.version: "1.0.0"`` in ``agent.yaml``).
-* Persistence: **Foundry Conversations** (Sessions / Conversations / Responses).
-  In-process LangGraph state uses ``MemorySaver`` only for the duration of a
-  single turn; cross-turn history is recovered via ``context.get_history()``.
-* Per-request inputs (media_id, media_ids, user_id, …) arrive via
-  ``request.metadata``. The legacy ``[QPRISMA_CONTEXT:…]`` message envelope
-  has been removed.
-
-Local development falls back to ``InMemoryResponseProvider`` automatically when
-``FOUNDRY_HOSTING_ENVIRONMENT`` is unset (handled by ``ResponsesAgentServerHost``).
+* Persistence: Foundry Conversations / Responses own cross-turn history.
+  LangGraph uses ``MemorySaver`` only for in-run state inside the hosted
+  container.
+* Per-request QPrisma inputs (media_id, media_ids, user_id, session_id) arrive
+  via ``request.metadata``.
 """
 
 from __future__ import annotations
@@ -26,34 +22,68 @@ from collections.abc import AsyncIterable
 from typing import Any
 from urllib.parse import urlparse
 
-from azure.ai.agentserver.responses import (
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stream=sys.stdout,
+)
+logger = logging.getLogger("qprisma.hosted")
+
+
+def _bootstrap_environment() -> None:
+    """Resolve hosted runtime secrets before importing settings-backed modules."""
+    try:
+        from agent.hosted.secrets import resolve_key_vault_secret_environment
+
+        resolved_secrets = resolve_key_vault_secret_environment()
+        if resolved_secrets:
+            logger.info("Resolved hosted runtime secrets: %s", sorted(resolved_secrets))
+    except Exception as exc:
+        logger.error("Hosted runtime secret resolution failed: %s", exc)
+        raise SystemExit(1) from exc
+
+    try:
+        from core.logging_config import setup_logging
+
+        setup_logging()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Structured logging setup failed; continuing with basic logging: %s", exc)
+
+
+_bootstrap_environment()
+
+from azure.ai.agentserver.responses import (  # noqa: E402
     CreateResponse,
     ResponseContext,
     ResponsesAgentServerHost,
     TextResponse,
 )
-from azure.identity import DefaultAzureCredential
-from langchain_core.messages import (
+from azure.identity import DefaultAzureCredential  # noqa: E402
+from langchain_core.messages import (  # noqa: E402
     AIMessage,
     BaseMessage,
     HumanMessage,
     SystemMessage,
     ToolMessage,
 )
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 
-from agent.graphs.video import create_video_agent_graph
-from agent.hosted.telemetry import SafeAzureAIOpenTelemetryTracer
-from agent.state.agent_state import AgentInputState
-
-logger = logging.getLogger("qprisma.hosted")
+from agent.graphs.video import create_video_agent_graph  # noqa: E402
+from agent.hosted.telemetry import SafeAzureAIOpenTelemetryTracer  # noqa: E402
+from agent.state.agent_state import AgentInputState  # noqa: E402
+from agent.utils.observability import (  # noqa: E402
+    set_conversation_id,
+    set_otel_media_context,
+    set_otel_user_id,
+    stamp_current_span,
+)
 
 # ---------------------------------------------------------------------------
 # Foundry env-var bridge
 # ---------------------------------------------------------------------------
 # Foundry reserves the ``FOUNDRY_*`` namespace for the runtime contract.
-# Existing QPrisma code reads ``AZURE_AI_PROJECT_*``; mirror them so the
-# hosted environment can populate either side.
+# Existing QPrisma code reads ``AZURE_AI_PROJECT_*``; mirror them so the hosted
+# environment can populate either side without redeclaring platform variables.
 
 _FOUNDRY_ENV_BRIDGE: dict[str, str] = {
     "FOUNDRY_PROJECT_ENDPOINT": "AZURE_AI_PROJECT_ENDPOINT",
@@ -87,13 +117,7 @@ _tracer: SafeAzureAIOpenTelemetryTracer | None = None
 
 
 def _setup_telemetry() -> SafeAzureAIOpenTelemetryTracer | None:
-    """Initialise Azure AI OpenTelemetry tracer (best-effort).
-
-    Returns the LangChain callback or ``None`` if telemetry is unavailable.
-    Failures are logged but never block startup — the agent must remain
-    serviceable even if telemetry export is degraded.
-    """
-
+    """Initialise Azure AI OpenTelemetry tracer (best-effort)."""
     project_endpoint = os.environ.get("FOUNDRY_PROJECT_ENDPOINT") or os.environ.get(
         "AZURE_AI_PROJECT_ENDPOINT"
     )
@@ -140,6 +164,16 @@ _graph_lock = asyncio.Lock()
 _graph: Any | None = None
 
 
+def create_hosted_checkpointer() -> MemorySaver:
+    """Create the Foundry-native Hosted Agent checkpointer.
+
+    Hosted mode intentionally keeps LangGraph checkpointing process-local:
+    Foundry Responses/Conversations own cross-turn conversation history, while
+    LangGraph only needs in-run graph state for a single hosted execution.
+    """
+    return MemorySaver()
+
+
 async def _get_graph() -> Any:
     global _graph
     if _graph is not None:
@@ -147,7 +181,7 @@ async def _get_graph() -> Any:
     async with _graph_lock:
         if _graph is not None:
             return _graph
-        checkpointer = MemorySaver()
+        checkpointer = create_hosted_checkpointer()
         graph = create_video_agent_graph(checkpointer=checkpointer)
         callbacks = [_tracer] if _tracer is not None else []
         config: dict[str, Any] = {"tags": ["qprisma", "video-agent", "hosted"]}
@@ -167,12 +201,7 @@ async def _get_graph() -> Any:
 
 
 def _coerce_message(item: Any) -> BaseMessage | None:
-    """Best-effort coercion of an SDK history/input item into a LangChain message.
-
-    The refreshed Responses preview returns provider-shaped dicts. We accept
-    the common variants and fall back to ``HumanMessage`` for unknown roles.
-    """
-
+    """Best-effort coercion of an SDK history/input item into a LangChain message."""
     if isinstance(item, BaseMessage):
         return item
 
@@ -313,6 +342,38 @@ def _build_initial_state(
     return state  # type: ignore[return-value]
 
 
+def _context_conversation_id(context: ResponseContext) -> str:
+    for attr in ("conversation_id", "session_id", "thread_id", "response_id"):
+        value = getattr(context, attr, None)
+        if value:
+            return str(value)
+    return "unknown"
+
+
+def _stamp_request_context(context: ResponseContext, state: AgentInputState) -> None:
+    conversation_id = _context_conversation_id(context)
+    media_id = state.get("media_id")
+    media_ids = state.get("media_ids")
+    user_id = state.get("user_id")
+    session_id = state.get("session_id")
+
+    set_conversation_id(conversation_id)
+    if user_id:
+        set_otel_user_id(str(user_id))
+    set_otel_media_context(
+        media_id=str(media_id) if media_id else None,
+        media_ids=[str(value) for value in media_ids] if media_ids else None,
+        session_id=str(session_id) if session_id else None,
+    )
+    stamp_current_span(
+        conversation_id=conversation_id,
+        user_id=str(user_id) if user_id else None,
+        media_id=str(media_id) if media_id else None,
+        media_ids=[str(value) for value in media_ids] if media_ids else None,
+        session_id=str(session_id) if session_id else None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Streaming
 # ---------------------------------------------------------------------------
@@ -324,12 +385,7 @@ async def _stream_tokens(
     config: dict[str, Any],
     cancellation_signal: asyncio.Event,
 ) -> AsyncIterable[str]:
-    """Stream LangGraph LLM token deltas as plain text chunks.
-
-    ``TextResponse`` consumes an ``AsyncIterable[str]``; the SDK wraps each
-    yielded chunk in the appropriate Responses streaming event.
-    """
-
+    """Stream LangGraph LLM token deltas as plain text chunks."""
     try:
         async for event in graph.astream_events(state, config=config, version="v2"):
             if cancellation_signal.is_set():
@@ -367,12 +423,6 @@ async def _stream_tokens(
 # Server
 # ---------------------------------------------------------------------------
 
-logging.basicConfig(
-    level=os.environ.get("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    stream=sys.stdout,
-)
-
 _tracer = _setup_telemetry()
 app = ResponsesAgentServerHost()
 
@@ -384,7 +434,6 @@ async def handle_response(
     cancellation_signal: asyncio.Event,
 ) -> TextResponse:
     """Refreshed-preview entrypoint: ingest a Responses request, stream tokens."""
-
     metadata: dict[str, Any] = dict(request.metadata) if request.metadata else {}
 
     if logger.isEnabledFor(logging.DEBUG):
@@ -408,14 +457,16 @@ async def handle_response(
 
     graph = await _get_graph()
     state = _build_initial_state(metadata, history)
+    _stamp_request_context(context, state)
 
-    response_id = getattr(context, "response_id", None) or "unknown"
+    conversation_id = _context_conversation_id(context)
     config: dict[str, Any] = {
         "configurable": {
-            "thread_id": response_id,
+            "thread_id": conversation_id,
             "media_id": state.get("media_id"),
             "media_ids": state.get("media_ids"),
             "user_id": state.get("user_id"),
+            "session_id": state.get("session_id"),
         },
         "metadata": metadata,
     }

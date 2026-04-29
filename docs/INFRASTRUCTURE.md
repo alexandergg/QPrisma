@@ -427,6 +427,23 @@ GitHub Secrets
                                                      (API + Worker apps)
 ```
 
+### Hosted Agent secret flow
+
+`deploy-hosted-agent.yml` uses the Foundry Python SDK to register the image, but it does not pass database, Redis, Neo4j, or Storage connection-string secrets as environment values. The workflow passes Key Vault secret URIs for `neo4j-password`, `database-url`, and `redis-url`, plus the Storage account blob endpoint.
+
+After registration, the workflow resolves the platform-created Hosted Agent identity and grants:
+
+| Scope | Role | Purpose |
+|-------|------|---------|
+| Foundry account | `Azure AI User` | Model/tool access and streaming runtime access |
+| Foundry project | `Azure AI User` | Project-scoped agent artifacts and model access |
+| Key Vault | `Key Vault Secrets User` | Runtime resolution of database, Redis, and Neo4j secrets |
+| Storage account | `Storage Blob Data Contributor` | Blob access through managed identity |
+
+The Hosted Agent container resolves the Key Vault URIs at startup before `core.config.settings` is imported. Direct secret variables such as `DATABASE_URL`, `REDIS_URL`, `NEO4J_PASSWORD`, and `AZURE_STORAGE_CONNECTION_STRING` are intentionally ignored by `scripts/deploy_agent.py` to avoid reintroducing plaintext Hosted Agent environment secrets.
+
+The Hosted Agent image (`backend/agent/hosted/Dockerfile`) is built as linux/amd64 with a multi-stage Python 3.11-slim pipeline. Dependencies are resolved with the existing `uv pip compile --extra hosted --prerelease=allow` flow into a virtual environment, while the final image keeps only runtime libraries and runs as non-root `appuser` (UID 1001). The Foundry adapter still serves port 8088 and exposes the hosted app readiness endpoint.
+
 ---
 
 ## Deployment Flow

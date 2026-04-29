@@ -5,8 +5,6 @@ This package contains all Pydantic models, database models, and configuration ty
 """
 
 from .api_schemas import (
-    AgentChatRequest,
-    AgentChatResponse,
     AuthConfigResponse,
     # Batch
     BatchStatusResponse,
@@ -41,8 +39,6 @@ __all__ = [
     "SearchRequest",
     "SearchResult",
     "SearchResponse",
-    "AgentChatRequest",
-    "AgentChatResponse",
     # API Schemas - Batch
     "BatchStatusResponse",
     "CostEstimateResponse",

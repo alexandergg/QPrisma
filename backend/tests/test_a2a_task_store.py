@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from agent.a2a import PersistentTaskStore, TaskStore
+
 from models.a2a_models import TaskState
 
 
@@ -57,3 +58,27 @@ def test_persistent_row_to_task_conversion_roundtrip_shape():
     assert task.status.state == TaskState.WORKING
     assert task.artifacts is not None
     assert task.history is not None
+
+
+async def test_in_memory_task_store_filters_by_user_id():
+    store = TaskStore()
+
+    user_1_task = await store.create_task(context_id="ctx-1", metadata={"user_id": "user-1"})
+    await store.create_task(context_id="ctx-1", metadata={"user_id": "user-2"})
+
+    tasks, total = await store.list_tasks(context_id="ctx-1", user_id="user-1")
+
+    assert total == 1
+    assert [task.id for task in tasks] == [user_1_task.id]
+
+
+async def test_persistent_task_store_passes_user_filter_to_database():
+    db = MagicMock()
+    db.list_a2a_tasks.return_value = ([], 0)
+    store = PersistentTaskStore(db)
+
+    tasks, total = await store.list_tasks(context_id="ctx-1", user_id="user-1")
+
+    assert tasks == []
+    assert total == 0
+    db.list_a2a_tasks.assert_called_once_with("ctx-1", None, 50, "user-1")

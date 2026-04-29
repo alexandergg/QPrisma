@@ -1015,59 +1015,77 @@ async def update_context_node(state: AgentState, config: RunnableConfig) -> dict
     updated_context = list(set(current_context + new_topics))[-10:]
 
     # Track successful tool results for error recovery + compact memory
-    partial_results = state.get("partial_results", [])
-    memory_context = state.get("memory_context", [])
-    artifact_refs = state.get("artifact_refs", [])
+    partial_results = list(state.get("partial_results", []))
+    memory_context = list(state.get("memory_context", []))
+    artifact_refs = list(state.get("artifact_refs", []))
+    processed_tool_call_ids = {
+        ref.get("tool_call_id")
+        for ref in artifact_refs
+        if isinstance(ref, dict) and ref.get("tool_call_id")
+    } | {
+        result.get("tool_call_id")
+        for result in partial_results
+        if isinstance(result, dict) and result.get("tool_call_id")
+    }
 
-    # Check last message for tool results
-    if messages:
-        last_msg = messages[-1]
-        if isinstance(last_msg, ToolMessage):
-            try:
-                content = (
-                    last_msg.content if isinstance(last_msg.content, str) else str(last_msg.content)
-                )
-                result = _parse_tool_payload(content)
-                result_dict = result if isinstance(result, dict) else {"raw": result}
-                tool_name = getattr(last_msg, "name", "unknown") or "unknown"
-                summary = _build_tool_memory_summary(tool_name, result)
-                artifact_id = await _persist_tool_artifact(
-                    state,
-                    config,
-                    tool_call_id=getattr(last_msg, "tool_call_id", None),
-                    tool_name=tool_name,
-                    payload=result,
-                    summary=summary,
-                )
+    recent_tool_messages: list[ToolMessage] = []
+    for msg in reversed(messages):
+        if not isinstance(msg, ToolMessage):
+            break
+        recent_tool_messages.append(msg)
 
-                # Only track successful results
-                if not result_dict.get("error"):
-                    memory_entry = summary
-                    if artifact_id:
-                        memory_entry = f"{summary} [artifact:{artifact_id}]"
-                        artifact_refs.append(
-                            {
-                                "artifact_id": artifact_id,
-                                "tool_call_id": getattr(last_msg, "tool_call_id", None),
-                                "tool_name": tool_name,
-                                "summary": summary,
-                            }
-                        )
+    for tool_msg in reversed(recent_tool_messages):
+        tool_call_id = getattr(tool_msg, "tool_call_id", None)
+        if tool_call_id and tool_call_id in processed_tool_call_ids:
+            continue
+        try:
+            content = (
+                tool_msg.content if isinstance(tool_msg.content, str) else str(tool_msg.content)
+            )
+            result = _parse_tool_payload(content)
+            result_dict = result if isinstance(result, dict) else {"raw": result}
+            tool_name = getattr(tool_msg, "name", "unknown") or "unknown"
+            summary = _build_tool_memory_summary(tool_name, result)
+            artifact_id = await _persist_tool_artifact(
+                state,
+                config,
+                tool_call_id=tool_call_id,
+                tool_name=tool_name,
+                payload=result,
+                summary=summary,
+            )
 
-                    memory_context.append(memory_entry)
-                    partial_results.append(
+            # Only track successful results
+            if not result_dict.get("error"):
+                memory_entry = summary
+                if artifact_id:
+                    memory_entry = f"{summary} [artifact:{artifact_id}]"
+                    artifact_refs.append(
                         {
-                            "tool": tool_name,
-                            "summary": summary[:200],
                             "artifact_id": artifact_id,
+                            "tool_call_id": tool_call_id,
+                            "tool_name": tool_name,
+                            "summary": summary,
                         }
                     )
-                    # Keep last 10 partial results
-                    partial_results = partial_results[-10:]
-                    memory_context = memory_context[-20:]
-                    artifact_refs = artifact_refs[-50:]
-            except (json.JSONDecodeError, TypeError, ValueError, OSError) as exc:
-                logger.warning(f"Failed to update tool memory context:" f" {_sanitize_log(exc)}")
+
+                memory_context.append(memory_entry)
+                partial_results.append(
+                    {
+                        "tool": tool_name,
+                        "summary": summary[:200],
+                        "artifact_id": artifact_id,
+                        "tool_call_id": tool_call_id,
+                    }
+                )
+                if tool_call_id:
+                    processed_tool_call_ids.add(tool_call_id)
+                # Keep last 10 partial results
+                partial_results = partial_results[-10:]
+                memory_context = memory_context[-20:]
+                artifact_refs = artifact_refs[-50:]
+        except (json.JSONDecodeError, TypeError, ValueError, OSError) as exc:
+            logger.warning(f"Failed to update tool memory context:" f" {_sanitize_log(exc)}")
 
     return {
         "conversation_context": updated_context,

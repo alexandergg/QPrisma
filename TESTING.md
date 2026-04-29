@@ -38,7 +38,16 @@ frontend/
 | `test_dependencies.py` | Ownership helpers and access control dependencies |
 | `test_graph_routes_security.py` | Graph route authorization and tenant-scoped node access |
 | `test_websocket_auth.py` | WebSocket JWT authentication |
-| `test_a2a_rate_limits.py` | A2A endpoint rate limiting |
+| `test_a2a_security.py` | A2A authentication, media ownership, and task isolation |
+| `test_a2a_rate_limits.py` | A2A endpoint rate limiting and public discovery |
+| `test_a2a_executor.py` | Hosted-agent A2A task completion/failure semantics |
+| `test_foundry_agent_client.py` | Foundry Responses API output extraction |
+| `test_context_envelope.py` | Hosted-agent QPrisma context envelope framing and legacy parsing |
+| `test_agent_memory_context.py` | LangGraph compact memory, artifact refs, and multi-tool context updates |
+| `test_deploy_agent.py` | Hosted-agent deploy contract and manifest drift checks |
+| `test_hosted_main.py` | Hosted-agent Foundry-native runtime startup decisions |
+| `test_hosted_secrets.py` | Hosted-agent Key Vault URI secret resolution |
+| `test_observability.py` | Hosted-agent trace processor, tracer callback, and redacted span metadata |
 | `test_error_sanitization.py` | Error message sanitization |
 | `test_cache_routes.py` | Cache endpoint auth and operations |
 | `test_pyav_extractor.py` | PyAV frame extraction |
@@ -78,19 +87,19 @@ frontend/
 cd backend
 
 # Run all tests
-pytest
+uv run --prerelease allow pytest
 
 # Run specific test file
-pytest tests/test_api.py
+uv run --prerelease allow pytest tests/test_api.py
 
 # Run tests matching pattern
-pytest -k "test_upload"
+uv run --prerelease allow pytest -k "test_upload"
 
 # Run with coverage
-pytest --cov=. --cov-report=html
+uv run --prerelease allow pytest --cov=. --cov-report=html
 
 # Run with verbose output
-pytest -v
+uv run --prerelease allow pytest -v
 ```
 
 ### Writing Unit Tests
@@ -579,7 +588,7 @@ jobs:
       - name: Run tests
         run: |
           cd backend
-          pytest --cov=. --cov-report=xml
+          uv run --prerelease allow pytest --cov=. --cov-report=xml
       - name: Upload coverage
         uses: codecov/codecov-action@v3
         with:

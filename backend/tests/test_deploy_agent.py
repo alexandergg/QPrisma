@@ -45,6 +45,7 @@ def _load_deploy_agent_module():
 
     azure_projects_models_module.AgentProtocol = types.SimpleNamespace(RESPONSES="responses")
     azure_projects_models_module.HostedAgentDefinition = DummyHostedAgentDefinition
+    azure_projects_models_module.ImageBasedHostedAgentDefinition = DummyHostedAgentDefinition
     azure_projects_models_module.ProtocolVersionRecord = DummyProtocolVersionRecord
     azure_core_exceptions_module.HttpResponseError = DummyHttpResponseError
 
@@ -114,6 +115,10 @@ def test_build_environment_variables_defaults_to_secretless_hosted_contract():
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-5.4-pro"
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-large"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "true"
+    assert "NEO4J_PASSWORD" not in env_vars
+    assert "DATABASE_URL" not in env_vars
+    assert "REDIS_URL" not in env_vars
+    assert "AZURE_STORAGE_CONNECTION_STRING" not in env_vars
 
 
 @pytest.mark.unit
@@ -127,6 +132,10 @@ def test_build_environment_variables_preserves_explicit_openai_overrides():
             "AZURE_OPENAI_DEPLOYMENT_EMBEDDING": "text-embedding-3-small",
             "AZURE_USE_MANAGED_IDENTITY": "false",
             "NEO4J_URI": "neo4j+s://example.databases.neo4j.io",
+            "NEO4J_PASSWORD_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/neo4j-password",
+            "DATABASE_URL_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/database-url",
+            "REDIS_URL_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/redis-url",
+            "AZURE_STORAGE_ACCOUNT_URL": "https://storage.blob.core.windows.net",
         }
     )
 
@@ -136,6 +145,28 @@ def test_build_environment_variables_preserves_explicit_openai_overrides():
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-small"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "false"
     assert env_vars["NEO4J_URI"] == "neo4j+s://example.databases.neo4j.io"
+    assert env_vars["NEO4J_PASSWORD_KEY_VAULT_URI"].endswith("/secrets/neo4j-password")
+    assert env_vars["DATABASE_URL_KEY_VAULT_URI"].endswith("/secrets/database-url")
+    assert env_vars["REDIS_URL_KEY_VAULT_URI"].endswith("/secrets/redis-url")
+    assert env_vars["AZURE_STORAGE_ACCOUNT_URL"] == "https://storage.blob.core.windows.net"
+
+
+@pytest.mark.unit
+def test_build_environment_variables_ignores_legacy_direct_secret_values():
+    deploy_agent = _load_deploy_agent_module()
+    env = {
+        "NEO4J_PASSWORD": "secret",
+        "DATABASE_URL": "postgresql://secret",
+        "REDIS_URL": "rediss://secret",
+        "AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountKey=secret",
+    }
+
+    env_vars = deploy_agent.build_environment_variables(env=env)
+
+    assert not (set(env_vars) & set(deploy_agent.DIRECT_SECRET_ENV_VARS))
+    assert deploy_agent.find_ignored_direct_secrets(env) == list(
+        deploy_agent.DIRECT_SECRET_ENV_VARS
+    )
 
 
 @pytest.mark.unit
@@ -483,3 +514,17 @@ def test_main_timeout_status_soft_exits_zero(monkeypatch, tmp_path):
     assert outputs["agent_version"] == str(fake_agent.version)
     assert outputs["agent_active"] == "false"
     assert outputs["agent_identity_principal_id"] == ""
+
+
+@pytest.mark.unit
+def test_hosted_manifest_environment_names_match_deploy_contract():
+    deploy_agent = _load_deploy_agent_module()
+    manifest_path = Path(__file__).resolve().parents[1] / "agent" / "hosted" / "agent.yaml"
+    lines = manifest_path.read_text(encoding="utf-8").splitlines()
+    manifest_env_names = {
+        line.split(":", 1)[1].strip() for line in lines if line.strip().startswith("- name:")
+    }
+
+    assert manifest_env_names >= deploy_agent.HOSTED_AGENT_ENV_CONTRACT
+    assert not (manifest_env_names & {"FOUNDRY_PROJECT_ENDPOINT", "FOUNDRY_AGENT_NAME"})
+    assert not (manifest_env_names & set(deploy_agent.DIRECT_SECRET_ENV_VARS))

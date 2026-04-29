@@ -26,25 +26,6 @@ class ChatHistoryMessage(TypedDict, total=False):
     tool_calls: list[dict[str, Any]] | None
 
 
-class EntityReference(TypedDict, total=False):
-    """Structure for entity references in responses."""
-
-    name: str
-    type: str  # person, organization, location, topic, etc.
-    confidence: float
-    mentions: list[float]  # timestamps where mentioned
-    description: str | None
-
-
-class TokenUsage(TypedDict, total=False):
-    """Structure for token usage tracking."""
-
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
-    cached_tokens: int | None
-
-
 class SourceReference(TypedDict, total=False):
     """Structure for source references."""
 
@@ -143,102 +124,6 @@ class SearchResponse(BaseModel):
     query: str
     results: list[SearchResult]
     total: int
-
-
-class AgentChatRequest(BaseModel):
-    """Agent chat request with tool calling."""
-
-    message: str
-    media_id: str | None = None
-    media_ids: list[str] | None = Field(default=None, max_length=10)
-    chat_history: list[ChatHistoryMessage] | None = None
-    session_id: str | None = None
-    output_format: Literal["markdown", "json", "structured"] = Field(
-        default="markdown",
-        description="Response format: 'markdown' (default), 'json', or 'structured'",
-    )
-
-    def get_effective_media_ids(self) -> list[str]:
-        """Merge media_id and media_ids into a deduplicated list."""
-        ids: list[str] = []
-        if self.media_id:
-            ids.append(self.media_id)
-        if self.media_ids:
-            ids.extend(self.media_ids)
-        seen: set[str] = set()
-        result: list[str] = []
-        for mid in ids:
-            if mid not in seen:
-                seen.add(mid)
-                result.append(mid)
-        return result[:10]
-
-
-class VideoSource(BaseModel):
-    """A source reference in the video."""
-
-    timestamp: float
-    timestamp_formatted: str
-    type: Literal[
-        "visual",
-        "audio",
-        "entity",
-        "scene",
-        "visible",
-        "comparison",
-        "cross_video",
-        "highlight",
-        "unknown",
-    ] = "visual"
-    description: str
-    score: float = 0.0
-    thumbnail_url: str | None = None
-    frame_id: str | None = None
-    media_id: str | None = None
-    video_title: str | None = None
-
-
-class NavigationAction(BaseModel):
-    """A suggested navigation action for the UI."""
-
-    action: Literal["jump_to", "create_clip", "explore", "compare"]
-    label: str
-    timestamp: float | None = None
-    end_timestamp: float | None = None
-    parameters: dict[str, Any] | None = None
-
-
-class SuggestedQuestion(BaseModel):
-    """A suggested follow-up question."""
-
-    question: str
-    category: Literal["related", "deeper", "compare", "explore", "entity", "timeline"] = "related"
-
-
-class AgentChatResponse(BaseModel):
-    """Enhanced agent chat response with rich metadata."""
-
-    response: str
-    sources: list[VideoSource] = Field(default_factory=list)
-    tool_calls_made: int = 0
-    session_id: str | None = None
-
-    # New fields for enhanced UX
-    navigation_actions: list[NavigationAction] = Field(
-        default_factory=list, description="Suggested UI actions like seeking to timestamps"
-    )
-    suggested_questions: list[SuggestedQuestion] = Field(
-        default_factory=list, description="Follow-up questions the user might want to ask"
-    )
-    clip_suggestions: list[NavigationAction] = Field(
-        default_factory=list, description="Exportable clip time ranges found"
-    )
-    entities_mentioned: list[EntityReference] = Field(
-        default_factory=list, description="Entities referenced in the response"
-    )
-    token_usage: TokenUsage | None = Field(
-        default=None, description="Token consumption for this request"
-    )
 
 
 # =============================================================================
@@ -403,8 +288,6 @@ __all__ = [
     "SearchRequest",
     "SearchResult",
     "SearchResponse",
-    "AgentChatRequest",
-    "AgentChatResponse",
     # Batch
     "BatchStatusResponse",
     "CostEstimateResponse",

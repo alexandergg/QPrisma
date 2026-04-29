@@ -34,7 +34,11 @@ def _make_send_body() -> dict:
     }
 
 
-def _make_task(task_id: str = "task-1", state: TaskState = TaskState.COMPLETED) -> Task:
+def _make_task(
+    task_id: str = "task-1",
+    state: TaskState = TaskState.COMPLETED,
+    user_id: str = "user_test123",
+) -> Task:
     return Task(
         id=task_id,
         contextId="ctx-1",
@@ -42,6 +46,7 @@ def _make_task(task_id: str = "task-1", state: TaskState = TaskState.COMPLETED) 
             state=state,
             message=Message(role=Role.AGENT, parts=[Part(text="done")]),
         ),
+        metadata={"user_id": user_id},
     )
 
 
@@ -54,18 +59,18 @@ def _make_task(task_id: str = "task-1", state: TaskState = TaskState.COMPLETED) 
 class TestMessageEndpointRateLimits:
     """POST /a2a/message:send, /a2a/message:stream."""
 
-    def test_send_message_has_rate_limit_header(self, client):
+    def test_send_message_has_rate_limit_header(self, authenticated_client):
         mock_executor = MagicMock()
         mock_executor.send_message = AsyncMock(return_value=_make_task())
 
         with patch("api.routes.a2a_message_routes.get_executor", return_value=mock_executor):
-            resp = client.post("/a2a/message:send", json=_make_send_body())
+            resp = authenticated_client.post("/a2a/message:send", json=_make_send_body())
 
         assert resp.status_code == 200
         assert "x-ratelimit-limit" in resp.headers
         assert resp.headers["x-ratelimit-limit"] == "60"
 
-    def test_stream_message_has_rate_limit_header(self, client):
+    def test_stream_message_has_rate_limit_header(self, authenticated_client):
         async def _fake_stream(req):
             return
             yield  # make it an async generator  # noqa: E501 — unreachable yield makes this a generator
@@ -74,7 +79,7 @@ class TestMessageEndpointRateLimits:
         mock_executor.send_streaming_message = _fake_stream
 
         with patch("api.routes.a2a_message_routes.get_executor", return_value=mock_executor):
-            resp = client.post("/a2a/message:stream", json=_make_send_body())
+            resp = authenticated_client.post("/a2a/message:stream", json=_make_send_body())
 
         assert resp.status_code == 200
         assert "x-ratelimit-limit" in resp.headers
@@ -85,43 +90,44 @@ class TestMessageEndpointRateLimits:
 class TestTaskEndpointRateLimits:
     """GET /a2a/tasks/{id}, GET /a2a/tasks, POST cancel, POST subscribe."""
 
-    def test_get_task_rate_limit_120(self, client):
+    def test_get_task_rate_limit_120(self, authenticated_client):
         mock_executor = MagicMock()
         mock_executor.get_task = AsyncMock(return_value=_make_task("t-1"))
 
         with patch("api.routes.a2a_task_routes.get_executor", return_value=mock_executor):
-            resp = client.get("/a2a/tasks/t-1")
+            resp = authenticated_client.get("/a2a/tasks/t-1")
 
         assert resp.status_code == 200
         assert resp.headers.get("x-ratelimit-limit") == "120"
 
-    def test_list_tasks_rate_limit_60(self, client):
+    def test_list_tasks_rate_limit_60(self, authenticated_client):
         mock_executor = MagicMock()
         mock_executor.list_tasks = AsyncMock(return_value=([], 0))
 
         with patch("api.routes.a2a_task_routes.get_executor", return_value=mock_executor):
-            resp = client.get("/a2a/tasks")
+            resp = authenticated_client.get("/a2a/tasks")
 
         assert resp.status_code == 200
         assert resp.headers.get("x-ratelimit-limit") == "60"
 
-    def test_cancel_task_rate_limit_30(self, client):
+    def test_cancel_task_rate_limit_30(self, authenticated_client):
         mock_executor = MagicMock()
+        mock_executor.get_task = AsyncMock(return_value=_make_task("t-1", TaskState.WORKING))
         mock_executor.cancel_task = AsyncMock(return_value=_make_task("t-1", TaskState.CANCELED))
 
         with patch("api.routes.a2a_task_routes.get_executor", return_value=mock_executor):
-            resp = client.post("/a2a/tasks/t-1:cancel")
+            resp = authenticated_client.post("/a2a/tasks/t-1:cancel")
 
         assert resp.status_code == 200
         assert resp.headers.get("x-ratelimit-limit") == "30"
 
-    def test_subscribe_task_rate_limit_60(self, client):
+    def test_subscribe_task_rate_limit_60(self, authenticated_client):
         working_task = _make_task("t-1", TaskState.WORKING)
         mock_executor = MagicMock()
         mock_executor.get_task = AsyncMock(return_value=working_task)
 
         with patch("api.routes.a2a_task_routes.get_executor", return_value=mock_executor):
-            resp = client.post("/a2a/tasks/t-1:subscribe")
+            resp = authenticated_client.post("/a2a/tasks/t-1:subscribe")
 
         assert resp.status_code == 200
         assert resp.headers.get("x-ratelimit-limit") == "60"
@@ -145,6 +151,8 @@ class TestDiscoveryEndpointsNotRateLimited:
         resp = client.get("/a2a/agent-card.json")
         assert resp.status_code == 200
         assert "x-ratelimit-limit" not in resp.headers
+        assert resp.json()["securitySchemes"]["bearerAuth"]["scheme"] == "bearer"
+        assert resp.json()["security"] == [{"bearerAuth": []}]
 
     def test_health_no_rate_limit(self, client):
         resp = client.get("/a2a/health")

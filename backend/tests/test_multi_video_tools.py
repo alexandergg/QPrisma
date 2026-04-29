@@ -31,8 +31,14 @@ class TestSearchAcrossVideosErrors:
                 query="test",
                 videos_searched=1,
                 scoped_to_selection=False,
-                results_by_video=[{"video_id": "v1", "video_title": "Video 1", "matches": []}],
-                total_matches=0,
+                results_by_video=[
+                    {
+                        "video_id": "v1",
+                        "video_title": "Video 1",
+                        "matches": [{"timestamp": 10.0}, {"timestamp": 20.0}],
+                    }
+                ],
+                total_matches=2,
             )
 
             result = await search_across_videos.ainvoke(
@@ -55,7 +61,7 @@ class TestSearchAcrossVideosErrors:
         base_expected = asdict(mock_factory.return_value.search_across_videos.return_value)
         for key in base_expected:
             assert result[key] == base_expected[key]
-        assert "_meta" in result
+        assert result["_meta"]["result_count"] == 2
 
     @pytest.mark.asyncio
     async def test_error_includes_fallback_suggestion(self):

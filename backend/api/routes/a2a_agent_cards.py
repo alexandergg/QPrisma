@@ -76,6 +76,14 @@ def get_video_agent_card() -> AgentCard:
             pushNotifications=False,
             extendedAgentCard=True,
         ),
+        securitySchemes={
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            }
+        },
+        security=[{"bearerAuth": []}],
         defaultInputModes=["text/plain", "application/json"],
         defaultOutputModes=["text/plain", "application/json"],
         skills=[

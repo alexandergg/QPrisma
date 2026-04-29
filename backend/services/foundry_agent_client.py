@@ -90,6 +90,53 @@ class FoundryAgentClient:
             logger.error("Failed to create OpenAI client: %s", e)
             raise
 
+    @staticmethod
+    def _get_response_field(obj: Any, name: str, default: Any = None) -> Any:
+        """Read an SDK response field from either dict-like or attribute objects."""
+        if isinstance(obj, dict):
+            return obj.get(name, default)
+        return getattr(obj, name, default)
+
+    @classmethod
+    def _extract_response_text(cls, response: Any) -> str:
+        """Extract assistant text from Responses API payloads."""
+        output_text = cls._get_response_field(response, "output_text", "")
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text
+
+        output = cls._get_response_field(response, "output", None) or []
+        if isinstance(output, str):
+            return output
+
+        parts: list[str] = []
+        if isinstance(output, list):
+            for item in output:
+                text = cls._extract_output_item_text(item)
+                if text:
+                    parts.append(text)
+        return "".join(parts)
+
+    @classmethod
+    def _extract_output_item_text(cls, item: Any) -> str:
+        """Extract text from a single structured Responses API output item."""
+        if item is None:
+            return ""
+        if isinstance(item, str):
+            return item
+
+        item_text = cls._get_response_field(item, "text", None)
+        if isinstance(item_text, str):
+            return item_text
+
+        content = cls._get_response_field(item, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts = [cls._extract_output_item_text(part) for part in content]
+            return "".join(part for part in text_parts if part)
+
+        return ""
+
     async def create_conversation(self) -> str:
         """
         Create a new Foundry conversation.
@@ -161,8 +208,8 @@ class FoundryAgentClient:
                 timeout=self._request_timeout_seconds,
             )
 
-            response_id = response.id or ""
-            content = response.output_text or ""
+            response_id = getattr(response, "id", "") or ""
+            content = self._extract_response_text(response)
 
             return {
                 "content": content,
@@ -191,8 +238,8 @@ class FoundryAgentClient:
                     timeout=self._request_timeout_seconds,
                 )
                 return {
-                    "content": response.output_text or "",
-                    "thread_id": response.id or "",
+                    "content": self._extract_response_text(response),
+                    "thread_id": getattr(response, "id", "") or "",
                     "conversation_id": (
                         self._extract_conversation_id(response) or new_conversation_id
                     ),
@@ -269,6 +316,11 @@ class FoundryAgentClient:
                             queue.put_nowait,
                             {"type": event.type, "data": event},
                         )
+                except Exception as exc:
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait,
+                        {"type": "_error", "error": exc},
+                    )
                 finally:
                     if stream is not None:
                         stream.close()
@@ -276,6 +328,7 @@ class FoundryAgentClient:
 
             accumulated_content = ""
             response_id = ""
+            completed_conversation_id = conversation_id or ""
             # Track active function calls to pair start/end events
             active_tool_calls: dict[str, str] = {}  # item_id -> function name
 
@@ -309,6 +362,9 @@ class FoundryAgentClient:
                         break
 
                     event_type = item["type"]
+                    if event_type == "_error":
+                        raise item["error"]
+
                     event = item["data"]
 
                     if event_type != "response.output_text.delta":
@@ -375,8 +431,11 @@ class FoundryAgentClient:
                         resp = getattr(event, "response", None)
                         if resp:
                             response_id = getattr(resp, "id", "")
+                            completed_conversation_id = (
+                                self._extract_conversation_id(resp) or completed_conversation_id
+                            )
                             if not accumulated_content:
-                                accumulated_content = getattr(resp, "output_text", "") or ""
+                                accumulated_content = self._extract_response_text(resp)
             finally:
                 if not reader_task.done():
                     stop_event.set()
@@ -390,7 +449,7 @@ class FoundryAgentClient:
                 "type": "done",
                 "content": accumulated_content,
                 "thread_id": response_id,
-                "conversation_id": conversation_id or "",
+                "conversation_id": completed_conversation_id,
             }
 
         except Exception as e:

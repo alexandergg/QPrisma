@@ -1,6 +1,6 @@
 # Memory Architecture (QPrisma)
 
-This guide defines **what each layer stores** and which is the **source of truth** for agent conversations.
+This guide defines what each memory layer stores and which system is the source of truth for agent conversations.
 
 Related views:
 
@@ -9,59 +9,70 @@ Related views:
 
 ## Memory Layers
 
-1. **LangGraph Checkpointer (Backend)**
-   - Purpose: per-conversation graph operational state (`thread_id`), working history, and resumption after failures/interrupts.
+1. **LangGraph Checkpointer**
+   - Purpose: operational graph state by `thread_id`, working state, and resume/retry continuity.
    - Scope: per conversation thread.
-   - Persistence: production saver (PostgreSQL/Redis) based on availability.
-   - **Conversational source of truth**.
+   - Persistence:
+     - **Backend-direct mode**: production saver cascade, PostgreSQL -> Redis -> `MemorySaver`, based on availability.
+     - **Foundry Hosted Agent mode**: intentionally process-local `MemorySaver` for in-run state only.
+   - In Hosted Agent mode, it does not replace Foundry Responses/Conversations.
 
 2. **Foundry Memory Store (Semantic Memory)**
-   - Purpose: long-term memory (preferences, summarized facts, persistent signals).
-   - Scope: cross-thread per user (scoped by Entra ID `{tid}_{oid}`).
+   - Purpose: long-term memory, preferences, summarized facts, and persistent user signals.
+   - Scope: cross-thread per user, scoped by Entra ID `{tid}_{oid}`.
    - Persistence: Azure AI Foundry Memory Store.
-   - Does not replace the checkpointer; it complements context.
-   - **Status**: the service (`FoundryMemoryService`) is available as a singleton but is **not automatically invoked** in the agent graph yet. Automatic integration into graph nodes is future work.
+   - It complements prompt context; it does not replace the checkpointer.
+   - **Status**: `FoundryMemoryService` is available as a singleton but is not automatically invoked in the agent graph yet. Automatic graph-node integration is future work.
 
 3. **A2A Task Store**
-   - Purpose: A2A task state (`taskId`, status, artifacts, task history).
+   - Purpose: A2A task lifecycle state, including `taskId`, status, artifacts, and task history.
    - Scope: task lifecycle and progress.
-   - Current state: persistent PostgreSQL-backed storage when the DB health check is healthy, with automatic fallback to in-process memory when persistence is unavailable.
-   - Operational note: multi-instance and restart durability depend on the PostgreSQL-backed store being available; the in-memory fallback is best-effort only.
+   - Persistence: PostgreSQL-backed storage when the DB health check is healthy, with automatic fallback to in-process memory when persistence is unavailable.
+   - Operational note: multi-instance and restart durability depend on PostgreSQL availability; the in-memory fallback is best-effort only.
 
-> **Note**: there is no client-side message persistence (localStorage). The UI does not store conversations locally; all conversational state resides in the backend.
+> The UI does not persist conversations in localStorage. Conversational state resides in Foundry Hosted Agent or in backend-direct state, depending on the execution mode.
 
 ## Source of Truth and Reconciliation
 
-- Conversation: **Backend checkpointer**.
-- User semantic knowledge: **Foundry Memory Store** (once automatic integration is enabled).
-- In case of conflict, the backend prevails (checkpointer/task state).
+- **Foundry Hosted Agent conversation history**: Foundry Responses/Conversations. This is the primary production path for sessions, response history, streaming lifecycle, and portal-visible traces.
+- **Backend-direct conversation history**: LangGraph checkpointer with the PostgreSQL -> Redis -> `MemorySaver` cascade.
+- **User semantic knowledge**: Foundry Memory Store after automatic integration is enabled.
+- **A2A tasks and artifacts**: QPrisma stores, with explicit ownership, retention, and artifact references.
+
+If there is a conflict in Hosted Agent mode, Foundry is authoritative for conversation history and QPrisma is authoritative for task state/artifacts. In backend-direct mode, the backend checkpointer/task state is authoritative.
 
 ## Recommended ID Mapping
 
-- `contextId` (A2A): on the first request this is a client-generated UUID. The backend replaces it with the **Foundry conversation ID** returned by the Conversations API and sends it back to the client in the initial SSE event of the task. From that point on, `contextId` carries the Foundry conversation ID for continuity.
+- `contextId` (A2A): on the first request this can be a client-generated UUID. The backend replaces it with the Foundry conversation ID returned by Foundry and sends it back to the client. Subsequent turns use that Foundry conversation ID for continuity.
 - `taskId` (A2A): execution/progress identity, not the primary conversation identity.
+- `thread_id` (LangGraph): operational graph identity for backend-direct or per-run hosted execution state.
 
-## Per-Turn Flow
+## Hosted Agent Per-Turn Flow
 
 1. Client sends a message with `contextId` (UUID on the first turn, Foundry conversation ID on subsequent turns).
 2. Backend resolves or creates a Foundry conversation ID from `contextId`.
-3. Executes the call to the Foundry Hosted Agent (Responses API with `conversation=conv_id`).
-4. Retrieves relevant semantic memory (Foundry Memory Store) for the prompt _(future — service available but not automatically invoked)_.
-5. Streams A2A SSE events with `contextId` = Foundry conversation ID.
-6. Persists super-step checkpoint.
+3. Backend calls the Foundry Hosted Agent using Foundry-managed conversation continuity.
+4. Foundry preserves the conversation, responses, and traces.
+5. The hosted LangGraph runtime uses process-local `MemorySaver` only for operational state during that hosted execution.
+6. A2A streams SSE events with `contextId` set to the Foundry conversation ID.
+
+## Backend-Direct Flow
+
+1. Client calls the backend-direct graph path without going through the Foundry Hosted Agent.
+2. Backend executes `get_video_agent_graph()`.
+3. `get_shared_checkpointer()` uses PostgreSQL -> Redis -> `MemorySaver`.
+4. The checkpointer is the source of truth for continuity/resume of that thread.
 
 ## Latency and Quality
 
-- The checkpointer overhead is typically smaller than LLM/retrieval time.
-- To minimize impact:
-  - co-locate API + DB,
-  - use connection pooling,
-  - keep state compact (avoid large payloads in checkpoints),
-  - track p50/p95 metrics per phase.
+- Backend-direct checkpointer overhead is typically smaller than LLM and retrieval latency.
+- Hosted Agent mode avoids duplicating conversation history in PostgreSQL/Redis, reducing compliance surface and keeping Foundry as the system of record for conversations.
+- For backend-direct mode, keep state compact, avoid large payloads in checkpoints, use connection pooling, and track p50/p95 metrics per phase.
 
 ## Recommended Operational Policies
 
-- Retention policies per environment (dev/stage/prod).
-- Per-user/conversation deletion (GDPR) using `delete_thread`.
-- Encryption at rest for sensitive state where applicable.
-- Traceability via `contextId`, `taskId`, `thread_id` in logs/metrics.
+- Define retention policies per environment.
+- Use Foundry policies for Hosted Agent conversations/responses and QPrisma policies for A2A tasks/artifacts.
+- Use checkpointer `thread_id` deletion for backend-direct conversation deletion.
+- Encrypt sensitive state at rest where applicable.
+- Preserve traceability with `contextId`, `taskId`, `thread_id`, and Foundry conversation ID while avoiding raw sensitive identifiers in logs and spans.

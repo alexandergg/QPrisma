@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 async def get_related_content(
     topic: Annotated[str, "Topic or concept to explore connections for"],
     depth: Annotated[int, "How many relationship hops to explore (1-3)"] = 2,
+    target_video_id: Annotated[
+        str | None, "Optional video ID to query when multiple videos are in context"
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
@@ -31,7 +34,8 @@ async def get_related_content(
     Use this to discover how entities and ideas are connected throughout the video.
     For relevance-ranked search, use search_video instead.
     """
-    if not media_id:
+    effective_media_id = target_video_id or media_id
+    if not effective_media_id:
         return tool_error("no_context", "No video context available.")
 
     try:
@@ -43,7 +47,7 @@ async def get_related_content(
         search_response = await search_service.hybrid_search(
             query_text=topic,
             node_types=[NodeType.ENTITY, NodeType.TOPIC, NodeType.FRAME, NodeType.SCENE],
-            video_id=media_id,
+            video_id=effective_media_id,
             limit=15,
             expansion_hops=min(depth, 3),
             use_reranking=True,
@@ -110,7 +114,7 @@ async def get_related_content(
         }
 
     except Exception as e:
-        logger.error("get_related_content failed for %s: %s", media_id, e)
+        logger.error("get_related_content failed for %s: %s", effective_media_id, e)
         return tool_error("query_error", f"Failed to explore connections: {e}")
 
 

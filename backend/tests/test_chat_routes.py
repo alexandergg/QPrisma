@@ -1,8 +1,4 @@
-"""
-Tests for api/routes/chat_routes.py
-
-Covers chat, search, and agent chat endpoints.
-"""
+"""Tests for api/routes/chat_routes.py."""
 
 from unittest.mock import AsyncMock, patch
 
@@ -82,138 +78,13 @@ class TestSearchRemoved:
 
 
 @pytest.mark.unit
-class TestAgentChat:
-    def test_requires_auth(self, client):
+class TestAgentChatRemoved:
+    """POST /chat/agent was removed in favor of authenticated A2A endpoints."""
+
+    def test_agent_chat_endpoint_removed(self, authenticated_client):
+        resp = authenticated_client.post("/chat/agent", json={"message": "hello"})
+        assert resp.status_code in (404, 405)
+
+    def test_agent_chat_endpoint_no_longer_prompts_auth(self, client):
         resp = client.post("/chat/agent", json={"message": "hello"})
-        assert resp.status_code in (401, 403)
-
-    def test_agent_chat_success(self, authenticated_client):
-        mock_client = AsyncMock()
-        mock_client.create_conversation = AsyncMock(return_value="conv_001")
-        mock_client.send_message = AsyncMock(
-            return_value={
-                "content": "Agent response",
-                "thread_id": "resp_001",
-                "conversation_id": "conv_001",
-            }
-        )
-
-        with patch(
-            "services.foundry_agent_client.get_foundry_agent_client",
-            return_value=mock_client,
-        ):
-            resp = authenticated_client.post(
-                "/chat/agent",
-                json={"message": "find highlights"},
-            )
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["response"] == "Agent response"
-        assert body["tool_calls_made"] == 0
-        assert body["session_id"] == "conv_001"
-        mock_client.create_conversation.assert_awaited_once()
-        mock_client.send_message.assert_awaited_once_with(
-            message="find highlights",
-            media_id=None,
-            media_ids=None,
-            user_id="user_test123",
-            session_id="conv_001",
-            conversation_id="conv_001",
-        )
-
-    def test_agent_chat_with_session_id(self, authenticated_client):
-        mock_client = AsyncMock()
-        mock_client.create_conversation = AsyncMock()
-        mock_client.send_message = AsyncMock(
-            return_value={
-                "content": "Continued",
-                "thread_id": "resp_abc",
-                "conversation_id": "conv_existing",
-            }
-        )
-
-        with patch(
-            "services.foundry_agent_client.get_foundry_agent_client",
-            return_value=mock_client,
-        ):
-            resp = authenticated_client.post(
-                "/chat/agent",
-                json={"message": "more details", "session_id": "conv_existing"},
-            )
-
-        assert resp.status_code == 200
-        assert resp.json()["session_id"] == "conv_existing"
-        mock_client.create_conversation.assert_not_awaited()
-        mock_client.send_message.assert_awaited_once_with(
-            message="more details",
-            media_id=None,
-            media_ids=None,
-            user_id="user_test123",
-            session_id="conv_existing",
-            conversation_id="conv_existing",
-        )
-
-    def test_agent_chat_replaces_stale_session_id_when_agent_resets(self, authenticated_client):
-        mock_client = AsyncMock()
-        mock_client.create_conversation = AsyncMock(return_value="conv_fresh")
-        mock_client.send_message = AsyncMock(
-            return_value={
-                "content": "Recovered",
-                "thread_id": "resp_reset",
-                "conversation_id": "",
-            }
-        )
-
-        with patch(
-            "services.foundry_agent_client.get_foundry_agent_client",
-            return_value=mock_client,
-        ):
-            resp = authenticated_client.post(
-                "/chat/agent",
-                json={"message": "recover", "session_id": "conv_stale"},
-            )
-
-        assert resp.status_code == 200
-        assert resp.json()["session_id"] == "conv_fresh"
-        assert mock_client.create_conversation.await_count == 1
-        mock_client.send_message.assert_awaited_once_with(
-            message="recover",
-            media_id=None,
-            media_ids=None,
-            user_id="user_test123",
-            session_id="conv_stale",
-            conversation_id="conv_stale",
-        )
-
-    def test_agent_chat_replaces_unconfirmed_stale_session_id(self, authenticated_client):
-        mock_client = AsyncMock()
-        mock_client.create_conversation = AsyncMock(return_value="conv_reset")
-        mock_client.send_message = AsyncMock(
-            return_value={
-                "content": "Recovered",
-                "thread_id": "resp_reset",
-                "conversation_id": "",
-            }
-        )
-
-        with patch(
-            "services.foundry_agent_client.get_foundry_agent_client",
-            return_value=mock_client,
-        ):
-            resp = authenticated_client.post(
-                "/chat/agent",
-                json={"message": "retry", "session_id": "conv_stale"},
-            )
-
-        assert resp.status_code == 200
-        assert resp.json()["session_id"] == "conv_reset"
-        mock_client.create_conversation.assert_awaited_once()
-        mock_client.send_message.assert_awaited_once_with(
-            message="retry",
-            media_id=None,
-            media_ids=None,
-            user_id="user_test123",
-            session_id="conv_stale",
-            conversation_id="conv_stale",
-        )
+        assert resp.status_code in (404, 405)

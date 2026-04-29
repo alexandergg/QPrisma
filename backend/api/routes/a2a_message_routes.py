@@ -12,9 +12,10 @@ from agent.utils.observability import set_conversation_id, set_otel_user_id
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
-from api.dependencies import get_current_user_optional
+from api.dependencies import get_current_user
 from api.rate_limit import limiter
 from api.routes.a2a_agent_cards import get_executor
+from api.routes.a2a_security import authorize_message_continuation, sanitize_message_request
 from models.a2a_models import (
     Message,
     Part,
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 def _set_otel_context(
     context_id: str | None,
-    user: User | None,
+    user: User,
 ) -> None:
     """Set OpenTelemetry context vars for trace correlation."""
     if context_id:
@@ -50,7 +51,7 @@ async def send_message(
     request: Request,
     body: SendMessageRequest,
     response: Response,
-    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     """
     Send a message to the Video Agent.
@@ -60,14 +61,11 @@ async def send_message(
     """
     executor = get_executor("video")
 
+    sanitize_message_request(body, current_user)
+    await authorize_message_continuation(executor, body, current_user)
+
     # Set OTel context for trace grouping
     _set_otel_context(body.message.contextId, current_user)
-
-    # Add user context to metadata
-    if current_user and body.message.metadata:
-        body.message.metadata["user_id"] = current_user.id
-    elif current_user:
-        body.message.metadata = {"user_id": current_user.id}
 
     result = await executor.send_message(body)
 
@@ -82,7 +80,7 @@ async def send_message(
 async def send_streaming_message(
     request: Request,
     body: SendMessageRequest,
-    current_user: Annotated[User | None, Depends(get_current_user_optional)] = None,
+    current_user: Annotated[User, Depends(get_current_user)],
 ):
     """
     Send a message with streaming response (SSE).
@@ -95,14 +93,11 @@ async def send_streaming_message(
     """
     executor = get_executor("video")
 
+    sanitize_message_request(body, current_user)
+    await authorize_message_continuation(executor, body, current_user)
+
     # Set OTel context for trace grouping
     _set_otel_context(body.message.contextId, current_user)
-
-    # Add user context to metadata
-    if current_user and body.message.metadata:
-        body.message.metadata["user_id"] = current_user.id
-    elif current_user:
-        body.message.metadata = {"user_id": current_user.id}
 
     # Diagnostic: log media_id presence for debugging video selection issues
     msg_meta = body.message.metadata or {}

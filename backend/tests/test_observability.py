@@ -4,7 +4,13 @@ from unittest.mock import MagicMock
 
 import agent.hosted.telemetry as telemetry_mod
 import pytest
-from agent.utils.observability import ConversationIdSpanProcessor
+from agent.utils.observability import (
+    ConversationIdSpanProcessor,
+    hash_identifier,
+    set_conversation_id,
+    set_otel_media_context,
+    set_otel_user_id,
+)
 from opentelemetry.sdk.trace import SpanProcessor
 
 
@@ -26,6 +32,51 @@ class TestConversationIdSpanProcessor:
     )
     def test_has_span_processor_interface(self, method: str):
         assert hasattr(ConversationIdSpanProcessor, method)
+
+    def test_hash_identifier_is_deterministic_and_redacted(self):
+        raw_value = "user-123@example.com"
+
+        hashed = hash_identifier(raw_value)
+
+        assert hashed == hash_identifier(raw_value)
+        assert hashed is not None
+        assert hashed.startswith("sha256:")
+        assert raw_value not in hashed
+
+    def test_on_start_stamps_foundry_conversation_and_hashed_qprisma_context(self):
+        class FakeSpan:
+            def __init__(self):
+                self.attributes = {}
+
+            def set_attribute(self, key: str, value):
+                self.attributes[key] = value
+
+        set_conversation_id("foundry-conversation-123")
+        set_otel_user_id("user-123@example.com")
+        set_otel_media_context(
+            media_id="media-123",
+            media_ids=["media-123", "media-456"],
+            session_id="session-123",
+        )
+        span = FakeSpan()
+
+        ConversationIdSpanProcessor().on_start(span)
+
+        assert span.attributes["gen_ai.conversation.id"] == "foundry-conversation-123"
+        assert span.attributes["enduser.id"] == hash_identifier("user-123@example.com")
+        assert span.attributes["qprisma.user.id.hash"] == hash_identifier("user-123@example.com")
+        assert span.attributes["qprisma.media.id.hash"] == hash_identifier("media-123")
+        assert span.attributes["qprisma.media.count"] == 2
+        assert span.attributes["qprisma.media.ids.hash"] == [
+            hash_identifier("media-123"),
+            hash_identifier("media-456"),
+        ]
+        assert span.attributes["qprisma.session.id.hash"] == hash_identifier("session-123")
+        assert "user-123@example.com" not in span.attributes.values()
+
+        set_conversation_id(None)
+        set_otel_user_id(None)
+        set_otel_media_context()
 
 
 @pytest.mark.unit

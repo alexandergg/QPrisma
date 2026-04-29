@@ -80,6 +80,7 @@ class TaskStore:
         status: TaskState | None = None,
         page_size: int = 50,
         include_artifacts: bool = False,
+        user_id: str | None = None,
     ) -> tuple[list[Task], int]:
         """List tasks with optional filtering."""
         tasks = list(self._tasks.values())
@@ -90,6 +91,9 @@ class TaskStore:
 
         if status:
             tasks = [t for t in tasks if t.status.state == status]
+
+        if user_id:
+            tasks = [t for t in tasks if (t.metadata or {}).get("user_id") == user_id]
 
         # Sort by timestamp descending
         tasks.sort(
@@ -215,12 +219,14 @@ class PersistentTaskStore:
         status: TaskState | None = None,
         page_size: int = 50,
         include_artifacts: bool = False,
+        user_id: str | None = None,
     ) -> tuple[list[Task], int]:
         rows, total = await asyncio.to_thread(
             self._db.list_a2a_tasks,
             context_id,
             str(status) if status is not None else None,
             page_size,
+            user_id,
         )
         tasks = [self._row_to_task(row, include_artifacts=include_artifacts) for row in rows]
         return tasks, total

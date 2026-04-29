@@ -73,6 +73,54 @@ ROLE_OPENAI_USER = "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
 ROLE_AZURE_AI_USER_NAME = "Azure AI User"
 RBAC_PROPAGATION_WAIT_SECONDS = 120
 
+DEFAULT_ENV_VARS = {
+    "ENVIRONMENT": "hosted",
+    "LOG_LEVEL": "INFO",
+    "AZURE_OPENAI_API_VERSION": "2025-04-01-preview",
+    "AZURE_OPENAI_DEPLOYMENT_GPT": "gpt-5.4-pro",
+    "AZURE_OPENAI_DEPLOYMENT_EMBEDDING": "text-embedding-3-large",
+    "AZURE_USE_MANAGED_IDENTITY": "true",
+    "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
+}
+
+OPTIONAL_ENV_VARS = (
+    "AZURE_AI_PROJECT_ENDPOINT",
+    "AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED",
+    "OTEL_SERVICE_NAME",
+    "NEO4J_URI",
+    "NEO4J_USER",
+    "NEO4J_PASSWORD_KEY_VAULT_URI",
+    "NEO4J_DATABASE",
+    "DATABASE_URL_KEY_VAULT_URI",
+    "REDIS_URL_KEY_VAULT_URI",
+    "AZURE_STORAGE_ACCOUNT_URL",
+    "MEMORY_STORE_NAME",
+    "MEMORY_CHAT_MODEL",
+    "MEMORY_EMBEDDING_MODEL",
+)
+
+DIRECT_SECRET_ENV_VARS = (
+    "NEO4J_PASSWORD",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "AZURE_STORAGE_CONNECTION_STRING",
+)
+
+CRITICAL_ENV_VARS = (
+    "NEO4J_URI",
+    "NEO4J_PASSWORD_KEY_VAULT_URI",
+    "DATABASE_URL_KEY_VAULT_URI",
+    "REDIS_URL_KEY_VAULT_URI",
+)
+
+HOSTED_AGENT_ENV_CONTRACT = frozenset(
+    {
+        "AZURE_OPENAI_ENDPOINT",
+        *DEFAULT_ENV_VARS,
+        *OPTIONAL_ENV_VARS,
+    }
+)
+
 
 def _optional_env(key: str, *, env: Mapping[str, str] | None = None) -> dict[str, str]:
     """Return {key: value} if the env var is set, otherwise empty dict."""
@@ -106,65 +154,40 @@ def build_environment_variables(
     """Build the hosted agent container environment contract."""
     source = os.environ if env is None else env
 
-    return {
-        # --- Core ---
-        "ENVIRONMENT": source.get("ENVIRONMENT", "hosted"),
-        "LOG_LEVEL": source.get("LOG_LEVEL", "INFO"),
-        # --- Azure OpenAI ---
+    environment_variables = {
+        **{key: source.get(key, default) for key, default in DEFAULT_ENV_VARS.items()},
         "AZURE_OPENAI_ENDPOINT": source.get(
             "AZURE_OPENAI_ENDPOINT",
             f"https://{account_name}.openai.azure.com/",
         ),
-        # Foundry project endpoint enables project-routed inference via
-        # AIProjectClient.inference.get_azure_openai_client(). The hosted
-        # runtime prefers this when set; AZURE_OPENAI_ENDPOINT remains as a
-        # fallback for code paths still using the account-level subdomain.
-        **_optional_env("AZURE_AI_PROJECT_ENDPOINT", env=source),
-        "AZURE_OPENAI_API_VERSION": source.get(
-            "AZURE_OPENAI_API_VERSION", "2025-04-01-preview"
-        ),
-        "AZURE_OPENAI_DEPLOYMENT_GPT": source.get(
-            "AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-5.4-pro"
-        ),
-        "AZURE_OPENAI_DEPLOYMENT_EMBEDDING": source.get(
-            "AZURE_OPENAI_DEPLOYMENT_EMBEDDING",
-            "text-embedding-3-large",
-        ),
-        "AZURE_USE_MANAGED_IDENTITY": source.get("AZURE_USE_MANAGED_IDENTITY", "true"),
-        "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
-        # --- Telemetry ---
-        # NOTE: APPLICATIONINSIGHTS_CONNECTION_STRING is reserved by the Foundry
-        # hosted-agent platform and auto-injected; do not set it here.
-        **_optional_env("AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED", env=source),
-        **_optional_env("OTEL_SERVICE_NAME", env=source),
-        # --- Neo4j Knowledge Graph ---
-        **_optional_env("NEO4J_URI", env=source),
-        **_optional_env("NEO4J_USER", env=source),
-        **_optional_env("NEO4J_PASSWORD", env=source),
-        **_optional_env("NEO4J_DATABASE", env=source),
-        # --- PostgreSQL ---
-        **_optional_env("DATABASE_URL", env=source),
-        # --- Redis ---
-        **_optional_env("REDIS_URL", env=source),
-        # --- Azure Blob Storage ---
-        **_optional_env("AZURE_STORAGE_CONNECTION_STRING", env=source),
-        # --- Foundry Memory Store ---
-        # NOTE: FOUNDRY_* and AGENT_* prefixes are reserved by the hosted-agent
-        # platform; we emit under MEMORY_* (which the backend FoundrySettings
-        # accepts via AliasChoices) but also accept the legacy FOUNDRY_MEMORY_*
-        # names as input so exporters using those env vars still work.
-        **_optional_env_aliased(
-            "MEMORY_STORE_NAME", "FOUNDRY_MEMORY_STORE_NAME", env=source
-        ),
-        **_optional_env_aliased(
-            "MEMORY_CHAT_MODEL", "FOUNDRY_MEMORY_CHAT_MODEL", env=source
-        ),
-        **_optional_env_aliased(
-            "MEMORY_EMBEDDING_MODEL", "FOUNDRY_MEMORY_EMBEDDING_MODEL", env=source
-        ),
-        # --- Response mode (eval-friendly output) ---
-        **_optional_env("QPRISMA_RESPONSE_MODE", env=source),
     }
+
+    for key in OPTIONAL_ENV_VARS:
+        environment_variables.update(_optional_env(key, env=source))
+
+    # FOUNDRY_* and AGENT_* prefixes are reserved by the hosted-agent platform.
+    # Accept legacy input aliases but emit the backend-safe MEMORY_* names.
+    environment_variables.update(
+        _optional_env_aliased("MEMORY_STORE_NAME", "FOUNDRY_MEMORY_STORE_NAME", env=source)
+    )
+    environment_variables.update(
+        _optional_env_aliased("MEMORY_CHAT_MODEL", "FOUNDRY_MEMORY_CHAT_MODEL", env=source)
+    )
+    environment_variables.update(
+        _optional_env_aliased(
+            "MEMORY_EMBEDDING_MODEL",
+            "FOUNDRY_MEMORY_EMBEDDING_MODEL",
+            env=source,
+        )
+    )
+
+    return environment_variables
+
+
+def find_ignored_direct_secrets(env: Mapping[str, str] | None = None) -> list[str]:
+    """Return legacy direct secret env vars that are intentionally not deployed."""
+    source = os.environ if env is None else env
+    return [key for key in DIRECT_SECRET_ENV_VARS if source.get(key)]
 
 
 def parse_account_and_project(project_endpoint: str) -> tuple[str, str]:
@@ -214,7 +237,7 @@ def _run_az(args: list[str], *, capture: bool = True) -> subprocess.CompletedPro
     az_path = shutil.which("az")
     if not az_path:
         raise RuntimeError("'az' CLI not found on PATH; cannot perform RBAC operations.")
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603 - az path is resolved with shutil.which and args are a list.
         [az_path, *args],
         capture_output=capture,
         text=True,
@@ -336,7 +359,7 @@ def maybe_purge_before_deploy(
 
     print(f"\nPURGE_BEFORE_DEPLOY enabled — purging '{agent_name}' first...")
     purge_script = os.path.join(os.path.dirname(__file__), "purge_agent_versions.py")
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603 - script path and interpreter are controlled by this repo.
         [sys.executable, purge_script, "--agent-name", agent_name],
         env={**os.environ, "AZURE_AI_PROJECT_ENDPOINT": project_endpoint},
         check=False,
@@ -381,7 +404,7 @@ def _resolve_principal_id_via_rest(project_endpoint: str) -> str | None:
     url = f"{base}/agents/{AGENT_NAME}?api-version=v1"
 
     try:
-        proc = subprocess.run(
+        proc = subprocess.run(  # noqa: S603 - az path is resolved with shutil.which and args are a list.
             [
                 az_path,
                 "rest",
@@ -615,10 +638,16 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     environment_variables = build_environment_variables(account_name=account_name)
+    ignored_direct_secrets = find_ignored_direct_secrets()
+    if ignored_direct_secrets:
+        print(
+            "WARNING: Ignoring legacy direct secret env vars for Hosted Agent deployment: "
+            f"{ignored_direct_secrets}"
+        )
+        print("  Provide *_KEY_VAULT_URI variables instead; the container resolves them at startup.")
 
     # Warn if critical backend service vars are missing
-    _CRITICAL_VARS = ["NEO4J_URI", "NEO4J_PASSWORD", "DATABASE_URL", "REDIS_URL"]
-    missing = [v for v in _CRITICAL_VARS if v not in environment_variables]
+    missing = [v for v in CRITICAL_ENV_VARS if v not in environment_variables]
     if missing:
         print(f"WARNING: Missing critical env vars " f"for backend services: {missing}")
         print(
@@ -687,6 +716,7 @@ def main(argv: list[str] | None = None) -> None:
     print("Waiting for agent version to reach 'active' state...")
     wait_result = wait_for_agent_active(client, str(agent.version))
     active = wait_result == "active"
+    github_output = os.environ.get("GITHUB_OUTPUT")
 
     agent_identity_principal_id: str | None = None
     identity_source = "none"
@@ -696,7 +726,6 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     # Write version to GITHUB_OUTPUT for downstream steps
-    github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a") as f:
             f.write(f"agent_version={agent.version}\n")

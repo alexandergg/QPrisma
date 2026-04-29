@@ -102,6 +102,28 @@ class TestGetRelatedContent:
         assert call_kwargs["expansion_hops"] == 3
 
     @pytest.mark.asyncio
+    async def test_target_video_id_overrides_injected_media_id(self):
+        from agent.tools.analysis_tools import get_related_content
+
+        mock_service = MagicMock()
+        mock_service.hybrid_search = AsyncMock(return_value=_make_search_response())
+
+        with patch(
+            "services.graph_search_service.get_graph_search_service",
+            return_value=mock_service,
+        ):
+            await get_related_content.ainvoke(
+                {
+                    "topic": "AI",
+                    "target_video_id": "vid-target",
+                    "media_id": "vid-default",
+                }
+            )
+
+        call_kwargs = mock_service.hybrid_search.call_args[1]
+        assert call_kwargs["video_id"] == "vid-target"
+
+    @pytest.mark.asyncio
     async def test_exception_returns_query_error(self):
         from agent.tools.analysis_tools import get_related_content
 

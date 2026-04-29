@@ -19,7 +19,13 @@ from datetime import UTC, datetime
 from time import perf_counter
 
 from agent.a2a.task_store import _record_phase_latency, get_task_store
-from agent.utils.observability import Metrics, get_logger, set_conversation_id, set_otel_user_id
+from agent.utils.observability import (
+    Metrics,
+    get_logger,
+    set_conversation_id,
+    set_otel_media_context,
+    set_otel_user_id,
+)
 from models.a2a_models import (
     Artifact,
     Message,
@@ -35,6 +41,8 @@ from models.a2a_models import (
 )
 
 logger = get_logger(__name__)
+
+EMPTY_RESPONSE_ERROR = "Hosted agent returned an empty response"
 
 
 class A2AAgentExecutor:
@@ -175,6 +183,11 @@ class A2AAgentExecutor:
         set_conversation_id(conversation_id)
         if user_id:
             set_otel_user_id(user_id)
+        set_otel_media_context(
+            media_id=media_id,
+            media_ids=media_ids or ([media_id] if media_id else None),
+            session_id=message.contextId,
+        )
 
         try:
             logger.info(
@@ -198,7 +211,9 @@ class A2AAgentExecutor:
                 "foundry_execution", perf_counter() - foundry_start, self.agent_type
             )
 
-            response_content = result.get("content", "")
+            response_content = (result.get("content") or "").strip()
+            if not response_content:
+                raise RuntimeError(EMPTY_RESPONSE_ERROR)
 
             task.artifacts = [
                 Artifact(
@@ -308,6 +323,11 @@ class A2AAgentExecutor:
         set_conversation_id(conversation_id)
         if user_id:
             set_otel_user_id(user_id)
+        set_otel_media_context(
+            media_id=media_id,
+            media_ids=media_ids or ([media_id] if media_id else None),
+            session_id=message.contextId,
+        )
 
         # Create and track the A2A task with the Foundry conversation ID
         task = await self.task_store.create_task(
@@ -447,28 +467,31 @@ class A2AAgentExecutor:
                 "foundry_execution", perf_counter() - foundry_start, self.agent_type
             )
 
+            accumulated_content = accumulated_content.strip()
+            if not accumulated_content:
+                raise RuntimeError(EMPTY_RESPONSE_ERROR)
+
             # Final artifact with complete content
-            if accumulated_content:
-                yield StreamResponse(
-                    artifactUpdate=TaskArtifactUpdateEvent(
-                        taskId=task.id,
-                        contextId=task.contextId,
-                        artifact=Artifact(
-                            artifactId=artifact_id,
-                            name="Agent Response",
-                            parts=[Part(text=accumulated_content)],
-                        ),
-                        append=False,
-                        lastChunk=True,
-                    )
-                )
-                task.artifacts = [
-                    Artifact(
+            yield StreamResponse(
+                artifactUpdate=TaskArtifactUpdateEvent(
+                    taskId=task.id,
+                    contextId=task.contextId,
+                    artifact=Artifact(
                         artifactId=artifact_id,
                         name="Agent Response",
                         parts=[Part(text=accumulated_content)],
-                    )
-                ]
+                    ),
+                    append=False,
+                    lastChunk=True,
+                )
+            )
+            task.artifacts = [
+                Artifact(
+                    artifactId=artifact_id,
+                    name="Agent Response",
+                    parts=[Part(text=accumulated_content)],
+                )
+            ]
 
             task.status = TaskStatus(
                 state=TaskState.COMPLETED,
@@ -564,6 +587,7 @@ class A2AAgentExecutor:
         status: TaskState | None = None,
         page_size: int = 50,
         include_artifacts: bool = False,
+        user_id: str | None = None,
     ) -> tuple[list[Task], int]:
         """List tasks with optional filtering."""
         return await self.task_store.list_tasks(
@@ -571,6 +595,7 @@ class A2AAgentExecutor:
             status=status,
             page_size=page_size,
             include_artifacts=include_artifacts,
+            user_id=user_id,
         )
 
     async def cancel_task(self, task_id: str) -> Task | None:
