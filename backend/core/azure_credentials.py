@@ -10,6 +10,7 @@ from azure.storage.blob import BlobServiceClient
 logger = logging.getLogger(__name__)
 
 _OPENAI_SCOPE = "https://cognitiveservices.azure.com/.default"
+_FOUNDRY_OPENAI_SCOPE = "https://ai.azure.com/.default"
 _logged_paths: set[str] = set()
 
 
@@ -33,6 +34,13 @@ def get_openai_token_provider():
     """Return a cached Azure OpenAI bearer token provider."""
     _log_auth_path("azure-openai", "managed-identity")
     return get_bearer_token_provider(get_default_azure_credential(), _OPENAI_SCOPE)
+
+
+@lru_cache(maxsize=1)
+def get_foundry_openai_token_provider():
+    """Return a cached Foundry OpenAI v1 bearer token provider."""
+    _log_auth_path("foundry-openai", "managed-identity")
+    return get_bearer_token_provider(get_default_azure_credential(), _FOUNDRY_OPENAI_SCOPE)
 
 
 def build_openai_client_kwargs(

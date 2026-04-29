@@ -35,7 +35,7 @@ from agent.utils.observability import (
     Metrics,
     get_logger,
 )
-from core.azure_credentials import build_openai_client_kwargs, get_openai_token_provider
+from core.azure_credentials import build_openai_client_kwargs, get_foundry_openai_token_provider
 from core.config import settings
 
 logger = get_logger(__name__)
@@ -107,7 +107,7 @@ def create_model(
     if foundry_hosting and foundry_endpoint:
         # NOT cached: the managed-identity bearer token expires ~1h, so a fresh
         # token is fetched each time a new model instance is needed.
-        token_provider = get_openai_token_provider()
+        token_provider = get_foundry_openai_token_provider()
         kwargs: dict = {
             "model": deployment,
             "base_url": f"{foundry_endpoint.rstrip('/')}/openai/v1",

@@ -5,8 +5,19 @@ import pytest
 from core.azure_credentials import (
     build_openai_client_kwargs,
     create_blob_service_client,
+    get_foundry_openai_token_provider,
+    get_openai_token_provider,
     uses_managed_identity_storage,
 )
+
+
+@pytest.fixture(autouse=True)
+def clear_token_provider_caches():
+    get_openai_token_provider.cache_clear()
+    get_foundry_openai_token_provider.cache_clear()
+    yield
+    get_openai_token_provider.cache_clear()
+    get_foundry_openai_token_provider.cache_clear()
 
 
 @pytest.mark.unit
@@ -34,6 +45,21 @@ class TestBuildOpenAIClientKwargs:
         )
 
         assert result is None
+
+
+@pytest.mark.unit
+class TestOpenAITokenProviders:
+    def test_azure_openai_uses_cognitive_services_scope(self):
+        with patch("core.azure_credentials.get_bearer_token_provider") as token_provider:
+            get_openai_token_provider()
+
+        assert token_provider.call_args.args[1] == "https://cognitiveservices.azure.com/.default"
+
+    def test_foundry_openai_uses_ai_scope(self):
+        with patch("core.azure_credentials.get_bearer_token_provider") as token_provider:
+            get_foundry_openai_token_provider()
+
+        assert token_provider.call_args.args[1] == "https://ai.azure.com/.default"
 
 
 @pytest.mark.unit
