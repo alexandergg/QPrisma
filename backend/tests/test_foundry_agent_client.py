@@ -10,6 +10,18 @@ import pytest
 from services.foundry_agent_client import FoundryAgentClient
 
 
+class _FakeStream:
+    def __init__(self, events):
+        self._events = events
+        self.closed = False
+
+    def __iter__(self):
+        return iter(self._events)
+
+    def close(self):
+        self.closed = True
+
+
 @pytest.mark.unit
 def test_get_openai_client_binds_agent_endpoint():
     calls: dict[str, object] = {}
@@ -269,3 +281,95 @@ async def test_send_streaming_message_failure_logs_without_request_fields():
         "Foundry streaming failed",
         extra={"agent_name": "qprisma-video-agent"},
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_send_streaming_message_streams_content_part_delta():
+    stream = _FakeStream(
+        [
+            types.SimpleNamespace(
+                type="response.content_part.delta",
+                delta=types.SimpleNamespace(text="Hello "),
+            ),
+            types.SimpleNamespace(
+                type="response.output_text.delta",
+                delta="world",
+            ),
+            types.SimpleNamespace(
+                type="response.completed",
+                response=types.SimpleNamespace(id="resp_stream", conversation="conv_stream"),
+            ),
+        ]
+    )
+
+    class FakeResponsesClient:
+        def create(self, **kwargs):
+            return stream
+
+    fake_openai_client = types.SimpleNamespace(responses=FakeResponsesClient())
+    client = FoundryAgentClient(
+        project_endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_name="qprisma-video-agent",
+    )
+
+    with patch.object(client, "_get_openai_client", return_value=fake_openai_client):
+        events = [event async for event in client.send_streaming_message("Hello")]
+
+    assert events == [
+        {"type": "token", "content": "Hello "},
+        {"type": "token", "content": "world"},
+        {
+            "type": "done",
+            "content": "Hello world",
+            "thread_id": "resp_stream",
+            "conversation_id": "conv_stream",
+        },
+    ]
+    assert stream.closed is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_send_streaming_message_uses_completed_output_item_when_no_deltas():
+    stream = _FakeStream(
+        [
+            types.SimpleNamespace(
+                type="response.output_item.done",
+                item=types.SimpleNamespace(
+                    type="message",
+                    content=[
+                        types.SimpleNamespace(type="output_text", text="Final answer"),
+                    ],
+                ),
+            ),
+            types.SimpleNamespace(
+                type="response.completed",
+                response=types.SimpleNamespace(id="resp_final", conversation="conv_final"),
+            ),
+        ]
+    )
+
+    class FakeResponsesClient:
+        def create(self, **kwargs):
+            return stream
+
+    fake_openai_client = types.SimpleNamespace(responses=FakeResponsesClient())
+    client = FoundryAgentClient(
+        project_endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_name="qprisma-video-agent",
+    )
+
+    with patch.object(client, "_get_openai_client", return_value=fake_openai_client):
+        events = [event async for event in client.send_streaming_message("Hello")]
+
+    assert events == [
+        {"type": "token", "content": "Final answer"},
+        {
+            "type": "done",
+            "content": "Final answer",
+            "thread_id": "resp_final",
+            "conversation_id": "conv_final",
+        },
+    ]
+    assert stream.closed is True

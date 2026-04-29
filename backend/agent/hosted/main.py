@@ -31,15 +31,7 @@ logger = logging.getLogger("qprisma.hosted")
 
 
 def _bootstrap_environment() -> None:
-    """Resolve hosted runtime secrets before importing settings-backed modules."""
-    try:
-        from agent.hosted.secrets import resolve_key_vault_secret_environment
-
-        resolve_key_vault_secret_environment()
-    except Exception as exc:
-        logger.error("Hosted runtime secret resolution failed")
-        raise SystemExit(1) from exc
-
+    """Configure hosted runtime logging before importing settings-backed modules."""
     try:
         from core.logging_config import setup_logging
 
@@ -137,7 +129,6 @@ def _setup_telemetry() -> SafeAzureAIOpenTelemetryTracer | None:
             project_endpoint=project_endpoint,
             credential=DefaultAzureCredential(),
             agent_id=agent_id,
-            trace_all_langgraph_nodes=True,
         )
         wrapped = SafeAzureAIOpenTelemetryTracer(inner)
         logger.info(

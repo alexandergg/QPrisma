@@ -46,7 +46,6 @@ frontend/
 | `test_agent_memory_context.py` | LangGraph compact memory, artifact refs, and multi-tool context updates |
 | `test_deploy_agent.py` | Hosted-agent deploy contract and manifest drift checks |
 | `test_hosted_main.py` | Hosted-agent Foundry-native runtime startup decisions |
-| `test_hosted_secrets.py` | Hosted-agent Key Vault URI secret resolution |
 | `test_observability.py` | Hosted-agent trace processor, tracer callback, and redacted span metadata |
 | `test_error_sanitization.py` | Error message sanitization |
 | `test_cache_routes.py` | Cache endpoint auth and operations |

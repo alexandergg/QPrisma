@@ -180,3 +180,47 @@ class TestMaskUri:
 
     def test_handles_none(self, hosted_main):
         assert hosted_main._mask_uri(None) == "<unset>"
+
+
+@pytest.mark.unit
+def test_setup_telemetry_uses_current_tracer_constructor(
+    hosted_main,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls: dict[str, Any] = {}
+
+    class FakeCredential:
+        pass
+
+    class FakeAzureAIOpenTelemetryTracer:
+        def __init__(self, *, project_endpoint: str, credential: Any, agent_id: str) -> None:
+            calls["tracer"] = {
+                "project_endpoint": project_endpoint,
+                "credential": credential,
+                "agent_id": agent_id,
+            }
+
+    langchain_mod = types.ModuleType("langchain_azure_ai")
+    callbacks_mod = types.ModuleType("langchain_azure_ai.callbacks")
+    tracers_mod = types.ModuleType("langchain_azure_ai.callbacks.tracers")
+    tracers_mod.AzureAIOpenTelemetryTracer = FakeAzureAIOpenTelemetryTracer
+    callbacks_mod.tracers = tracers_mod
+    langchain_mod.callbacks = callbacks_mod
+
+    monkeypatch.setitem(sys.modules, "langchain_azure_ai", langchain_mod)
+    monkeypatch.setitem(sys.modules, "langchain_azure_ai.callbacks", callbacks_mod)
+    monkeypatch.setitem(sys.modules, "langchain_azure_ai.callbacks.tracers", tracers_mod)
+    monkeypatch.setattr(hosted_main, "DefaultAzureCredential", FakeCredential)
+    monkeypatch.setenv(
+        "FOUNDRY_PROJECT_ENDPOINT", "https://example.services.ai.azure.com/api/projects/demo"
+    )
+    monkeypatch.setenv("FOUNDRY_AGENT_NAME", "qprisma-video-agent")
+
+    tracer = hosted_main._setup_telemetry()
+
+    assert isinstance(tracer, hosted_main.SafeAzureAIOpenTelemetryTracer)
+    assert calls["tracer"]["project_endpoint"] == (
+        "https://example.services.ai.azure.com/api/projects/demo"
+    )
+    assert isinstance(calls["tracer"]["credential"], FakeCredential)
+    assert calls["tracer"]["agent_id"] == "qprisma-video-agent"

@@ -124,9 +124,21 @@ class FoundryAgentClient:
         if isinstance(item, str):
             return item
 
+        delta = cls._get_response_field(item, "delta", None)
+        if isinstance(delta, str):
+            return delta
+        if delta is not None:
+            delta_text = cls._extract_output_item_text(delta)
+            if delta_text:
+                return delta_text
+
         item_text = cls._get_response_field(item, "text", None)
         if isinstance(item_text, str):
             return item_text
+
+        value = cls._get_response_field(item, "value", None)
+        if isinstance(value, str):
+            return value
 
         content = cls._get_response_field(item, "content", None)
         if isinstance(content, str):
@@ -136,6 +148,25 @@ class FoundryAgentClient:
             return "".join(part for part in text_parts if part)
 
         return ""
+
+    @classmethod
+    def _extract_stream_text(cls, event: Any) -> str:
+        """Extract incremental text from supported Responses stream event shapes."""
+        delta_text = cls._extract_output_item_text(cls._get_response_field(event, "delta", None))
+        if delta_text:
+            return delta_text
+
+        text = cls._extract_output_item_text(cls._get_response_field(event, "text", None))
+        if text:
+            return text
+
+        part_text = cls._extract_output_item_text(
+            cls._get_response_field(event, "content_part", None)
+        )
+        if part_text:
+            return part_text
+
+        return cls._extract_output_item_text(cls._get_response_field(event, "item", None))
 
     async def create_conversation(self) -> str:
         """
@@ -374,11 +405,21 @@ class FoundryAgentClient:
                             getattr(getattr(event, "item", None), "type", "-"),
                         )
 
-                    if event_type == "response.output_text.delta":
-                        delta = getattr(event, "delta", "")
+                    if event_type in {
+                        "response.output_text.delta",
+                        "response.content_part.delta",
+                    }:
+                        delta = self._extract_stream_text(event)
                         if delta:
                             accumulated_content += delta
                             yield {"type": "token", "content": delta}
+
+                    elif event_type == "response.output_text.done":
+                        if not accumulated_content:
+                            text = self._extract_stream_text(event)
+                            if text:
+                                accumulated_content = text
+                                yield {"type": "token", "content": text}
 
                     elif event_type == "response.output_item.added":
                         output_item = getattr(event, "item", None)
@@ -426,6 +467,11 @@ class FoundryAgentClient:
                                 "call_id": getattr(output_item, "call_id", item_id),
                                 "success": True,
                             }
+                        elif output_item and not accumulated_content:
+                            text = self._extract_output_item_text(output_item)
+                            if text:
+                                accumulated_content = text
+                                yield {"type": "token", "content": text}
 
                     elif event_type == "response.completed":
                         resp = getattr(event, "response", None)
