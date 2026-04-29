@@ -435,7 +435,10 @@ class FoundryAgentClient:
                             }
 
                     elif event_type == "response.function_call_arguments.done":
-                        fn_name = getattr(event, "name", "") or "unknown"
+                        item_id = getattr(event, "item_id", "")
+                        fn_name = getattr(event, "name", "") or active_tool_calls.get(
+                            item_id, "unknown"
+                        )
                         raw_args = getattr(event, "arguments", "") or ""
                         parsed_args: dict[str, Any] = {}
                         try:
@@ -458,8 +461,10 @@ class FoundryAgentClient:
                     elif event_type == "response.output_item.done":
                         output_item = getattr(event, "item", None)
                         if output_item and getattr(output_item, "type", "") == "function_call":
-                            fn_name = getattr(output_item, "name", "") or "unknown"
                             item_id = getattr(output_item, "id", "")
+                            fn_name = getattr(output_item, "name", "") or active_tool_calls.get(
+                                item_id, "unknown"
+                            )
                             active_tool_calls.pop(item_id, None)
                             yield {
                                 "type": "tool_end",

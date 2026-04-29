@@ -8,6 +8,7 @@ helpers can be imported in normal CI.
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from typing import Any
@@ -19,8 +20,8 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 def _install_sdk_shim(monkeypatch: pytest.MonkeyPatch) -> None:
     """Install a minimal ``azure.ai.agentserver.responses`` stub.
 
-    The real wheel is only installed inside the hosted container. The helpers
-    we want to test never call into the SDK; we only need the import to succeed.
+    The real wheel is only installed inside the hosted container. This shim
+    mirrors the small Responses streaming surface used by the hosted runtime.
     """
     try:
         import azure.ai.agentserver.responses  # noqa: F401
@@ -50,6 +51,102 @@ def _install_sdk_shim(monkeypatch: pytest.MonkeyPatch) -> None:
             self.args = args
             self.kwargs = kwargs
 
+    class _TextContentBuilder:
+        def __init__(self) -> None:
+            self.final_text = ""
+
+        def emit_added(self) -> types.SimpleNamespace:
+            return types.SimpleNamespace(type="response.content_part.added")
+
+        def emit_delta(self, text: str) -> types.SimpleNamespace:
+            self.final_text += text
+            return types.SimpleNamespace(type="response.output_text.delta", delta=text)
+
+        def emit_text_done(self, final_text: str | None = None) -> types.SimpleNamespace:
+            return types.SimpleNamespace(
+                type="response.output_text.done",
+                text=final_text if final_text is not None else self.final_text,
+            )
+
+        def emit_done(self) -> types.SimpleNamespace:
+            return types.SimpleNamespace(type="response.content_part.done")
+
+    class _MessageBuilder:
+        def __init__(self) -> None:
+            self.text_content = _TextContentBuilder()
+
+        def emit_added(self) -> types.SimpleNamespace:
+            return types.SimpleNamespace(
+                type="response.output_item.added",
+                item=types.SimpleNamespace(type="message"),
+            )
+
+        def add_text_content(self) -> _TextContentBuilder:
+            return self.text_content
+
+        def emit_done(self) -> types.SimpleNamespace:
+            return types.SimpleNamespace(
+                type="response.output_item.done",
+                item=types.SimpleNamespace(type="message"),
+            )
+
+    class _FunctionCallBuilder:
+        def __init__(self, name: str, call_id: str) -> None:
+            self.name = name
+            self.call_id = call_id
+            self.arguments = ""
+
+        def _item(self) -> types.SimpleNamespace:
+            return types.SimpleNamespace(
+                type="function_call",
+                name=self.name,
+                call_id=self.call_id,
+                arguments=self.arguments,
+            )
+
+        def emit_added(self) -> types.SimpleNamespace:
+            return types.SimpleNamespace(type="response.output_item.added", item=self._item())
+
+        def emit_arguments_delta(self, delta: str) -> types.SimpleNamespace:
+            self.arguments += delta
+            return types.SimpleNamespace(type="response.function_call_arguments.delta", delta=delta)
+
+        def emit_arguments_done(self, arguments: str) -> types.SimpleNamespace:
+            self.arguments = arguments
+            return types.SimpleNamespace(
+                type="response.function_call_arguments.done",
+                name=self.name,
+                arguments=arguments,
+            )
+
+        def emit_done(self) -> types.SimpleNamespace:
+            return types.SimpleNamespace(type="response.output_item.done", item=self._item())
+
+    class _ResponseEventStream:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+        def emit_created(self, *, status: str = "in_progress") -> types.SimpleNamespace:
+            return types.SimpleNamespace(type="response.created", status=status)
+
+        def emit_in_progress(self) -> types.SimpleNamespace:
+            return types.SimpleNamespace(type="response.in_progress")
+
+        def emit_completed(self) -> types.SimpleNamespace:
+            return types.SimpleNamespace(type="response.completed")
+
+        def add_output_item_message(self) -> _MessageBuilder:
+            return _MessageBuilder()
+
+        def add_output_item_function_call(
+            self,
+            *,
+            name: str,
+            call_id: str,
+        ) -> _FunctionCallBuilder:
+            return _FunctionCallBuilder(name=name, call_id=call_id)
+
     class _ResponsesAgentServerHost:
         def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
@@ -61,6 +158,7 @@ def _install_sdk_shim(monkeypatch: pytest.MonkeyPatch) -> None:
     responses_mod.ResponseContext = _ResponseContext
     responses_mod.CreateResponse = _CreateResponse
     responses_mod.TextResponse = _TextResponse
+    responses_mod.ResponseEventStream = _ResponseEventStream
     responses_mod.ResponsesAgentServerHost = _ResponsesAgentServerHost
 
     azure_mod.ai = ai_mod
@@ -180,6 +278,147 @@ class TestMaskUri:
 
     def test_handles_none(self, hosted_main):
         assert hosted_main._mask_uri(None) == "<unset>"
+
+
+@pytest.mark.unit
+class TestResponseEventStreaming:
+    async def test_tool_lifecycle_emits_function_call_events(self, hosted_main):
+        class FakeGraph:
+            async def astream_events(self, *_args: Any, **_kwargs: Any):
+                yield {
+                    "event": "on_tool_start",
+                    "name": "get_summary",
+                    "run_id": "run-1",
+                    "data": {"input": {"media_id": "vid-1"}},
+                }
+                yield {
+                    "event": "on_tool_end",
+                    "name": "get_summary",
+                    "run_id": "run-1",
+                    "data": {"output": {"summary": "Done"}},
+                }
+
+        events = [
+            event
+            async for event in hosted_main._stream_response_events(
+                context=types.SimpleNamespace(response_id="resp-1"),
+                request=types.SimpleNamespace(metadata={}),
+                graph=FakeGraph(),
+                state={},
+                config={},
+                cancellation_signal=asyncio.Event(),
+            )
+        ]
+
+        function_added = [
+            event
+            for event in events
+            if event.type == "response.output_item.added"
+            and getattr(getattr(event, "item", None), "type", None) == "function_call"
+        ]
+        function_done = [
+            event
+            for event in events
+            if event.type == "response.output_item.done"
+            and getattr(getattr(event, "item", None), "type", None) == "function_call"
+        ]
+        arguments_done = [
+            event for event in events if event.type == "response.function_call_arguments.done"
+        ]
+
+        assert function_added[0].item.name == "get_summary"
+        assert '"media_id": "vid-1"' in arguments_done[0].arguments
+        assert function_done[0].item.name == "get_summary"
+
+    async def test_model_stream_emits_text_delta(self, hosted_main):
+        class FakeGraph:
+            async def astream_events(self, *_args: Any, **_kwargs: Any):
+                yield {
+                    "event": "on_chat_model_stream",
+                    "run_id": "llm-1",
+                    "data": {"chunk": types.SimpleNamespace(content="Hello")},
+                }
+                yield {
+                    "event": "on_chat_model_stream",
+                    "run_id": "llm-1",
+                    "data": {"chunk": types.SimpleNamespace(content=" world")},
+                }
+
+        events = [
+            event
+            async for event in hosted_main._stream_response_events(
+                context=types.SimpleNamespace(response_id="resp-1"),
+                request=types.SimpleNamespace(metadata={}),
+                graph=FakeGraph(),
+                state={},
+                config={},
+                cancellation_signal=asyncio.Event(),
+            )
+        ]
+        deltas = [event.delta for event in events if event.type == "response.output_text.delta"]
+        done_text = [event.text for event in events if event.type == "response.output_text.done"]
+
+        assert deltas == ["Hello", " world"]
+        assert done_text == ["Hello world"]
+
+    async def test_model_end_fallback_emits_final_text(self, hosted_main):
+        class FakeGraph:
+            async def astream_events(self, *_args: Any, **_kwargs: Any):
+                yield {
+                    "event": "on_chat_model_end",
+                    "run_id": "llm-1",
+                    "data": {"output": AIMessage(content="Final answer")},
+                }
+
+        events = [
+            event
+            async for event in hosted_main._stream_response_events(
+                context=types.SimpleNamespace(response_id="resp-1"),
+                request=types.SimpleNamespace(metadata={}),
+                graph=FakeGraph(),
+                state={},
+                config={},
+                cancellation_signal=asyncio.Event(),
+            )
+        ]
+        deltas = [event.delta for event in events if event.type == "response.output_text.delta"]
+
+        assert deltas == ["Final answer"]
+
+    async def test_model_end_ignores_tool_call_only_messages(self, hosted_main):
+        class FakeGraph:
+            async def astream_events(self, *_args: Any, **_kwargs: Any):
+                yield {
+                    "event": "on_chat_model_end",
+                    "run_id": "llm-1",
+                    "data": {
+                        "output": AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": "get_summary",
+                                    "args": {"media_id": "vid-1"},
+                                    "id": "call-1",
+                                }
+                            ],
+                        )
+                    },
+                }
+
+        events = [
+            event
+            async for event in hosted_main._stream_response_events(
+                context=types.SimpleNamespace(response_id="resp-1"),
+                request=types.SimpleNamespace(metadata={}),
+                graph=FakeGraph(),
+                state={},
+                config={},
+                cancellation_signal=asyncio.Event(),
+            )
+        ]
+        deltas = [event for event in events if event.type == "response.output_text.delta"]
+
+        assert deltas == []
 
 
 @pytest.mark.unit

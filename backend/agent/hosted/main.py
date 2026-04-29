@@ -15,11 +15,13 @@ Targets the Azure AI Foundry refreshed public preview for hosted agents:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import sys
 import time
-from collections.abc import AsyncIterable
+import uuid
+from collections.abc import AsyncIterable, AsyncIterator
 from typing import Any
 from urllib.parse import urlparse
 
@@ -46,6 +48,7 @@ _bootstrap_environment()
 from azure.ai.agentserver.responses import (  # noqa: E402
     CreateResponse,
     ResponseContext,
+    ResponseEventStream,
     ResponsesAgentServerHost,
     TextResponse,
 )
@@ -369,14 +372,120 @@ def _stamp_request_context(context: ResponseContext, state: AgentInputState) -> 
 # ---------------------------------------------------------------------------
 
 
-async def _stream_tokens(
+def _response_id_from_context(context: ResponseContext) -> str:
+    response_id = getattr(context, "response_id", None)
+    if isinstance(response_id, str) and response_id:
+        return response_id
+    return f"caresp_{uuid.uuid4().hex}"
+
+
+def _call_id_from_run_id(run_id: str) -> str:
+    if not run_id:
+        return f"call_{uuid.uuid4().hex}"
+    return f"call_{''.join(char if char.isalnum() else '_' for char in run_id)}"
+
+
+def _json_dumps_safe(value: Any) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except TypeError:
+        return json.dumps(str(value), ensure_ascii=False)
+
+
+def _extract_text_content(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+                continue
+            if isinstance(part, dict):
+                value = part.get("text") or part.get("content") or part.get("value")
+            else:
+                value = (
+                    getattr(part, "text", None)
+                    or getattr(part, "content", None)
+                    or getattr(part, "value", None)
+                )
+            if isinstance(value, str):
+                parts.append(value)
+        return "".join(parts)
+    return str(content)
+
+
+def _message_has_tool_calls(message: Any) -> bool:
+    if isinstance(message, dict):
+        return bool(message.get("tool_calls") or message.get("tool_call_chunks"))
+    return bool(
+        getattr(message, "tool_calls", None)
+        or getattr(message, "tool_call_chunks", None)
+        or getattr(message, "additional_kwargs", {}).get("tool_calls")
+    )
+
+
+def _extract_final_text_from_model_output(output: Any) -> str:
+    message = output
+    if hasattr(output, "message"):
+        message = output.message
+    elif isinstance(output, dict) and "message" in output:
+        message = output["message"]
+
+    if _message_has_tool_calls(message):
+        return ""
+
+    content = (
+        message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+    )
+    return _extract_text_content(content).strip()
+
+
+async def _stream_response_events(
+    *,
+    context: ResponseContext,
+    request: CreateResponse,
     graph: Any,
     state: AgentInputState,
     config: dict[str, Any],
     cancellation_signal: asyncio.Event,
-) -> AsyncIterable[str]:
-    """Stream LangGraph LLM token deltas as plain text chunks."""
+) -> AsyncIterator[Any]:
+    """Translate LangGraph stream events into Foundry Responses stream events."""
+    stream = ResponseEventStream(
+        response_id=_response_id_from_context(context),
+        request=request,
+    )
+    message_builder: Any | None = None
+    text_builder: Any | None = None
+    accumulated_text: list[str] = []
+    tool_builders: dict[str, Any] = {}
     tool_start_times: dict[str, float] = {}
+    model_tokens_emitted: dict[str, bool] = {}
+
+    def ensure_text_stream() -> list[Any]:
+        nonlocal message_builder, text_builder
+        events: list[Any] = []
+        if message_builder is None:
+            message_builder = stream.add_output_item_message()
+            events.append(message_builder.emit_added())
+        if text_builder is None:
+            text_builder = message_builder.add_text_content()
+            events.append(text_builder.emit_added())
+        return events
+
+    def emit_text_delta(text: str) -> list[Any]:
+        if not text:
+            return []
+        events = ensure_text_stream()
+        accumulated_text.append(text)
+        events.append(text_builder.emit_delta(text))
+        return events
+
+    yield stream.emit_created(status="in_progress")
+    yield stream.emit_in_progress()
+
     try:
         async for event in graph.astream_events(state, config=config, version="v2"):
             if cancellation_signal.is_set():
@@ -384,19 +493,34 @@ async def _stream_tokens(
                 break
 
             event_type = event.get("event")
+            data = event.get("data", {})
+            run_id = str(event.get("run_id") or "")
+
+            if event_type == "on_chat_model_start":
+                if run_id:
+                    model_tokens_emitted[run_id] = False
+                continue
+
             if event_type == "on_tool_start":
-                run_id = str(event.get("run_id", "unknown"))
                 tool_name = str(event.get("name", "unknown"))
+                builder = stream.add_output_item_function_call(
+                    name=tool_name,
+                    call_id=_call_id_from_run_id(run_id),
+                )
+                tool_builders[run_id] = builder
                 tool_start_times[run_id] = time.perf_counter()
                 logger.info("Hosted graph tool started: tool=%s run_id=%s", tool_name, run_id)
+                yield builder.emit_added()
+                arguments = _json_dumps_safe(data.get("input") or {})
+                yield builder.emit_arguments_delta(arguments)
+                yield builder.emit_arguments_done(arguments)
                 continue
 
             if event_type == "on_tool_end":
-                run_id = str(event.get("run_id", "unknown"))
                 tool_name = str(event.get("name", "unknown"))
                 started_at = tool_start_times.pop(run_id, None)
                 elapsed_seconds = time.perf_counter() - started_at if started_at else None
-                output = event.get("data", {}).get("output")
+                output = data.get("output")
                 success = not (isinstance(output, dict) and output.get("error"))
                 logger.info(
                     "Hosted graph tool finished: tool=%s run_id=%s success=%s elapsed_seconds=%s",
@@ -405,32 +529,48 @@ async def _stream_tokens(
                     success,
                     f"{elapsed_seconds:.3f}" if elapsed_seconds is not None else "unknown",
                 )
+                builder = tool_builders.pop(run_id, None)
+                if builder is not None:
+                    yield builder.emit_done()
                 continue
 
-            if event_type != "on_chat_model_stream":
+            if event_type == "on_chat_model_stream":
+                chunk = data.get("chunk")
+                if chunk is None:
+                    continue
+                text = _extract_text_content(getattr(chunk, "content", None))
+                if text:
+                    if run_id:
+                        model_tokens_emitted[run_id] = True
+                    for response_event in emit_text_delta(text):
+                        yield response_event
                 continue
 
-            chunk = event.get("data", {}).get("chunk")
-            if chunk is None:
-                continue
+            if event_type == "on_chat_model_end":
+                if run_id and model_tokens_emitted.get(run_id):
+                    continue
+                text = _extract_final_text_from_model_output(data.get("output"))
+                if text:
+                    for response_event in emit_text_delta(text):
+                        yield response_event
 
-            content = getattr(chunk, "content", None)
-            if isinstance(content, str) and content:
-                yield content
-            elif isinstance(content, list):
-                for piece in content:
-                    if isinstance(piece, str) and piece:
-                        yield piece
-                    elif isinstance(piece, dict):
-                        text = piece.get("text")
-                        if isinstance(text, str) and text:
-                            yield text
     except asyncio.CancelledError:
-        logger.info("Token stream cancelled.")
+        logger.info("Response event stream cancelled.")
         raise
     except Exception as exc:  # noqa: BLE001
         logger.exception("Graph streaming failed: %s", exc)
-        yield f"\n\n[error] Agent execution failed: {exc}"
+        for response_event in emit_text_delta(f"\n\n[error] Agent execution failed: {exc}"):
+            yield response_event
+
+    for builder in list(tool_builders.values()):
+        yield builder.emit_done()
+    if text_builder is not None:
+        final_text = "".join(accumulated_text)
+        yield text_builder.emit_text_done(final_text)
+        yield text_builder.emit_done()
+    if message_builder is not None:
+        yield message_builder.emit_done()
+    yield stream.emit_completed()
 
 
 # ---------------------------------------------------------------------------
@@ -446,8 +586,8 @@ async def handle_response(
     request: CreateResponse,
     context: ResponseContext,
     cancellation_signal: asyncio.Event,
-) -> TextResponse:
-    """Refreshed-preview entrypoint: ingest a Responses request, stream tokens."""
+) -> TextResponse | AsyncIterable[Any]:
+    """Refreshed-preview entrypoint: ingest a Responses request, stream graph events."""
     metadata: dict[str, Any] = dict(request.metadata) if request.metadata else {}
 
     if logger.isEnabledFor(logging.DEBUG):
@@ -485,10 +625,13 @@ async def handle_response(
         "metadata": metadata,
     }
 
-    return TextResponse(
-        context,
-        request,
-        text=_stream_tokens(graph, state, config, cancellation_signal),
+    return _stream_response_events(
+        context=context,
+        request=request,
+        graph=graph,
+        state=state,
+        config=config,
+        cancellation_signal=cancellation_signal,
     )
 
 

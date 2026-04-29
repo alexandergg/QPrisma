@@ -373,3 +373,78 @@ async def test_send_streaming_message_uses_completed_output_item_when_no_deltas(
         },
     ]
     assert stream.closed is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_send_streaming_message_parses_function_call_tool_events():
+    stream = _FakeStream(
+        [
+            types.SimpleNamespace(
+                type="response.output_item.added",
+                item=types.SimpleNamespace(
+                    type="function_call",
+                    id="fc_1",
+                    call_id="call_run_1",
+                    name="get_summary",
+                    arguments="",
+                ),
+            ),
+            types.SimpleNamespace(
+                type="response.function_call_arguments.done",
+                item_id="fc_1",
+                arguments='{"media_id": "vid_123", "topic": "summary"}',
+            ),
+            types.SimpleNamespace(
+                type="response.output_item.done",
+                item=types.SimpleNamespace(
+                    type="function_call",
+                    id="fc_1",
+                    call_id="call_run_1",
+                    name="get_summary",
+                    arguments='{"media_id": "vid_123", "topic": "summary"}',
+                    status="completed",
+                ),
+            ),
+            types.SimpleNamespace(
+                type="response.completed",
+                response=types.SimpleNamespace(id="resp_tools", conversation="conv_tools"),
+            ),
+        ]
+    )
+
+    class FakeResponsesClient:
+        def create(self, **kwargs):
+            return stream
+
+    fake_openai_client = types.SimpleNamespace(responses=FakeResponsesClient())
+    client = FoundryAgentClient(
+        project_endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_name="qprisma-video-agent",
+    )
+
+    with patch.object(client, "_get_openai_client", return_value=fake_openai_client):
+        events = [event async for event in client.send_streaming_message("Summarize")]
+
+    assert events == [
+        {"type": "tool_start", "name": "get_summary", "call_id": "call_run_1"},
+        {
+            "type": "tool_args",
+            "name": "get_summary",
+            "arguments": {"media_id": "vid_123", "topic": "summary"},
+            "description": "summary",
+        },
+        {
+            "type": "tool_end",
+            "name": "get_summary",
+            "call_id": "call_run_1",
+            "success": True,
+        },
+        {
+            "type": "done",
+            "content": "",
+            "thread_id": "resp_tools",
+            "conversation_id": "conv_tools",
+        },
+    ]
+    assert stream.closed is True
