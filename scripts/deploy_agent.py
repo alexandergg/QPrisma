@@ -89,28 +89,34 @@ OPTIONAL_ENV_VARS = (
     "OTEL_SERVICE_NAME",
     "NEO4J_URI",
     "NEO4J_USER",
-    "NEO4J_PASSWORD_KEY_VAULT_URI",
+    "NEO4J_PASSWORD",
     "NEO4J_DATABASE",
-    "DATABASE_URL_KEY_VAULT_URI",
-    "REDIS_URL_KEY_VAULT_URI",
-    "AZURE_STORAGE_ACCOUNT_URL",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "AZURE_STORAGE_CONNECTION_STRING",
     "MEMORY_STORE_NAME",
     "MEMORY_CHAT_MODEL",
     "MEMORY_EMBEDDING_MODEL",
 )
 
-DIRECT_SECRET_ENV_VARS = (
-    "NEO4J_PASSWORD",
-    "DATABASE_URL",
-    "REDIS_URL",
-    "AZURE_STORAGE_CONNECTION_STRING",
+LEGACY_SECRET_REFERENCE_ENV_KEYS = (
+    "NEO4J_PASSWORD_KEY_VAULT_URI",
+    "NEO4J_PASSWORD_KV_URI",
+    "DATABASE_URL_KEY_VAULT_URI",
+    "DATABASE_URL_KV_URI",
+    "REDIS_URL_KEY_VAULT_URI",
+    "REDIS_URL_KV_URI",
+    "AZURE_STORAGE_ACCOUNT_URL",
+    "AZURE_STORAGE_CONNECTION_STRING_KEY_VAULT_URI",
+    "STORAGE_CONNECTION_KV_URI",
 )
 
 CRITICAL_ENV_VARS = (
     "NEO4J_URI",
-    "NEO4J_PASSWORD_KEY_VAULT_URI",
-    "DATABASE_URL_KEY_VAULT_URI",
-    "REDIS_URL_KEY_VAULT_URI",
+    "NEO4J_PASSWORD",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "AZURE_STORAGE_CONNECTION_STRING",
 )
 
 HOSTED_AGENT_ENV_CONTRACT = frozenset(
@@ -146,6 +152,20 @@ def _optional_env_aliased(
     return {}
 
 
+def _reject_legacy_secret_reference_keys(source: Mapping[str, str]) -> None:
+    """Fail fast when the old Key Vault URI contract is present."""
+    legacy_keys = [key for key in LEGACY_SECRET_REFERENCE_ENV_KEYS if source.get(key)]
+    if not legacy_keys:
+        return
+
+    formatted = ", ".join(sorted(legacy_keys))
+    raise ValueError(
+        "Hosted Agent deployment no longer accepts Key Vault URI/managed-identity "
+        "secret references in the agent environment. Resolve these values before "
+        f"registration and pass the plain runtime env vars instead. Offending keys: {formatted}"
+    )
+
+
 def build_environment_variables(
     *,
     account_name: str = DEFAULT_ACCOUNT_NAME,
@@ -153,6 +173,7 @@ def build_environment_variables(
 ) -> dict[str, str]:
     """Build the hosted agent container environment contract."""
     source = os.environ if env is None else env
+    _reject_legacy_secret_reference_keys(source)
 
     environment_variables = {
         **{key: source.get(key, default) for key, default in DEFAULT_ENV_VARS.items()},
@@ -182,12 +203,6 @@ def build_environment_variables(
     )
 
     return environment_variables
-
-
-def find_ignored_direct_secrets(env: Mapping[str, str] | None = None) -> list[str]:
-    """Return legacy direct secret env vars that are intentionally not deployed."""
-    source = os.environ if env is None else env
-    return [key for key in DIRECT_SECRET_ENV_VARS if source.get(key)]
 
 
 def parse_account_and_project(project_endpoint: str) -> tuple[str, str]:
@@ -637,18 +652,16 @@ def main(argv: list[str] | None = None) -> None:
         allow_preview=True,
     )
 
-    environment_variables = build_environment_variables(account_name=account_name)
-    ignored_direct_secrets = find_ignored_direct_secrets()
-    if ignored_direct_secrets:
-        print(
-            "WARNING: Ignoring legacy direct secret env vars for Hosted Agent deployment."
-        )
-        print("  Provide *_KEY_VAULT_URI variables instead; the container resolves them at startup.")
+    try:
+        environment_variables = build_environment_variables(account_name=account_name)
+    except ValueError as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
 
     # Warn if critical backend service vars are missing
     missing = [v for v in CRITICAL_ENV_VARS if v not in environment_variables]
     if missing:
-        print("WARNING: One or more critical env vars are missing for backend services.")
+        print("ERROR: One or more critical env vars are missing for backend services.")
         print(
             "  The hosted agent will fall back to "
             "localhost defaults and fail to connect."
@@ -656,6 +669,8 @@ def main(argv: list[str] | None = None) -> None:
         print(
             "  Ensure the deploy workflow resolves " "these from Azure infrastructure."
         )
+        print(f"  Missing: {', '.join(missing)}")
+        sys.exit(1)
 
     definition = HostedAgentDefinition(
         container_protocol_versions=[
@@ -749,23 +764,23 @@ def main(argv: list[str] | None = None) -> None:
 
     if not agent_identity_principal_id:
         print(
-            "ERROR: Agent version is active but instance_identity.principal_id "
+            "WARNING: Agent version is active but instance_identity.principal_id "
             "was not returned by Foundry after "
             f"{AGENT_IDENTITY_LOOKUP_ATTEMPTS} attempts "
             f"({max(AGENT_IDENTITY_LOOKUP_ATTEMPTS - 1, 0) * AGENT_IDENTITY_LOOKUP_WAIT_SECONDS}s)."
         )
         print(
-            "Re-run this workflow to retry, or inspect the agent in the "
-            "Foundry portal to confirm the identity has been provisioned."
+            "Skipping runtime identity RBAC assignment for this run. Re-run the workflow "
+            "to retry the lookup, or inspect the agent in the Foundry portal to confirm "
+            "the identity has been provisioned."
         )
-        sys.exit(1)
 
     # The agent runtime identity is now known; assign the RBAC roles it needs
     # to invoke the project Responses API and the account-scoped Azure OpenAI
     # subdomain. Skipped (with a warning) if subscription_id is missing — that
     # only happens in local invocations, where the operator can run the role
     # assignments by hand.
-    if subscription_id:
+    if subscription_id and agent_identity_principal_id:
         try:
             assign_agent_identity_rbac(
                 principal_id=agent_identity_principal_id,
@@ -777,6 +792,11 @@ def main(argv: list[str] | None = None) -> None:
         except RuntimeError as exc:
             print(f"ERROR: {exc}")
             sys.exit(1)
+    elif not agent_identity_principal_id:
+        print(
+            "WARNING: Hosted agent runtime identity principal ID is unavailable — "
+            "skipping automatic RBAC assignment."
+        )
     else:
         print(
             "WARNING: AZURE_SUBSCRIPTION_ID not set — skipping agent identity "

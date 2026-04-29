@@ -50,22 +50,22 @@ template:
       value: ${NEO4J_URI}
     - name: NEO4J_USER
       value: ${NEO4J_USER}
-    - name: NEO4J_PASSWORD_KEY_VAULT_URI
-      value: ${NEO4J_PASSWORD_KEY_VAULT_URI}
+    - name: NEO4J_PASSWORD
+      value: ${NEO4J_PASSWORD}
     - name: NEO4J_DATABASE
       value: ${NEO4J_DATABASE}
 
     # --- Redis ---
-    - name: REDIS_URL_KEY_VAULT_URI
-      value: ${REDIS_URL_KEY_VAULT_URI}
+    - name: REDIS_URL
+      value: ${REDIS_URL}
 
     # --- PostgreSQL ---
-    - name: DATABASE_URL_KEY_VAULT_URI
-      value: ${DATABASE_URL_KEY_VAULT_URI}
+    - name: DATABASE_URL
+      value: ${DATABASE_URL}
 
-    # --- Azure Blob Storage (managed identity) ---
-    - name: AZURE_STORAGE_ACCOUNT_URL
-      value: ${AZURE_STORAGE_ACCOUNT_URL}
+    # --- Azure Blob Storage ---
+    - name: AZURE_STORAGE_CONNECTION_STRING
+      value: ${AZURE_STORAGE_CONNECTION_STRING}
 
     # --- Foundry Memory Store ---
     # FOUNDRY_* and AGENT_* prefixes are reserved by the hosted-agent platform,

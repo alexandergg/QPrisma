@@ -122,7 +122,7 @@ def test_build_environment_variables_defaults_to_secretless_hosted_contract():
 
 
 @pytest.mark.unit
-def test_build_environment_variables_preserves_explicit_openai_overrides():
+def test_build_environment_variables_preserves_explicit_runtime_overrides():
     deploy_agent = _load_deploy_agent_module()
     env_vars = deploy_agent.build_environment_variables(
         env={
@@ -132,10 +132,10 @@ def test_build_environment_variables_preserves_explicit_openai_overrides():
             "AZURE_OPENAI_DEPLOYMENT_EMBEDDING": "text-embedding-3-small",
             "AZURE_USE_MANAGED_IDENTITY": "false",
             "NEO4J_URI": "neo4j+s://example.databases.neo4j.io",
-            "NEO4J_PASSWORD_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/neo4j-password",
-            "DATABASE_URL_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/database-url",
-            "REDIS_URL_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/redis-url",
-            "AZURE_STORAGE_ACCOUNT_URL": "https://storage.blob.core.windows.net",
+            "NEO4J_PASSWORD": "neo4j-secret",
+            "DATABASE_URL": "postgresql://db-secret",
+            "REDIS_URL": "rediss://redis-secret",
+            "AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountKey=secret",
         }
     )
 
@@ -145,28 +145,27 @@ def test_build_environment_variables_preserves_explicit_openai_overrides():
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-small"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "false"
     assert env_vars["NEO4J_URI"] == "neo4j+s://example.databases.neo4j.io"
-    assert env_vars["NEO4J_PASSWORD_KEY_VAULT_URI"].endswith("/secrets/neo4j-password")
-    assert env_vars["DATABASE_URL_KEY_VAULT_URI"].endswith("/secrets/database-url")
-    assert env_vars["REDIS_URL_KEY_VAULT_URI"].endswith("/secrets/redis-url")
-    assert env_vars["AZURE_STORAGE_ACCOUNT_URL"] == "https://storage.blob.core.windows.net"
+    assert env_vars["NEO4J_PASSWORD"] == "neo4j-secret"
+    assert env_vars["DATABASE_URL"] == "postgresql://db-secret"
+    assert env_vars["REDIS_URL"] == "rediss://redis-secret"
+    assert (
+        env_vars["AZURE_STORAGE_CONNECTION_STRING"]
+        == "DefaultEndpointsProtocol=https;AccountKey=secret"
+    )
 
 
 @pytest.mark.unit
-def test_build_environment_variables_ignores_legacy_direct_secret_values():
+def test_build_environment_variables_rejects_legacy_secret_reference_values():
     deploy_agent = _load_deploy_agent_module()
     env = {
-        "NEO4J_PASSWORD": "secret",
-        "DATABASE_URL": "postgresql://secret",
-        "REDIS_URL": "rediss://secret",
-        "AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountKey=secret",
+        "NEO4J_PASSWORD_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/neo4j-password",
+        "DATABASE_URL_KV_URI": "https://kv.vault.azure.net/secrets/database-url",
+        "REDIS_URL_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/redis-url",
+        "AZURE_STORAGE_ACCOUNT_URL": "https://storage.blob.core.windows.net",
     }
 
-    env_vars = deploy_agent.build_environment_variables(env=env)
-
-    assert not (set(env_vars) & set(deploy_agent.DIRECT_SECRET_ENV_VARS))
-    assert deploy_agent.find_ignored_direct_secrets(env) == list(
-        deploy_agent.DIRECT_SECRET_ENV_VARS
-    )
+    with pytest.raises(ValueError, match="Key Vault URI"):
+        deploy_agent.build_environment_variables(env=env)
 
 
 @pytest.mark.unit
@@ -346,9 +345,6 @@ def test_hosted_agent_openai_rbac_is_durable_and_graph_free():
         _REPO_ROOT / ".github" / "workflows" / "deploy-ai-foundry.yml"
     ).read_text(encoding="utf-8")
     deploy_agent_script = _SCRIPT_PATH.read_text(encoding="utf-8")
-    hosted_openai_step = _workflow_step_block(
-        hosted_workflow, "Ensure hosted agent instance identity has Azure OpenAI access"
-    )
     ai_foundry_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleAiFoundry")
     project_openai_role = _resource_block(ai_foundry_bicep, "openAiRoleProject")
 
@@ -359,14 +355,12 @@ def test_hosted_agent_openai_rbac_is_durable_and_graph_free():
     assert "scope: aiFoundry" in project_openai_role
     assert _OPENAI_ROLE_DEFINITION_ID in project_openai_role
     assert "principalId: aiProject.identity.principalId" in project_openai_role
-    assert _OPENAI_USER_ROLE_ID in hosted_openai_step
-    assert "Cognitive Services OpenAI User" in hosted_openai_step
+    assert _OPENAI_USER_ROLE_ID in deploy_agent_script
+    assert "Cognitive Services OpenAI User" in deploy_agent_script
     assert "'infra/modules/ai-foundry.bicep'" in hosted_workflow
-    assert (
-        "AGENT_IDENTITY_PID: ${{ steps.register.outputs.agent_identity_principal_id }}"
-        in hosted_openai_step
-    )
-    assert '--assignee-object-id "$AGENT_IDENTITY_PID"' in hosted_openai_step
+    assert "Ensure hosted agent instance identity has Azure OpenAI access" not in hosted_workflow
+    assert "Key Vault Secrets User" not in hosted_workflow
+    assert "Storage Blob Data Contributor" not in hosted_workflow
     assert "az ad sp list" not in hosted_workflow
     assert "Ensure hosted AgentIdentity has Azure OpenAI access" not in ai_foundry_workflow
     assert "az ad sp list" not in ai_foundry_workflow
@@ -414,6 +408,14 @@ def _setup_main_env(monkeypatch, tmp_path: Path) -> Path:
     )
     monkeypatch.setenv("CONTAINER_IMAGE", "fakeacr.azurecr.io/qprisma-video-agent:test")
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
+    monkeypatch.setenv("NEO4J_URI", "neo4j+s://fake.databases.neo4j.io")
+    monkeypatch.setenv("NEO4J_PASSWORD", "neo4j-secret")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://fake-db")
+    monkeypatch.setenv("REDIS_URL", "rediss://fake-redis")
+    monkeypatch.setenv(
+        "AZURE_STORAGE_CONNECTION_STRING",
+        "DefaultEndpointsProtocol=https;AccountKey=fake",
+    )
     return output_path
 
 
@@ -441,7 +443,7 @@ def test_main_active_with_identity_writes_outputs_and_succeeds(monkeypatch, tmp_
 
 
 @pytest.mark.unit
-def test_main_active_without_identity_exits_one(monkeypatch, tmp_path):
+def test_main_active_without_identity_writes_outputs_and_succeeds(monkeypatch, tmp_path):
     deploy_agent = _load_deploy_agent_module()
     output_path = _setup_main_env(monkeypatch, tmp_path)
     fake_client_cls, fake_agent = _make_main_test_client(deploy_agent)
@@ -453,14 +455,13 @@ def test_main_active_without_identity_exits_one(monkeypatch, tmp_path):
         deploy_agent, "resolve_agent_identity_principal_id", lambda *a, **kw: (None, "none")
     )
 
-    with pytest.raises(SystemExit) as excinfo:
-        deploy_agent.main([])
+    deploy_agent.main([])
 
-    assert excinfo.value.code == 1
     outputs = _read_github_output(output_path)
     assert outputs["agent_version"] == str(fake_agent.version)
     assert outputs["agent_active"] == "true"
     assert outputs["agent_identity_principal_id"] == ""
+    assert outputs["agent_identity_source"] == "none"
 
 
 @pytest.mark.unit
@@ -527,4 +528,4 @@ def test_hosted_manifest_environment_names_match_deploy_contract():
 
     assert manifest_env_names >= deploy_agent.HOSTED_AGENT_ENV_CONTRACT
     assert not (manifest_env_names & {"FOUNDRY_PROJECT_ENDPOINT", "FOUNDRY_AGENT_NAME"})
-    assert not (manifest_env_names & set(deploy_agent.DIRECT_SECRET_ENV_VARS))
+    assert not (manifest_env_names & set(deploy_agent.LEGACY_SECRET_REFERENCE_ENV_KEYS))
