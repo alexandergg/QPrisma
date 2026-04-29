@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass
@@ -13,8 +12,6 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from azure.identity import DefaultAzureCredential
-
-logger = logging.getLogger(__name__)
 
 KEY_VAULT_API_VERSION = "7.4"
 KEY_VAULT_SCOPE = "https://vault.azure.net/.default"
@@ -113,9 +110,6 @@ def resolve_key_vault_secret_environment(
 
     for target_env_var, uri_env_var in SECRET_ENV_URI_MAP.items():
         if target_env.get(target_env_var):
-            logger.info(
-                "%s already configured directly; skipping Key Vault resolution", target_env_var
-            )
             continue
 
         uri = target_env.get(uri_env_var, "")
@@ -138,11 +132,5 @@ def resolve_key_vault_secret_environment(
             opener=opener,
         )
         resolved.append(ref.target_env_var)
-        logger.info(
-            "Resolved %s from Key Vault secret %s/%s",
-            ref.target_env_var,
-            ref.vault_host,
-            ref.secret_name,
-        )
 
     return resolved

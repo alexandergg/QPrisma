@@ -641,15 +641,14 @@ def main(argv: list[str] | None = None) -> None:
     ignored_direct_secrets = find_ignored_direct_secrets()
     if ignored_direct_secrets:
         print(
-            "WARNING: Ignoring legacy direct secret env vars for Hosted Agent deployment: "
-            f"{ignored_direct_secrets}"
+            "WARNING: Ignoring legacy direct secret env vars for Hosted Agent deployment."
         )
         print("  Provide *_KEY_VAULT_URI variables instead; the container resolves them at startup.")
 
     # Warn if critical backend service vars are missing
     missing = [v for v in CRITICAL_ENV_VARS if v not in environment_variables]
     if missing:
-        print(f"WARNING: Missing critical env vars " f"for backend services: {missing}")
+        print("WARNING: One or more critical env vars are missing for backend services.")
         print(
             "  The hosted agent will fall back to "
             "localhost defaults and fail to connect."

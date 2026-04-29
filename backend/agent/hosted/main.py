@@ -35,11 +35,9 @@ def _bootstrap_environment() -> None:
     try:
         from agent.hosted.secrets import resolve_key_vault_secret_environment
 
-        resolved_secrets = resolve_key_vault_secret_environment()
-        if resolved_secrets:
-            logger.info("Resolved hosted runtime secrets: %s", sorted(resolved_secrets))
+        resolve_key_vault_secret_environment()
     except Exception as exc:
-        logger.error("Hosted runtime secret resolution failed: %s", exc)
+        logger.error("Hosted runtime secret resolution failed")
         raise SystemExit(1) from exc
 
     try:

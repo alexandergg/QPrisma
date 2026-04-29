@@ -9,10 +9,8 @@ Verifies that the data generator correctly:
 
 from __future__ import annotations
 
-import json
-import re
-
 import pytest
+from agent.hosted.context_envelope import extract_qprisma_context
 
 from evaluation_foundry.data.query_templates import QueryTemplate
 from evaluation_foundry.generate_eval_data import (
@@ -28,13 +26,11 @@ MEDIA_ID_1 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 MEDIA_ID_2 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 USER_ID = "user_7541242e88e3"
 
-CONTEXT_RE = re.compile(r"^\[QPRISMA_CONTEXT:(\{.*?\})\]\n", re.DOTALL)
-
 
 def _extract_context(query: str) -> dict | None:
-    """Parse the QPRISMA_CONTEXT JSON from a query string."""
-    m = CONTEXT_RE.match(query)
-    return json.loads(m.group(1)) if m else None
+    """Parse QPrisma context metadata from a query string."""
+    metadata, _ = extract_qprisma_context(query)
+    return metadata or None
 
 
 # ── _format_context ───────────────────────────────────────────────────────
@@ -180,10 +176,13 @@ class TestGenerateDataFile:
         # 1 general + 2 video (one per media_id) + 1 multi-video = 4
         assert len(queries) == 4
 
-        # Both video IDs appear in video-specific queries
-        video_queries = [q for q in queries if MEDIA_ID_1 in q or MEDIA_ID_2 in q]
-        assert any(MEDIA_ID_1 in q for q in video_queries)
-        assert any(MEDIA_ID_2 in q for q in video_queries)
+        # Both video IDs appear in video-specific query context
+        video_media_ids = {
+            ctx["media_id"]
+            for query in queries
+            if (ctx := _extract_context(query)) is not None and "media_id" in ctx
+        }
+        assert video_media_ids == {MEDIA_ID_1, MEDIA_ID_2}
 
     def test_multi_video_query_has_media_ids(self, mixed_templates):
         result = generate_data_file(
@@ -233,8 +232,16 @@ class TestGenerateDataFile:
         )
         # 3 templates × 2 videos = 6 rows
         assert len(result["data"]) == 6
-        v1_count = sum(1 for r in result["data"] if MEDIA_ID_1 in r["query"])
-        v2_count = sum(1 for r in result["data"] if MEDIA_ID_2 in r["query"])
+        v1_count = sum(
+            1
+            for r in result["data"]
+            if ((_extract_context(r["query"]) or {}).get("media_id") == MEDIA_ID_1)
+        )
+        v2_count = sum(
+            1
+            for r in result["data"]
+            if ((_extract_context(r["query"]) or {}).get("media_id") == MEDIA_ID_2)
+        )
         assert v1_count == 3
         assert v2_count == 3
 
