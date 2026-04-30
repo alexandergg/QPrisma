@@ -29,8 +29,7 @@ WORKDIR /app
 # To regenerate: cd backend && uv pip compile pyproject.toml --extra hosted --prerelease=allow --python-version 3.11 -o agent/hosted/requirements-hosted.txt
 COPY agent/hosted/requirements-hosted.txt /tmp/requirements.txt
 RUN python -m venv /opt/venv
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --python /opt/venv/bin/python -r /tmp/requirements.txt && \
+RUN uv pip install --python /opt/venv/bin/python -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
 
 FROM python:3.11-slim AS runtime
