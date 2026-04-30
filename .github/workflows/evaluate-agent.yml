@@ -451,7 +451,7 @@ jobs:
         working-directory: backend
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}
+          AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}
           REDTEAM_OUTPUT_DIR: ${{ runner.temp }}/redteam
         run: |
           set -euo pipefail
@@ -460,7 +460,7 @@ jobs:
             --preflight \
             --agent-id "${{ needs.resolve-version.outputs.agent-id }}" \
             --endpoint "${{ vars.FOUNDRY_PROJECT_ENDPOINT }}" \
-            --model-deployment "${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}" \
+            --model-deployment "${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}" \
             --strategies "base64,flip,indirect_jailbreak" \
             --risk-categories "prohibited_actions" \
             --output "$REDTEAM_OUTPUT_DIR/redteam-preflight.json" \
@@ -472,7 +472,7 @@ jobs:
         working-directory: backend
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
-          AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}
+          AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}
           QPRISMA_REDTEAM_NUM_TURNS: '5'
           REDTEAM_OUTPUT_DIR: ${{ runner.temp }}/redteam
         run: |
@@ -481,7 +481,7 @@ jobs:
           python -m evaluation_foundry.redteam_eval \
             --agent-id "${{ needs.resolve-version.outputs.agent-id }}" \
             --endpoint "${{ vars.FOUNDRY_PROJECT_ENDPOINT }}" \
-            --model-deployment "${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}" \
+            --model-deployment "${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}" \
             --strategies "base64,flip,indirect_jailbreak" \
             --risk-categories "prohibited_actions" \
             --output "$REDTEAM_OUTPUT_DIR/redteam-results.json" \

@@ -100,7 +100,7 @@ template:
 
 resources:
   - kind: model
-    id: gpt-5.4-pro
+    id: gpt-5.5
     name: chat
   - kind: model
     id: text-embedding-3-large

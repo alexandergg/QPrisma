@@ -82,10 +82,10 @@ resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-
   }
 }
 
-// GPT-5.4-pro — GlobalStandard, reasoning model used as primary chat for the hosted agent
-resource gpt54proDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+// GPT-5.5 — GlobalStandard, reasoning model used as primary chat for the hosted agent
+resource gpt55Deployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: aiFoundry
-  name: 'gpt-5.4-pro'
+  name: 'gpt-5.5'
   sku: {
     name: 'GlobalStandard'
     capacity: 160
@@ -93,8 +93,8 @@ resource gpt54proDeployment 'Microsoft.CognitiveServices/accounts/deployments@20
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-5.4-pro'
-      version: '2026-03-05'
+      name: 'gpt-5.5'
+      version: '2026-04-24'
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
@@ -120,7 +120,7 @@ resource gpt53chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
   dependsOn: [
-    gpt54proDeployment
+    gpt55Deployment
   ]
 }
 

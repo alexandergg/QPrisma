@@ -1129,7 +1129,7 @@ class TestDynamicToolBinding:
         assert "Do not invent people" in SYSTEM_PROMPT
         # Follow-ups are now mandatory after grounded answers (with strict exceptions),
         # to ensure the frontend ---SUGGESTED_QUESTIONS--- parser keeps rendering them
-        # even on stricter reasoning models like gpt-5.4-pro.
+        # even on stricter reasoning models like gpt-5.5.
         assert "---SUGGESTED_QUESTIONS---" in SYSTEM_PROMPT
         assert "you MUST append a verbatim block" in SYSTEM_PROMPT
         assert "---SUGGESTED_QUESTIONS---" in MULTI_VIDEO_SYSTEM_PROMPT
@@ -1242,10 +1242,10 @@ class TestCreateModelTemperatureFilter:
         assert kwargs.get("temperature") == 0.2
         assert kwargs.get("azure_deployment") == "gpt-4o"
 
-    def test_temperature_dropped_for_gpt_5_4_pro(self):
-        kwargs = self._captured_kwargs("gpt-5.4-pro")
+    def test_temperature_dropped_for_gpt_5_5(self):
+        kwargs = self._captured_kwargs("gpt-5.5")
         assert "temperature" not in kwargs
-        assert kwargs.get("azure_deployment") == "gpt-5.4-pro"
+        assert kwargs.get("azure_deployment") == "gpt-5.5"
 
     def test_temperature_dropped_for_gpt_5_3_chat(self):
         kwargs = self._captured_kwargs("gpt-5.3-chat")

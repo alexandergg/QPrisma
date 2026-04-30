@@ -442,7 +442,7 @@ python -m evaluation_foundry.redteam_eval \
   --dry-run \
   --agent-id qprisma-video-agent:<version> \
   --endpoint "$AZURE_AI_PROJECT_ENDPOINT" \
-  --model-deployment "${AZURE_AI_MODEL_DEPLOYMENT_NAME:-gpt-5.4-pro}" \
+  --model-deployment "${AZURE_AI_MODEL_DEPLOYMENT_NAME:-gpt-5.5}" \
   --strategies base64,flip,indirect_jailbreak \
   --risk-categories prohibited_actions \
   --output .foundry/results/redteam/dry-run.json
@@ -453,7 +453,7 @@ python -m evaluation_foundry.redteam_eval \
   --preflight \
   --agent-id qprisma-video-agent:<version> \
   --endpoint "$AZURE_AI_PROJECT_ENDPOINT" \
-  --model-deployment "${AZURE_AI_MODEL_DEPLOYMENT_NAME:-gpt-5.4-pro}" \
+  --model-deployment "${AZURE_AI_MODEL_DEPLOYMENT_NAME:-gpt-5.5}" \
   --strategies base64,flip,indirect_jailbreak \
   --risk-categories prohibited_actions \
   --output .foundry/results/redteam/preflight.json
@@ -463,7 +463,7 @@ python -m evaluation_foundry.redteam_eval \
 python -m evaluation_foundry.redteam_eval \
   --agent-id qprisma-video-agent:<version> \
   --endpoint "$AZURE_AI_PROJECT_ENDPOINT" \
-  --model-deployment "${AZURE_AI_MODEL_DEPLOYMENT_NAME:-gpt-5.4-pro}" \
+  --model-deployment "${AZURE_AI_MODEL_DEPLOYMENT_NAME:-gpt-5.5}" \
   --strategies base64,flip,indirect_jailbreak \
   --risk-categories prohibited_actions \
   --output .foundry/results/redteam/summary.json \

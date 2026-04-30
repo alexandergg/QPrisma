@@ -168,7 +168,7 @@ def _is_reasoning_model(deployment: str | None) -> bool:
             continue
         if name == token:
             return True
-        # Prefix match: "gpt-5" matches "gpt-5.4-pro" / "gpt-5-turbo"
+        # Prefix match: "gpt-5" matches "gpt-5.5" / "gpt-5-turbo"
         if name.startswith(f"{token}.") or name.startswith(f"{token}-"):
             return True
     return False

@@ -77,7 +77,7 @@ DEFAULT_ENV_VARS = {
     "ENVIRONMENT": "hosted",
     "LOG_LEVEL": "INFO",
     "AZURE_OPENAI_API_VERSION": "2025-04-01-preview",
-    "AZURE_OPENAI_DEPLOYMENT_GPT": "gpt-5.4-pro",
+    "AZURE_OPENAI_DEPLOYMENT_GPT": "gpt-5.5",
     "AZURE_OPENAI_DEPLOYMENT_EMBEDDING": "text-embedding-3-large",
     "AZURE_USE_MANAGED_IDENTITY": "true",
     "AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING": "true",
@@ -112,6 +112,7 @@ LEGACY_SECRET_REFERENCE_ENV_KEYS = (
 )
 
 CRITICAL_ENV_VARS = (
+    "AZURE_OPENAI_DEPLOYMENT_GPT",
     "NEO4J_URI",
     "NEO4J_PASSWORD",
     "DATABASE_URL",
@@ -658,16 +659,17 @@ def main(argv: list[str] | None = None) -> None:
         print(f"ERROR: {exc}")
         sys.exit(1)
 
-    # Warn if critical backend service vars are missing
+    # Fail before registering a hosted version that cannot boot or route model calls.
     missing = [v for v in CRITICAL_ENV_VARS if v not in environment_variables]
     if missing:
-        print("ERROR: One or more critical env vars are missing for backend services.")
+        print("ERROR: One or more critical hosted-agent env vars are missing.")
         print(
-            "  The hosted agent will fall back to "
-            "localhost defaults and fail to connect."
+            "  The hosted agent would otherwise fall back to local/model defaults "
+            "and fail at runtime."
         )
         print(
-            "  Ensure the deploy workflow resolves " "these from Azure infrastructure."
+            "  Ensure the deploy workflow resolves these from Azure infrastructure "
+            "or explicit workflow inputs."
         )
         print(f"  Missing: {', '.join(missing)}")
         sys.exit(1)

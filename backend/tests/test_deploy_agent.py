@@ -112,7 +112,7 @@ def test_build_environment_variables_defaults_to_secretless_hosted_contract():
     assert env_vars["ENVIRONMENT"] == "hosted"
     assert env_vars["AZURE_OPENAI_ENDPOINT"] == "https://aif-qprisma-dev.openai.azure.com/"
     assert env_vars["AZURE_OPENAI_API_VERSION"] == "2025-04-01-preview"
-    assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-5.4-pro"
+    assert env_vars["AZURE_OPENAI_DEPLOYMENT_GPT"] == "gpt-5.5"
     assert env_vars["AZURE_OPENAI_DEPLOYMENT_EMBEDDING"] == "text-embedding-3-large"
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "true"
     assert "NEO4J_PASSWORD" not in env_vars
@@ -174,13 +174,13 @@ def test_build_environment_variables_accepts_memory_contract_aliases():
     env_vars = deploy_agent.build_environment_variables(
         env={
             "FOUNDRY_MEMORY_STORE_NAME": "qprisma-memory",
-            "FOUNDRY_MEMORY_CHAT_MODEL": "gpt-5.4-pro",
+            "FOUNDRY_MEMORY_CHAT_MODEL": "gpt-5.5",
             "FOUNDRY_MEMORY_EMBEDDING_MODEL": "text-embedding-3-large",
         }
     )
 
     assert env_vars["MEMORY_STORE_NAME"] == "qprisma-memory"
-    assert env_vars["MEMORY_CHAT_MODEL"] == "gpt-5.4-pro"
+    assert env_vars["MEMORY_CHAT_MODEL"] == "gpt-5.5"
     assert env_vars["MEMORY_EMBEDDING_MODEL"] == "text-embedding-3-large"
 
 
@@ -202,28 +202,37 @@ def test_hosted_manifest_openai_api_version_matches_script_default():
 
 
 @pytest.mark.unit
-def test_hosted_manifest_chat_model_matches_provisioned_infra_default():
+def test_hosted_manifest_chat_model_defaults_to_gpt_55():
     manifest = (_REPO_ROOT / "backend" / "agent" / "hosted" / "agent.yaml").read_text(
         encoding="utf-8"
     )
     infra_main = (_REPO_ROOT / "infra" / "main.bicep").read_text(encoding="utf-8")
 
-    assert "id: gpt-5.4-pro" in manifest
+    assert "id: gpt-5.5" in manifest
     assert "name: chat" in manifest
-    assert "{ name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-5.4-pro' }" in infra_main
+    assert "{ name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-5.5' }" in infra_main
 
 
 @pytest.mark.unit
-def test_deploy_hosted_agent_workflow_defaults_match_provisioned_chat_models():
+def test_deploy_hosted_agent_workflow_defaults_chat_model_to_gpt_55():
     hosted_workflow = (_REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml").read_text(
         encoding="utf-8"
+    )
+    preflight_step = _workflow_step_block(
+        hosted_workflow, "Preflight — verify chat deployment exists"
     )
     register_step = _workflow_step_block(hosted_workflow, "Register agent in Foundry")
 
     assert (
         "AZURE_OPENAI_DEPLOYMENT_GPT: ${{ inputs.chat_deployment "
-        "|| vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}" in register_step
+        "|| vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}" in register_step
     )
+    assert (
+        "DEPLOYMENT_NAME: ${{ inputs.chat_deployment || "
+        "vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}" in preflight_step
+    )
+    assert "default: gpt-5.5" in hosted_workflow
+    assert "default: gpt-5.4-pro" not in hosted_workflow
     assert "MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-4o' }}" in register_step
 
 
@@ -408,6 +417,7 @@ def _setup_main_env(monkeypatch, tmp_path: Path) -> Path:
     )
     monkeypatch.setenv("CONTAINER_IMAGE", "fakeacr.azurecr.io/qprisma-video-agent:test")
     monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT_GPT", "gpt-4.1")
     monkeypatch.setenv("NEO4J_URI", "neo4j+s://fake.databases.neo4j.io")
     monkeypatch.setenv("NEO4J_PASSWORD", "neo4j-secret")
     monkeypatch.setenv("DATABASE_URL", "postgresql://fake-db")

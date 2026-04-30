@@ -128,5 +128,5 @@ jobs:
           echo "|----------|---------|" >> $GITHUB_STEP_SUMMARY
           echo "| AI Foundry | aif-qprisma-dev |" >> $GITHUB_STEP_SUMMARY
           echo "| Location | swedencentral |" >> $GITHUB_STEP_SUMMARY
-          echo "| Models | gpt-4o, gpt-5.4-pro, gpt-5.3-chat, text-embedding-3-large, whisper, gpt-4o-batch |" >> $GITHUB_STEP_SUMMARY
+          echo "| Models | gpt-4o, gpt-5.5, gpt-5.3-chat, text-embedding-3-large, whisper, gpt-4o-batch |" >> $GITHUB_STEP_SUMMARY
           echo "| App Insights | ${{ steps.observability.outputs.app_insights_id && 'Connected' || 'Not configured' }} |" >> $GITHUB_STEP_SUMMARY
