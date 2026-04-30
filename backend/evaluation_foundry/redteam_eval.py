@@ -39,6 +39,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -48,6 +49,7 @@ DEFAULT_STRATEGIES: list[str] = ["base64", "flip", "indirect_jailbreak"]
 DEFAULT_RISK_CATEGORIES: list[str] = ["prohibited_actions"]
 DEFAULT_MODEL_DEPLOYMENT = "gpt-5.5"
 TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled"}
+TAXONOMY_REST_PATCH_API_VERSIONS = ("v1", "2025-11-15-preview")
 _ATTACK_STRATEGY_ALIASES = {
     "ansi_attack": "AnsiAttack",
     "ascii_art": "AsciiArt",
@@ -286,7 +288,14 @@ def _build_retry_taxonomy_update_body(
 
 
 def _http_response_target_matches(exc: Exception, target: str) -> bool:
-    return f"target: {target.lower()}" in str(exc).lower()
+    target_pattern = re.escape(target.lower())
+    return (
+        re.search(
+            rf'["\']?target["\']?\s*[:=]\s*["\']?{target_pattern}',
+            str(exc).lower(),
+        )
+        is not None
+    )
 
 
 def _is_resource_not_found_error(exc: Exception) -> bool:
@@ -299,33 +308,65 @@ def _patch_taxonomy_via_rest(
     endpoint: str,
     taxonomy_name: str,
     body: dict[str, Any],
+    api_versions: tuple[str, ...] = TAXONOMY_REST_PATCH_API_VERSIONS,
 ) -> None:
     """PATCH a taxonomy using the documented Foundry REST endpoint."""
+    if not api_versions:
+        raise ValueError("At least one Foundry taxonomy REST API version is required.")
+
     token = credential.get_token("https://ai.azure.com/.default").token
-    url = f"{endpoint.rstrip('/')}/evaluationtaxonomies/{taxonomy_name}?api-version=v1"
-    try:
-        response = httpx.patch(
-            url,
-            json=body,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "Foundry-Features": "Evaluations=V1Preview",
-            },
-            timeout=30.0,
+    encoded_taxonomy_name = quote(taxonomy_name, safe="")
+    retryable_errors: list[str] = []
+
+    for api_version in api_versions:
+        url = (
+            f"{endpoint.rstrip('/')}/evaluationtaxonomies/{encoded_taxonomy_name}"
+            f"?api-version={api_version}"
         )
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        details = exc.response.text.strip() or str(exc)
-        raise RuntimeError(
-            f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' with status "
-            f"{exc.response.status_code}: {details}"
-        ) from exc
-    except httpx.RequestError as exc:
-        raise RuntimeError(
-            f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' at '{url}': {exc}"
-        ) from exc
+        try:
+            response = httpx.patch(
+                url,
+                json=body,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Foundry-Features": "Evaluations=V1Preview",
+                },
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return
+        except httpx.HTTPStatusError as exc:
+            details = exc.response.text.strip() or str(exc)
+            error = RuntimeError(
+                f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' with "
+                f"api-version '{api_version}' and status {exc.response.status_code}: "
+                f"{details}"
+            )
+            if _http_response_target_matches(error, "taxonomyId") or _is_resource_not_found_error(
+                error
+            ):
+                retryable_errors.append(str(error))
+                logger.warning(
+                    "Foundry REST taxonomy PATCH rejected taxonomy '%s' with api-version "
+                    "'%s'; trying the next API version candidate.",
+                    taxonomy_name,
+                    api_version,
+                )
+                continue
+            raise error from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(
+                f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' at '{url}': {exc}"
+            ) from exc
+
+    details = " | ".join(retryable_errors)
+    versions = ", ".join(api_versions)
+    raise RuntimeError(
+        f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' after trying API "
+        f"versions [{versions}]: {details}"
+    )
 
 
 def _extract_run_status(run: Any) -> str:

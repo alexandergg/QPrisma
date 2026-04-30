@@ -17,6 +17,7 @@ from evaluation_foundry.redteam_eval import (
     _extract_run_status,
     _extract_taxonomy_update_identifiers,
     _extract_total_results,
+    _http_response_target_matches,
     _map_enum_member,
     _normalize_attack_strategy,
     _normalize_risk_category,
@@ -309,6 +310,75 @@ def test_patch_taxonomy_via_rest_wraps_request_errors(monkeypatch: pytest.Monkey
             taxonomy_name="demo-taxonomy",
             body={"taxonomyCategories": []},
         )
+
+
+def test_http_response_target_matches_sdk_and_rest_error_shapes():
+    assert _http_response_target_matches(
+        RuntimeError("Target: taxonomyId"),
+        "taxonomyId",
+    )
+    assert _http_response_target_matches(
+        RuntimeError('{"error": {"target": "taxonomyInput"}}'),
+        "taxonomyInput",
+    )
+    assert not _http_response_target_matches(
+        RuntimeError('{"error": {"target": "taxonomyId"}}'),
+        "taxonomyInput",
+    )
+
+
+def test_patch_taxonomy_via_rest_retries_preview_version_for_taxonomy_id_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    calls: list[dict[str, object]] = []
+
+    class FakeCredential:
+        def get_token(self, scope: str):
+            assert scope == "https://ai.azure.com/.default"
+            return types.SimpleNamespace(token="token")
+
+    def fake_patch(*args, **kwargs):
+        url = args[0]
+        calls.append({"url": url, "kwargs": kwargs})
+        request = httpx.Request("PATCH", url)
+        if "api-version=v1" in url:
+            response = httpx.Response(
+                400,
+                request=request,
+                json={
+                    "error": {
+                        "target": "taxonomyId",
+                        "message": "{argumentName} is invalid",
+                    }
+                },
+            )
+            raise httpx.HTTPStatusError(
+                "taxonomy id rejected",
+                request=request,
+                response=response,
+            )
+        return httpx.Response(200, request=request, json={})
+
+    monkeypatch.setattr(redteam_eval_module.httpx, "patch", fake_patch)
+
+    _patch_taxonomy_via_rest(
+        credential=FakeCredential(),
+        endpoint="https://example.services.ai.azure.com/api/projects/demo/",
+        taxonomy_name=(
+            "azureai://accounts/demo/projects/project/evaluationtaxonomies/taxonomy/versions/1.0"
+        ),
+        body={"taxonomyCategories": []},
+    )
+
+    assert [call["url"] for call in calls] == [
+        "https://example.services.ai.azure.com/api/projects/demo/evaluationtaxonomies/"
+        "azureai%3A%2F%2Faccounts%2Fdemo%2Fprojects%2Fproject%2Fevaluationtaxonomies%2Ftaxonomy%2Fversions%2F1.0"
+        "?api-version=v1",
+        "https://example.services.ai.azure.com/api/projects/demo/evaluationtaxonomies/"
+        "azureai%3A%2F%2Faccounts%2Fdemo%2Fprojects%2Fproject%2Fevaluationtaxonomies%2Ftaxonomy%2Fversions%2F1.0"
+        "?api-version=2025-11-15-preview",
+    ]
+    assert calls[0]["kwargs"]["headers"]["Foundry-Features"] == "Evaluations=V1Preview"
 
 
 def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.MonkeyPatch, tmp_path):
