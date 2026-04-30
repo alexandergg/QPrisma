@@ -14,7 +14,7 @@ services:
     docker:
       path: Dockerfile
       context: ../..
-      platform: amd64
+      platform: linux/amd64
       remoteBuild: true
     config:
       container:

@@ -15,7 +15,6 @@ on:
       - 'infra/hooks/**'
       - 'infra/modules/ai-foundry.bicep'
       - 'infra/parameters/ai-foundry-dev.bicepparam'
-      - 'scripts/deploy_agent.py'
   workflow_dispatch:
     inputs:
       chat_deployment:
@@ -28,13 +27,6 @@ on:
         required: false
         default: gpt-5.5
         type: string
-      purge_before_deploy:
-        description: >-
-          Legacy SDK-only option. The default azd deployment path does not purge
-          existing hosted-agent versions.
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   id-token: write
@@ -85,6 +77,12 @@ jobs:
         run: |
           azd extension install azure.ai.agents || azd extension upgrade azure.ai.agents
 
+      - name: Show azd deployment tooling
+        run: |
+          set -euo pipefail
+          azd version
+          azd extension list
+
       - name: Initialize azd environment
         run: |
           set -euo pipefail
@@ -94,11 +92,13 @@ jobs:
               --location "$AZURE_LOCATION" \
               --no-prompt
 
-      - name: Reject unsupported purge on azd deploy path
-        if: ${{ inputs.purge_before_deploy }}
+      - name: Validate hosted-agent Docker platform
         run: |
-          echo "::error::purge_before_deploy is only supported by the legacy Python SDK fallback. Leave it false for the azd deployment path."
-          exit 1
+          set -euo pipefail
+          if ! grep -Eq '^[[:space:]]+platform:[[:space:]]+linux/amd64[[:space:]]*$' azure.yaml; then
+            echo "::error::Hosted agent container builds must target linux/amd64."
+            exit 1
+          fi
 
       - name: Ensure ACR pull access for Foundry
         run: |
@@ -305,7 +305,9 @@ jobs:
           set_azd_env REQUIRE_AGENT_IDENTITY_RBAC "${{ vars.REQUIRE_AGENT_IDENTITY_RBAC || 'false' }}"
 
       - name: Deploy hosted agent with azd
-        run: azd deploy "$SERVICE_NAME" --no-prompt
+        run: |
+          set -euo pipefail
+          azd deploy "$SERVICE_NAME" --no-prompt
 
       - name: Inspect deployed agent
         id: inspect
