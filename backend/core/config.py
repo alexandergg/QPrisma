@@ -69,7 +69,7 @@ class AzureSettings(BaseSettings):
         description="Temperature for hosted video-agent answer generation.",
     )
     openai_reasoning_models: str = Field(
-        default="gpt-5.5,gpt-5.4-pro,gpt-5.3-chat,gpt-5.2-chat,gpt-5",
+        default="gpt-5.5,gpt-5.4-pro,gpt-5.2-chat,gpt-5",
         description=(
             "Comma-separated deployment names for reasoning-class models that reject "
             "custom temperature values. Matched as exact name or as prefix (e.g. 'gpt-5')."

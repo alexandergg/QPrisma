@@ -1247,10 +1247,6 @@ class TestCreateModelTemperatureFilter:
         assert "temperature" not in kwargs
         assert kwargs.get("azure_deployment") == "gpt-5.5"
 
-    def test_temperature_dropped_for_gpt_5_3_chat(self):
-        kwargs = self._captured_kwargs("gpt-5.3-chat")
-        assert "temperature" not in kwargs
-
     def test_temperature_dropped_for_unknown_gpt_5_variant(self):
         # Prefix match against the configured "gpt-5" reasoning token.
         kwargs = self._captured_kwargs("gpt-5-turbo")
