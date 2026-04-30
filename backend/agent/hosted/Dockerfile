@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # QPrisma Video Agent — Azure AI Foundry Hosted Agent Container
 # ==============================================================
 # Builds a linux/amd64 image for deployment as a Foundry Hosted Agent.
@@ -11,7 +10,7 @@
 #
 # The container exposes port 8088 (Foundry hosting adapter default).
 
-FROM python:3.11-slim AS builder
+FROM mcr.microsoft.com/mirror/docker/library/python:3.11-slim AS builder
 
 # uv — pinned binary from official distroless image
 COPY --from=ghcr.io/astral-sh/uv:0.11.2 /uv /uvx /bin/
@@ -32,7 +31,7 @@ RUN python -m venv /opt/venv
 RUN uv pip install --python /opt/venv/bin/python -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
 
-FROM python:3.11-slim AS runtime
+FROM mcr.microsoft.com/mirror/docker/library/python:3.11-slim AS runtime
 
 # Runtime-only native libraries. Keep build toolchains out of the final image.
 RUN apt-get update && \
