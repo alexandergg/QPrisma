@@ -1,5 +1,9 @@
 kind: hosted
 name: qprisma-video-agent
+description: >
+  QPrisma Video Agent — intelligent video analysis powered by LangGraph.
+  Searches visual content, audio transcriptions, and knowledge graphs
+  to answer questions with timestamped citations.
 
 protocols:
   - protocol: responses
