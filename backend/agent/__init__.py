@@ -29,27 +29,33 @@ Best Practices Applied (LangGraph v1.0+):
 8. Production Checkpointer Factory - Cascade fallback
 """
 
-# LangGraph implementations (recommended)
-from agent.graphs.video import (
-    VideoAgentGraph,
-    create_smart_retry_policy,
-    get_shared_checkpointer,
-    get_video_agent_graph,
-)
-from agent.nodes.base import (
-    error_handler_node,
-    select_tools_for_query,
-)
-from agent.state.agent_state import (
-    AgentInputState,
-    AgentOutputState,
-    AgentState,
-    NonRetryableError,
-    RetryableError,
-    create_agent_state,
-    get_message_trimmer,
-    should_retry_exception,
-)
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
+
+_EXPORTS: dict[str, str] = {
+    # Agent classes
+    "VideoAgentGraph": "agent.graphs.video",
+    # State types
+    "AgentState": "agent.state.agent_state",
+    "AgentInputState": "agent.state.agent_state",
+    "AgentOutputState": "agent.state.agent_state",
+    # Factory functions
+    "create_agent_state": "agent.state.agent_state",
+    "get_video_agent_graph": "agent.graphs.video",
+    # Checkpointer
+    "get_shared_checkpointer": "agent.graphs.video",
+    # Retry policies
+    "create_smart_retry_policy": "agent.graphs.video",
+    "should_retry_exception": "agent.state.agent_state",
+    "RetryableError": "agent.state.agent_state",
+    "NonRetryableError": "agent.state.agent_state",
+    # Utilities
+    "get_message_trimmer": "agent.state.agent_state",
+    "error_handler_node": "agent.nodes.base",
+    "select_tools_for_query": "agent.nodes.base",
+}
 
 __all__ = [
     # Agent classes
@@ -73,3 +79,18 @@ __all__ = [
     "error_handler_node",
     "select_tools_for_query",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve package-level convenience exports without eager dependency imports."""
+    module_name = _EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    value = getattr(import_module(module_name), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals(), *__all__])
