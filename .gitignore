@@ -243,6 +243,14 @@ Desktop.ini
 test_output/
 test_results/
 
+# Foundry local caches and run outputs
+.foundry/datasets/**
+.foundry/evaluators/**
+.foundry/results/**
+!.foundry/datasets/.gitkeep
+!.foundry/evaluators/.gitkeep
+!.foundry/results/.gitkeep
+
 # Logs
 logs/
 *.log

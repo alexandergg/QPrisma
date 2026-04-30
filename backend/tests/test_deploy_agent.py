@@ -529,3 +529,36 @@ def test_hosted_manifest_environment_names_match_deploy_contract():
     assert manifest_env_names >= deploy_agent.HOSTED_AGENT_ENV_CONTRACT
     assert not (manifest_env_names & {"FOUNDRY_PROJECT_ENDPOINT", "FOUNDRY_AGENT_NAME"})
     assert not (manifest_env_names & set(deploy_agent.LEGACY_SECRET_REFERENCE_ENV_KEYS))
+
+
+@pytest.mark.unit
+def test_hosted_manifest_resources_match_deploy_contract():
+    deploy_agent = _load_deploy_agent_module()
+    manifest = (Path(__file__).resolve().parents[1] / "agent" / "hosted" / "agent.yaml").read_text(
+        encoding="utf-8"
+    )
+    script = _SCRIPT_PATH.read_text(encoding="utf-8")
+
+    manifest_resource_block = re.search(
+        r"^\s+resources:\n\s+#.*\n\s+#.*\n\s+cpu:\s+\"?([^\"\s]+)\"?\n\s+memory:\s+\"?([^\"\s]+)\"?",
+        manifest,
+        re.MULTILINE,
+    )
+    assert manifest_resource_block, "Hosted agent manifest must declare CPU and memory"
+    assert manifest_resource_block.group(1) == "2"
+    assert manifest_resource_block.group(2) == "4Gi"
+
+    assert 'cpu="2"' in script
+    assert 'memory="4Gi"' in script
+    assert deploy_agent is not None
+
+
+@pytest.mark.unit
+def test_hosted_dockerfile_healthcheck_uses_agentserver_readiness():
+    dockerfile = (
+        Path(__file__).resolve().parents[1] / "agent" / "hosted" / "Dockerfile"
+    ).read_text(encoding="utf-8")
+
+    assert "HEALTHCHECK" in dockerfile
+    assert "/readiness" in dockerfile
+    assert "/health" not in dockerfile

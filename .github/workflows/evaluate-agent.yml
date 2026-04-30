@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       agent-version:
-        description: 'Agent version override (e.g., "2"). Leave empty to auto-resolve.'
+        description: 'Agent version override (e.g., "2"). Use "latest" or leave empty to resolve the concrete latest version.'
         required: false
         type: string
       run-redteam:
@@ -95,6 +95,41 @@ jobs:
           python -m evaluation_foundry.generate_eval_data \
             --output-dir "${{ runner.temp }}/eval-data"
 
+      - name: Summarize evaluation metadata
+        run: |
+          set -euo pipefail
+          META="${{ runner.temp }}/eval-data/run-metadata.json"
+          python - "$META" "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          metadata_path = Path(sys.argv[1])
+          summary_path = Path(sys.argv[2])
+          metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+          agent = metadata.get("agent", {})
+          dataset = metadata.get("dataset", {})
+          judge = metadata.get("judge", {})
+          github = metadata.get("github", {})
+
+          lines = [
+              "### Evaluation metadata",
+              "",
+              "| Field | Value |",
+              "|---|---|",
+              f"| Agent | `{agent.get('name', '')}` |",
+              f"| Commit | `{agent.get('commit_sha', '')}` |",
+              f"| Dataset hash | `{dataset.get('hash', '')}` |",
+              f"| Judge model | `{judge.get('model', '')}` |",
+              f"| GitHub run | `{github.get('run_id', '')}` |",
+              "",
+              "Use `agent.commit_sha` + `dataset.hash` from `run-metadata.json` to correlate Foundry rows, CI artifacts, and App Insights traces.",
+              "",
+          ]
+          with summary_path.open("a", encoding="utf-8") as summary:
+              summary.write("\n".join(lines))
+          PY
+
       - name: Upload eval data artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -125,21 +160,29 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Install SDK
-        run: pip install "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
+        run: |
+          pip install "azure-ai-projects>=2.1.0,<3.0.0" "azure-identity>=1.25.0,<2.0.0"
+          pip freeze | grep -E '^(azure-ai-projects|azure-identity|azure-core|openai)=='
 
       - name: Resolve agent version
         id: resolve
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           AGENT_NAME: ${{ env.AGENT_NAME }}
+          AGENT_VERSION_OVERRIDE: ${{ inputs.agent-version }}
         run: |
-          if [ -n "${{ inputs.agent-version }}" ]; then
-            AGENT_ID="${AGENT_NAME}:${{ inputs.agent-version }}"
-            echo "Using manual override: ${AGENT_ID}"
-            echo "agent_id=${AGENT_ID}" >> $GITHUB_OUTPUT
-          else
-            python scripts/resolve_agent_version.py
-          fi
+          python scripts/resolve_agent_version.py --strict --agent-version "${AGENT_VERSION_OVERRIDE}"
+
+      - name: Summarize resolved agent
+        run: |
+          {
+            echo "### Resolved agent"
+            echo
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Agent ID | \`${{ steps.resolve.outputs.agent_id }}\` |"
+            echo "| Foundry endpoint | \`${{ vars.FOUNDRY_PROJECT_ENDPOINT }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ------------------------------------------------------------------
   # Job 3: Quality evaluation (text quality — coherence, fluency, etc.)
@@ -357,7 +400,7 @@ jobs:
     environment: dev
     if: >-
       github.event_name == 'workflow_dispatch' &&
-      inputs.run-redteam == true
+      (inputs.run-redteam == true || inputs.run-redteam == 'true')
     steps:
       - uses: actions/checkout@v6
 
@@ -397,7 +440,31 @@ jobs:
 
       - name: Install Red Team SDK
         run: |
-          pip install "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
+          pip install \
+            "azure-ai-projects>=2.1.0,<3.0.0" \
+            "azure-identity>=1.25.0,<2.0.0" \
+            "openai>=1.55.0,<2.0.0" \
+            "httpx>=0.28.0,<1.0.0"
+          pip freeze | grep -E '^(azure-ai-projects|azure-identity|azure-core|openai|httpx)==' || true
+
+      - name: Preflight AI Red Teaming scan
+        working-directory: backend
+        env:
+          AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+          AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}
+          REDTEAM_OUTPUT_DIR: ${{ runner.temp }}/redteam
+        run: |
+          set -euo pipefail
+          mkdir -p "$REDTEAM_OUTPUT_DIR"
+          python -m evaluation_foundry.redteam_eval \
+            --preflight \
+            --agent-id "${{ needs.resolve-version.outputs.agent-id }}" \
+            --endpoint "${{ vars.FOUNDRY_PROJECT_ENDPOINT }}" \
+            --model-deployment "${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}" \
+            --strategies "base64,flip,indirect_jailbreak" \
+            --risk-categories "prohibited_actions" \
+            --output "$REDTEAM_OUTPUT_DIR/redteam-preflight.json" \
+            --scan-name "qprisma-${{ needs.resolve-version.outputs.agent-id }}-redteam-preflight"
 
       - name: Run AI Red Teaming scan
         id: redteam
@@ -407,15 +474,40 @@ jobs:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}
           QPRISMA_REDTEAM_NUM_TURNS: '5'
+          REDTEAM_OUTPUT_DIR: ${{ runner.temp }}/redteam
         run: |
+          set -euo pipefail
+          mkdir -p "$REDTEAM_OUTPUT_DIR"
           python -m evaluation_foundry.redteam_eval \
             --agent-id "${{ needs.resolve-version.outputs.agent-id }}" \
             --endpoint "${{ vars.FOUNDRY_PROJECT_ENDPOINT }}" \
             --model-deployment "${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.4-pro' }}" \
             --strategies "base64,flip,indirect_jailbreak" \
             --risk-categories "prohibited_actions" \
-            --output "${{ runner.temp }}/redteam-results.json" \
+            --output "$REDTEAM_OUTPUT_DIR/redteam-results.json" \
             --scan-name "qprisma-${{ needs.resolve-version.outputs.agent-id }}-redteam"
+
+      - name: Summarize red-team artifacts
+        if: always()
+        run: |
+          RESULTS="${{ runner.temp }}/redteam/redteam-results.json"
+          PREFLIGHT="${{ runner.temp }}/redteam/redteam-preflight.json"
+          {
+            echo "## Red Teaming"
+            echo ""
+            echo "- Agent: \`${{ needs.resolve-version.outputs.agent-id }}\`"
+            echo "- Foundry: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations"
+            if [ -f "$PREFLIGHT" ]; then
+              echo "- Preflight status: \`$(jq -r '.status // "unknown"' "$PREFLIGHT")\`"
+            fi
+            if [ -f "$RESULTS" ]; then
+              echo "- Run status: \`$(jq -r '.status // .run.status // "unknown"' "$RESULTS")\`"
+              echo "- Eval ID: \`$(jq -r '.red_team.id // "unknown"' "$RESULTS")\`"
+              echo "- Taxonomy ID: \`$(jq -r '.taxonomy.id // "unknown"' "$RESULTS")\`"
+              echo "- Run ID: \`$(jq -r '.run.id // "unknown"' "$RESULTS")\`"
+              echo "- Total results: \`$(jq -r '.total_results // 0' "$RESULTS")\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cleanup token refresh
         if: always()
@@ -426,16 +518,62 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: redteam-results
-          path: ${{ runner.temp }}/redteam-results.json
+          path: ${{ runner.temp }}/redteam/
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
 
-      - name: Report red-team outcome
-        if: steps.redteam.outcome == 'failure'
+      - name: Validate red-team gate
+        if: always()
+        env:
+          REDTEAM_RESULTS: ${{ runner.temp }}/redteam/redteam-results.json
+          REDTEAM_STEP_OUTCOME: ${{ steps.redteam.outcome }}
         run: |
-          echo "::warning::Red Team scan failed. Partial results (if any) were uploaded as an artifact."
-          echo "Check: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations"
-          exit 1
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          results_path = os.environ["REDTEAM_RESULTS"]
+          step_outcome = os.environ.get("REDTEAM_STEP_OUTCOME", "unknown")
+
+          if not os.path.exists(results_path):
+              print(f"::error::Red Team results file was not created: {results_path}")
+              print("Check: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations")
+              sys.exit(1)
+
+          with open(results_path, "r", encoding="utf-8") as handle:
+              summary = json.load(handle)
+
+          run = summary.get("run")
+          if not isinstance(run, dict):
+              run = {}
+
+          status = str(summary.get("status") or run.get("status") or "").lower()
+          run_id = str(run.get("id") or "").strip()
+          total_results = int(summary.get("total_results") or 0)
+
+          failures = []
+          if step_outcome == "failure":
+              failures.append("red-team runner exited with a non-zero status")
+          if status != "completed":
+              failures.append(f"red-team run status is '{status or 'unknown'}', expected 'completed'")
+          if not run_id:
+              failures.append("red-team run id is missing")
+          if total_results <= 0:
+              failures.append("red-team run produced zero output items")
+
+          if failures:
+              print("::error::Red Team gate failed: " + "; ".join(failures))
+              diagnostics = summary.get("run_diagnostics")
+              if diagnostics:
+                  print("Run diagnostics:")
+                  print(json.dumps(diagnostics, indent=2, sort_keys=True))
+              print("Check: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations")
+              sys.exit(1)
+
+          print(f"Red Team gate passed: run_id={run_id}, status={status}, total_results={total_results}")
+          PY
 
   # ------------------------------------------------------------------
   # Job 7: Video-MME benchmark evaluation (industry MCQ benchmark)
@@ -593,7 +731,8 @@ jobs:
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
         run: |
-          pip install "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
+          pip install "azure-ai-projects>=2.1.0,<3.0.0" "azure-identity>=1.25.0,<2.0.0"
+          pip freeze | grep -E '^(azure-ai-projects|azure-identity|azure-core|openai)=='
           python -m evaluation_foundry.register_evaluators
 
       - name: Azure Login (OIDC)

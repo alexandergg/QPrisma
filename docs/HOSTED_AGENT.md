@@ -62,6 +62,7 @@ There is **no custom state converter, no Redis-checkpointer, and no
 | Persistence | Foundry Conversations | `MemorySaver` only |
 | Tracer | `AzureAIOpenTelemetryTracer` (compile-time) | None or local OTEL collector |
 | LLM | `ChatOpenAI` against Foundry OpenAI v1 | `AzureChatOpenAI` (account-scoped) |
+| Container health | Docker `HEALTHCHECK` probes `/readiness` on `PORT` | Local `docker run` can use the same probe |
 
 ---
 
@@ -204,7 +205,46 @@ Re-running the workflow is always safe: every step is idempotent.
 
 ---
 
-## 7. Trade-offs and known issues
+## 7. Production template contract
+
+QPrisma keeps the custom Responses/LangGraph adapter because it streams the
+tool lifecycle expected by the frontend: `on_tool_start`, arguments,
+`on_tool_end`, token deltas, and final fallback text. Future agents can use
+the official Microsoft sample runtime for simple text-only agents, but agents
+that need live tool telemetry should start from this adapter.
+
+The production baseline for new hosted agents is:
+
+| Area | QPrisma template default |
+|---|---|
+| Protocol | `responses` `1.0.0` in `backend/agent/hosted/agent.yaml` |
+| Compute | Explicit Foundry tier (`cpu: "2"`, `memory: 4Gi`) mirrored in `scripts/deploy_agent.py` |
+| Container | Multi-stage image, non-root user, unbuffered logs, `/readiness` Docker `HEALTHCHECK` |
+| Identity | `DefaultAzureCredential`, managed identity, no local auth/key fallback in hosted paths |
+| Endpoint | Project-routed Foundry OpenAI v1 endpoint (`<projectEndpoint>/openai/v1`) |
+| Tracing | `AzureAIOpenTelemetryTracer` with `agent_id`, wrapped by `SafeAzureAIOpenTelemetryTracer` |
+| Metadata | `.foundry/agent-metadata.yaml` is the source of truth for endpoint, agent, manifests, datasets, and artifacts |
+| Evaluations | Strict agent-version resolution, Red Team preflight, request-shape artifact, output-items JSONL, and fail-closed gates |
+
+### Microsoft sample patterns adopted
+
+From `Azure-Samples/foundry-hosted-langchain-demos`, QPrisma adopts the
+canonical hosted-agent pieces that are stable and reusable:
+
+- `kind: hosted` and `responses` `1.0.0` manifest shape.
+- Explicit CPU/memory sizing.
+- `DefaultAzureCredential` and Foundry project OpenAI-compatible endpoint.
+- Unbuffered Python container logs and Docker health probing.
+- App Insights / OpenTelemetry as the preferred observability path.
+
+QPrisma intentionally does **not** replace its custom runtime with the sample
+runtime because the sample does not cover the frontend-visible LangGraph tool
+event stream, Red Team gates, Video-MME benchmarks, or the `.foundry` metadata
+workspace.
+
+---
+
+## 8. Trade-offs and known issues
 
 * **`langchain-azure-ai==1.1.0b1` upstream bug** — input normalisation
   occasionally trips on `'list' object has no attribute 'get'`. We keep a
@@ -213,18 +253,20 @@ Re-running the workflow is always safe: every step is idempotent.
 * **`azure-identity==1.26.0b2`** is beta because the refreshed
   `azure-ai-agentserver-responses` wheel pins it transitively. Will GA
   with the next preview drop.
-* **Evaluations (`backend/evaluation_foundry/*`) are intentionally broken**
-  after this migration. They still depend on the deprecated envelope
-  parser. Migration to the metadata API is tracked in a separate PR.
+* **Cloud Red Teaming is service-contract sensitive** — keep the preflight,
+  SDK version logging, request-shape artifact, and output-items gate. A
+  Foundry eval group alone is not proof that an adversarial run executed.
 * **Bearer token TTL beyond 1h** — the SDK refreshes credentials in-process
   but long-running `ainvoke` calls (>1h) may need explicit refresh. Not
   in scope for the current preview.
 
 ---
 
-## 8. References
+## 9. References
 
 * Refreshed preview reference: <https://github.com/microsoft-foundry/foundry-samples/tree/main/samples/python/hosted-agents/langgraph>
 * Foundry hosted agents docs: <https://learn.microsoft.com/azure/foundry/agents/hosted-agents>
+* QPrisma agent template guide: `docs/AGENT_TEMPLATE_GUIDE.md`
+* QPrisma evaluation guide: `docs/EVALUATION_GUIDE.md`
 * QPrisma deploy script: `scripts/deploy_agent.py`
 * QPrisma purge script: `scripts/purge_agent_versions.py`

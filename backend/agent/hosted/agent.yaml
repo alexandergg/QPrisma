@@ -27,6 +27,11 @@ template:
       version: "1.0.0"
     - protocol: a2a
       version: v0.2.1
+  resources:
+    # Keep this aligned with scripts/deploy_agent.py. Foundry hosted-agent valid
+    # tiers are (0.25, 0.5Gi), (0.5, 1Gi), (1, 2Gi), and (2, 4Gi).
+    cpu: "2"
+    memory: 4Gi
   environment_variables:
     # --- Azure OpenAI ---
     - name: AZURE_OPENAI_ENDPOINT

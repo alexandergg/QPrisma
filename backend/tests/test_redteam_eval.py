@@ -13,6 +13,7 @@ from evaluation_foundry.redteam_eval import (
     _build_enabled_taxonomy_update,
     _build_retry_taxonomy_update_body,
     _count_enabled_subcategories,
+    _extract_run_diagnostics,
     _extract_run_status,
     _extract_taxonomy_update_identifiers,
     _extract_total_results,
@@ -21,6 +22,7 @@ from evaluation_foundry.redteam_eval import (
     _normalize_risk_category,
     _patch_taxonomy_via_rest,
     _split_agent_reference,
+    _write_redteam_artifacts,
     run_redteam_scan,
 )
 
@@ -232,6 +234,53 @@ def test_extract_total_results_returns_zero_when_no_signals():
     assert _extract_total_results({"run": {}, "output_items": []}) == 0
     assert _extract_total_results({}) == 0
     assert _extract_total_results(None) == 0
+
+
+def test_extract_run_diagnostics_captures_common_error_fields():
+    class FakeRunModel:
+        def model_dump(self, mode: str = "json") -> dict[str, object]:
+            return {
+                "status": "failed",
+                "last_error": {"code": "BadRequest", "message": "invalid target"},
+                "failureReason": "unsupported-region",
+                "statusDetails": {"phase": "item_generation"},
+                "ignored": "not copied",
+            }
+
+    diagnostics = _extract_run_diagnostics(FakeRunModel())
+
+    assert diagnostics == {
+        "status": "failed",
+        "last_error": {"code": "BadRequest", "message": "invalid target"},
+        "failureReason": "unsupported-region",
+        "statusDetails": {"phase": "item_generation"},
+    }
+
+
+def test_write_redteam_artifacts_persists_summary_request_shape_and_jsonl(tmp_path):
+    output_path = tmp_path / "redteam-results.json"
+    summary = {
+        "status": "completed",
+        "request_shape": {"eval_id": "eval-1"},
+        "output_items": [{"id": "item-1"}, {"id": "item-2"}],
+    }
+
+    _write_redteam_artifacts(output_path, summary)
+
+    saved_summary = json.loads(output_path.read_text(encoding="utf-8"))
+    request_shape_path = tmp_path / "redteam-results-request-shape.json"
+    output_items_path = tmp_path / "redteam-results-output-items.jsonl"
+
+    assert saved_summary["artifact_paths"] == {
+        "summary": str(output_path),
+        "request_shape": str(request_shape_path),
+        "output_items": str(output_items_path),
+    }
+    assert json.loads(request_shape_path.read_text(encoding="utf-8")) == {"eval_id": "eval-1"}
+    assert output_items_path.read_text(encoding="utf-8").splitlines() == [
+        '{"id": "item-1"}',
+        '{"id": "item-2"}',
+    ]
 
 
 def test_patch_taxonomy_via_rest_wraps_request_errors(monkeypatch: pytest.MonkeyPatch):
@@ -1160,3 +1209,203 @@ def test_run_redteam_scan_raises_when_taxonomy_upsert_leaves_zero_enabled(
     # The run must not be created when the taxonomy upsert leaves 0 enabled
     # subcategories; otherwise Foundry generates a zero-prompt scan.
     assert "run_create" not in calls
+
+
+def _install_minimal_redteam_sdk_fakes(monkeypatch: pytest.MonkeyPatch, calls: dict[str, object]):
+    class FakeCredential:
+        def close(self):
+            calls["credential_closed"] = True
+
+    class FakeHttpResponseError(Exception):
+        pass
+
+    class FakeRiskCategory(Enum):
+        PROHIBITED_ACTIONS = "ProhibitedActions"
+
+    class FakeAzureAIAgentTarget:
+        def __init__(self, *, name: str, version: str):
+            self.name = name
+            self.version = version
+
+        def as_dict(self) -> dict[str, str]:
+            return {
+                "type": "azure_ai_agent",
+                "name": self.name,
+                "version": self.version,
+            }
+
+    class FakeAgentTaxonomyInput:
+        def __init__(
+            self, *, risk_categories: list[FakeRiskCategory], target: FakeAzureAIAgentTarget
+        ):
+            self.risk_categories = risk_categories
+            self.target = target
+
+    class FakeEvaluationTaxonomy:
+        def __init__(self, *, description: str, taxonomy_input: FakeAgentTaxonomyInput):
+            self.description = description
+            self.taxonomy_input = taxonomy_input
+
+    class FakeTaxonomy:
+        id = "taxonomy-1"
+        status = "completed"
+
+        def as_dict(self) -> dict[str, object]:
+            return {
+                "id": self.id,
+                "name": "qprisma-video-agent-prohibited-actions",
+                "description": "taxonomy",
+                "taxonomyInput": {"type": "agent"},
+                "taxonomyCategories": [
+                    {
+                        "id": "cat-1",
+                        "subCategories": [{"id": "sub-1", "enabled": True}],
+                    }
+                ],
+            }
+
+    class FakeEvaluationTaxonomiesClient:
+        def create(self, *, name: str, body: FakeEvaluationTaxonomy | dict[str, object]):
+            calls["taxonomy_create"] = {"name": name, "body": body}
+            return FakeTaxonomy()
+
+        def update(self, *, name: str, body: dict[str, object]):
+            calls["taxonomy_update"] = {"name": name, "body": body}
+            return FakeTaxonomy()
+
+    class FakeRunsClient:
+        class output_items:
+            @staticmethod
+            def list(*, run_id: str, eval_id: str):
+                raise AssertionError("output items should not be listed in dry-run/preflight")
+
+        def create(self, *, eval_id: str, name: str, data_source: dict[str, object]):
+            raise AssertionError("red-team run should not be created in dry-run/preflight")
+
+    class FakeEvalsClient:
+        def __init__(self):
+            self.runs = FakeRunsClient()
+
+        def create(
+            self, *, name: str, data_source_config: dict[str, str], testing_criteria: list[dict]
+        ):
+            raise AssertionError("eval group should not be created in dry-run/preflight")
+
+    class FakeOpenAIClient:
+        def __init__(self):
+            self.evals = FakeEvalsClient()
+
+        def close(self):
+            calls["openai_closed"] = True
+
+    class FakeBetaClient:
+        def __init__(self):
+            self.evaluation_taxonomies = FakeEvaluationTaxonomiesClient()
+
+    class FakeAgentsClient:
+        def get(self, *, agent_name: str):
+            calls["agents_get"] = agent_name
+            return types.SimpleNamespace(version="99")
+
+    class FakeProjectClient:
+        def __init__(self, *, endpoint: str, credential: FakeCredential, allow_preview: bool):
+            calls["project_init"] = {"endpoint": endpoint, "allow_preview": allow_preview}
+            self.beta = FakeBetaClient()
+            self.agents = FakeAgentsClient()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get_openai_client(self):
+            return FakeOpenAIClient()
+
+    azure_module = types.ModuleType("azure")
+    azure_ai_module = types.ModuleType("azure.ai")
+    projects_module = types.ModuleType("azure.ai.projects")
+    projects_models_module = types.ModuleType("azure.ai.projects.models")
+    azure_core_module = types.ModuleType("azure.core")
+    azure_core_exceptions_module = types.ModuleType("azure.core.exceptions")
+    azure_identity_module = types.ModuleType("azure.identity")
+
+    projects_module.AIProjectClient = FakeProjectClient
+    projects_models_module.AgentTaxonomyInput = FakeAgentTaxonomyInput
+    projects_models_module.AzureAIAgentTarget = FakeAzureAIAgentTarget
+    projects_models_module.EvaluationTaxonomy = FakeEvaluationTaxonomy
+    projects_models_module.RiskCategory = FakeRiskCategory
+    azure_core_exceptions_module.HttpResponseError = FakeHttpResponseError
+    azure_identity_module.DefaultAzureCredential = FakeCredential
+
+    monkeypatch.setitem(sys.modules, "azure", azure_module)
+    monkeypatch.setitem(sys.modules, "azure.ai", azure_ai_module)
+    monkeypatch.setitem(sys.modules, "azure.ai.projects", projects_module)
+    monkeypatch.setitem(sys.modules, "azure.ai.projects.models", projects_models_module)
+    monkeypatch.setitem(sys.modules, "azure.core", azure_core_module)
+    monkeypatch.setitem(sys.modules, "azure.core.exceptions", azure_core_exceptions_module)
+    monkeypatch.setitem(sys.modules, "azure.identity", azure_identity_module)
+
+
+def test_run_redteam_scan_dry_run_writes_request_shape_without_foundry_resources(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    calls: dict[str, object] = {}
+    _install_minimal_redteam_sdk_fakes(monkeypatch, calls)
+    output_path = tmp_path / "redteam-results.json"
+
+    summary = run_redteam_scan(
+        endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_id="qprisma-video-agent:7",
+        agent_name=None,
+        agent_version=None,
+        model_deployment="gpt-4o",
+        strategies=["base64"],
+        risk_categories=["prohibited_actions"],
+        num_turns=1,
+        output_path=output_path,
+        scan_name="qprisma-redteam",
+        poll_interval_seconds=0,
+        timeout_seconds=5,
+        dry_run=True,
+    )
+
+    assert summary["status"] == "dry_run"
+    assert "taxonomy_create" not in calls
+    assert summary["request_shape"]["data_source"]["item_generation_params"]["source"] == {
+        "type": "file_id",
+        "id": "<taxonomy-file-id-from-preflight-or-created-taxonomy>",
+    }
+    assert output_path.exists()
+    assert (tmp_path / "redteam-results-request-shape.json").exists()
+
+
+def test_run_redteam_scan_preflight_validates_taxonomy_without_creating_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    calls: dict[str, object] = {}
+    _install_minimal_redteam_sdk_fakes(monkeypatch, calls)
+    output_path = tmp_path / "redteam-preflight.json"
+
+    summary = run_redteam_scan(
+        endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_id="qprisma-video-agent:7",
+        agent_name=None,
+        agent_version=None,
+        model_deployment="gpt-4o",
+        strategies=["base64"],
+        risk_categories=["prohibited_actions"],
+        num_turns=1,
+        output_path=output_path,
+        scan_name="qprisma-redteam",
+        poll_interval_seconds=0,
+        timeout_seconds=5,
+        preflight=True,
+    )
+
+    assert summary["status"] == "preflight_passed"
+    assert calls["taxonomy_create"]["name"] == "qprisma-video-agent-prohibited-actions"
+    assert "taxonomy_update" not in calls
+    assert summary["taxonomy_enabled_subcategories"] == 1
+    assert output_path.exists()
+    assert (tmp_path / "redteam-preflight-request-shape.json").exists()

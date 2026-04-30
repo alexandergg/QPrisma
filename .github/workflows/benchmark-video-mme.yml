@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       agent-version:
-        description: 'Agent version override (e.g., "2"). Leave empty to auto-resolve.'
+        description: 'Agent version override (e.g., "2"). Use "latest" or leave empty to resolve the concrete latest version.'
         required: false
         type: string
       mode:
@@ -91,20 +91,16 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Install SDK
-        run: pip install "azure-ai-projects==2.0.1" "azure-identity==1.25.0"
+        run: pip install "azure-ai-projects>=2.1.0,<3.0.0" "azure-identity>=1.25.0,<2.0.0"
 
       - name: Resolve agent version
         id: resolve
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           AGENT_NAME: ${{ env.AGENT_NAME }}
+          AGENT_VERSION_OVERRIDE: ${{ inputs.agent-version }}
         run: |
-          if [ -n "${{ inputs.agent-version }}" ]; then
-            AGENT_ID="${AGENT_NAME}:${{ inputs.agent-version }}"
-            echo "agent_id=${AGENT_ID}" >> "$GITHUB_OUTPUT"
-          else
-            python scripts/resolve_agent_version.py
-          fi
+          python scripts/resolve_agent_version.py --strict --agent-version "${AGENT_VERSION_OVERRIDE}"
 
   benchmark-video-mme:
     runs-on: ubuntu-latest

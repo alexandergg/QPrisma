@@ -387,6 +387,100 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, default=_to_json_primitive, indent=2), encoding="utf-8")
 
 
+def _write_jsonl(path: Path, items: list[Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(_to_json_primitive(item), ensure_ascii=False) for item in items]
+    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+
+def _derived_artifact_path(output_path: Path, suffix: str, extension: str = ".json") -> Path:
+    return output_path.with_name(f"{output_path.stem}-{suffix}{extension}")
+
+
+def _build_redteam_data_source(
+    *,
+    taxonomy_id: str,
+    target: Any,
+    normalized_strategies: list[str],
+    num_turns: int,
+) -> dict[str, Any]:
+    return {
+        "type": "azure_ai_red_team",
+        "item_generation_params": {
+            "type": "red_team_taxonomy",
+            "attack_strategies": normalized_strategies,
+            "num_turns": num_turns,
+            "source": {"type": "file_id", "id": taxonomy_id},
+        },
+        "target": target.as_dict(),
+    }
+
+
+def _build_request_shape(
+    *,
+    eval_id: str | None,
+    scan_name: str,
+    data_source: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "eval_id": eval_id or "<created-during-scan>",
+        "name": scan_name,
+        "data_source": _to_json_primitive(data_source),
+    }
+
+
+def _extract_run_diagnostics(run: Any) -> dict[str, Any]:
+    """Extract likely failure details without depending on one SDK shape."""
+    raw = _to_json_primitive(run)
+    if not isinstance(raw, dict):
+        return {}
+
+    diagnostic_keys = (
+        "last_error",
+        "lastError",
+        "error",
+        "errors",
+        "failure_reason",
+        "failureReason",
+        "status_details",
+        "statusDetails",
+        "message",
+        "details",
+    )
+    diagnostics = {
+        key: raw[key]
+        for key in diagnostic_keys
+        if key in raw and raw[key] not in (None, "", [], {})
+    }
+
+    status = raw.get("status")
+    if status:
+        diagnostics["status"] = status
+
+    return diagnostics
+
+
+def _write_redteam_artifacts(output_path: Path, summary: dict[str, Any]) -> dict[str, str]:
+    """Persist stable sibling artifacts and return their paths."""
+    request_shape = summary.get("request_shape")
+    output_items = summary.get("output_items")
+
+    artifact_paths: dict[str, str] = {"summary": str(output_path)}
+    if isinstance(request_shape, dict):
+        request_path = _derived_artifact_path(output_path, "request-shape")
+        _write_json(request_path, request_shape)
+        artifact_paths["request_shape"] = str(request_path)
+
+    if isinstance(output_items, list):
+        output_items_path = _derived_artifact_path(output_path, "output-items", ".jsonl")
+        _write_jsonl(output_items_path, output_items)
+        artifact_paths["output_items"] = str(output_items_path)
+
+    summary["artifact_paths"] = artifact_paths
+    _write_json(output_path, summary)
+    return artifact_paths
+
+
 def _build_testing_criteria(model_deployment: str) -> list[dict[str, Any]]:
     return [
         {
@@ -450,6 +544,8 @@ def run_redteam_scan(
     scan_name: str,
     poll_interval_seconds: int,
     timeout_seconds: int,
+    preflight: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
     """Execute a cloud red-team run against the hosted agent."""
     try:
@@ -504,13 +600,41 @@ def run_redteam_scan(
                 num_turns,
             )
 
-            red_team = openai_client.evals.create(
-                name=f"{scan_name}-group",
-                data_source_config={"type": "azure_ai_source", "scenario": "red_team"},
-                testing_criteria=_build_testing_criteria(model_deployment),
-            )
-
             taxonomy_name = f"{resolved_agent_name}-prohibited-actions"
+            if dry_run:
+                data_source = _build_redteam_data_source(
+                    taxonomy_id="<taxonomy-file-id-from-preflight-or-created-taxonomy>",
+                    target=target,
+                    normalized_strategies=normalized_strategies,
+                    num_turns=num_turns,
+                )
+                summary = {
+                    "mode": "cloud_foundry_agent_redteam",
+                    "status": "dry_run",
+                    "endpoint": endpoint,
+                    "agent": {
+                        "name": resolved_agent_name,
+                        "version": resolved_agent_version,
+                    },
+                    "model_deployment": model_deployment,
+                    "strategies": normalized_strategies,
+                    "risk_categories": [risk.name for risk in mapped_risks],
+                    "taxonomy_name": taxonomy_name,
+                    "request_shape": _build_request_shape(
+                        eval_id=None,
+                        scan_name=scan_name,
+                        data_source=data_source,
+                    ),
+                    "portal_url": f"{endpoint}/evaluations",
+                }
+                _write_redteam_artifacts(output_path, summary)
+                logger.info(
+                    "Red-team dry-run prepared request shape for agent=%s:%s.",
+                    resolved_agent_name,
+                    resolved_agent_version,
+                )
+                return summary
+
             taxonomy = project_client.beta.evaluation_taxonomies.create(
                 name=taxonomy_name,
                 body=EvaluationTaxonomy(
@@ -672,19 +796,59 @@ def run_redteam_scan(
                     "The red-team run may produce zero cases."
                 )
 
+            taxonomy_id = str(getattr(taxonomy, "id", "") or "").strip()
+            if not taxonomy_id:
+                raise RuntimeError("Foundry returned a taxonomy without an id.")
+            data_source = _build_redteam_data_source(
+                taxonomy_id=taxonomy_id,
+                target=target,
+                normalized_strategies=normalized_strategies,
+                num_turns=num_turns,
+            )
+            request_shape = _build_request_shape(
+                eval_id=None,
+                scan_name=scan_name,
+                data_source=data_source,
+            )
+            enabled_subcategories = _count_enabled_subcategories(taxonomy)
+            if preflight:
+                summary = {
+                    "mode": "cloud_foundry_agent_redteam",
+                    "status": "preflight_passed",
+                    "endpoint": endpoint,
+                    "agent": {
+                        "name": resolved_agent_name,
+                        "version": resolved_agent_version,
+                    },
+                    "model_deployment": model_deployment,
+                    "strategies": normalized_strategies,
+                    "risk_categories": [risk.name for risk in mapped_risks],
+                    "taxonomy": _to_json_primitive(taxonomy),
+                    "taxonomy_enabled_subcategories": enabled_subcategories,
+                    "request_shape": request_shape,
+                    "portal_url": f"{endpoint}/evaluations",
+                }
+                _write_redteam_artifacts(output_path, summary)
+                logger.info(
+                    "Red-team preflight passed (agent=%s:%s, taxonomy_id=%s, "
+                    "enabled_subcategories=%d).",
+                    resolved_agent_name,
+                    resolved_agent_version,
+                    taxonomy_id,
+                    enabled_subcategories,
+                )
+                return summary
+
+            red_team = openai_client.evals.create(
+                name=f"{scan_name}-group",
+                data_source_config={"type": "azure_ai_source", "scenario": "red_team"},
+                testing_criteria=_build_testing_criteria(model_deployment),
+            )
+            request_shape["eval_id"] = red_team.id
             eval_run = openai_client.evals.runs.create(
                 eval_id=red_team.id,
                 name=scan_name,
-                data_source={
-                    "type": "azure_ai_red_team",
-                    "item_generation_params": {
-                        "type": "red_team_taxonomy",
-                        "attack_strategies": normalized_strategies,
-                        "num_turns": num_turns,
-                        "source": {"type": "file_id", "id": taxonomy.id},
-                    },
-                    "target": target.as_dict(),
-                },
+                data_source=data_source,
             )
 
             deadline = time.monotonic() + timeout_seconds
@@ -717,6 +881,7 @@ def run_redteam_scan(
 
             summary = {
                 "mode": "cloud_foundry_agent_redteam",
+                "status": _extract_run_status(run),
                 "endpoint": endpoint,
                 "agent": {
                     "name": resolved_agent_name,
@@ -728,11 +893,29 @@ def run_redteam_scan(
                 "red_team": _to_json_primitive(red_team),
                 "taxonomy": _to_json_primitive(taxonomy),
                 "run": _to_json_primitive(run),
+                "run_diagnostics": _extract_run_diagnostics(run),
                 "output_items": _to_json_primitive(output_items),
                 "output_items_error": output_items_error,
+                "total_results": _extract_total_results(
+                    {
+                        "run": _to_json_primitive(run),
+                        "output_items": _to_json_primitive(output_items),
+                    }
+                ),
+                "request_shape": request_shape,
                 "portal_url": f"{endpoint}/evaluations",
             }
-            _write_json(output_path, summary)
+            _write_redteam_artifacts(output_path, summary)
+            logger.info(
+                "Red-team diagnostic: eval_id=%s taxonomy_id=%s run_id=%s status=%s items=%d "
+                "portal_url=%s",
+                getattr(red_team, "id", "<unknown>"),
+                taxonomy_id,
+                getattr(run, "id", "<unknown>"),
+                summary["status"] or "<unknown>",
+                len(output_items),
+                summary["portal_url"],
+            )
             return summary
     finally:
         if openai_client is not None and hasattr(openai_client, "close"):
@@ -810,6 +993,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="qprisma-cloud-redteam",
         help="Display name for the Foundry red-team run",
     )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Validate credentials, agent resolution, taxonomy creation/update, and request shape without creating a red-team run.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Resolve the target and write the normalized request shape without creating Foundry evaluation resources.",
+    )
     return parser.parse_args(argv)
 
 
@@ -842,30 +1035,38 @@ def main(argv: list[str] | None = None) -> int:
             scan_name=args.scan_name,
             poll_interval_seconds=args.poll_interval_seconds,
             timeout_seconds=args.timeout_seconds,
+            preflight=args.preflight,
+            dry_run=args.dry_run,
         )
     except Exception as exc:
         logger.exception("Cloud red-team run failed")
-        _write_json(
-            args.output,
-            {
-                "mode": "cloud_foundry_agent_redteam",
-                "status": "failed",
-                "error": str(exc),
-                "endpoint": args.endpoint,
-                "agent_id": args.agent_id,
-                "agent_name": args.agent_name,
-                "agent_version": args.agent_version,
-            },
-        )
+        failure_summary = {
+            "mode": "cloud_foundry_agent_redteam",
+            "status": "failed",
+            "error": str(exc),
+            "endpoint": args.endpoint,
+            "agent_id": args.agent_id,
+            "agent_name": args.agent_name,
+            "agent_version": args.agent_version,
+        }
+        _write_redteam_artifacts(args.output, failure_summary)
         return 1
 
-    status = _extract_run_status(summary.get("run"))
     logger.info("Red-team results written to %s", args.output)
+    if args.dry_run or args.preflight:
+        logger.info(
+            "Red-team %s completed successfully.", "dry-run" if args.dry_run else "preflight"
+        )
+        return 0
+
+    status = _extract_run_status(summary.get("run")) or str(summary.get("status") or "")
     if status != "completed":
+        diagnostics = summary.get("run_diagnostics")
         logger.error(
             "Red-team run finished with status '%s'. Check Azure AI User role, supported "
-            "region, and Foundry project prerequisites.",
+            "region, and Foundry project prerequisites. Diagnostics: %s",
             status or "<unknown>",
+            diagnostics or "<none>",
         )
         return 1
     total_results = _extract_total_results(summary)
