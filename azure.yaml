@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+requiredVersions:
+  extensions:
+    azure.ai.agents: ">=0.1.0-preview"
+
+name: qprisma
+
+services:
+  qprisma-video-agent:
+    project: ./backend/agent/hosted
+    host: azure.ai.agent
+    language: docker
+    docker:
+      path: Dockerfile
+      context: ../..
+      platform: amd64
+      remoteBuild: true
+    config:
+      container:
+        resources:
+          cpu: "2"
+          memory: 4Gi
+      startupCommand: python -m agent.hosted.main
+
+hooks:
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: infra/hooks/postdeploy.ps1
+      interactive: true
+    posix:
+      name: postdeploy
+      kind: sh
+      shell: sh
+      run: infra/hooks/postdeploy.sh
+      interactive: true

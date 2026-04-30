@@ -7,10 +7,12 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/deploy-hosted-agent.yml'
+      - 'azure.yaml'
       - 'backend/agent/**'
       - 'backend/core/**'
       - 'backend/services/**'
       - 'backend/models/**'
+      - 'infra/hooks/**'
       - 'infra/modules/ai-foundry.bicep'
       - 'infra/parameters/ai-foundry-dev.bicepparam'
       - 'scripts/deploy_agent.py'
@@ -28,9 +30,8 @@ on:
         type: string
       purge_before_deploy:
         description: >-
-          Delete the existing 'qprisma-video-agent' (and ALL its versions) before
-          registering a new one. Use this after major SDK migrations or when the
-          version history is cluttered. Safe to leave off for routine deploys.
+          Legacy SDK-only option. The default azd deployment path does not purge
+          existing hosted-agent versions.
         required: false
         type: boolean
         default: false
@@ -44,8 +45,15 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE_NAME: qprisma-video-agent
+  AZD_ENV_NAME: dev
+  SERVICE_NAME: qprisma-video-agent
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
+  AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}
+  AZURE_AI_ACCOUNT_NAME: ${{ vars.AZURE_AI_ACCOUNT_NAME || 'aif-qprisma-dev' }}
+  AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT || 'https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project' }}
+  AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT || 'https://aif-qprisma-dev.openai.azure.com/' }}
   ACR_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+  STORAGE_ACCOUNT_NAME: ${{ vars.STORAGE_ACCOUNT_NAME || 'stqprismadev' }}
 
 jobs:
   deploy-hosted-agent:
@@ -62,206 +70,131 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login to ACR
-        run: az acr login --name "${ACR_SERVER%%.*}"
+      - name: Setup Azure Developer CLI
+        uses: Azure/setup-azd@v2
 
-      - name: Build and push agent image
-        working-directory: backend
+      - name: Authenticate azd
         run: |
-          IMAGE_TAG="${GITHUB_SHA::8}"
-          FULL_IMAGE="${ACR_SERVER}/${IMAGE_NAME}:${IMAGE_TAG}"
-          LATEST_IMAGE="${ACR_SERVER}/${IMAGE_NAME}:latest"
+          azd auth login \
+            --client-id "${{ secrets.AZURE_CLIENT_ID }}" \
+            --tenant-id "${{ secrets.AZURE_TENANT_ID }}" \
+            --federated-credential-provider github
 
-          echo "Building ${FULL_IMAGE}"
-          docker build \
-            --platform linux/amd64 \
-            -f agent/hosted/Dockerfile \
-            -t "${FULL_IMAGE}" \
-            -t "${LATEST_IMAGE}" \
-            .
+      - name: Install Foundry hosted-agent extension
+        run: |
+          azd extension install azure.ai.agents || azd extension upgrade azure.ai.agents
 
-          docker push "${FULL_IMAGE}"
-          docker push "${LATEST_IMAGE}"
+      - name: Initialize azd environment
+        run: |
+          set -euo pipefail
+          azd env select "$AZD_ENV_NAME" --no-prompt 2>/dev/null || \
+            azd env new "$AZD_ENV_NAME" \
+              --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+              --location "$AZURE_LOCATION" \
+              --no-prompt
 
-          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-          echo "FULL_IMAGE=${FULL_IMAGE}" >> $GITHUB_ENV
-
-      - name: Install SDK dependencies
-        run: pip install "azure-ai-projects==2.1.0" "azure-identity>=1.25.0"
+      - name: Reject unsupported purge on azd deploy path
+        if: ${{ inputs.purge_before_deploy }}
+        run: |
+          echo "::error::purge_before_deploy is only supported by the legacy Python SDK fallback. Leave it false for the azd deployment path."
+          exit 1
 
       - name: Ensure ACR pull access for Foundry
         run: |
+          set -euo pipefail
           SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
-          RG="rg-qprisma-dev"
-          ACCOUNT="aif-qprisma-dev"
-          ACR_ID=$(az acr show --name "${ACR_SERVER%%.*}" --query id -o tsv)
-          echo "ACR resource ID: ${ACR_ID}"
+          RG="${AZURE_RESOURCE_GROUP}"
+          ACCOUNT="${AZURE_AI_ACCOUNT_NAME}"
 
+          if [ -z "${ACR_SERVER}" ]; then
+            echo "::warning::ACR_LOGIN_SERVER repository variable is not set; skipping explicit AcrPull assignment"
+            exit 0
+          fi
+
+          ACR_ID=$(az acr show --name "${ACR_SERVER%%.*}" --query id -o tsv)
           echo "Granting AcrPull to AI Foundry identities on ACR..."
 
-          # Get AI Foundry account principal ID
           ACCOUNT_PID=$(az cognitiveservices account show \
-            --name ${ACCOUNT} --resource-group ${RG} \
+            --name "${ACCOUNT}" --resource-group "${RG}" \
             --query identity.principalId -o tsv)
-          echo "  Account principal: ${ACCOUNT_PID:0:8}..."
 
-          # Get AI Foundry project principal ID
           PROJECT_PID=$(az rest --method GET \
             --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${ACCOUNT}-project?api-version=2025-06-01" \
             --query identity.principalId -o tsv)
-          echo "  Project principal: ${PROJECT_PID:0:8}..."
 
-          # AcrPull built-in role (verified from Azure RBAC docs)
           ACR_PULL_ROLE="7f951dda-4ed3-4680-a7ca-43fe172d538d"
 
           for PID in $ACCOUNT_PID $PROJECT_PID; do
             if [ -n "$PID" ]; then
-              echo "  Assigning AcrPull to principal: ${PID:0:8}..."
-              az role assignment create \
+              RESULT=$(az role assignment create \
                 --assignee-object-id "$PID" \
                 --assignee-principal-type ServicePrincipal \
                 --role "$ACR_PULL_ROLE" \
                 --scope "$ACR_ID" \
-                --output none 2>&1 || echo "    (already assigned)"
+                --only-show-errors 2>&1) && CREATED=true || CREATED=false
+
+              if [ "$CREATED" = true ] || echo "$RESULT" | grep -q "RoleAssignmentExists"; then
+                echo "  AcrPull ready for principal ${PID:0:8}..."
+              else
+                echo "::warning::Could not assign AcrPull to principal ${PID:0:8}: $RESULT"
+              fi
             fi
           done
 
-          # Verify assignments exist
-          echo "Verifying AcrPull assignments..."
-          az role assignment list --scope "$ACR_ID" --role "AcrPull" --query "[].{principal:principalId,type:principalType}" -o table
-          echo "ACR access configured"
-
-      - name: Ensure deployer has required RBAC roles
+      - name: Ensure deployer can manage Foundry project
         run: |
-          RG="rg-qprisma-dev"
-          ACCOUNT="aif-qprisma-dev"
-
-          # Get the OIDC service principal object ID
-          DEPLOYER_PID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv)
-          echo "Deployer principal: ${DEPLOYER_PID:0:8}..."
-
-          # AI Foundry account resource ID
-          AI_ACCOUNT_ID=$(az cognitiveservices account show \
-            --name ${ACCOUNT} --resource-group ${RG} \
-            --query id -o tsv)
-
-          # Roles required for hosted agent deployment:
-          #   Azure AI Developer  — control-plane + OpenAI/Speech/ContentSafety data actions
-          #   Cognitive Services User — wildcard data action (Microsoft.CognitiveServices/*)
-          #     which covers AIServices/agents/write needed by AIProjectClient
-          declare -A ROLES=(
-            ["Azure AI Developer"]="64702f94-c441-49e6-a78b-ef80e0188fee"
-            ["Cognitive Services User"]="a97b65f3-24c7-4388-baec-2e87135dc908"
-          )
-
-          NEED_WAIT=false
-          for ROLE_NAME in "${!ROLES[@]}"; do
-            ROLE_ID="${ROLES[$ROLE_NAME]}"
-            echo "Assigning ${ROLE_NAME} on AI Foundry account..."
-            RESULT=$(az role assignment create \
-              --assignee-object-id "$DEPLOYER_PID" \
-              --assignee-principal-type ServicePrincipal \
-              --role "$ROLE_ID" \
-              --scope "$AI_ACCOUNT_ID" \
-              --output json 2>&1) && CREATED=true || CREATED=false
-
-            if echo "$RESULT" | grep -q "already exists"; then
-              echo "  ${ROLE_NAME}: already assigned"
-            elif [ "$CREATED" = true ]; then
-              echo "  ${ROLE_NAME}: newly assigned"
-              NEED_WAIT=true
-            else
-              echo "  ${ROLE_NAME}: (result: $RESULT)"
-            fi
-          done
-
-          if [ "$NEED_WAIT" = true ]; then
-            echo "New role(s) assigned — waiting 120s for RBAC propagation..."
-            sleep 120
-          else
-            echo "All roles already assigned — no wait needed"
-          fi
-          echo "RBAC roles configured"
-
-      - name: Ensure deployer has Azure AI Project Manager on project
-        run: |
-          RG="rg-qprisma-dev"
-          ACCOUNT="aif-qprisma-dev"
-          PROJECT_NAME="${ACCOUNT}-project"
+          set -euo pipefail
           SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          RG="${AZURE_RESOURCE_GROUP}"
+          ACCOUNT="${AZURE_AI_ACCOUNT_NAME}"
+          APP_ID="${{ secrets.AZURE_CLIENT_ID }}"
 
-          # Per official "hosted-agent-permissions" docs, Azure AI Developer
-          # is INSUFFICIENT for hosted agent scenarios. The deployer SP needs
-          # Azure AI Project Manager at PROJECT scope so the platform can
-          # automatically assign Azure AI User to the freshly created agent
-          # instance identity. Without this, identity provisioning stalls and
-          # instance_identity.principal_id is never returned.
-          DEPLOYER_PID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv)
-          PROJECT_SCOPE="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT_NAME}"
+          DEPLOYER_OBJECT_ID=$(az ad sp show --id "$APP_ID" --query id -o tsv)
+          PROJECT_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${ACCOUNT}-project"
+          AI_PROJECT_MANAGER_ROLE="eadc314b-1a2d-4efa-be10-5d325db5065e"
 
-          # Verify the built-in role exists exactly once before assigning by name.
-          # Filter on roleName to avoid order-dependent matches when listing.
-          PM_ROLE_MATCHES=$(az role definition list \
-            --query "[?roleName=='Azure AI Project Manager'].name" -o tsv 2>/dev/null | wc -l | tr -d ' ')
-          if [ "$PM_ROLE_MATCHES" != "1" ]; then
-            echo "::error::Expected exactly one 'Azure AI Project Manager' role definition, found ${PM_ROLE_MATCHES}. Check tenant role definitions."
-            exit 1
-          fi
-
-          echo "Assigning Azure AI Project Manager on project scope to deployer ${DEPLOYER_PID:0:8}..."
           RESULT=$(az role assignment create \
-            --assignee-object-id "$DEPLOYER_PID" \
+            --assignee-object-id "$DEPLOYER_OBJECT_ID" \
             --assignee-principal-type ServicePrincipal \
-            --role "Azure AI Project Manager" \
-            --scope "$PROJECT_SCOPE" \
-            --output json 2>&1) && CREATED=true || CREATED=false
+            --role "$AI_PROJECT_MANAGER_ROLE" \
+            --scope "$PROJECT_ID" \
+            --only-show-errors 2>&1) && CREATED=true || CREATED=false
 
-          if echo "$RESULT" | grep -q "already exists"; then
-            echo "  Azure AI Project Manager: already assigned"
-          elif [ "$CREATED" = true ]; then
-            echo "  Azure AI Project Manager: newly assigned — waiting 90s for RBAC propagation..."
+          if [ "$CREATED" = true ]; then
+            echo "Azure AI Project Manager assigned to deployer; waiting 90s for RBAC propagation..."
             sleep 90
+          elif echo "$RESULT" | grep -q "RoleAssignmentExists"; then
+            echo "Azure AI Project Manager already assigned to deployer."
           else
             echo "::error::Failed to assign Azure AI Project Manager to deployer: $RESULT"
             exit 1
           fi
 
-      - name: Preflight — verify chat deployment exists
+      - name: Preflight - verify chat deployment exists
         env:
           DEPLOYMENT_NAME: ${{ inputs.chat_deployment || vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}
         run: |
-          RG="rg-qprisma-dev"
-          ACCOUNT="aif-qprisma-dev"
-
+          set -euo pipefail
           if [ -z "${DEPLOYMENT_NAME}" ]; then
-            echo "::error::No chat deployment configured. Set the workflow input 'chat_deployment', repository variable AZURE_OPENAI_DEPLOYMENT_GPT, or restore the workflow default."
+            echo "::error::No chat deployment configured. Set workflow input chat_deployment, vars.AZURE_OPENAI_DEPLOYMENT_GPT, or keep the gpt-5.5 default."
             exit 1
           fi
 
-          echo "Checking that chat deployment '${DEPLOYMENT_NAME}' exists on ${ACCOUNT}..."
           DEP_INFO=$(az cognitiveservices account deployment show \
-            --name "$ACCOUNT" \
-            --resource-group "$RG" \
+            --name "${AZURE_AI_ACCOUNT_NAME}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
             --deployment-name "$DEPLOYMENT_NAME" \
             --query "{model:properties.model.name,version:properties.model.version,state:properties.provisioningState}" \
             -o json 2>&1) && FOUND=true || FOUND=false
 
           if [ "$FOUND" != true ]; then
-            echo "::error::Chat deployment '${DEPLOYMENT_NAME}' was not found on ${ACCOUNT}."
+            echo "::error::Chat deployment '${DEPLOYMENT_NAME}' was not found on ${AZURE_AI_ACCOUNT_NAME}."
             echo "$DEP_INFO"
-            echo "::error::Re-run deploy-ai-foundry.yml with the right deployment name, or set vars.AZURE_OPENAI_DEPLOYMENT_GPT to an existing deployment."
             exit 1
           fi
 
           echo "Found deployment:"
           echo "$DEP_INFO"
-
-      # The legacy 'agents-host' capability host has been removed from the
-      # Bicep module — the refreshed Foundry hosted-agent preview no longer
-      # requires it. Skipping the corresponding readiness wait.
-
-      # App Insights connection string is auto-injected by the Foundry
-      # hosted-agent platform; we do not resolve or pass it ourselves.
 
       - name: Resolve hosted agent runtime configuration
         id: services
@@ -272,9 +205,7 @@ jobs:
           GH_AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
         run: |
           set -euo pipefail
-          RG="${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}"
           KEY_VAULT_NAME="${{ vars.KEY_VAULT_NAME || 'kv-qprisma-dev' }}"
-          STORAGE_ACCOUNT="${{ vars.STORAGE_ACCOUNT_NAME || 'stqprismadev' }}"
 
           fetch_secret() {
             local secret_name="$1"
@@ -300,7 +231,7 @@ jobs:
           DATABASE_URL="${GH_DATABASE_URL:-$(fetch_secret database-url)}"
           REDIS_URL="${GH_REDIS_URL:-$(fetch_secret redis-url)}"
           AZURE_STORAGE_CONNECTION_STRING="${GH_AZURE_STORAGE_CONNECTION_STRING:-$(az storage account show-connection-string \
-            --name "$STORAGE_ACCOUNT" --resource-group "$RG" \
+            --name "$STORAGE_ACCOUNT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
             --query connectionString -o tsv 2>/dev/null || true)}"
 
           set_secret_output "neo4j_password" "$NEO4J_PASSWORD"
@@ -308,61 +239,145 @@ jobs:
           set_secret_output "redis_url" "$REDIS_URL"
           set_secret_output "azure_storage_connection_string" "$AZURE_STORAGE_CONNECTION_STRING"
 
-          if [ -n "$NEO4J_PASSWORD" ] && [ -n "$DATABASE_URL" ] && [ -n "$REDIS_URL" ] && [ -n "$AZURE_STORAGE_CONNECTION_STRING" ]; then
-            echo "Hosted runtime service configuration resolved"
-          else
-            echo "::warning::One or more hosted runtime service values are missing; registration will fail fast before creating a broken version"
-          fi
-
-      - name: Register agent in Foundry
-        id: register
+      - name: Configure azd environment
         env:
-          AZURE_AI_PROJECT_ENDPOINT: https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}
-          CONTAINER_IMAGE: ${{ env.FULL_IMAGE }}
-          ENVIRONMENT: hosted
-          AZURE_USE_MANAGED_IDENTITY: 'true'
-          AZURE_OPENAI_API_VERSION: ${{ vars.AZURE_OPENAI_API_VERSION || '2025-04-01-preview' }}
-          AZURE_OPENAI_DEPLOYMENT_GPT: ${{ inputs.chat_deployment || vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}
-          AZURE_OPENAI_DEPLOYMENT_EMBEDDING: ${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING || 'text-embedding-3-large' }}
+          CHAT_DEPLOYMENT: ${{ inputs.chat_deployment || vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}
+          EMBEDDING_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING || 'text-embedding-3-large' }}
           MEMORY_STORE_NAME: ${{ vars.MEMORY_STORE_NAME }}
-          MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-4o' }}
+          MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-5.5' }}
           MEMORY_EMBEDDING_MODEL: ${{ vars.MEMORY_EMBEDDING_MODEL || 'text-embedding-3-large' }}
-          # APPLICATIONINSIGHTS_CONNECTION_STRING is reserved by the hosted-agent
-          # platform and auto-injected; do not pass it here.
-          OTEL_SERVICE_NAME: qprisma-hosted-agent
-          # Neo4j Knowledge Graph
           NEO4J_URI: ${{ secrets.NEO4J_URI }}
           NEO4J_USER: ${{ secrets.NEO4J_USER || 'neo4j' }}
           NEO4J_PASSWORD: ${{ steps.services.outputs.neo4j_password }}
           NEO4J_DATABASE: ${{ secrets.NEO4J_DATABASE || 'neo4j' }}
-          # PostgreSQL
           DATABASE_URL: ${{ steps.services.outputs.database_url }}
-          # Redis
           REDIS_URL: ${{ steps.services.outputs.redis_url }}
-          # Azure Blob Storage
           AZURE_STORAGE_CONNECTION_STRING: ${{ steps.services.outputs.azure_storage_connection_string }}
-          # Optional: purge the agent + all versions before registering a new one.
-          PURGE_BEFORE_DEPLOY: ${{ inputs.purge_before_deploy && '1' || '' }}
-          # Keep runtime identity lookup fast like Microsoft's hosted-agent sample.
-          # Increase these vars or set REQUIRE_AGENT_IDENTITY_RBAC=1 only when
-          # this deploy must synchronously assign custom downstream RBAC.
-          AGENT_IDENTITY_LOOKUP_ATTEMPTS: ${{ vars.AGENT_IDENTITY_LOOKUP_ATTEMPTS || '1' }}
-          AGENT_IDENTITY_LOOKUP_WAIT_SECONDS: ${{ vars.AGENT_IDENTITY_LOOKUP_WAIT_SECONDS || '15' }}
-          AGENT_IDENTITY_REST_TIMEOUT_SECONDS: ${{ vars.AGENT_IDENTITY_REST_TIMEOUT_SECONDS || '15' }}
-          REQUIRE_AGENT_IDENTITY_RBAC: ${{ vars.REQUIRE_AGENT_IDENTITY_RBAC || 'false' }}
-        run: python scripts/deploy_agent.py
+        run: |
+          set -euo pipefail
+          azd env select "$AZD_ENV_NAME" || azd env new "$AZD_ENV_NAME" \
+            --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            --location "$AZURE_LOCATION" \
+            --no-prompt
+
+          set_azd_env() {
+            local name="$1"
+            local value="$2"
+            if [ -n "$value" ]; then
+              echo "::add-mask::$value"
+            fi
+            azd env set "$name" "$value"
+          }
+
+          set_azd_env AZURE_SUBSCRIPTION_ID "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          set_azd_env AZURE_TENANT_ID "${{ secrets.AZURE_TENANT_ID }}"
+          set_azd_env AZURE_LOCATION "$AZURE_LOCATION"
+          set_azd_env AZURE_RESOURCE_GROUP "$AZURE_RESOURCE_GROUP"
+          set_azd_env AZURE_AI_PROJECT_ENDPOINT "$AZURE_AI_PROJECT_ENDPOINT"
+          set_azd_env AZURE_AI_FOUNDRY_PROJECT_ENDPOINT "$AZURE_AI_PROJECT_ENDPOINT"
+          set_azd_env AZURE_OPENAI_ENDPOINT "$AZURE_OPENAI_ENDPOINT"
+          set_azd_env AZURE_OPENAI_API_VERSION "${{ vars.AZURE_OPENAI_API_VERSION || '2025-04-01-preview' }}"
+          set_azd_env AZURE_OPENAI_DEPLOYMENT_GPT "$CHAT_DEPLOYMENT"
+          set_azd_env AZURE_OPENAI_DEPLOYMENT_EMBEDDING "$EMBEDDING_DEPLOYMENT"
+          set_azd_env AZURE_CONTAINER_REGISTRY_ENDPOINT "$ACR_SERVER"
+          set_azd_env AZURE_STORAGE_ACCOUNT_NAME "$STORAGE_ACCOUNT_NAME"
+          set_azd_env AZURE_USE_MANAGED_IDENTITY "true"
+          set_azd_env AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING "true"
+          set_azd_env AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED "${{ vars.AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED || 'false' }}"
+          set_azd_env ENVIRONMENT "hosted"
+          set_azd_env LOG_LEVEL "${{ vars.HOSTED_AGENT_LOG_LEVEL || 'INFO' }}"
+          set_azd_env OTEL_SERVICE_NAME "qprisma-hosted-agent"
+          set_azd_env NEO4J_URI "$NEO4J_URI"
+          set_azd_env NEO4J_USER "$NEO4J_USER"
+          set_azd_env NEO4J_PASSWORD "$NEO4J_PASSWORD"
+          set_azd_env NEO4J_DATABASE "$NEO4J_DATABASE"
+          set_azd_env DATABASE_URL "$DATABASE_URL"
+          set_azd_env REDIS_URL "$REDIS_URL"
+          set_azd_env AZURE_STORAGE_CONNECTION_STRING "$AZURE_STORAGE_CONNECTION_STRING"
+          set_azd_env MEMORY_STORE_NAME "$MEMORY_STORE_NAME"
+          set_azd_env MEMORY_CHAT_MODEL "$MEMORY_CHAT_MODEL"
+          set_azd_env MEMORY_EMBEDDING_MODEL "$MEMORY_EMBEDDING_MODEL"
+          set_azd_env REQUIRE_AGENT_IDENTITY_RBAC "${{ vars.REQUIRE_AGENT_IDENTITY_RBAC || 'false' }}"
+
+      - name: Deploy hosted agent with azd
+        run: azd deploy "$SERVICE_NAME" --no-prompt
+
+      - name: Inspect deployed agent
+        id: inspect
+        run: |
+          set -euo pipefail
+          RAW_JSON="$(azd ai agent show "$SERVICE_NAME" --output json 2>/dev/null || true)"
+          if [ -z "$RAW_JSON" ]; then
+            echo "::warning::azd ai agent show did not return agent details"
+            echo "agent_version=" >> "$GITHUB_OUTPUT"
+            echo "agent_status=" >> "$GITHUB_OUTPUT"
+            echo "identity_available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          export RAW_JSON
+          python - <<'PY'
+          import json
+          import os
+
+          payload = json.loads(os.environ["RAW_JSON"])
+          versions = payload.get("versions")
+          latest = versions.get("latest") if isinstance(versions, dict) else {}
+          if not isinstance(latest, dict):
+              latest = {}
+          instance_identity = payload.get("instance_identity")
+          if not isinstance(instance_identity, dict):
+              instance_identity = {}
+
+          summary = {
+              "id": payload.get("id"),
+              "name": payload.get("name"),
+              "object": payload.get("object"),
+              "instance_identity": {
+                  "principal_id_available": bool(instance_identity.get("principal_id")),
+              },
+              "versions": {
+                  "latest": {
+                      "id": latest.get("id") or "",
+                      "version": latest.get("version") or "",
+                      "status": latest.get("status") or "",
+                  },
+              },
+          }
+          with open("hosted-agent-inspection.json", "w", encoding="utf-8") as output:
+              json.dump(summary, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+          unset RAW_JSON
+
+          VERSION="$(python -c "import json; data=json.load(open('hosted-agent-inspection.json', encoding='utf-8')); print(data.get('versions', {}).get('latest', {}).get('version') or '')")"
+          STATUS="$(python -c "import json; data=json.load(open('hosted-agent-inspection.json', encoding='utf-8')); print(data.get('versions', {}).get('latest', {}).get('status') or '')")"
+          IDENTITY_AVAILABLE="$(python -c "import json; data=json.load(open('hosted-agent-inspection.json', encoding='utf-8')); print(str(data.get('instance_identity', {}).get('principal_id_available', False)).lower())")"
+
+          echo "agent_version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "agent_status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "identity_available=$IDENTITY_AVAILABLE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload redacted deployment inspection
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hosted-agent-inspection
+          path: hosted-agent-inspection.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Deployment summary
+        if: always()
         run: |
-          echo "## Hosted Agent Deployment" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Agent | qprisma-video-agent |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | \`${FULL_IMAGE}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Version | ${{ steps.register.outputs.agent_version }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Active | ${{ steps.register.outputs.agent_active }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Method | Python SDK (AIProjectClient) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Resources | 2 CPU, 4Gi RAM |" >> $GITHUB_STEP_SUMMARY
+          echo "## Hosted Agent Deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Detail | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|--------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Agent | ${SERVICE_NAME} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Service | \`${SERVICE_NAME}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Version | ${{ steps.inspect.outputs.agent_version }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Status | ${{ steps.inspect.outputs.agent_status }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Runtime identity available | ${{ steps.inspect.outputs.identity_available }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Method | azd + azure.ai.agent |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Resources | 2 CPU, 4Gi RAM |" >> "$GITHUB_STEP_SUMMARY"

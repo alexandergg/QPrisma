@@ -1,107 +1,65 @@
-# QPrisma Video Agent — Azure AI Foundry Deployment Manifest
-# ===========================================================
-# Declares the hosted agent container, protocols, and environment.
-#
-# Deploy with:
-#   azd extension install azure.ai.agents
-#   azd env set AZURE_AI_FOUNDRY_PROJECT_ENDPOINT <endpoint>
-#   azd up
-
+kind: hosted
 name: qprisma-video-agent
-description: >
-  QPrisma Video Agent — intelligent video analysis powered by LangGraph.
-  Searches visual content, audio transcriptions, and knowledge graphs
-  to answer questions with timestamped citations.
-metadata:
-  tags:
-    - video-analysis
-    - langgraph
-    - rag
-  authors:
-    - alexandergg
-template:
-  name: QPrismaVideoAgent
-  kind: hosted
-  protocols:
-    - protocol: responses
-      version: "1.0.0"
-    - protocol: a2a
-      version: v0.2.1
-  resources:
-    # Keep this aligned with scripts/deploy_agent.py. Foundry hosted-agent valid
-    # tiers are (0.25, 0.5Gi), (0.5, 1Gi), (1, 2Gi), and (2, 4Gi).
-    cpu: "2"
-    memory: 4Gi
-  environment_variables:
-    # --- Azure OpenAI ---
-    - name: AZURE_OPENAI_ENDPOINT
-      value: ${AZURE_OPENAI_ENDPOINT}
-    # Project-routed Foundry endpoint. Required so the hosted runtime hits the
-    # project Responses API path instead of falling back to the account-level
-    # *.openai.azure.com subdomain (which 404s for project-scoped deployments).
-    - name: AZURE_AI_PROJECT_ENDPOINT
-      value: ${AZURE_AI_PROJECT_ENDPOINT}
-    - name: AZURE_OPENAI_API_VERSION
-      value: "2025-04-01-preview"
-    - name: AZURE_USE_MANAGED_IDENTITY
-      value: "true"
-    - name: AZURE_OPENAI_DEPLOYMENT_GPT
-      value: "{{chat}}"
-    - name: AZURE_OPENAI_DEPLOYMENT_EMBEDDING
-      value: "{{embedding}}"
 
-    # --- Neo4j Knowledge Graph ---
-    - name: NEO4J_URI
-      value: ${NEO4J_URI}
-    - name: NEO4J_USER
-      value: ${NEO4J_USER}
-    - name: NEO4J_PASSWORD
-      value: ${NEO4J_PASSWORD}
-    - name: NEO4J_DATABASE
-      value: ${NEO4J_DATABASE}
-
-    # --- Redis ---
-    - name: REDIS_URL
-      value: ${REDIS_URL}
-
-    # --- PostgreSQL ---
-    - name: DATABASE_URL
-      value: ${DATABASE_URL}
-
-    # --- Azure Blob Storage ---
-    - name: AZURE_STORAGE_CONNECTION_STRING
-      value: ${AZURE_STORAGE_CONNECTION_STRING}
-
-    # --- Foundry Memory Store ---
-    # FOUNDRY_* and AGENT_* prefixes are reserved by the hosted-agent platform,
-    # so we expose memory-store config under non-reserved MEMORY_* names.
-    - name: MEMORY_STORE_NAME
-      value: "${MEMORY_STORE_NAME}"
-    - name: MEMORY_CHAT_MODEL
-      value: "${MEMORY_CHAT_MODEL}"
-    - name: MEMORY_EMBEDDING_MODEL
-      value: "${MEMORY_EMBEDDING_MODEL}"
-
-    # --- Application ---
-    - name: ENVIRONMENT
-      value: ${ENVIRONMENT}
-    - name: LOG_LEVEL
-      value: "INFO"
-
-    # --- Telemetry / Tracing ---
-    # APPLICATIONINSIGHTS_CONNECTION_STRING is reserved and auto-injected by
-    # the Foundry hosted-agent platform; do not declare it here.
-    - name: OTEL_SERVICE_NAME
-      value: "qprisma-hosted-agent"
-    - name: AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED
-      value: "false"
-    - name: AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING
-      value: "true"
+protocols:
+  - protocol: responses
+    version: "1.0.0"
 
 resources:
-  - kind: model
-    id: gpt-5.5
-    name: chat
-  - kind: model
-    id: text-embedding-3-large
-    name: embedding
+  cpu: "2"
+  memory: 4Gi
+
+environment_variables:
+  # Foundry / Azure OpenAI
+  - name: AZURE_AI_PROJECT_ENDPOINT
+    value: "${AZURE_AI_PROJECT_ENDPOINT}"
+  - name: AZURE_OPENAI_ENDPOINT
+    value: "${AZURE_OPENAI_ENDPOINT}"
+  - name: AZURE_OPENAI_API_VERSION
+    value: "${AZURE_OPENAI_API_VERSION}"
+  - name: AZURE_OPENAI_DEPLOYMENT_GPT
+    value: "${AZURE_OPENAI_DEPLOYMENT_GPT}"
+  - name: AZURE_OPENAI_DEPLOYMENT_EMBEDDING
+    value: "${AZURE_OPENAI_DEPLOYMENT_EMBEDDING}"
+
+  # Identity
+  - name: AZURE_USE_MANAGED_IDENTITY
+    value: "${AZURE_USE_MANAGED_IDENTITY}"
+
+  # Knowledge graph
+  - name: NEO4J_URI
+    value: "${NEO4J_URI}"
+  - name: NEO4J_USER
+    value: "${NEO4J_USER}"
+  - name: NEO4J_PASSWORD
+    value: "${NEO4J_PASSWORD}"
+  - name: NEO4J_DATABASE
+    value: "${NEO4J_DATABASE}"
+
+  # State services
+  - name: DATABASE_URL
+    value: "${DATABASE_URL}"
+  - name: REDIS_URL
+    value: "${REDIS_URL}"
+  - name: AZURE_STORAGE_CONNECTION_STRING
+    value: "${AZURE_STORAGE_CONNECTION_STRING}"
+
+  # Memory
+  - name: MEMORY_STORE_NAME
+    value: "${MEMORY_STORE_NAME}"
+  - name: MEMORY_CHAT_MODEL
+    value: "${MEMORY_CHAT_MODEL}"
+  - name: MEMORY_EMBEDDING_MODEL
+    value: "${MEMORY_EMBEDDING_MODEL}"
+
+  # Runtime
+  - name: ENVIRONMENT
+    value: "${ENVIRONMENT}"
+  - name: LOG_LEVEL
+    value: "${LOG_LEVEL}"
+  - name: OTEL_SERVICE_NAME
+    value: "${OTEL_SERVICE_NAME}"
+  - name: AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING
+    value: "${AZURE_EXPERIMENTAL_ENABLE_GENAI_TRACING}"
+  - name: AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED
+    value: "${AZURE_TRACING_GEN_AI_CONTENT_RECORDING_ENABLED}"

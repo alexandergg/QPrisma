@@ -23,6 +23,8 @@ Before running the evaluation flow, QPrisma needs:
 - A deployed Azure AI Foundry project and hosted agent (`qprisma-video-agent`)
 - `FOUNDRY_PROJECT_ENDPOINT` configured in repository variables
 - `.foundry/agent-metadata.yaml` kept current with the active Foundry endpoint, hosted-agent name, evaluation manifests, and artifact conventions
+- A successful `Deploy Hosted Agent` run through the root `azure.yaml` / `azd`
+  path, with the concrete hosted-agent version resolved before evaluation
 - Evaluation media IDs and an evaluation user identity (`EVAL_MEDIA_ID_1`, `EVAL_MEDIA_ID_2`, `EVAL_USER_ID`)
 - Azure OIDC access from GitHub Actions for the evaluation workflow
 - For Blob-first Video-MME automation: the raw Video-MME mp4 files staged in an Azure Blob container, plus a `BENCHMARK_API_TOKEN` configured in the backend environment and in GitHub Actions secrets
@@ -35,7 +37,7 @@ QPrisma now has two manual evaluation workflows:
 - [`.github/workflows/benchmark-video-mme.yml`](../.github/workflows/benchmark-video-mme.yml) for the dedicated Video-MME automation path (`full-pipeline` or `eval-only`)
 
 1. **Generate evaluation data**: `backend/evaluation_foundry/generate_eval_data.py` produces quality, agent, and safety datasets from environment-backed media and user context. It also emits `run-metadata.json` (schema v1) capturing the agent commit SHA (`GITHUB_SHA`), judge model + temperature + run count, frame-sampling settings, dataset SHA-256 hash, and any active `[QPRISMA_BENCH]` benchmark identifiers — so a Foundry result row can be reproduced from the same agent version, dataset snapshot, and judge configuration. Cluster CSVs and Foundry runs cross-reference using `agent.commit_sha` + `dataset.hash` from `run-metadata.json`; some benchmark rows also flatten those keys as `agent_commit_sha` + `dataset_hash`.
-2. **Resolve the agent version**: `scripts/resolve_agent_version.py --strict` finds the current deployed agent version unless the workflow input provides an explicit version. Use `agent-version=latest` or leave the input empty to resolve a concrete Foundry ID such as `qprisma-video-agent:77`; the workflows do not pass a literal `qprisma-video-agent:latest` target to Foundry. Evaluation and red-team lanes intentionally fail closed instead of falling back to `qprisma-video-agent:1`.
+2. **Resolve the agent version**: `scripts/resolve_agent_version.py --strict` finds the current deployed agent version after the `azd` hosted-agent deploy unless the workflow input provides an explicit version. Use `agent-version=latest` or leave the input empty to resolve a concrete Foundry ID such as `qprisma-video-agent:77`; the workflows do not pass a literal `qprisma-video-agent:latest` target to Foundry. Evaluation and red-team lanes intentionally fail closed instead of falling back to `qprisma-video-agent:1`.
 3. **Run parallel evaluation jobs**: Azure AI Foundry runs separate quality, agent, and safety evaluation jobs by using `microsoft/ai-agent-evals` pinned to a SHA.
 4. **Persist portal artifacts**: The Foundry portal captures run status, raw results, conversations, response payloads, and cluster-analysis exports.
 5. **Optionally run AI Red Teaming**: The workflow can launch `evaluation_foundry.redteam_eval` when `run-redteam=true` so higher-cost security probing stays explicit. Red Teaming now runs a preflight first, uploads all artifacts, and then applies a final gate that fails if no real run completed or if the run produced zero output items.
@@ -60,6 +62,8 @@ A production-ready evaluation run should leave these durable signals:
 
 - `run-metadata.json` with `agent.commit_sha`, `dataset.hash`, GitHub run metadata, judge configuration, frame-sampling settings, and benchmark tags.
 - A strict resolved hosted-agent ID such as `qprisma-video-agent:<version>`, never a silent fallback to `:1`.
+- A redacted hosted-agent inspection artifact when deploy diagnostics are needed;
+  never a raw Foundry payload with environment variables.
 - Foundry portal run records for quality, agent/tool, and safety lanes.
 - For Red Teaming, `preflight.json`, `summary.json`, `request-shape.json`, `output-items.jsonl`, run diagnostics, and a nonzero item count.
 - A GitHub Step Summary that names the agent, version, dataset hash, workflow run, and artifact locations.

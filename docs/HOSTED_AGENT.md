@@ -69,21 +69,22 @@ There is **no custom state converter, no Redis-checkpointer, and no
 ## 2. Identity flow
 
 ```
-GitHub Actions (OIDC) ──► scripts/deploy_agent.py
+GitHub Actions (OIDC) ──► azd deploy qprisma-video-agent
        │                         │
        │                         ▼
-       │            AIProjectClient.agents.create_or_update_version(...)
+       │            azure.yaml + host: azure.ai.agent
        │                         │
        │                         ▼
-       │            One-shot best-effort identity lookup
+       │            backend/agent/hosted/agent.yaml
        │                         │
        │                         ▼
-       │     If identity is already available, assigns RBAC:
-       │       • Cognitive Services OpenAI User  (account scope)
-       │       • Azure AI User                   (project scope)
+       │            postdeploy hook inspects runtime identity once
+       │                         │
+       │                         ▼
+       │     If identity is already available, assigns downstream RBAC
        │
        └──► On every /responses call:
-              Foundry runtime runs container as that managed identity.
+               Foundry runtime runs container as that managed identity.
               Container uses DefaultAzureCredential to mint tokens for
               ChatOpenAI (Foundry OpenAI v1 surface).
 ```
@@ -94,11 +95,11 @@ the identity once after deploy and skips role assignment when the principal is
 not yet visible; QPrisma follows the same fast path so registration does not
 block for minutes after the agent is active.
 
-If the identity is returned immediately, `scripts/deploy_agent.py` assigns the
-defensive runtime RBAC roles used by QPrisma. If it is missing, the workflow
-continues and logs a warning. Re-run the workflow later, increase
-`AGENT_IDENTITY_LOOKUP_ATTEMPTS`, or set `REQUIRE_AGENT_IDENTITY_RBAC=1` only
-for deployments that must synchronously assign custom downstream RBAC.
+If the identity is returned immediately, the `infra/hooks/postdeploy.*` hook
+assigns the downstream runtime RBAC roles used by QPrisma. If it is missing,
+the workflow continues and logs a warning. Re-run the workflow later or set
+`REQUIRE_AGENT_IDENTITY_RBAC=1` only for deployments that must synchronously
+assign custom downstream RBAC.
 
 ---
 
@@ -189,22 +190,52 @@ legacy stack tolerated.
 
 ## 6. Deployment
 
-The deploy is fully scripted; the GitHub Action is a thin wrapper.
+The default deploy path follows the Microsoft hosted-agent sample pattern:
+`azd` owns the hosted-agent registration through `host: azure.ai.agent`, while
+QPrisma keeps the custom LangGraph runtime inside the container.
 
 1. **Login** via OIDC (`azure/login@v2`).
-2. **Build & push** `linux/amd64` container image to ACR.
-3. **Grant deployer** the `Azure AI Project Manager` role on the project.
-4. **(Optional) Purge** legacy agent versions (`PURGE_BEFORE_DEPLOY=1`
-   invokes `scripts/purge_agent_versions.py`).
-5. **Run** `python scripts/deploy_agent.py` which:
-   - Creates / updates the agent version with the new image tag.
-   - Waits for the version to become `active`.
-   - Performs a fast best-effort `instance_identity.principal_id` lookup.
-   - Assigns RBAC (`Cognitive Services OpenAI User`, `Azure AI User`) only when
-     the runtime identity is already visible, then sleeps for propagation.
-6. **Summary** posted to the workflow run.
+2. **Install** Azure Developer CLI plus the `azure.ai.agents` extension declared
+   in root `azure.yaml`.
+3. **Grant deployer/project access** needed for Foundry deployment and ACR pull.
+4. **Resolve runtime configuration** from GitHub variables/secrets and Key Vault,
+   then persist it into the active `azd` environment with `azd env set`.
+5. **Run** `azd deploy qprisma-video-agent --no-prompt`, which uses:
+   - root `azure.yaml`;
+   - `backend/agent/hosted/agent.yaml`;
+   - `backend/agent/hosted/Dockerfile`;
+   - `host: azure.ai.agent`;
+   - `docker.remoteBuild: true`;
+   - `python -m agent.hosted.main` as startup command.
+6. **Run postdeploy hooks** (`infra/hooks/postdeploy.ps1` or `.sh`) that call
+   `azd ai agent show`, read `instance_identity.principal_id` once, and assign
+   downstream RBAC only when the runtime identity is already visible.
+7. **Upload redacted diagnostics** and post a workflow summary.
 
 Re-running the workflow is always safe: every step is idempotent.
+
+`scripts/deploy_agent.py` remains as a Python SDK fallback/diagnostic tool, but
+it is no longer the primary GitHub Actions deployment path. Use it only when the
+`azd` path is blocked and document the reason in the deployment run.
+
+### Identity and blueprint diagnostics
+
+The Foundry portal fields **Entra agent identity** and **Entra agent blueprint**
+are expected to be populated by the official hosted-agent path when the service
+returns those metadata fields. A deployed version reaching `active` is still the
+runtime readiness signal; missing identity/blueprint metadata should not block
+deployment unless `REQUIRE_AGENT_IDENTITY_RBAC=true`.
+
+For troubleshooting, use:
+
+```powershell
+python scripts\inspect_foundry_agent.py --output .foundry\results\hosted-agent-inspection.json
+```
+
+The script reads `.foundry/agent-metadata.yaml`, calls the Foundry data plane,
+and writes only allowlisted/redacted fields. Do not print raw `azd ai agent show`
+or REST payloads in CI logs because Foundry responses can include plaintext
+environment variables.
 
 ---
 
@@ -221,7 +252,7 @@ The production baseline for new hosted agents is:
 | Area | QPrisma template default |
 |---|---|
 | Protocol | `responses` `1.0.0` in `backend/agent/hosted/agent.yaml` |
-| Compute | Explicit Foundry tier (`cpu: "2"`, `memory: 4Gi`) mirrored in `scripts/deploy_agent.py` |
+| Compute | Explicit Foundry tier (`cpu: "2"`, `memory: 4Gi`) mirrored in root `azure.yaml` and the hosted manifest |
 | Container | Multi-stage image, non-root user, unbuffered logs, `/readiness` Docker `HEALTHCHECK` |
 | Identity | `DefaultAzureCredential`, managed identity, no local auth/key fallback in hosted paths |
 | Endpoint | Project-routed Foundry OpenAI v1 endpoint (`<projectEndpoint>/openai/v1`) |
@@ -235,10 +266,15 @@ From `Azure-Samples/foundry-hosted-langchain-demos`, QPrisma adopts the
 canonical hosted-agent pieces that are stable and reusable:
 
 - `kind: hosted` and `responses` `1.0.0` manifest shape.
+- Root `azure.yaml` with `host: azure.ai.agent` and the `azure.ai.agents`
+  extension.
+- `azd deploy qprisma-video-agent` as the primary deployment command.
 - Explicit CPU/memory sizing.
 - `DefaultAzureCredential` and Foundry project OpenAI-compatible endpoint.
 - Unbuffered Python container logs and Docker health probing.
 - App Insights / OpenTelemetry as the preferred observability path.
+- Postdeploy hooks that inspect runtime identity once and assign RBAC
+  best-effort.
 
 QPrisma intentionally does **not** replace its custom runtime with the sample
 runtime because the sample does not cover the frontend-visible LangGraph tool
@@ -259,6 +295,10 @@ workspace.
 * **Cloud Red Teaming is service-contract sensitive** — keep the preflight,
   SDK version logging, request-shape artifact, and output-items gate. A
   Foundry eval group alone is not proof that an adversarial run executed.
+* **Identity / blueprint metadata is service-owned** — the `azd` path aligns
+  with the official deployment contract, but the portal fields still depend on
+  what Foundry returns for the hosted version. Use the redacted inspection
+  script for evidence before escalating.
 * **Bearer token TTL beyond 1h** — the SDK refreshes credentials in-process
   but long-running `ainvoke` calls (>1h) may need explicit refresh. Not
   in scope for the current preview.
@@ -271,5 +311,7 @@ workspace.
 * Foundry hosted agents docs: <https://learn.microsoft.com/azure/foundry/agents/hosted-agents>
 * QPrisma agent template guide: `docs/AGENT_TEMPLATE_GUIDE.md`
 * QPrisma evaluation guide: `docs/EVALUATION_GUIDE.md`
-* QPrisma deploy script: `scripts/deploy_agent.py`
+* QPrisma `azd` deploy config: `azure.yaml`
+* QPrisma safe inspection script: `scripts/inspect_foundry_agent.py`
+* QPrisma SDK fallback deploy script: `scripts/deploy_agent.py`
 * QPrisma purge script: `scripts/purge_agent_versions.py`

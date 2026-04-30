@@ -3,7 +3,7 @@
 # ==============================================================
 # Builds a linux/amd64 image for deployment as a Foundry Hosted Agent.
 #
-# Build:
+# Local build only (CI uses azd remote build through azure.yaml):
 #   docker build --platform linux/amd64 -t qprisma-video-agent -f agent/hosted/Dockerfile .
 #
 # Run locally:

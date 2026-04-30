@@ -302,7 +302,8 @@ The `scripts/` directory contains utilities for development and maintenance:
 | Script | Purpose |
 |--------|---------|
 | `reset_all_data.py` | Wipe all data from Blob Storage, Neo4j, PostgreSQL, and Redis for a fresh start |
-| `deploy_agent.py` | Deploy QPrisma hosted agent to Microsoft AI Foundry |
+| `deploy_agent.py` | SDK fallback/diagnostic deploy for the QPrisma hosted agent; the default path is `azd deploy qprisma-video-agent` |
+| `inspect_foundry_agent.py` | Safely inspect hosted-agent identity/blueprint metadata with redacted output |
 | `setup_entra_apps.ps1` | Set up Entra ID (Azure AD) applications for authentication |
 | `migrate_entra_auth.sql` | Database migration for Entra ID authentication |
 | `setup_memory_store.py` | Provision Foundry Memory Store for long-term agent memory |

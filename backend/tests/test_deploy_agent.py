@@ -10,8 +10,10 @@ from unittest.mock import patch
 import pytest
 
 _SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "deploy_agent.py"
+_INSPECT_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "inspect_foundry_agent.py"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _OPENAI_USER_ROLE_ID = "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
+_AI_PROJECT_MANAGER_ROLE_ID = "eadc314b-1a2d-4efa-be10-5d325db5065e"
 _OPENAI_ROLE_DEFINITION_ID = (
     "roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', "
     "cognitiveServicesOpenAiUserRole)"
@@ -70,6 +72,29 @@ def _load_deploy_agent_module():
             "azure.ai.projects.models": azure_projects_models_module,
             "azure.core": azure_core_module,
             "azure.core.exceptions": azure_core_exceptions_module,
+            "azure.identity": azure_identity_module,
+            module_name: module,
+        },
+    ):
+        spec.loader.exec_module(module)
+
+    return module
+
+
+def _load_inspect_foundry_agent_module():
+    azure_module = types.ModuleType("azure")
+    azure_identity_module = types.ModuleType("azure.identity")
+    azure_identity_module.DefaultAzureCredential = object
+
+    module_name = "test_inspect_foundry_agent_module"
+    spec = importlib.util.spec_from_file_location(module_name, _INSPECT_SCRIPT_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+
+    with patch.dict(
+        sys.modules,
+        {
+            "azure": azure_module,
             "azure.identity": azure_identity_module,
             module_name: module,
         },
@@ -195,45 +220,81 @@ def test_hosted_manifest_openai_api_version_matches_script_default():
 
     for index, line in enumerate(lines):
         if line.strip() == "- name: AZURE_OPENAI_API_VERSION":
-            assert lines[index + 1].strip() == f'value: "{default_api_version}"'
+            assert lines[index + 1].strip() == 'value: "${AZURE_OPENAI_API_VERSION}"'
+            assert default_api_version == "2025-04-01-preview"
             break
     else:
         pytest.fail("AZURE_OPENAI_API_VERSION missing from hosted agent manifest")
 
 
 @pytest.mark.unit
-def test_hosted_manifest_chat_model_defaults_to_gpt_55():
+def test_hosted_manifest_uses_flat_azd_shape():
     manifest = (_REPO_ROOT / "backend" / "agent" / "hosted" / "agent.yaml").read_text(
         encoding="utf-8"
     )
     infra_main = (_REPO_ROOT / "infra" / "main.bicep").read_text(encoding="utf-8")
 
-    assert "id: gpt-5.5" in manifest
-    assert "name: chat" in manifest
+    assert manifest.startswith("kind: hosted\nname: qprisma-video-agent\n")
+    assert "\ntemplate:" not in manifest
+    assert "id: gpt-5.5" not in manifest
+    assert 'value: "${AZURE_OPENAI_DEPLOYMENT_GPT}"' in manifest
+    assert 'value: "${AZURE_OPENAI_DEPLOYMENT_EMBEDDING}"' in manifest
+    assert "APPLICATIONINSIGHTS_CONNECTION_STRING" not in manifest
     assert "{ name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-5.5' }" in infra_main
 
 
 @pytest.mark.unit
-def test_deploy_hosted_agent_workflow_defaults_chat_model_to_gpt_55():
+def test_azure_yaml_declares_official_hosted_agent_service():
+    azure_yaml = (_REPO_ROOT / "azure.yaml").read_text(encoding="utf-8")
+
+    assert 'azure.ai.agents: ">=0.1.0-preview"' in azure_yaml
+    assert "qprisma-video-agent:" in azure_yaml
+    assert "project: ./backend/agent/hosted" in azure_yaml
+    assert "host: azure.ai.agent" in azure_yaml
+    assert "language: docker" in azure_yaml
+    assert "context: ../.." in azure_yaml
+    assert "remoteBuild: true" in azure_yaml
+    assert "startupCommand: python -m agent.hosted.main" in azure_yaml
+    assert "postdeploy.ps1" in azure_yaml
+    assert "postdeploy.sh" in azure_yaml
+
+
+@pytest.mark.unit
+def test_deploy_hosted_agent_workflow_uses_azd_and_gpt_55_default():
     hosted_workflow = (_REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml").read_text(
         encoding="utf-8"
     )
     preflight_step = _workflow_step_block(
-        hosted_workflow, "Preflight — verify chat deployment exists"
+        hosted_workflow, "Preflight - verify chat deployment exists"
     )
-    register_step = _workflow_step_block(hosted_workflow, "Register agent in Foundry")
+    init_step = _workflow_step_block(hosted_workflow, "Initialize azd environment")
+    configure_step = _workflow_step_block(hosted_workflow, "Configure azd environment")
+    deploy_step = _workflow_step_block(hosted_workflow, "Deploy hosted agent with azd")
+    inspect_step = _workflow_step_block(hosted_workflow, "Inspect deployed agent")
 
-    assert (
-        "AZURE_OPENAI_DEPLOYMENT_GPT: ${{ inputs.chat_deployment "
-        "|| vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}" in register_step
-    )
     assert (
         "DEPLOYMENT_NAME: ${{ inputs.chat_deployment || "
         "vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}" in preflight_step
     )
+    assert (
+        "CHAT_DEPLOYMENT: ${{ inputs.chat_deployment || vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}"
+        in configure_step
+    )
+    assert 'set_azd_env AZURE_OPENAI_DEPLOYMENT_GPT "$CHAT_DEPLOYMENT"' in configure_step
+    assert 'azd deploy "$SERVICE_NAME" --no-prompt' in deploy_step
+    assert 'azd env select "$AZD_ENV_NAME" --no-prompt' in init_step
+    assert 'azd env new "$AZD_ENV_NAME"' in init_step
+    assert f'AI_PROJECT_MANAGER_ROLE="{_AI_PROJECT_MANAGER_ROLE_ID}"' in hosted_workflow
+    assert "Register agent in Foundry" not in hosted_workflow
+    assert "python scripts/deploy_agent.py" not in hosted_workflow
+    assert "Python SDK (AIProjectClient)" not in hosted_workflow
+    assert "azd + azure.ai.agent" in hosted_workflow
     assert "default: gpt-5.5" in hosted_workflow
     assert "default: gpt-5.4-pro" not in hosted_workflow
-    assert "MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-4o' }}" in register_step
+    assert "MEMORY_CHAT_MODEL: ${{ vars.MEMORY_CHAT_MODEL || 'gpt-5.5' }}" in configure_step
+    assert "python - <<'PY'" in inspect_step
+    assert "hosted-agent-inspection.json" in inspect_step
+    assert "jq" not in inspect_step
 
 
 @pytest.mark.unit
@@ -351,18 +412,20 @@ def test_agent_identity_lookup_defaults_to_fast_best_effort(monkeypatch):
     hosted_workflow = (_REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml").read_text(
         encoding="utf-8"
     )
+    postdeploy_hook = (_REPO_ROOT / "infra" / "hooks" / "postdeploy.sh").read_text(encoding="utf-8")
 
     assert deploy_agent.AGENT_IDENTITY_LOOKUP_ATTEMPTS == 1
     assert deploy_agent.AGENT_IDENTITY_LOOKUP_WAIT_SECONDS == 15
     assert deploy_agent.AGENT_IDENTITY_REST_TIMEOUT_SECONDS == 15
+    assert "AGENT_IDENTITY_LOOKUP_ATTEMPTS" not in hosted_workflow
     assert (
-        "AGENT_IDENTITY_LOOKUP_ATTEMPTS: ${{ vars.AGENT_IDENTITY_LOOKUP_ATTEMPTS || '1' }}"
+        "set_azd_env REQUIRE_AGENT_IDENTITY_RBAC \"${{ vars.REQUIRE_AGENT_IDENTITY_RBAC || 'false' }}\""
         in hosted_workflow
     )
-    assert (
-        "REQUIRE_AGENT_IDENTITY_RBAC: ${{ vars.REQUIRE_AGENT_IDENTITY_RBAC || 'false' }}"
-        in hosted_workflow
-    )
+    assert "Hosted agent runtime identity is not available yet; skipping" in postdeploy_hook
+    assert "extract_agent_principal_id()" in postdeploy_hook
+    assert "command -v jq" in postdeploy_hook
+    assert "command -v python3" in postdeploy_hook
 
 
 @pytest.mark.unit
@@ -396,7 +459,8 @@ def test_hosted_agent_openai_rbac_is_durable_and_graph_free():
     assert "az ad sp list" not in hosted_workflow
     assert "Ensure hosted AgentIdentity has Azure OpenAI access" not in ai_foundry_workflow
     assert "az ad sp list" not in ai_foundry_workflow
-    assert 'pip install "azure-ai-projects==2.1.0"' in hosted_workflow
+    assert 'azd deploy "$SERVICE_NAME" --no-prompt' in hosted_workflow
+    assert "Python SDK (AIProjectClient)" not in hosted_workflow
     assert "resolve_agent_identity_principal_id" in deploy_agent_script
     assert "client.agents.get(agent_name=AGENT_NAME)" in deploy_agent_script
     assert "HostedAgentDefinition" in deploy_agent_script
@@ -662,7 +726,7 @@ def test_hosted_manifest_resources_match_deploy_contract():
     script = _SCRIPT_PATH.read_text(encoding="utf-8")
 
     manifest_resource_block = re.search(
-        r"^\s+resources:\n\s+#.*\n\s+#.*\n\s+cpu:\s+\"?([^\"\s]+)\"?\n\s+memory:\s+\"?([^\"\s]+)\"?",
+        r"^resources:\n\s+cpu:\s+\"?([^\"\s]+)\"?\n\s+memory:\s+\"?([^\"\s]+)\"?",
         manifest,
         re.MULTILINE,
     )
@@ -684,3 +748,62 @@ def test_hosted_dockerfile_healthcheck_uses_agentserver_readiness():
     assert "HEALTHCHECK" in dockerfile
     assert "/readiness" in dockerfile
     assert "/health" not in dockerfile
+
+
+@pytest.mark.unit
+def test_foundry_agent_inspection_redacts_sensitive_payload_fields():
+    inspect_agent = _load_inspect_foundry_agent_module()
+    payload = {
+        "id": "qprisma-video-agent",
+        "name": "qprisma-video-agent",
+        "versions": {
+            "latest": {
+                "id": "qprisma-video-agent:80",
+                "version": "80",
+                "status": "active",
+                "environment_variables": [
+                    {"name": "NEO4J_PASSWORD", "value": "super-secret-password"},
+                ],
+            },
+        },
+        "instance_identity": {
+            "principal_id": "11111111-2222-3333-4444-555555555555",
+        },
+        "connection_string": "AccountKey=very-secret",
+    }
+
+    summary = inspect_agent.summarize_agent_payload(payload)
+    redacted = inspect_agent.redact(payload)
+
+    assert summary["latest_version"] == {
+        "id": "qprisma-video-agent:80",
+        "version": "80",
+        "status": "active",
+    }
+    assert summary["identity"]["presence"] == "present"
+    assert "super-secret-password" not in str(summary)
+    assert "super-secret-password" not in str(redacted)
+    assert "AccountKey=very-secret" not in str(redacted)
+    assert redacted["versions"]["latest"]["environment_variables"] == "***REDACTED***"
+
+
+@pytest.mark.unit
+def test_foundry_agent_inspection_minimal_metadata_parser():
+    inspect_agent = _load_inspect_foundry_agent_module()
+    metadata = inspect_agent._load_minimal_metadata(
+        """
+defaultEnvironment: dev
+environments:
+  dev:
+    projectEndpoint: https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
+    agentName: qprisma-video-agent
+"""
+    )
+
+    endpoint, agent_name = inspect_agent._resolve_from_metadata(metadata, None)
+
+    assert (
+        endpoint
+        == "https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project"
+    )
+    assert agent_name == "qprisma-video-agent"

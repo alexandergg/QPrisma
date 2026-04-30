@@ -116,9 +116,11 @@ request-shape, and output-items artifacts.
    agent's `create_<agent>_graph()` function.
 2. Replace QPrisma-specific state fields and tools with the new agent's
    domain state and tool contract.
-3. Update `backend/agent/hosted/agent.yaml`, `scripts/deploy_agent.py`, and
+3. Update `azure.yaml`, `backend/agent/hosted/agent.yaml`, and
    `.foundry/agent-metadata.yaml` with the new agent name, project endpoint,
-   ACR, model deployments, and service env vars.
+   ACR, model deployments, service env vars, and evaluation metadata. Keep
+   `scripts/deploy_agent.py` only as an SDK fallback if the `azd` path is
+   temporarily unavailable.
 4. Create the smallest useful evaluation datasets first: safety regression,
    tool routing regression, and one Red Team manifest.
 5. Keep Red Teaming optional for PRs but mandatory for scheduled or release

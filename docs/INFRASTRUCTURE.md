@@ -273,7 +273,7 @@ Handles model deployments (GPT-4o, GPT-5.2-chat, text-embedding-3-large, Whisper
 ### 6. Hosted Agent Deployment (`deploy-hosted-agent.yml`)
 
 **Triggers**: Push to `main` (path-filtered), Manual dispatch
-**Purpose**: Deploys the QPrisma agent as a hosted AI agent on Azure, including the agent container and configuration.
+**Purpose**: Deploys the QPrisma agent as a hosted AI agent on Azure through the official `azd` service path (`host: azure.ai.agent`), including the agent container and flat `agent.yaml` configuration.
 
 ### 7. Agent Evaluation (`evaluate-agent.yml`)
 
@@ -429,9 +429,9 @@ GitHub Secrets
 
 ### Hosted Agent secret flow
 
-`deploy-hosted-agent.yml` uses the Foundry Python SDK to register the image, but it does not pass database, Redis, Neo4j, or Storage connection-string secrets as environment values. The workflow passes Key Vault secret URIs for `neo4j-password`, `database-url`, and `redis-url`, plus the Storage account blob endpoint.
+`deploy-hosted-agent.yml` configures the `azd` environment and deploys the hosted agent declared in the root `azure.yaml` and `backend/agent/hosted/agent.yaml`. Database, Redis, Neo4j, and Storage connection-string secrets are resolved from GitHub Secrets or Key Vault and passed only as runtime configuration required by the hosted manifest.
 
-After registration, the workflow resolves the platform-created Hosted Agent identity and grants:
+After deployment, the `azd` postdeploy hook inspects the platform-created Hosted Agent identity once and grants downstream RBAC when the identity is available:
 
 | Scope | Role | Purpose |
 |-------|------|---------|
@@ -440,9 +440,9 @@ After registration, the workflow resolves the platform-created Hosted Agent iden
 | Key Vault | `Key Vault Secrets User` | Runtime resolution of database, Redis, and Neo4j secrets |
 | Storage account | `Storage Blob Data Contributor` | Blob access through managed identity |
 
-The Hosted Agent container resolves the Key Vault URIs at startup before `core.config.settings` is imported. Direct secret variables such as `DATABASE_URL`, `REDIS_URL`, `NEO4J_PASSWORD`, and `AZURE_STORAGE_CONNECTION_STRING` are intentionally ignored by `scripts/deploy_agent.py` to avoid reintroducing plaintext Hosted Agent environment secrets.
+The Hosted Agent container resolves Key Vault URIs at startup before `core.config.settings` is imported. `scripts/deploy_agent.py` remains only as an SDK fallback/diagnostic path; the default deployment path is `azd deploy qprisma-video-agent`.
 
-The Hosted Agent image (`backend/agent/hosted/Dockerfile`) is built as linux/amd64 with a multi-stage Python 3.11-slim pipeline. Dependencies are resolved with the existing `uv pip compile --extra hosted --prerelease=allow` flow into a virtual environment, while the final image keeps only runtime libraries and runs as non-root `appuser` (UID 1001). The Foundry adapter still serves port 8088 and exposes the hosted app readiness endpoint.
+The Hosted Agent image (`backend/agent/hosted/Dockerfile`) is built as linux/amd64 through `azd` remote build with a multi-stage Python 3.11-slim pipeline. Dependencies are resolved with the existing `uv pip compile --extra hosted --prerelease=allow` flow into a virtual environment, while the final image keeps only runtime libraries and runs as non-root `appuser` (UID 1001). The Foundry adapter still serves port 8088 and exposes the hosted app readiness endpoint.
 
 ---
 
