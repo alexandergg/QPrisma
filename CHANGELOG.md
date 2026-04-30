@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tracer**: `AzureAIOpenTelemetryTracer` is injected at compile-time via `with_config({"callbacks":[tracer], "tags":["qprisma","video-agent"]})`.
 - **Bicep**: removed the `agents-host` resource (capability host) — the refreshed preview no longer requires it.
 - **Deploy**: Hosted-agent deployment follows the official `azd` + `host: azure.ai.agent` path. Post-deploy RBAC is handled by best-effort hooks that inspect `instance_identity.principal_id` once; `scripts/deploy_agent.py` is kept as an SDK fallback/diagnostic tool.
+- **Deploy**: The hosted-agent workflow now binds `azd` to the existing Foundry project by setting `AZURE_AI_PROJECT_ID` from subscription, resource group, account, and `AZURE_AI_PROJECT_NAME` before `azd deploy`.
 - **Cleanup**: new `scripts/purge_agent_versions.py` to clean up accumulated versions before the first refreshed deploy (idempotent, supports `--dry-run`).
 - **Removals**:
   - `backend/agent/hosted/state_converter.py` (~39 KB).

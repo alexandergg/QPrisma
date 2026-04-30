@@ -50,6 +50,7 @@ env:
   AZURE_LOCATION: ${{ vars.AZURE_LOCATION || 'eastus2' }}
   AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'rg-qprisma-dev' }}
   AZURE_AI_ACCOUNT_NAME: ${{ vars.AZURE_AI_ACCOUNT_NAME || 'aif-qprisma-dev' }}
+  AZURE_AI_PROJECT_NAME: ${{ vars.AZURE_AI_PROJECT_NAME || 'aif-qprisma-dev-project' }}
   AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT || 'https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project' }}
   AZURE_OPENAI_ENDPOINT: ${{ vars.AZURE_OPENAI_ENDPOINT || 'https://aif-qprisma-dev.openai.azure.com/' }}
   ACR_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
@@ -105,6 +106,7 @@ jobs:
           SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           RG="${AZURE_RESOURCE_GROUP}"
           ACCOUNT="${AZURE_AI_ACCOUNT_NAME}"
+          PROJECT="${AZURE_AI_PROJECT_NAME}"
 
           if [ -z "${ACR_SERVER}" ]; then
             echo "::warning::ACR_LOGIN_SERVER repository variable is not set; skipping explicit AcrPull assignment"
@@ -119,7 +121,7 @@ jobs:
             --query identity.principalId -o tsv)
 
           PROJECT_PID=$(az rest --method GET \
-            --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${ACCOUNT}-project?api-version=2025-06-01" \
+            --url "https://management.azure.com/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT}?api-version=2025-06-01" \
             --query identity.principalId -o tsv)
 
           ACR_PULL_ROLE="7f951dda-4ed3-4680-a7ca-43fe172d538d"
@@ -147,10 +149,11 @@ jobs:
           SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           RG="${AZURE_RESOURCE_GROUP}"
           ACCOUNT="${AZURE_AI_ACCOUNT_NAME}"
+          PROJECT="${AZURE_AI_PROJECT_NAME}"
           APP_ID="${{ secrets.AZURE_CLIENT_ID }}"
 
           DEPLOYER_OBJECT_ID=$(az ad sp show --id "$APP_ID" --query id -o tsv)
-          PROJECT_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${ACCOUNT}-project"
+          PROJECT_ID="/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG}/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT}"
           AI_PROJECT_MANAGER_ROLE="eadc314b-1a2d-4efa-be10-5d325db5065e"
 
           RESULT=$(az role assignment create \
@@ -273,6 +276,8 @@ jobs:
           set_azd_env AZURE_TENANT_ID "${{ secrets.AZURE_TENANT_ID }}"
           set_azd_env AZURE_LOCATION "$AZURE_LOCATION"
           set_azd_env AZURE_RESOURCE_GROUP "$AZURE_RESOURCE_GROUP"
+          set_azd_env AZURE_AI_PROJECT_NAME "$AZURE_AI_PROJECT_NAME"
+          set_azd_env AZURE_AI_PROJECT_ID "/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${AZURE_AI_ACCOUNT_NAME}/projects/${AZURE_AI_PROJECT_NAME}"
           set_azd_env AZURE_AI_PROJECT_ENDPOINT "$AZURE_AI_PROJECT_ENDPOINT"
           set_azd_env AZURE_AI_FOUNDRY_PROJECT_ENDPOINT "$AZURE_AI_PROJECT_ENDPOINT"
           set_azd_env AZURE_OPENAI_ENDPOINT "$AZURE_OPENAI_ENDPOINT"

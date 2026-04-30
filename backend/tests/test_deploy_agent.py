@@ -280,6 +280,22 @@ def test_deploy_hosted_agent_workflow_uses_azd_and_gpt_55_default():
         "CHAT_DEPLOYMENT: ${{ inputs.chat_deployment || vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}"
         in configure_step
     )
+    assert (
+        "AZURE_AI_PROJECT_NAME: ${{ vars.AZURE_AI_PROJECT_NAME || 'aif-qprisma-dev-project' }}"
+        in hosted_workflow
+    )
+    assert 'PROJECT="${AZURE_AI_PROJECT_NAME}"' in hosted_workflow
+    assert (
+        "/providers/Microsoft.CognitiveServices/accounts/${ACCOUNT}/projects/${PROJECT}"
+        in hosted_workflow
+    )
+    assert 'set_azd_env AZURE_AI_PROJECT_NAME "$AZURE_AI_PROJECT_NAME"' in configure_step
+    assert (
+        "set_azd_env AZURE_AI_PROJECT_ID "
+        '"/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${AZURE_RESOURCE_GROUP}/'
+        "providers/Microsoft.CognitiveServices/accounts/${AZURE_AI_ACCOUNT_NAME}/"
+        'projects/${AZURE_AI_PROJECT_NAME}"'
+    ) in configure_step
     assert 'set_azd_env AZURE_OPENAI_DEPLOYMENT_GPT "$CHAT_DEPLOYMENT"' in configure_step
     assert 'azd deploy "$SERVICE_NAME" --no-prompt' in deploy_step
     assert 'azd env select "$AZD_ENV_NAME" --no-prompt' in init_step

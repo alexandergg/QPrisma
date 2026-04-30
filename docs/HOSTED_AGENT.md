@@ -199,7 +199,8 @@ QPrisma keeps the custom LangGraph runtime inside the container.
    in root `azure.yaml`.
 3. **Grant deployer/project access** needed for Foundry deployment and ACR pull.
 4. **Resolve runtime configuration** from GitHub variables/secrets and Key Vault,
-   then persist it into the active `azd` environment with `azd env set`.
+   build the existing Foundry project ARM id, then persist it into the active
+   `azd` environment with `azd env set`.
 5. **Run** `azd deploy qprisma-video-agent --no-prompt`, which uses:
    - root `azure.yaml`;
    - `backend/agent/hosted/agent.yaml`;
@@ -213,6 +214,17 @@ QPrisma keeps the custom LangGraph runtime inside the container.
 7. **Upload redacted diagnostics** and post a workflow summary.
 
 Re-running the workflow is always safe: every step is idempotent.
+
+Because QPrisma deploys into an already-provisioned Foundry project, the
+workflow must bind `azd` to that project before calling `azd deploy`. It sets:
+
+- `AZURE_AI_PROJECT_NAME` from the `AZURE_AI_PROJECT_NAME` repository variable,
+  defaulting to `aif-qprisma-dev-project`;
+- `AZURE_AI_PROJECT_ID` as
+  `/subscriptions/<subscription>/resourceGroups/<resource-group>/providers/Microsoft.CognitiveServices/accounts/<account>/projects/<project>`.
+
+If `AZURE_AI_PROJECT_ID` is missing, the `azure.ai.agent` extension fails before
+deploying the hosted-agent manifest.
 
 `scripts/deploy_agent.py` remains as a Python SDK fallback/diagnostic tool, but
 it is no longer the primary GitHub Actions deployment path. Use it only when the
