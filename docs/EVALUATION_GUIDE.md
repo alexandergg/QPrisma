@@ -493,7 +493,7 @@ The GitHub Actions gate fails if the results summary is missing, the run status 
 
 Check these in order:
 
-1. **SDK contract**: the workflow must install `azure-ai-projects>=2.1.0,<3.0.0`, `azure-identity`, `openai`, and `httpx`. Older `azure-ai-projects==2.0.1` is not sufficient for the current cloud Red Teaming path used here.
+1. **SDK contract**: the workflow must install `azure-ai-projects>=2.1.0,<3.0.0`, `azure-identity`, and `httpx`, then let `azure-ai-projects` resolve its compatible `openai` dependency. Do not cap `openai` below 2.x with this SDK line; `azure-ai-projects==2.1.0` requires `openai>=2.8.0`. Older `azure-ai-projects==2.0.1` is not sufficient for the current cloud Red Teaming path used here.
 2. **Agent version**: evaluation workflows must call `scripts/resolve_agent_version.py --strict`. Use `latest` only as a user-friendly alias for "ask Foundry for the current version and emit an explicit `<agent>:<version>` ID"; do not accept fallback to `qprisma-video-agent:1` or pass literal `qprisma-video-agent:latest` for Red Teaming.
 3. **Preflight output**: confirm the preflight artifact has `status: "preflight_passed"`, a taxonomy ID, the expected agent version, and enabled prohibited-actions subcategories.
 4. **Run diagnostics**: inspect `run_diagnostics` in `redteam-results.json` for service-side failures such as unsupported region, missing RBAC, invalid target shape, or taxonomy errors.

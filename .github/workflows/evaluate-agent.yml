@@ -443,7 +443,6 @@ jobs:
           pip install \
             "azure-ai-projects>=2.1.0,<3.0.0" \
             "azure-identity>=1.25.0,<2.0.0" \
-            "openai>=1.55.0,<2.0.0" \
             "httpx>=0.28.0,<1.0.0"
           pip freeze | grep -E '^(azure-ai-projects|azure-identity|azure-core|openai|httpx)==' || true
 
