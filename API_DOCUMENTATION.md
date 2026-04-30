@@ -600,7 +600,7 @@ When using `media_ids`, the agent has access to specialized cross-video tools:
 
 ### Hosted Agent Deployment RBAC
 
-The hosted agent container runs with a dedicated Microsoft Entra runtime identity. Before invocation tests, that principal must have the `Azure AI User` role at both the Azure AI Foundry account scope and the Foundry project scope. The `deploy-hosted-agent.yml` workflow enforces this after agent registration so the runtime can call Foundry Responses, Conversations, and storage/history APIs.
+The hosted agent container runs with a dedicated Microsoft Entra runtime identity. When Foundry returns `instance_identity.principal_id` during deployment, `deploy-hosted-agent.yml` assigns the runtime roles QPrisma needs: `Azure AI User` at the Foundry project scope and `Cognitive Services OpenAI User` at the Foundry account scope for account-scoped OpenAI calls. The lookup is best-effort by default and does not block registration after the agent version is active; re-run the workflow or enable `REQUIRE_AGENT_IDENTITY_RBAC=1` for deployments that must fail until custom runtime RBAC is assigned.
 
 ### Knowledge Graph
 

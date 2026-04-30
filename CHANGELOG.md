@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **LLM**: the hosted path uses `ChatOpenAI(base_url=f"{FOUNDRY_PROJECT_ENDPOINT}/openai/v1")`. The non-hosted path retains `AzureChatOpenAI`.
 - **Tracer**: `AzureAIOpenTelemetryTracer` is injected at compile-time via `with_config({"callbacks":[tracer], "tags":["qprisma","video-agent"]})`.
 - **Bicep**: removed the `agents-host` resource (capability host) — the refreshed preview no longer requires it.
-- **Deploy**: `scripts/deploy_agent.py` absorbs post-deploy RBAC (Cognitive Services OpenAI User + Azure AI User) and polling of `instance_identity.principal_id` (≤ 80 × 15s). The `deploy-hosted-agent.yml` workflow becomes a thin wrapper.
+- **Deploy**: `scripts/deploy_agent.py` absorbs post-deploy RBAC (Cognitive Services OpenAI User + Azure AI User) using a fast best-effort `instance_identity.principal_id` lookup by default. The `deploy-hosted-agent.yml` workflow becomes a thin wrapper.
 - **Cleanup**: new `scripts/purge_agent_versions.py` to clean up accumulated versions before the first refreshed deploy (idempotent, supports `--dry-run`).
 - **Removals**:
   - `backend/agent/hosted/state_converter.py` (~39 KB).
@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Hosted agent chat deployment override**: Reverted the `AZURE_OPENAI_DEPLOYMENT_GPT_CHAT` indirection introduced in PR #165. `AZURE_OPENAI_DEPLOYMENT_GPT` is once again the single knob for the hosted agent's chat model. `deploy-hosted-agent.yml` now exposes a `chat_deployment` `workflow_dispatch` input so the model can be swapped per-redeploy without code changes, as long as the target deployment has been provisioned by `deploy-ai-foundry.yml`. Hosted deploys no longer default to `gpt-5.4-pro`; the default is now `gpt-5.5`, and it can still be overridden with the input or the `AZURE_OPENAI_DEPLOYMENT_GPT` repository variable.
 - **Foundry model footprint**: Removed the legacy secondary chat deployment from AI Foundry provisioning and runtime reasoning-model defaults; `gpt-5.5` is the hosted-agent reasoning deployment.
+- **Hosted deploy identity lookup**: Runtime identity RBAC is now best-effort and fast by default, aligned with Microsoft's hosted-agent sample. Long polling and fail-closed behavior are opt-in via `AGENT_IDENTITY_LOOKUP_ATTEMPTS`, `AGENT_IDENTITY_LOOKUP_WAIT_SECONDS`, and `REQUIRE_AGENT_IDENTITY_RBAC`.
 - Upgraded `azure-ai-projects` from `>=1.0.0b7` to `>=2.0.0` to access Conversations and Memory Store APIs.
 - `FoundryAgentClient.send_message()` / `send_streaming_message()` now accept `conversation_id` parameter instead of `thread_id`.
 - `A2AAgentExecutor` creates Foundry conversations before yielding the initial task, ensuring the frontend receives the Foundry conversation ID as `contextId`.

@@ -292,8 +292,8 @@ infra/
 
 ### Hosted agent PermissionDenied errors
 
-- Ensure the hosted agent runtime identity has `Azure AI User` at both the Azure AI Foundry account and project scopes.
-- Re-run `.github/workflows/deploy-hosted-agent.yml` after agent registration or version changes; the workflow registers the version, reconciles Foundry, Key Vault, and Storage RBAC for the runtime identity, and then starts the agent.
+- Ensure the hosted agent runtime identity has `Azure AI User` at project scope and `Cognitive Services OpenAI User` at the Foundry account scope when the runtime calls account-scoped OpenAI endpoints.
+- Re-run `.github/workflows/deploy-hosted-agent.yml` after agent registration or version changes. Runtime identity RBAC is best-effort by default: the workflow assigns roles when `instance_identity.principal_id` is visible and otherwise continues once the agent version is active.
 
 ## Development Scripts
 

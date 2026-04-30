@@ -75,10 +75,10 @@ GitHub Actions (OIDC) ──► scripts/deploy_agent.py
        │            AIProjectClient.agents.create_or_update_version(...)
        │                         │
        │                         ▼
-       │            Polls instance_identity.principal_id  (≤ 80 × 15s)
+       │            One-shot best-effort identity lookup
        │                         │
        │                         ▼
-       │     Assigns RBAC to that managed identity:
+       │     If identity is already available, assigns RBAC:
        │       • Cognitive Services OpenAI User  (account scope)
        │       • Azure AI User                   (project scope)
        │
@@ -88,15 +88,17 @@ GitHub Actions (OIDC) ──► scripts/deploy_agent.py
               ChatOpenAI (Foundry OpenAI v1 surface).
 ```
 
-**Why polling matters**: Foundry materialises `instance_identity` *after* the
-agent version is `Active`. The deploy script keeps polling until the SDK
-returns a non-empty `principal_id`. Without that ID we can't assign the
-RBAC the runtime needs to call OpenAI.
+**Why this is best-effort**: Foundry can materialise `instance_identity` after
+the agent version is already `Active`. Microsoft's hosted-agent sample checks
+the identity once after deploy and skips role assignment when the principal is
+not yet visible; QPrisma follows the same fast path so registration does not
+block for minutes after the agent is active.
 
-If the SDK keeps returning empty after 80 attempts, deploy fails with a
-diagnostic referencing the REST fallback (`_resolve_principal_id_via_rest`).
-Re-run the workflow — the second attempt almost always succeeds because the
-identity has propagated.
+If the identity is returned immediately, `scripts/deploy_agent.py` assigns the
+defensive runtime RBAC roles used by QPrisma. If it is missing, the workflow
+continues and logs a warning. Re-run the workflow later, increase
+`AGENT_IDENTITY_LOOKUP_ATTEMPTS`, or set `REQUIRE_AGENT_IDENTITY_RBAC=1` only
+for deployments that must synchronously assign custom downstream RBAC.
 
 ---
 
@@ -196,9 +198,10 @@ The deploy is fully scripted; the GitHub Action is a thin wrapper.
    invokes `scripts/purge_agent_versions.py`).
 5. **Run** `python scripts/deploy_agent.py` which:
    - Creates / updates the agent version with the new image tag.
-   - Polls `instance_identity.principal_id` (≤ 80 × 15s ≈ 20 min).
-   - Assigns RBAC (`Cognitive Services OpenAI User`, `Azure AI User`).
-   - Sleeps for propagation.
+   - Waits for the version to become `active`.
+   - Performs a fast best-effort `instance_identity.principal_id` lookup.
+   - Assigns RBAC (`Cognitive Services OpenAI User`, `Azure AI User`) only when
+     the runtime identity is already visible, then sleeps for propagation.
 6. **Summary** posted to the workflow run.
 
 Re-running the workflow is always safe: every step is idempotent.

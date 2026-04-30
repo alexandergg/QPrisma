@@ -345,6 +345,13 @@ jobs:
           AZURE_STORAGE_CONNECTION_STRING: ${{ steps.services.outputs.azure_storage_connection_string }}
           # Optional: purge the agent + all versions before registering a new one.
           PURGE_BEFORE_DEPLOY: ${{ inputs.purge_before_deploy && '1' || '' }}
+          # Keep runtime identity lookup fast like Microsoft's hosted-agent sample.
+          # Increase these vars or set REQUIRE_AGENT_IDENTITY_RBAC=1 only when
+          # this deploy must synchronously assign custom downstream RBAC.
+          AGENT_IDENTITY_LOOKUP_ATTEMPTS: ${{ vars.AGENT_IDENTITY_LOOKUP_ATTEMPTS || '1' }}
+          AGENT_IDENTITY_LOOKUP_WAIT_SECONDS: ${{ vars.AGENT_IDENTITY_LOOKUP_WAIT_SECONDS || '15' }}
+          AGENT_IDENTITY_REST_TIMEOUT_SECONDS: ${{ vars.AGENT_IDENTITY_REST_TIMEOUT_SECONDS || '15' }}
+          REQUIRE_AGENT_IDENTITY_RBAC: ${{ vars.REQUIRE_AGENT_IDENTITY_RBAC || 'false' }}
         run: python scripts/deploy_agent.py
 
       - name: Deployment summary

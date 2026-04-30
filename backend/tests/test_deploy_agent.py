@@ -343,6 +343,29 @@ def test_resolve_agent_identity_principal_id_polls_foundry_api():
 
 
 @pytest.mark.unit
+def test_agent_identity_lookup_defaults_to_fast_best_effort(monkeypatch):
+    monkeypatch.delenv("AGENT_IDENTITY_LOOKUP_ATTEMPTS", raising=False)
+    monkeypatch.delenv("AGENT_IDENTITY_LOOKUP_WAIT_SECONDS", raising=False)
+    monkeypatch.delenv("AGENT_IDENTITY_REST_TIMEOUT_SECONDS", raising=False)
+    deploy_agent = _load_deploy_agent_module()
+    hosted_workflow = (_REPO_ROOT / ".github" / "workflows" / "deploy-hosted-agent.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert deploy_agent.AGENT_IDENTITY_LOOKUP_ATTEMPTS == 1
+    assert deploy_agent.AGENT_IDENTITY_LOOKUP_WAIT_SECONDS == 15
+    assert deploy_agent.AGENT_IDENTITY_REST_TIMEOUT_SECONDS == 15
+    assert (
+        "AGENT_IDENTITY_LOOKUP_ATTEMPTS: ${{ vars.AGENT_IDENTITY_LOOKUP_ATTEMPTS || '1' }}"
+        in hosted_workflow
+    )
+    assert (
+        "REQUIRE_AGENT_IDENTITY_RBAC: ${{ vars.REQUIRE_AGENT_IDENTITY_RBAC || 'false' }}"
+        in hosted_workflow
+    )
+
+
+@pytest.mark.unit
 def test_hosted_agent_openai_rbac_is_durable_and_graph_free():
     ai_foundry_bicep = (_REPO_ROOT / "infra" / "modules" / "ai-foundry.bicep").read_text(
         encoding="utf-8"
@@ -429,6 +452,10 @@ def _setup_main_env(monkeypatch, tmp_path: Path) -> Path:
     return output_path
 
 
+def _raise_role_assignment_denied(**_kwargs):
+    raise RuntimeError("role assignment denied")
+
+
 @pytest.mark.unit
 def test_main_active_with_identity_writes_outputs_and_succeeds(monkeypatch, tmp_path):
     deploy_agent = _load_deploy_agent_module()
@@ -472,6 +499,91 @@ def test_main_active_without_identity_writes_outputs_and_succeeds(monkeypatch, t
     assert outputs["agent_active"] == "true"
     assert outputs["agent_identity_principal_id"] == ""
     assert outputs["agent_identity_source"] == "none"
+
+
+@pytest.mark.unit
+def test_main_active_without_identity_fails_when_strict_rbac_required(monkeypatch, tmp_path):
+    deploy_agent = _load_deploy_agent_module()
+    output_path = _setup_main_env(monkeypatch, tmp_path)
+    fake_client_cls, fake_agent = _make_main_test_client(deploy_agent)
+
+    monkeypatch.setenv("REQUIRE_AGENT_IDENTITY_RBAC", "1")
+    monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
+    monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
+    monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "active")
+    monkeypatch.setattr(
+        deploy_agent, "resolve_agent_identity_principal_id", lambda *a, **kw: (None, "none")
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        deploy_agent.main([])
+
+    assert excinfo.value.code == 1
+    outputs = _read_github_output(output_path)
+    assert outputs["agent_version"] == str(fake_agent.version)
+    assert outputs["agent_active"] == "true"
+    assert outputs["agent_identity_principal_id"] == ""
+
+
+@pytest.mark.unit
+def test_main_active_rbac_assignment_failure_is_best_effort_by_default(monkeypatch, tmp_path):
+    deploy_agent = _load_deploy_agent_module()
+    output_path = _setup_main_env(monkeypatch, tmp_path)
+    fake_client_cls, fake_agent = _make_main_test_client(deploy_agent)
+
+    monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "sub-123")
+    monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
+    monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
+    monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "active")
+    monkeypatch.setattr(
+        deploy_agent,
+        "resolve_agent_identity_principal_id",
+        lambda *a, **kw: ("principal-id-abc", "sdk"),
+    )
+    monkeypatch.setattr(
+        deploy_agent,
+        "assign_agent_identity_rbac",
+        _raise_role_assignment_denied,
+    )
+
+    deploy_agent.main([])
+
+    outputs = _read_github_output(output_path)
+    assert outputs["agent_version"] == str(fake_agent.version)
+    assert outputs["agent_active"] == "true"
+    assert outputs["agent_identity_principal_id"] == "principal-id-abc"
+
+
+@pytest.mark.unit
+def test_main_active_rbac_assignment_failure_exits_when_strict(monkeypatch, tmp_path):
+    deploy_agent = _load_deploy_agent_module()
+    output_path = _setup_main_env(monkeypatch, tmp_path)
+    fake_client_cls, fake_agent = _make_main_test_client(deploy_agent)
+
+    monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "sub-123")
+    monkeypatch.setenv("REQUIRE_AGENT_IDENTITY_RBAC", "1")
+    monkeypatch.setattr(deploy_agent, "AIProjectClient", fake_client_cls)
+    monkeypatch.setattr(deploy_agent, "DefaultAzureCredential", lambda: object())
+    monkeypatch.setattr(deploy_agent, "wait_for_agent_active", lambda *a, **kw: "active")
+    monkeypatch.setattr(
+        deploy_agent,
+        "resolve_agent_identity_principal_id",
+        lambda *a, **kw: ("principal-id-abc", "sdk"),
+    )
+    monkeypatch.setattr(
+        deploy_agent,
+        "assign_agent_identity_rbac",
+        _raise_role_assignment_denied,
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        deploy_agent.main([])
+
+    assert excinfo.value.code == 1
+    outputs = _read_github_output(output_path)
+    assert outputs["agent_version"] == str(fake_agent.version)
+    assert outputs["agent_active"] == "true"
+    assert outputs["agent_identity_principal_id"] == "principal-id-abc"
 
 
 @pytest.mark.unit

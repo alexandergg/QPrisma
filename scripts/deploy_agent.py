@@ -1,9 +1,9 @@
 """Deploy QPrisma hosted agent to Microsoft Foundry.
 
 Registers (or updates) the hosted agent version in Foundry Agent Service,
-waits for the version to reach the documented ``active`` state, and assigns
-the runtime identity the RBAC roles required to call the project Responses
-API and the account-scoped Azure OpenAI subdomain.
+waits for the version to reach the documented ``active`` state, and makes a
+best-effort runtime identity RBAC assignment when Foundry returns the identity
+immediately.
 
 Usage:
     az login
@@ -16,7 +16,12 @@ Usage:
 Environment toggles:
     PURGE_BEFORE_DEPLOY=1   purge the agent + all versions before re-deploy
     AGENT_IDENTITY_LOOKUP_ATTEMPTS, AGENT_IDENTITY_LOOKUP_WAIT_SECONDS:
-                            override default identity polling (80 x 15s).
+                            override default identity lookup (1 x 15s).
+    AGENT_IDENTITY_REST_TIMEOUT_SECONDS:
+                            timeout for the one-shot data-plane fallback.
+    REQUIRE_AGENT_IDENTITY_RBAC=1
+                            fail deploy if runtime identity RBAC cannot be
+                            assigned in this run.
 
 Reference:
     https://learn.microsoft.com/azure/ai-foundry/agents/how-to/deploy-hosted-agent
@@ -56,14 +61,18 @@ RETRY_WAIT_SECONDS = [120, 240]  # 2min, 4min between retries
 POLL_INTERVAL_SECONDS = 30
 POLL_TIMEOUT_SECONDS = 600
 
-# Identity polling: refreshed-preview Foundry can take longer than the
-# legacy 10-min window to materialise instance_identity.principal_id.
-# 80 x 15s ≈ 20 min upper bound; override via env vars when needed.
+# Identity lookup: match Microsoft's hosted-agent sample behavior by checking
+# once after the version is active, then continuing if the platform has not yet
+# returned instance_identity.principal_id. Override via env vars for one-off
+# strict deployments that need to wait longer before invoking the agent.
 AGENT_IDENTITY_LOOKUP_ATTEMPTS = int(
-    os.environ.get("AGENT_IDENTITY_LOOKUP_ATTEMPTS", "80")
+    os.environ.get("AGENT_IDENTITY_LOOKUP_ATTEMPTS", "1")
 )
 AGENT_IDENTITY_LOOKUP_WAIT_SECONDS = int(
     os.environ.get("AGENT_IDENTITY_LOOKUP_WAIT_SECONDS", "15")
+)
+AGENT_IDENTITY_REST_TIMEOUT_SECONDS = int(
+    os.environ.get("AGENT_IDENTITY_REST_TIMEOUT_SECONDS", "15")
 )
 
 # Built-in RBAC role definition IDs (verified from Azure docs).
@@ -72,6 +81,14 @@ ROLE_OPENAI_USER = "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
 # Azure AI User — covers project-scoped Responses API path used by hosted agent.
 ROLE_AZURE_AI_USER_NAME = "Azure AI User"
 RBAC_PROPAGATION_WAIT_SECONDS = 120
+
+TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+
+
+def _env_truthy(name: str) -> bool:
+    """Return True when an environment toggle is explicitly enabled."""
+    return os.environ.get(name, "").strip().lower() in TRUTHY_ENV_VALUES
+
 
 DEFAULT_ENV_VARS = {
     "ENVIRONMENT": "hosted",
@@ -366,11 +383,7 @@ def maybe_purge_before_deploy(
     Triggered by ``--purge-before-deploy`` or ``PURGE_BEFORE_DEPLOY=1``. Uses
     ``scripts/purge_agent_versions.py`` so the purge logic stays in one place.
     """
-    if not force and os.environ.get("PURGE_BEFORE_DEPLOY", "").lower() not in {
-        "1",
-        "true",
-        "yes",
-    }:
+    if not force and not _env_truthy("PURGE_BEFORE_DEPLOY"):
         return
 
     print(f"\nPURGE_BEFORE_DEPLOY enabled — purging '{agent_name}' first...")
@@ -433,7 +446,7 @@ def _resolve_principal_id_via_rest(project_endpoint: str) -> str | None:
             ],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=AGENT_IDENTITY_REST_TIMEOUT_SECONDS,
             check=False,
         )
     except (subprocess.TimeoutExpired, OSError) as exc:
@@ -726,9 +739,10 @@ def main(argv: list[str] | None = None) -> None:
         print(f"ERROR: All {MAX_RETRIES} attempts failed.")
         raise last_error  # type: ignore[misc]
 
-    # Poll until the agent reaches the current SDK's active state. The
-    # instance_identity is only populated by Foundry once the version is
-    # active, so we must wait for active *before* resolving the identity.
+    # Poll until the agent reaches the current SDK's active state. Registration
+    # is complete at this point; runtime identity RBAC below is intentionally a
+    # fast best-effort follow-up so deploys do not block on delayed identity
+    # materialization.
     print("Waiting for agent version to reach 'active' state...")
     wait_result = wait_for_agent_active(client, str(agent.version))
     active = wait_result == "active"
@@ -772,16 +786,22 @@ def main(argv: list[str] | None = None) -> None:
             f"({max(AGENT_IDENTITY_LOOKUP_ATTEMPTS - 1, 0) * AGENT_IDENTITY_LOOKUP_WAIT_SECONDS}s)."
         )
         print(
-            "Skipping runtime identity RBAC assignment for this run. Re-run the workflow "
-            "to retry the lookup, or inspect the agent in the Foundry portal to confirm "
-            "the identity has been provisioned."
+            "Continuing because runtime identity RBAC is best-effort by default. "
+            "Re-run the workflow later, increase AGENT_IDENTITY_LOOKUP_ATTEMPTS, "
+            "or inspect the agent in the Foundry portal if the runtime needs "
+            "additional downstream RBAC."
         )
+        if _env_truthy("REQUIRE_AGENT_IDENTITY_RBAC"):
+            print(
+                "ERROR: REQUIRE_AGENT_IDENTITY_RBAC is enabled but the hosted "
+                "agent runtime identity principal ID is unavailable."
+            )
+            sys.exit(1)
 
-    # The agent runtime identity is now known; assign the RBAC roles it needs
-    # to invoke the project Responses API and the account-scoped Azure OpenAI
-    # subdomain. Skipped (with a warning) if subscription_id is missing — that
-    # only happens in local invocations, where the operator can run the role
-    # assignments by hand.
+    # If the agent runtime identity is already known, assign the defensive RBAC
+    # roles used by QPrisma's hosted runtime. Skipped when Foundry has not
+    # materialized the principal yet; Microsoft-hosted agent tooling performs
+    # the same lookup best-effort and continues when the identity is absent.
     if subscription_id and agent_identity_principal_id:
         try:
             assign_agent_identity_rbac(
@@ -792,8 +812,17 @@ def main(argv: list[str] | None = None) -> None:
                 project_name=project_name,
             )
         except RuntimeError as exc:
-            print(f"ERROR: {exc}")
-            sys.exit(1)
+            if _env_truthy("REQUIRE_AGENT_IDENTITY_RBAC"):
+                print(f"ERROR: {exc}")
+                sys.exit(1)
+            print(
+                "WARNING: Automatic runtime identity RBAC assignment failed but "
+                f"is best-effort by default: {exc}"
+            )
+            print(
+                "Set REQUIRE_AGENT_IDENTITY_RBAC=1 for deployments that must fail "
+                "when runtime RBAC cannot be assigned synchronously."
+            )
     elif not agent_identity_principal_id:
         print(
             "WARNING: Hosted agent runtime identity principal ID is unavailable — "
@@ -806,6 +835,12 @@ def main(argv: list[str] | None = None) -> None:
             "'Cognitive Services OpenAI User' (account scope) manually before "
             "the agent can serve traffic."
         )
+        if _env_truthy("REQUIRE_AGENT_IDENTITY_RBAC"):
+            print(
+                "ERROR: REQUIRE_AGENT_IDENTITY_RBAC is enabled but "
+                "AZURE_SUBSCRIPTION_ID is missing."
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":
