@@ -11,12 +11,14 @@ from evaluation_foundry.redteam_eval import (
     _count_enabled_subcategories,
     _extract_run_diagnostics,
     _extract_run_status,
+    _extract_tool_descriptions,
     _extract_total_results,
     _map_enum_member,
     _normalize_attack_strategy,
     _normalize_risk_category,
     _split_agent_reference,
     _write_redteam_artifacts,
+    main,
     run_redteam_scan,
 )
 
@@ -70,6 +72,51 @@ def test_normalize_attack_strategy(token: str, expected: str):
 def test_normalize_risk_category_rejects_unsupported_cloud_taxonomy():
     with pytest.raises(ValueError, match="prohibited_actions taxonomy only"):
         _normalize_risk_category("violence")
+
+
+def test_main_preserves_existing_diagnostic_artifact_when_scan_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    output_path = tmp_path / "redteam-results.json"
+
+    def fail_after_writing_diagnostics(**_kwargs):
+        output_path.write_text(
+            json.dumps(
+                {
+                    "mode": "cloud_foundry_agent_redteam",
+                    "status": "preflight_failed",
+                    "taxonomy_source": "generated",
+                    "tool_descriptions_count": 2,
+                    "taxonomy": {"id": "taxonomy-1"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        raise RuntimeError("taxonomy generated zero enabled subcategories")
+
+    monkeypatch.setattr(
+        "evaluation_foundry.redteam_eval.run_redteam_scan",
+        fail_after_writing_diagnostics,
+    )
+
+    exit_code = main(
+        [
+            "--endpoint",
+            "https://example.services.ai.azure.com/api/projects/demo",
+            "--agent-id",
+            "qprisma-video-agent:7",
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 1
+    persisted = json.loads(output_path.read_text(encoding="utf-8"))
+    assert persisted["status"] == "preflight_failed"
+    assert persisted["taxonomy_source"] == "generated"
+    assert persisted["tool_descriptions_count"] == 2
+    assert persisted["taxonomy"] == {"id": "taxonomy-1"}
+    assert persisted["error"] == "taxonomy generated zero enabled subcategories"
 
 
 @pytest.mark.parametrize(
@@ -168,6 +215,46 @@ def test_write_redteam_artifacts_persists_summary_request_shape_and_jsonl(tmp_pa
     ]
 
 
+def test_extract_tool_descriptions_supports_foundry_agent_tool_shapes():
+    agent = types.SimpleNamespace(
+        definition={
+            "tools": [
+                {
+                    "openapi": {
+                        "name": "search_video",
+                        "description": "Search indexed video context.",
+                    }
+                },
+                {"function": {"name": "summarize_video", "description": "Summarize video scenes."}},
+                {"name": "lookup_graph", "description": "Look up graph entities."},
+                {"function": {"name": "missing_description"}},
+                {"function": {"description": "missing name"}},
+            ]
+        }
+    )
+
+    assert _extract_tool_descriptions(agent) == [
+        {"name": "search_video", "description": "Search indexed video context."},
+        {"name": "summarize_video", "description": "Summarize video scenes."},
+        {"name": "lookup_graph", "description": "Look up graph entities."},
+        {"name": "missing_description", "description": "No description provided"},
+    ]
+
+
+def test_extract_tool_descriptions_prefers_precomputed_target_metadata():
+    agent = types.SimpleNamespace(
+        toolDescriptions=[
+            {"name": "existing_tool", "description": "Already resolved."},
+            {"description": "missing name"},
+        ],
+        definition={"tools": [{"name": "ignored_tool", "description": "Should not be used."}]},
+    )
+
+    assert _extract_tool_descriptions(agent) == [
+        {"name": "existing_tool", "description": "Already resolved."}
+    ]
+
+
 def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.MonkeyPatch, tmp_path):
     calls: dict[str, object] = {}
 
@@ -182,15 +269,23 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
         PROHIBITED_ACTIONS = "ProhibitedActions"
 
     class FakeAzureAIAgentTarget:
-        def __init__(self, *, name: str, version: str):
+        def __init__(
+            self,
+            *,
+            name: str,
+            version: str,
+            tool_descriptions: list[dict[str, str]] | None = None,
+        ):
             self.name = name
             self.version = version
+            self.tool_descriptions = tool_descriptions or []
 
-        def as_dict(self) -> dict[str, str]:
+        def as_dict(self) -> dict[str, object]:
             return {
                 "type": "azure_ai_agent",
                 "name": self.name,
                 "version": self.version,
+                "tool_descriptions": self.tool_descriptions,
             }
 
     class FakeAgentTaxonomyInput:
@@ -299,7 +394,7 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
             if isinstance(body, dict):
                 raise FakeHttpResponseError("Taxonomy input is required is invalid")
             calls.setdefault("taxonomy_create_calls", []).append({"name": name, "body": body})
-            return FakeTaxonomy("taxonomy-1", subcategory_enabled=False)
+            return FakeTaxonomy("taxonomy-1", subcategory_enabled=True)
 
         def update(self, *, name: str, body: dict[str, object]):
             raise AssertionError("taxonomy update should not be called")
@@ -311,7 +406,19 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
     class FakeAgentsClient:
         def get(self, *, agent_name: str):
             calls["agents_get"] = agent_name
-            return types.SimpleNamespace(version="99")
+            return types.SimpleNamespace(
+                version="99",
+                definition={
+                    "tools": [
+                        {
+                            "openapi": {
+                                "name": "search_video",
+                                "description": "Search indexed video context.",
+                            }
+                        }
+                    ]
+                },
+            )
 
     class FakeProjectClient:
         def __init__(self, *, endpoint: str, credential: FakeCredential, allow_preview: bool):
@@ -388,12 +495,15 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
     assert initial_taxonomy["name"] == "qprisma-video-agent-prohibited-actions"
     assert initial_taxonomy["body"].taxonomy_input.target.name == "qprisma-video-agent"
     assert initial_taxonomy["body"].taxonomy_input.target.version == "7"
+    assert initial_taxonomy["body"].taxonomy_input.target.tool_descriptions == [
+        {"name": "search_video", "description": "Search indexed video context."}
+    ]
     assert initial_taxonomy["body"].taxonomy_input.risk_categories == [
         FakeRiskCategory.PROHIBITED_ACTIONS
     ]
     assert len(taxonomy_create_calls) == 1
     assert "taxonomy_update_calls" not in calls
-    assert summary["taxonomy_enabled_subcategories"] == 0
+    assert summary["taxonomy_enabled_subcategories"] == 1
 
     run_create = calls["run_create"]
     assert run_create["data_source"]["item_generation_params"]["attack_strategies"] == [
@@ -408,11 +518,16 @@ def test_run_redteam_scan_uses_cloud_foundry_agent_flow(monkeypatch: pytest.Monk
         "type": "azure_ai_agent",
         "name": "qprisma-video-agent",
         "version": "7",
+        "tool_descriptions": [
+            {"name": "search_video", "description": "Search indexed video context."}
+        ],
     }
-    assert "agents_get" not in calls
+    assert calls["agents_get"] == "qprisma-video-agent"
+    assert summary["tool_descriptions_count"] == 1
+    assert summary["taxonomy_source"] == "generated"
 
 
-def test_run_redteam_scan_uses_taxonomy_id_when_payload_shape_is_unexpected(
+def test_run_redteam_scan_rejects_taxonomy_with_unexpected_empty_payload(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ):
@@ -429,15 +544,23 @@ def test_run_redteam_scan_uses_taxonomy_id_when_payload_shape_is_unexpected(
         PROHIBITED_ACTIONS = "ProhibitedActions"
 
     class FakeAzureAIAgentTarget:
-        def __init__(self, *, name: str, version: str):
+        def __init__(
+            self,
+            *,
+            name: str,
+            version: str,
+            tool_descriptions: list[dict[str, str]] | None = None,
+        ):
             self.name = name
             self.version = version
+            self.tool_descriptions = tool_descriptions or []
 
-        def as_dict(self) -> dict[str, str]:
+        def as_dict(self) -> dict[str, object]:
             return {
                 "type": "azure_ai_agent",
                 "name": self.name,
                 "version": self.version,
+                "tool_descriptions": self.tool_descriptions,
             }
 
     class FakeAgentTaxonomyInput:
@@ -573,29 +696,31 @@ def test_run_redteam_scan_uses_taxonomy_id_when_payload_shape_is_unexpected(
     monkeypatch.setitem(sys.modules, "azure.identity", azure_identity_module)
 
     output_path = tmp_path / "redteam-results.json"
-    summary = run_redteam_scan(
-        endpoint="https://example.services.ai.azure.com/api/projects/demo",
-        agent_id="qprisma-video-agent:7",
-        agent_name=None,
-        agent_version=None,
-        model_deployment="gpt-4o",
-        strategies=["base64"],
-        risk_categories=["prohibited_actions"],
-        num_turns=1,
-        output_path=output_path,
-        scan_name="qprisma-redteam",
-        poll_interval_seconds=0,
-        timeout_seconds=5,
-    )
+    with pytest.raises(RuntimeError, match="zero enabled subcategories"):
+        run_redteam_scan(
+            endpoint="https://example.services.ai.azure.com/api/projects/demo",
+            agent_id="qprisma-video-agent:7",
+            agent_name=None,
+            agent_version=None,
+            model_deployment="gpt-4o",
+            strategies=["base64"],
+            risk_categories=["prohibited_actions"],
+            num_turns=1,
+            output_path=output_path,
+            scan_name="qprisma-redteam",
+            poll_interval_seconds=0,
+            timeout_seconds=5,
+            preflight=True,
+        )
 
-    assert summary["mode"] == "cloud_foundry_agent_redteam"
     assert len(calls["taxonomy_create_calls"]) == 1
     assert "taxonomy_update" not in calls
-    assert summary["taxonomy_enabled_subcategories"] == 0
-    assert calls["run_create"]["data_source"]["item_generation_params"]["source"] == {
-        "type": "file_id",
-        "id": "taxonomy-1",
-    }
+    assert "eval_create" not in calls
+    assert "run_create" not in calls
+    written = json.loads(output_path.read_text(encoding="utf-8"))
+    assert written["status"] == "preflight_failed"
+    assert written["failure_reason"] == "empty_prohibited_actions_taxonomy"
+    assert written["taxonomy_enabled_subcategories"] == 0
 
 
 def test_count_enabled_subcategories_handles_various_shapes():
@@ -648,8 +773,21 @@ def test_count_enabled_subcategories_handles_various_shapes():
     }
     assert _count_enabled_subcategories(all_enabled) == 2
 
+    snake_case = {
+        "taxonomy_categories": [
+            {
+                "id": "cat-1",
+                "sub_categories": [
+                    {"id": "sub-1", "enabled": True},
+                    {"id": "sub-2", "enabled": False},
+                ],
+            }
+        ]
+    }
+    assert _count_enabled_subcategories(snake_case) == 1
 
-def test_run_redteam_scan_treats_zero_enabled_taxonomy_count_as_diagnostic(
+
+def test_run_redteam_scan_fails_fast_on_zero_enabled_taxonomy_count(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ):
     calls: dict[str, object] = {}
@@ -665,15 +803,23 @@ def test_run_redteam_scan_treats_zero_enabled_taxonomy_count_as_diagnostic(
         PROHIBITED_ACTIONS = "ProhibitedActions"
 
     class FakeAzureAIAgentTarget:
-        def __init__(self, *, name: str, version: str):
+        def __init__(
+            self,
+            *,
+            name: str,
+            version: str,
+            tool_descriptions: list[dict[str, str]] | None = None,
+        ):
             self.name = name
             self.version = version
+            self.tool_descriptions = tool_descriptions or []
 
-        def as_dict(self) -> dict[str, str]:
+        def as_dict(self) -> dict[str, object]:
             return {
                 "type": "azure_ai_agent",
                 "name": self.name,
                 "version": self.version,
+                "tool_descriptions": self.tool_descriptions,
             }
 
     class FakeAgentTaxonomyInput:
@@ -777,7 +923,19 @@ def test_run_redteam_scan_treats_zero_enabled_taxonomy_count_as_diagnostic(
 
     class FakeAgentsClient:
         def get(self, *, agent_name: str):
-            return types.SimpleNamespace(version="99")
+            return types.SimpleNamespace(
+                version="99",
+                definition={
+                    "tools": [
+                        {
+                            "function": {
+                                "name": "summarize_video",
+                                "description": "Summarize video scenes.",
+                            }
+                        }
+                    ]
+                },
+            )
 
     class FakeProjectClient:
         def __init__(self, *, endpoint: str, credential: FakeCredential, allow_preview: bool):
@@ -820,29 +978,32 @@ def test_run_redteam_scan_treats_zero_enabled_taxonomy_count_as_diagnostic(
 
     output_path = tmp_path / "redteam-results.json"
     endpoint = "https://example.services.ai.azure.com/api/projects/demo"
-    summary = run_redteam_scan(
-        endpoint=endpoint,
-        agent_id="qprisma-video-agent:7",
-        agent_name=None,
-        agent_version=None,
-        model_deployment="gpt-4o",
-        strategies=["base64"],
-        risk_categories=["prohibited_actions"],
-        num_turns=1,
-        output_path=output_path,
-        scan_name="qprisma-redteam",
-        poll_interval_seconds=0,
-        timeout_seconds=5,
-    )
+    with pytest.raises(RuntimeError, match="zero enabled subcategories"):
+        run_redteam_scan(
+            endpoint=endpoint,
+            agent_id="qprisma-video-agent:7",
+            agent_name=None,
+            agent_version=None,
+            model_deployment="gpt-4o",
+            strategies=["base64"],
+            risk_categories=["prohibited_actions"],
+            num_turns=1,
+            output_path=output_path,
+            scan_name="qprisma-redteam",
+            poll_interval_seconds=0,
+            timeout_seconds=5,
+        )
 
-    assert summary["run"]["status"] == "completed"
-    assert summary["taxonomy_enabled_subcategories"] == 0
     assert len(calls["taxonomy_create_calls"]) == 1
     assert "taxonomy_update_calls" not in calls
-    assert calls["run_create"]["data_source"]["item_generation_params"]["source"] == {
-        "type": "file_id",
-        "id": "taxonomy-zero",
-    }
+    assert "eval_create" not in calls
+    assert "run_create" not in calls
+    written = json.loads(output_path.read_text(encoding="utf-8"))
+    assert written["status"] == "failed"
+    assert written["failure_reason"] == "empty_prohibited_actions_taxonomy"
+    assert written["taxonomy"]["id"] == "taxonomy-zero"
+    assert written["taxonomy_enabled_subcategories"] == 0
+    assert written["portal_url"] == f"{endpoint}/evaluations"
 
 
 def _install_minimal_redteam_sdk_fakes(monkeypatch: pytest.MonkeyPatch, calls: dict[str, object]):
@@ -857,15 +1018,23 @@ def _install_minimal_redteam_sdk_fakes(monkeypatch: pytest.MonkeyPatch, calls: d
         PROHIBITED_ACTIONS = "ProhibitedActions"
 
     class FakeAzureAIAgentTarget:
-        def __init__(self, *, name: str, version: str):
+        def __init__(
+            self,
+            *,
+            name: str,
+            version: str,
+            tool_descriptions: list[dict[str, str]] | None = None,
+        ):
             self.name = name
             self.version = version
+            self.tool_descriptions = tool_descriptions or []
 
-        def as_dict(self) -> dict[str, str]:
+        def as_dict(self) -> dict[str, object]:
             return {
                 "type": "azure_ai_agent",
                 "name": self.name,
                 "version": self.version,
+                "tool_descriptions": self.tool_descriptions,
             }
 
     class FakeAgentTaxonomyInput:
@@ -938,7 +1107,19 @@ def _install_minimal_redteam_sdk_fakes(monkeypatch: pytest.MonkeyPatch, calls: d
     class FakeAgentsClient:
         def get(self, *, agent_name: str):
             calls["agents_get"] = agent_name
-            return types.SimpleNamespace(version="99")
+            return types.SimpleNamespace(
+                version="99",
+                definition={
+                    "tools": [
+                        {
+                            "function": {
+                                "name": "summarize_video",
+                                "description": "Summarize video scenes.",
+                            }
+                        }
+                    ]
+                },
+            )
 
     class FakeProjectClient:
         def __init__(self, *, endpoint: str, credential: FakeCredential, allow_preview: bool):
@@ -1011,6 +1192,44 @@ def test_run_redteam_scan_dry_run_writes_request_shape_without_foundry_resources
     }
     assert output_path.exists()
     assert (tmp_path / "redteam-results-request-shape.json").exists()
+
+
+def test_run_redteam_scan_preflight_uses_configured_taxonomy_without_creating_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    calls: dict[str, object] = {}
+    _install_minimal_redteam_sdk_fakes(monkeypatch, calls)
+    output_path = tmp_path / "redteam-preflight.json"
+    taxonomy_uri = (
+        "azureai://accounts/aif/projects/proj/evaluationtaxonomies/"
+        "qprisma-video-agent-prohibited-actions/versions/1.0"
+    )
+
+    summary = run_redteam_scan(
+        endpoint="https://example.services.ai.azure.com/api/projects/demo",
+        agent_id="qprisma-video-agent:7",
+        agent_name=None,
+        agent_version=None,
+        model_deployment="gpt-4o",
+        strategies=["base64"],
+        risk_categories=["prohibited_actions"],
+        num_turns=1,
+        output_path=output_path,
+        scan_name="qprisma-redteam",
+        poll_interval_seconds=0,
+        timeout_seconds=5,
+        taxonomy_id=taxonomy_uri,
+        preflight=True,
+    )
+
+    assert summary["status"] == "preflight_passed"
+    assert summary["taxonomy_source"] == "configured"
+    assert summary["taxonomy"]["id"] == taxonomy_uri
+    assert "taxonomy_create" not in calls
+    assert summary["request_shape"]["data_source"]["item_generation_params"]["source"] == {
+        "type": "file_id",
+        "id": taxonomy_uri,
+    }
 
 
 def test_run_redteam_scan_preflight_validates_taxonomy_without_creating_run(

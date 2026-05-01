@@ -474,7 +474,9 @@ python -m evaluation_foundry.redteam_eval \
   --scan-name qprisma-quarterly-redteam
 ```
 
-Use `--dry-run` to inspect the normalized request shape without creating Foundry resources. Use `--preflight` before a real campaign to validate authentication, agent version resolution, taxonomy creation/update, strategy normalization, and enabled taxonomy subcategories.
+Use `--dry-run` to inspect the normalized request shape without creating Foundry resources. Use `--preflight` before a real campaign to validate authentication, agent version resolution, taxonomy creation, strategy normalization, and enabled taxonomy subcategories. The runner sends hosted-agent tool descriptions to Foundry when they are available, matching the Microsoft SDK samples for agent red teaming.
+
+By default, the runner creates a target-specific prohibited-actions taxonomy and uses the returned taxonomy ID directly. If Foundry repeatedly generates an empty taxonomy for a reviewed hosted agent, configure a known-good taxonomy with `--taxonomy-uri` or `FOUNDRY_REDTEAM_TAXONOMY_URI`; in that mode the runner skips dynamic taxonomy creation and records `taxonomy_source: "configured"` in the summary.
 
 ### Expected artifacts
 
@@ -484,6 +486,8 @@ The runner always writes a summary JSON to the requested `--output` path. When a
 |---|---|
 | `*-request-shape.json` | Redacted, normalized payload shape sent to Foundry; useful when the SDK contract changes. |
 | `*-output-items.jsonl` | Generated red-team cases/results when the run completes. |
+| `taxonomy_source` in the summary | `generated` for default dynamic taxonomies, or `configured` when `--taxonomy-uri` / `FOUNDRY_REDTEAM_TAXONOMY_URI` supplies the source. |
+| `tool_descriptions_count` in the summary | Number of hosted-agent tool descriptions included in the target sent to Foundry. |
 | `run_diagnostics` in the summary | Shape-flexible error details from fields such as `last_error`, `failure_reason`, `status_details`, or `error`. |
 | GitHub artifact `redteam-results` | Uploaded directory containing preflight, summary, request shape, and output items. |
 
@@ -495,7 +499,7 @@ Check these in order:
 
 1. **SDK contract**: the workflow must install `azure-ai-projects>=2.1.0,<3.0.0`, `azure-identity`, and `httpx`, then let `azure-ai-projects` resolve its compatible `openai` dependency. Do not cap `openai` below 2.x with this SDK line; `azure-ai-projects==2.1.0` requires `openai>=2.8.0`. Older `azure-ai-projects==2.0.1` is not sufficient for the current cloud Red Teaming path used here.
 2. **Agent version**: evaluation workflows must call `scripts/resolve_agent_version.py --strict`. Use `latest` only as a user-friendly alias for "ask Foundry for the current version and emit an explicit `<agent>:<version>` ID"; do not accept fallback to `qprisma-video-agent:1` or pass literal `qprisma-video-agent:latest` for Red Teaming.
-3. **Preflight output**: confirm the preflight artifact has `status: "preflight_passed"`, a taxonomy ID, the expected agent version, and enabled prohibited-actions subcategories.
+3. **Preflight output**: confirm the preflight artifact has `status: "preflight_passed"`, a taxonomy ID, the expected agent version, the expected `taxonomy_source`, and enabled prohibited-actions subcategories when the taxonomy is generated dynamically.
 4. **Run diagnostics**: inspect `run_diagnostics` in `redteam-results.json` for service-side failures such as unsupported region, missing RBAC, invalid target shape, or taxonomy errors.
 5. **Region and feature support**: cloud Red Teaming for agentic risks is only available where Foundry exposes that preview/GA capability. Normal batch evals may work even if Red Teaming does not.
 6. **RBAC**: the GitHub OIDC identity needs permissions to read the project/agent, create evaluation groups, create or update evaluation taxonomies, and create/read eval runs.

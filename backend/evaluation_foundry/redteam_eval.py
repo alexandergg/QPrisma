@@ -23,6 +23,7 @@ Usage::
 Environment variables:
     AZURE_AI_PROJECT_ENDPOINT - Foundry project endpoint URL (fallback for --endpoint)
     AZURE_AI_MODEL_DEPLOYMENT_NAME - model deployment used by builtin.task_adherence
+    FOUNDRY_REDTEAM_TAXONOMY_URI - optional reviewed taxonomy URI/ID to reuse
     QPRISMA_REDTEAM_NUM_TURNS - generated red-team turn depth (default: 5)
     QPRISMA_REDTEAM_TIMEOUT_SECONDS - max poll time before failing (default: 3600)
     QPRISMA_REDTEAM_POLL_INTERVAL_SECONDS - polling interval (default: 10)
@@ -150,6 +151,14 @@ def _to_json_primitive(value: Any) -> Any:
             return _to_json_primitive(value.model_dump(mode="json"))
         except TypeError:
             return _to_json_primitive(value.model_dump())
+    if hasattr(value, "__dict__") and not isinstance(value, type):
+        fields = {
+            key: _to_json_primitive(item)
+            for key, item in vars(value).items()
+            if not key.startswith("_")
+        }
+        if fields:
+            return fields
     if isinstance(value, dict):
         return {key: _to_json_primitive(item) for key, item in value.items()}
     if isinstance(value, list | tuple):
@@ -168,13 +177,103 @@ def _count_enabled_subcategories(taxonomy: Any) -> int:
         return 0
 
     count = 0
-    for category in raw.get("taxonomyCategories") or []:
+    categories = raw.get("taxonomyCategories") or raw.get("taxonomy_categories") or []
+    for category in categories:
         if not isinstance(category, dict):
             continue
-        for sub in category.get("subCategories") or []:
+        subcategories = category.get("subCategories") or category.get("sub_categories") or []
+        for sub in subcategories:
             if isinstance(sub, dict) and sub.get("enabled") is True:
                 count += 1
     return count
+
+
+def _read_field(source: Any, *field_names: str) -> Any:
+    if isinstance(source, dict):
+        for field_name in field_names:
+            if field_name in source:
+                return source[field_name]
+        return None
+
+    for field_name in field_names:
+        value = getattr(source, field_name, None)
+        if value is not None:
+            return value
+    return None
+
+
+def _normalize_tool_description(tool: Any) -> dict[str, str] | None:
+    if not isinstance(tool, dict):
+        return None
+
+    openapi = tool.get("openapi")
+    function = tool.get("function")
+    if isinstance(openapi, dict):
+        name = openapi.get("name") or tool.get("name")
+        description = openapi.get("description") or tool.get("description")
+    elif isinstance(function, dict):
+        name = function.get("name") or tool.get("name")
+        description = function.get("description") or tool.get("description")
+    else:
+        name = tool.get("name") or tool.get("tool_name")
+        description = tool.get("description")
+
+    if not name:
+        return None
+
+    return {
+        "name": str(name),
+        "description": str(description or "No description provided"),
+    }
+
+
+def _extract_tool_descriptions(agent: Any) -> list[dict[str, str]]:
+    """Extract Foundry agent tool descriptions for taxonomy generation context."""
+    raw_agent = _to_json_primitive(agent)
+    candidates: list[Any] = [agent]
+    if isinstance(raw_agent, dict):
+        candidates.append(raw_agent)
+
+    for candidate in candidates:
+        existing = _read_field(candidate, "tool_descriptions", "toolDescriptions")
+        if isinstance(existing, list):
+            descriptions = [
+                normalized
+                for item in existing
+                if (normalized := _normalize_tool_description(_to_json_primitive(item))) is not None
+            ]
+            if descriptions:
+                return descriptions
+
+    for candidate in candidates:
+        definition = _read_field(candidate, "definition")
+        raw_definition = _to_json_primitive(definition)
+        if isinstance(raw_definition, dict):
+            tools = raw_definition.get("tools")
+        else:
+            tools = _read_field(definition, "tools")
+        if not isinstance(tools, list):
+            continue
+
+        descriptions = [
+            normalized
+            for tool in tools
+            if (normalized := _normalize_tool_description(_to_json_primitive(tool))) is not None
+        ]
+        if descriptions:
+            return descriptions
+
+    return []
+
+
+def _build_empty_taxonomy_error(*, taxonomy_id: str, taxonomy_name: str, portal_url: str) -> str:
+    return (
+        f"Foundry returned prohibited-actions taxonomy '{taxonomy_id}' "
+        f"({taxonomy_name}) with zero enabled subcategories. Cloud red teaming "
+        "cannot generate attack items from an empty taxonomy. Review and confirm "
+        "the taxonomy in Foundry, enable at least one prohibited-actions "
+        f"subcategory, then rerun the evaluation: {portal_url}"
+    )
 
 
 def _extract_run_status(run: Any) -> str:
@@ -360,7 +459,7 @@ def _resolve_agent_target(
     agent_id: str | None,
     agent_name: str | None,
     agent_version: str | None,
-) -> tuple[str, str]:
+) -> tuple[str, str, Any]:
     if agent_id:
         parsed_name, parsed_version = _split_agent_reference(agent_id)
         agent_name = agent_name or parsed_name
@@ -369,14 +468,34 @@ def _resolve_agent_target(
     if not agent_name:
         raise ValueError("Missing target agent. Provide --agent-id or --agent-name.")
 
+    logger.info("Resolving Foundry agent metadata for %s", agent_name)
+    resolved_agent: Any = {"name": agent_name, "version": agent_version}
+    get_version = getattr(project_client.agents, "get_version", None)
+    if agent_version and callable(get_version):
+        resolved_agent = get_version(agent_name=agent_name, agent_version=agent_version)
+    else:
+        get_agent = getattr(project_client.agents, "get", None)
+        if callable(get_agent):
+            resolved_agent = get_agent(agent_name=agent_name)
     if not agent_version:
-        logger.info("No agent version supplied, resolving the latest version for %s", agent_name)
-        latest_agent = project_client.agents.get(agent_name=agent_name)
-        agent_version = str(getattr(latest_agent, "version", "") or "").strip()
+        agent_version = str(getattr(resolved_agent, "version", "") or "").strip()
         if not agent_version:
             raise RuntimeError(f"Could not resolve a latest version for agent '{agent_name}'.")
 
-    return agent_name, agent_version
+    return agent_name, agent_version, resolved_agent
+
+
+def _resolve_configured_taxonomy_id(explicit_taxonomy_id: str | None) -> str | None:
+    for value in (
+        explicit_taxonomy_id,
+        os.environ.get("FOUNDRY_REDTEAM_TAXONOMY_URI"),
+        os.environ.get("QPRISMA_REDTEAM_TAXONOMY_URI"),
+        os.environ.get("QPRISMA_REDTEAM_TAXONOMY_ID"),
+    ):
+        normalized = str(value or "").strip()
+        if normalized:
+            return normalized
+    return None
 
 
 def run_redteam_scan(
@@ -395,6 +514,7 @@ def run_redteam_scan(
     timeout_seconds: int,
     preflight: bool = False,
     dry_run: bool = False,
+    taxonomy_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute a cloud red-team run against the hosted agent."""
     try:
@@ -428,31 +548,39 @@ def run_redteam_scan(
             allow_preview=True,
         ) as project_client:
             openai_client = project_client.get_openai_client()
-            resolved_agent_name, resolved_agent_version = _resolve_agent_target(
+            resolved_agent_name, resolved_agent_version, resolved_agent = _resolve_agent_target(
                 project_client=project_client,
                 agent_id=agent_id,
                 agent_name=agent_name,
                 agent_version=agent_version,
             )
+            tool_descriptions = _extract_tool_descriptions(resolved_agent)
             target = AzureAIAgentTarget(
                 name=resolved_agent_name,
                 version=resolved_agent_version,
+                tool_descriptions=tool_descriptions,
             )
+            configured_taxonomy_id = _resolve_configured_taxonomy_id(taxonomy_id)
 
             logger.info(
                 "Starting cloud red-team run (agent=%s:%s, strategies=%s, risk_categories=%s, "
-                "num_turns=%d)",
+                "num_turns=%d, tool_descriptions=%d, taxonomy_source=%s)",
                 resolved_agent_name,
                 resolved_agent_version,
                 normalized_strategies,
                 [risk.name for risk in mapped_risks],
                 num_turns,
+                len(tool_descriptions),
+                "configured" if configured_taxonomy_id else "generated",
             )
 
             taxonomy_name = f"{resolved_agent_name}-prohibited-actions"
             if dry_run:
                 data_source = _build_redteam_data_source(
-                    taxonomy_id="<taxonomy-file-id-from-preflight-or-created-taxonomy>",
+                    taxonomy_id=(
+                        configured_taxonomy_id
+                        or "<taxonomy-file-id-from-preflight-or-created-taxonomy>"
+                    ),
                     target=target,
                     normalized_strategies=normalized_strategies,
                     num_turns=num_turns,
@@ -469,6 +597,13 @@ def run_redteam_scan(
                     "strategies": normalized_strategies,
                     "risk_categories": [risk.name for risk in mapped_risks],
                     "taxonomy_name": taxonomy_name,
+                    "taxonomy_source": "configured" if configured_taxonomy_id else "generated",
+                    "taxonomy": (
+                        {"id": configured_taxonomy_id, "name": taxonomy_name}
+                        if configured_taxonomy_id
+                        else None
+                    ),
+                    "tool_descriptions_count": len(tool_descriptions),
                     "request_shape": _build_request_shape(
                         eval_id=None,
                         scan_name=scan_name,
@@ -484,29 +619,40 @@ def run_redteam_scan(
                 )
                 return summary
 
-            taxonomy = project_client.beta.evaluation_taxonomies.create(
-                name=taxonomy_name,
-                body=EvaluationTaxonomy(
-                    description="QPrisma prohibited-actions taxonomy for cloud red teaming",
-                    taxonomy_input=AgentTaxonomyInput(
-                        risk_categories=mapped_risks,
-                        target=target,
+            if configured_taxonomy_id:
+                taxonomy = {"id": configured_taxonomy_id, "name": taxonomy_name}
+                taxonomy_id_for_run = configured_taxonomy_id
+                taxonomy_source = "configured"
+                enabled_subcategories: int | None = None
+                logger.info(
+                    "Using configured Foundry red-team taxonomy '%s' as the run source.",
+                    taxonomy_id_for_run,
+                )
+            else:
+                taxonomy = project_client.beta.evaluation_taxonomies.create(
+                    name=taxonomy_name,
+                    body=EvaluationTaxonomy(
+                        description="QPrisma prohibited-actions taxonomy for cloud red teaming",
+                        taxonomy_input=AgentTaxonomyInput(
+                            risk_categories=mapped_risks,
+                            target=target,
+                        ),
                     ),
-                ),
-            )
+                )
 
-            taxonomy_id = str(getattr(taxonomy, "id", "") or "").strip()
-            if not taxonomy_id:
-                raise RuntimeError("Foundry returned a taxonomy without an id.")
-            enabled_subcategories = _count_enabled_subcategories(taxonomy)
-            logger.info(
-                "Created Foundry red-team taxonomy '%s' with %d enabled subcategories; "
-                "using taxonomy id directly as the run source.",
-                taxonomy_id,
-                enabled_subcategories,
-            )
+                taxonomy_id_for_run = str(getattr(taxonomy, "id", "") or "").strip()
+                if not taxonomy_id_for_run:
+                    raise RuntimeError("Foundry returned a taxonomy without an id.")
+                enabled_subcategories = _count_enabled_subcategories(taxonomy)
+                taxonomy_source = "generated"
+                logger.info(
+                    "Created Foundry red-team taxonomy '%s' with %d enabled subcategories; "
+                    "using taxonomy id directly as the run source.",
+                    taxonomy_id_for_run,
+                    enabled_subcategories,
+                )
             data_source = _build_redteam_data_source(
-                taxonomy_id=taxonomy_id,
+                taxonomy_id=taxonomy_id_for_run,
                 target=target,
                 normalized_strategies=normalized_strategies,
                 num_turns=num_turns,
@@ -516,6 +662,36 @@ def run_redteam_scan(
                 scan_name=scan_name,
                 data_source=data_source,
             )
+            portal_url = f"{endpoint}/evaluations"
+            if taxonomy_source == "generated" and enabled_subcategories == 0:
+                error_message = _build_empty_taxonomy_error(
+                    taxonomy_id=taxonomy_id_for_run,
+                    taxonomy_name=taxonomy_name,
+                    portal_url=portal_url,
+                )
+                summary = {
+                    "mode": "cloud_foundry_agent_redteam",
+                    "status": "preflight_failed" if preflight else "failed",
+                    "failure_reason": "empty_prohibited_actions_taxonomy",
+                    "error": error_message,
+                    "endpoint": endpoint,
+                    "agent": {
+                        "name": resolved_agent_name,
+                        "version": resolved_agent_version,
+                    },
+                    "model_deployment": model_deployment,
+                    "strategies": normalized_strategies,
+                    "risk_categories": [risk.name for risk in mapped_risks],
+                    "taxonomy": _to_json_primitive(taxonomy),
+                    "taxonomy_source": taxonomy_source,
+                    "taxonomy_enabled_subcategories": enabled_subcategories,
+                    "tool_descriptions_count": len(tool_descriptions),
+                    "request_shape": request_shape,
+                    "portal_url": portal_url,
+                }
+                _write_redteam_artifacts(output_path, summary)
+                raise RuntimeError(error_message)
+
             if preflight:
                 summary = {
                     "mode": "cloud_foundry_agent_redteam",
@@ -529,9 +705,11 @@ def run_redteam_scan(
                     "strategies": normalized_strategies,
                     "risk_categories": [risk.name for risk in mapped_risks],
                     "taxonomy": _to_json_primitive(taxonomy),
+                    "taxonomy_source": taxonomy_source,
                     "taxonomy_enabled_subcategories": enabled_subcategories,
+                    "tool_descriptions_count": len(tool_descriptions),
                     "request_shape": request_shape,
-                    "portal_url": f"{endpoint}/evaluations",
+                    "portal_url": portal_url,
                 }
                 _write_redteam_artifacts(output_path, summary)
                 logger.info(
@@ -539,8 +717,8 @@ def run_redteam_scan(
                     "enabled_subcategories=%d).",
                     resolved_agent_name,
                     resolved_agent_version,
-                    taxonomy_id,
-                    enabled_subcategories,
+                    taxonomy_id_for_run,
+                    enabled_subcategories if enabled_subcategories is not None else -1,
                 )
                 return summary
 
@@ -597,7 +775,9 @@ def run_redteam_scan(
                 "risk_categories": [risk.name for risk in mapped_risks],
                 "red_team": _to_json_primitive(red_team),
                 "taxonomy": _to_json_primitive(taxonomy),
+                "taxonomy_source": taxonomy_source,
                 "taxonomy_enabled_subcategories": enabled_subcategories,
+                "tool_descriptions_count": len(tool_descriptions),
                 "run": _to_json_primitive(run),
                 "run_diagnostics": _extract_run_diagnostics(run),
                 "output_items": _to_json_primitive(output_items),
@@ -616,7 +796,7 @@ def run_redteam_scan(
                 "Red-team diagnostic: eval_id=%s taxonomy_id=%s run_id=%s status=%s items=%d "
                 "portal_url=%s",
                 getattr(red_team, "id", "<unknown>"),
-                taxonomy_id,
+                taxonomy_id_for_run,
                 getattr(run, "id", "<unknown>"),
                 summary["status"] or "<unknown>",
                 len(output_items),
@@ -700,6 +880,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Display name for the Foundry red-team run",
     )
     parser.add_argument(
+        "--taxonomy-uri",
+        default=os.environ.get("FOUNDRY_REDTEAM_TAXONOMY_URI")
+        or os.environ.get("QPRISMA_REDTEAM_TAXONOMY_URI")
+        or os.environ.get("QPRISMA_REDTEAM_TAXONOMY_ID"),
+        help=(
+            "Optional reviewed Foundry red-team taxonomy URI/ID. "
+            "When set, dynamic taxonomy creation is skipped."
+        ),
+    )
+    parser.add_argument(
         "--preflight",
         action="store_true",
         help="Validate credentials, agent resolution, taxonomy creation/update, and request shape without creating a red-team run.",
@@ -743,18 +933,31 @@ def main(argv: list[str] | None = None) -> int:
             timeout_seconds=args.timeout_seconds,
             preflight=args.preflight,
             dry_run=args.dry_run,
+            taxonomy_id=args.taxonomy_uri,
         )
     except Exception as exc:
         logger.exception("Cloud red-team run failed")
-        failure_summary = {
-            "mode": "cloud_foundry_agent_redteam",
-            "status": "failed",
-            "error": str(exc),
-            "endpoint": args.endpoint,
-            "agent_id": args.agent_id,
-            "agent_name": args.agent_name,
-            "agent_version": args.agent_version,
-        }
+        failure_summary: dict[str, Any] = {}
+        if args.output.exists():
+            try:
+                existing_summary = json.loads(args.output.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as read_exc:
+                logger.warning(
+                    "Could not preserve existing red-team artifact %s: %s",
+                    args.output,
+                    read_exc,
+                )
+            else:
+                if isinstance(existing_summary, dict):
+                    failure_summary.update(existing_summary)
+
+        failure_summary.setdefault("mode", "cloud_foundry_agent_redteam")
+        failure_summary.setdefault("status", "failed")
+        failure_summary.setdefault("error", str(exc))
+        failure_summary.setdefault("endpoint", args.endpoint)
+        failure_summary.setdefault("agent_id", args.agent_id)
+        failure_summary.setdefault("agent_name", args.agent_name)
+        failure_summary.setdefault("agent_version", args.agent_version)
         _write_redteam_artifacts(args.output, failure_summary)
         return 1
 

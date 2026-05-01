@@ -451,6 +451,7 @@ jobs:
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}
+          FOUNDRY_REDTEAM_TAXONOMY_URI: ${{ vars.FOUNDRY_REDTEAM_TAXONOMY_URI || '' }}
           REDTEAM_OUTPUT_DIR: ${{ runner.temp }}/redteam
         run: |
           set -euo pipefail
@@ -472,6 +473,7 @@ jobs:
         env:
           AZURE_AI_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_GPT || 'gpt-5.5' }}
+          FOUNDRY_REDTEAM_TAXONOMY_URI: ${{ vars.FOUNDRY_REDTEAM_TAXONOMY_URI || '' }}
           QPRISMA_REDTEAM_NUM_TURNS: '5'
           REDTEAM_OUTPUT_DIR: ${{ runner.temp }}/redteam
         run: |
@@ -498,11 +500,14 @@ jobs:
             echo "- Foundry: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}/evaluations"
             if [ -f "$PREFLIGHT" ]; then
               echo "- Preflight status: \`$(jq -r '.status // "unknown"' "$PREFLIGHT")\`"
+              echo "- Preflight taxonomy source: \`$(jq -r '.taxonomy_source // "unknown"' "$PREFLIGHT")\`"
             fi
             if [ -f "$RESULTS" ]; then
               echo "- Run status: \`$(jq -r '.status // .run.status // "unknown"' "$RESULTS")\`"
               echo "- Eval ID: \`$(jq -r '.red_team.id // "unknown"' "$RESULTS")\`"
               echo "- Taxonomy ID: \`$(jq -r '.taxonomy.id // "unknown"' "$RESULTS")\`"
+              echo "- Taxonomy source: \`$(jq -r '.taxonomy_source // "unknown"' "$RESULTS")\`"
+              echo "- Tool descriptions: \`$(jq -r '.tool_descriptions_count // 0' "$RESULTS")\`"
               echo "- Run ID: \`$(jq -r '.run.id // "unknown"' "$RESULTS")\`"
               echo "- Total results: \`$(jq -r '.total_results // 0' "$RESULTS")\`"
             fi
