@@ -6,7 +6,7 @@ Agents rather than the local PyRIT ``azure.ai.evaluation.red_team.RedTeam``
 helper. The cloud path matches the documented Foundry-Agent flow:
 
 1. Create a red team evaluation group
-2. Create or update the prohibited-actions taxonomy for the target agent
+2. Create the prohibited-actions taxonomy for the target agent
 3. Create a red-team run against the hosted agent
 4. Poll until the run reaches a terminal state
 5. Persist the run summary and output items as a JSON artifact
@@ -39,9 +39,6 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
-
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +46,6 @@ DEFAULT_STRATEGIES: list[str] = ["base64", "flip", "indirect_jailbreak"]
 DEFAULT_RISK_CATEGORIES: list[str] = ["prohibited_actions"]
 DEFAULT_MODEL_DEPLOYMENT = "gpt-5.5"
 TERMINAL_RUN_STATUSES = {"completed", "failed", "canceled"}
-TAXONOMY_REST_PATCH_API_VERSIONS = ("v1", "2025-11-15-preview")
 _ATTACK_STRATEGY_ALIASES = {
     "ansi_attack": "AnsiAttack",
     "ascii_art": "AsciiArt",
@@ -165,68 +161,6 @@ def _to_json_primitive(value: Any) -> Any:
     return repr(value)
 
 
-def _build_enabled_taxonomy_update(taxonomy: Any) -> tuple[dict[str, Any], bool, bool]:
-    """Build a PATCH payload with all generated taxonomy items enabled."""
-    raw = _to_json_primitive(taxonomy)
-    if not isinstance(raw, dict):
-        return {}, False, False
-
-    categories = raw.get("taxonomyCategories")
-    if not isinstance(categories, list):
-        return {}, False, False
-
-    changed = False
-    updated_categories: list[dict[str, Any]] = []
-    for category in categories:
-        if not isinstance(category, dict):
-            updated_categories.append(category)
-            continue
-
-        updated_category = dict(category)
-        if isinstance(updated_category.get("enabled"), bool) and not updated_category["enabled"]:
-            updated_category["enabled"] = True
-            changed = True
-
-        sub_categories = updated_category.get("subCategories")
-        if isinstance(sub_categories, list):
-            updated_sub_categories: list[dict[str, Any]] = []
-            for sub_category in sub_categories:
-                if not isinstance(sub_category, dict):
-                    updated_sub_categories.append(sub_category)
-                    continue
-
-                updated_sub_category = dict(sub_category)
-                if isinstance(updated_sub_category.get("enabled"), bool):
-                    if not updated_sub_category["enabled"]:
-                        updated_sub_category["enabled"] = True
-                        changed = True
-                else:
-                    updated_sub_category["enabled"] = True
-                    changed = True
-
-                updated_sub_categories.append(updated_sub_category)
-            updated_category["subCategories"] = updated_sub_categories
-
-        updated_categories.append(updated_category)
-
-    taxonomy_input = raw.get("taxonomyInput")
-    body: dict[str, Any] = {"taxonomyCategories": updated_categories}
-    if isinstance(taxonomy_input, dict):
-        input_type = taxonomy_input.get("type")
-        if isinstance(input_type, str) and input_type.strip():
-            # The PATCH contract documents ``taxonomyInput`` as optional, but if
-            # it is present the discriminator must still be included.
-            body["taxonomyInput"] = {"type": input_type}
-    if raw.get("description") is not None:
-        body["description"] = raw["description"]
-    if raw.get("properties") is not None:
-        body["properties"] = raw["properties"]
-    if raw.get("tags") is not None:
-        body["tags"] = raw["tags"]
-
-    return body, changed, True
-
-
 def _count_enabled_subcategories(taxonomy: Any) -> int:
     """Return the number of enabled subcategories across all categories."""
     raw = _to_json_primitive(taxonomy)
@@ -241,132 +175,6 @@ def _count_enabled_subcategories(taxonomy: Any) -> int:
             if isinstance(sub, dict) and sub.get("enabled") is True:
                 count += 1
     return count
-
-
-def _extract_taxonomy_update_identifiers(taxonomy: Any, requested_name: str) -> list[str]:
-    """Return unique identifier candidates for the taxonomy update call."""
-    raw = _to_json_primitive(taxonomy)
-    candidates: list[str] = []
-
-    def add(candidate: Any) -> None:
-        if not isinstance(candidate, str):
-            return
-        normalized = candidate.strip()
-        if normalized and normalized not in candidates:
-            candidates.append(normalized)
-
-    if isinstance(raw, dict):
-        add(raw.get("name"))
-        add(raw.get("id"))
-
-    add(getattr(taxonomy, "name", None))
-    add(getattr(taxonomy, "id", None))
-    add(requested_name)
-    return candidates
-
-
-def _build_retry_taxonomy_update_body(
-    taxonomy: Any,
-    base_body: dict[str, Any],
-) -> dict[str, Any]:
-    """Return a broader PATCH body that reuses the original taxonomy input."""
-    raw = _to_json_primitive(taxonomy)
-    if not isinstance(raw, dict):
-        return base_body
-
-    taxonomy_input = raw.get("taxonomyInput")
-    if not isinstance(taxonomy_input, dict):
-        return base_body
-
-    input_type = taxonomy_input.get("type")
-    if not isinstance(input_type, str) or not input_type.strip():
-        return base_body
-
-    retry_body = dict(base_body)
-    retry_body["taxonomyInput"] = dict(taxonomy_input)
-    return retry_body
-
-
-def _http_response_target_matches(exc: Exception, target: str) -> bool:
-    target_pattern = re.escape(target.lower())
-    return (
-        re.search(
-            rf'["\']?target["\']?\s*[:=]\s*["\']?{target_pattern}',
-            str(exc).lower(),
-        )
-        is not None
-    )
-
-
-def _is_resource_not_found_error(exc: Exception) -> bool:
-    return exc.__class__.__name__ == "ResourceNotFoundError" or "not found" in str(exc).lower()
-
-
-def _patch_taxonomy_via_rest(
-    *,
-    credential: Any,
-    endpoint: str,
-    taxonomy_name: str,
-    body: dict[str, Any],
-    api_versions: tuple[str, ...] = TAXONOMY_REST_PATCH_API_VERSIONS,
-) -> None:
-    """PATCH a taxonomy using the documented Foundry REST endpoint."""
-    if not api_versions:
-        raise ValueError("At least one Foundry taxonomy REST API version is required.")
-
-    token = credential.get_token("https://ai.azure.com/.default").token
-    encoded_taxonomy_name = quote(taxonomy_name, safe="")
-    retryable_errors: list[str] = []
-
-    for api_version in api_versions:
-        url = (
-            f"{endpoint.rstrip('/')}/evaluationtaxonomies/{encoded_taxonomy_name}"
-            f"?api-version={api_version}"
-        )
-        try:
-            response = httpx.patch(
-                url,
-                json=body,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "Foundry-Features": "Evaluations=V1Preview",
-                },
-                timeout=30.0,
-            )
-            response.raise_for_status()
-            return
-        except httpx.HTTPStatusError as exc:
-            details = exc.response.text.strip() or str(exc)
-            error = RuntimeError(
-                f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' with "
-                f"api-version '{api_version}' and status {exc.response.status_code}: "
-                f"{details}"
-            )
-            if _http_response_target_matches(error, "taxonomyId") or _is_resource_not_found_error(
-                error
-            ):
-                retryable_errors.append(str(error))
-                logger.warning(
-                    "Foundry REST taxonomy PATCH rejected taxonomy '%s' with api-version "
-                    "'%s'; trying the next API version candidate.",
-                    taxonomy_name,
-                    api_version,
-                )
-                continue
-            raise error from exc
-        except httpx.RequestError as exc:
-            raise RuntimeError(
-                f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' at '{url}': {exc}"
-            ) from exc
-
-    details = " | ".join(retryable_errors)
-    versions = ", ".join(api_versions)
-    raise RuntimeError(
-        f"Foundry REST taxonomy PATCH failed for '{taxonomy_name}' after trying API "
-        f"versions [{versions}]: {details}"
-    )
 
 
 def _extract_run_status(run: Any) -> str:
@@ -686,160 +494,17 @@ def run_redteam_scan(
                     ),
                 ),
             )
-            (
-                taxonomy_update_body,
-                taxonomy_changed,
-                taxonomy_payload_supported,
-            ) = _build_enabled_taxonomy_update(taxonomy)
-            if taxonomy_changed:
-                logger.info(
-                    "Enabling generated prohibited-actions taxonomy items before creating the run."
-                )
-                update_identifiers = _extract_taxonomy_update_identifiers(
-                    taxonomy,
-                    requested_name=taxonomy_name,
-                )
-                retry_update_body = _build_retry_taxonomy_update_body(
-                    taxonomy,
-                    taxonomy_update_body,
-                )
-                last_update_error: HttpResponseError | None = None
-                update_succeeded = False
-                for identifier in update_identifiers:
-                    try:
-                        taxonomy = project_client.beta.evaluation_taxonomies.update(
-                            name=identifier,
-                            body=taxonomy_update_body,
-                        )
-                        update_succeeded = True
-                        break
-                    except HttpResponseError as exc:
-                        last_update_error = exc
-                        if _http_response_target_matches(exc, "taxonomyId"):
-                            logger.warning(
-                                "Taxonomy update rejected identifier '%s'; trying the next "
-                                "identifier candidate.",
-                                identifier,
-                            )
-                            continue
-                        if _is_resource_not_found_error(exc):
-                            logger.warning(
-                                "Taxonomy update could not resolve identifier '%s'; trying "
-                                "the next identifier candidate.",
-                                identifier,
-                            )
-                            continue
-                        if (
-                            _http_response_target_matches(exc, "taxonomyInput")
-                            and retry_update_body != taxonomy_update_body
-                        ):
-                            logger.warning(
-                                "Taxonomy update rejected the minimal PATCH taxonomyInput for "
-                                "identifier '%s'; retrying with the original taxonomy input "
-                                "metadata.",
-                                identifier,
-                            )
-                            try:
-                                taxonomy = project_client.beta.evaluation_taxonomies.update(
-                                    name=identifier,
-                                    body=retry_update_body,
-                                )
-                                update_succeeded = True
-                                break
-                            except HttpResponseError as retry_exc:
-                                last_update_error = retry_exc
-                                if _http_response_target_matches(retry_exc, "taxonomyId"):
-                                    logger.warning(
-                                        "Taxonomy update still rejected identifier '%s' after "
-                                        "retrying with the full taxonomy input.",
-                                        identifier,
-                                    )
-                                    continue
-                                if _is_resource_not_found_error(retry_exc):
-                                    logger.warning(
-                                        "Taxonomy update still could not resolve identifier "
-                                        "'%s' after retrying with the full taxonomy input.",
-                                        identifier,
-                                    )
-                                    continue
-                                raise
-                        raise
-                if not update_succeeded:
-                    if last_update_error is None:
-                        raise RuntimeError(
-                            "Could not determine a valid taxonomy identifier to update."
-                        )
-                    if _http_response_target_matches(
-                        last_update_error, "taxonomyId"
-                    ) or _is_resource_not_found_error(last_update_error):
-                        logger.warning(
-                            "SDK taxonomy update did not match the live Foundry service "
-                            "contract; retrying taxonomy enablement through the documented "
-                            "REST PATCH endpoint."
-                        )
-                        rest_bodies = [taxonomy_update_body]
-                        if retry_update_body != taxonomy_update_body:
-                            rest_bodies.append(retry_update_body)
-                        rest_error: RuntimeError | None = None
-                        for rest_body in rest_bodies:
-                            try:
-                                _patch_taxonomy_via_rest(
-                                    credential=credential,
-                                    endpoint=endpoint,
-                                    taxonomy_name=taxonomy_name,
-                                    body=rest_body,
-                                )
-                                taxonomy = project_client.beta.evaluation_taxonomies.get(
-                                    name=taxonomy_name
-                                )
-                                update_succeeded = True
-                                break
-                            except RuntimeError as rest_exc:
-                                rest_error = rest_exc
-                                if (
-                                    _http_response_target_matches(rest_exc, "taxonomyInput")
-                                    and rest_body == taxonomy_update_body
-                                    and retry_update_body != taxonomy_update_body
-                                ):
-                                    logger.warning(
-                                        "REST taxonomy PATCH rejected the minimal taxonomyInput "
-                                        "payload; retrying with the original taxonomy input "
-                                        "metadata."
-                                    )
-                                    continue
-                                raise
-                        if not update_succeeded and rest_error is not None:
-                            raise rest_error
-                    else:
-                        raise last_update_error
-                enabled_count = _count_enabled_subcategories(taxonomy)
-                if enabled_count == 0:
-                    taxonomy_id = getattr(taxonomy, "id", None) or "<unknown>"
-                    raise RuntimeError(
-                        "Failed to enable taxonomy subcategories for taxonomy "
-                        f"'{taxonomy_id}'. All subcategories remain disabled after "
-                        "the update; the red-team run would generate zero attack "
-                        f"prompts. Review and enable manually at {endpoint}/evaluations."
-                    )
-                logger.info(
-                    "Taxonomy '%s' now has %d enabled subcategories.",
-                    getattr(taxonomy, "id", "<unknown>"),
-                    enabled_count,
-                )
-            elif not taxonomy_payload_supported:
-                logger.warning(
-                    "Generated taxonomy payload used an unexpected shape; skipping enablement "
-                    "update. The red-team run may produce zero cases."
-                )
-            else:
-                logger.warning(
-                    "Generated taxonomy returned no disabled items to enable. "
-                    "The red-team run may produce zero cases."
-                )
 
             taxonomy_id = str(getattr(taxonomy, "id", "") or "").strip()
             if not taxonomy_id:
                 raise RuntimeError("Foundry returned a taxonomy without an id.")
+            enabled_subcategories = _count_enabled_subcategories(taxonomy)
+            logger.info(
+                "Created Foundry red-team taxonomy '%s' with %d enabled subcategories; "
+                "using taxonomy id directly as the run source.",
+                taxonomy_id,
+                enabled_subcategories,
+            )
             data_source = _build_redteam_data_source(
                 taxonomy_id=taxonomy_id,
                 target=target,
@@ -851,7 +516,6 @@ def run_redteam_scan(
                 scan_name=scan_name,
                 data_source=data_source,
             )
-            enabled_subcategories = _count_enabled_subcategories(taxonomy)
             if preflight:
                 summary = {
                     "mode": "cloud_foundry_agent_redteam",
@@ -933,6 +597,7 @@ def run_redteam_scan(
                 "risk_categories": [risk.name for risk in mapped_risks],
                 "red_team": _to_json_primitive(red_team),
                 "taxonomy": _to_json_primitive(taxonomy),
+                "taxonomy_enabled_subcategories": enabled_subcategories,
                 "run": _to_json_primitive(run),
                 "run_diagnostics": _extract_run_diagnostics(run),
                 "output_items": _to_json_primitive(output_items),
