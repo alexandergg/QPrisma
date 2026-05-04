@@ -196,10 +196,6 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
           value: '~4'
         }
         {
-          name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'python'
-        }
-        {
           name: 'AzureWebJobsFeatureFlags'
           value: 'EnableWorkerIndexing'
         }
