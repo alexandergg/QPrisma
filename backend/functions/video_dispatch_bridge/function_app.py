@@ -2,8 +2,12 @@ import logging
 
 import azure.functions as func
 
-from .processor import VideoDispatchBridge
-from .settings import BridgeSettings
+if __package__:
+    from .processor import VideoDispatchBridge
+    from .settings import BridgeSettings
+else:
+    from processor import VideoDispatchBridge
+    from settings import BridgeSettings
 
 logger = logging.getLogger(__name__)
 app = func.FunctionApp()
