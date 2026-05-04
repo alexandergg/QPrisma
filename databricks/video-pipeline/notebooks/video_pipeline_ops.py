@@ -20,7 +20,7 @@ from pyspark.sql.types import DoubleType, StringType, StructField, StructType, T
 # COMMAND ----------
 
 WIDGET_DEFAULTS = {
-    "catalog": "qprisma_dev",
+    "catalog": "dbw_qprisma_dev",
     "schema": "video",
     "queue_name": "video-processing",
     "stage": "register_manifest",
@@ -209,17 +209,44 @@ def write_outbox_event(
     )
 
 
+def validate_volume_path(path: str, field_name: str) -> str:
+    normalized = path.strip()
+    if normalized.startswith(("dbfs:/Volumes/", "/Volumes/")):
+        return normalized
+    raise ValueError(f"source_media.{field_name} must be a Unity Catalog volume path")
+
+
+def validate_cloud_uri(uri: str, field_name: str) -> str:
+    normalized = uri.strip()
+    if normalized.startswith(("abfss://", "wasbs://")):
+        return normalized
+    if normalized.startswith(("dbfs:/Volumes/", "/Volumes/")):
+        return normalized
+    raise ValueError(
+        f"source_media.{field_name} must be an abfss:// URI, wasbs:// URI, or Unity Catalog volume path"
+    )
+
+
 def source_media_uri() -> str:
-    explicit_uri = source_media.get("abfss_uri") or source_media.get("wasbs_uri")
+    volume_path = source_media.get("volume_path")
+    if volume_path:
+        return validate_volume_path(str(volume_path), "volume_path")
+
+    explicit_uri = source_media.get("uri")
     if explicit_uri:
-        return str(explicit_uri)
+        return validate_cloud_uri(str(explicit_uri), "uri")
+
+    for field_name in ("abfss_uri", "wasbs_uri"):
+        explicit_storage_uri = source_media.get(field_name)
+        if explicit_storage_uri:
+            return validate_cloud_uri(str(explicit_storage_uri), field_name)
 
     container = str(source_media.get("container_name") or source_media.get("container") or "")
     blob = str(source_media.get("blob_name") or blob_name)
     storage_account_url = str(source_media.get("storage_account_url") or "")
     if not container or not blob or not storage_account_url:
         raise ValueError(
-            "source_media must include container_name, blob_name and storage_account_url"
+            "source_media must include volume_path, uri, or container_name, blob_name and storage_account_url"
         )
 
     host = urlparse(storage_account_url).hostname or ""

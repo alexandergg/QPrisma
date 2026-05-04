@@ -31,7 +31,7 @@ class BridgeSettings:
             databricks_token=_optional("DATABRICKS_TOKEN"),
             databricks_sql_warehouse_id=_optional("DATABRICKS_SQL_WAREHOUSE_ID"),
             databricks_outbox_catalog=os.environ.get(
-                "DATABRICKS_OUTBOX_CATALOG", "qprisma_dev"
+                "DATABRICKS_OUTBOX_CATALOG", "dbw_qprisma_dev"
             ).strip(),
             databricks_outbox_schema=os.environ.get("DATABRICKS_OUTBOX_SCHEMA", "video").strip(),
             databricks_outbox_table=os.environ.get(

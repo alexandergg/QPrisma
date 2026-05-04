@@ -4,7 +4,7 @@ bundle:
 variables:
   catalog:
     description: Unity Catalog catalog for QPrisma video pipeline assets.
-    default: qprisma_dev
+    default: dbw_qprisma_dev
   schema:
     description: Unity Catalog schema for QPrisma video pipeline assets.
     default: video
@@ -13,6 +13,20 @@ variables:
     default: video-processing
 
 resources:
+  schemas:
+    video_pipeline:
+      name: ${var.schema}
+      catalog_name: ${var.catalog}
+      comment: QPrisma video pipeline operational tables.
+
+  volumes:
+    source_media:
+      name: source_media
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      volume_type: MANAGED
+      comment: Managed Unity Catalog volume for Databricks-readable QPrisma source media staging.
+
   jobs:
     video_processing:
       name: qprisma-video-processing-${bundle.target}
