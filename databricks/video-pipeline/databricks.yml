@@ -18,6 +18,18 @@ resources:
       name: qprisma-video-processing-${bundle.target}
       description: Minimal observable Databricks workflow for QPrisma video processing events.
       max_concurrent_runs: 4
+      job_clusters:
+        - job_cluster_key: video_pilot_cluster
+          new_cluster:
+            spark_version: 16.4.x-scala2.12
+            node_type_id: Standard_DS3_v2
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: local[*, 4]
+            custom_tags:
+              ResourceClass: SingleNode
       parameters:
         - name: catalog
           default: ${var.catalog}
@@ -41,6 +53,7 @@ resources:
           default: "{}"
       tasks:
         - task_key: register_manifest
+          job_cluster_key: video_pilot_cluster
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:
@@ -56,6 +69,7 @@ resources:
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: register_manifest
         - task_key: validate_and_probe_media
+          job_cluster_key: video_pilot_cluster
           depends_on:
             - task_key: register_manifest
           notebook_task:
@@ -73,6 +87,7 @@ resources:
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: validate_and_probe_media
         - task_key: publish_outbox
+          job_cluster_key: video_pilot_cluster
           depends_on:
             - task_key: validate_and_probe_media
           notebook_task:
