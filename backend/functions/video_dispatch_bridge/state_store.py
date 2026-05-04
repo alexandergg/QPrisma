@@ -8,7 +8,10 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extras import Json
 
-from .contracts import DatabricksStatusEvent, VideoDispatchPayload
+if __package__:
+    from .contracts import DatabricksStatusEvent, VideoDispatchPayload
+else:
+    from contracts import DatabricksStatusEvent, VideoDispatchPayload
 
 
 class DispatchStateError(RuntimeError):

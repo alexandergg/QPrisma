@@ -1,4 +1,8 @@
+import importlib
 import json
+import sys
+import types
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -44,6 +48,65 @@ def _settings(**overrides):
     }
     settings.update(overrides)
     return SimpleNamespace(**settings)
+
+
+def test_function_app_imports_from_function_root(monkeypatch):
+    function_root = Path(__file__).parents[1] / "functions" / "video_dispatch_bridge"
+
+    class FakeFunctionApp:
+        def __init__(self):
+            self.registered_functions = []
+
+        def service_bus_queue_trigger(self, **kwargs):
+            return self._register("service_bus_queue_trigger", kwargs)
+
+        def timer_trigger(self, **kwargs):
+            return self._register("timer_trigger", kwargs)
+
+        def _register(self, trigger_type, kwargs):
+            def decorator(handler):
+                self.registered_functions.append((trigger_type, kwargs, handler.__name__))
+                return handler
+
+            return decorator
+
+    fake_azure = types.ModuleType("azure")
+    fake_functions = types.ModuleType("azure.functions")
+    fake_functions.FunctionApp = FakeFunctionApp
+    fake_functions.ServiceBusMessage = object
+    fake_functions.TimerRequest = object
+    fake_azure.functions = fake_functions
+
+    monkeypatch.setitem(sys.modules, "azure", fake_azure)
+    monkeypatch.setitem(sys.modules, "azure.functions", fake_functions)
+    monkeypatch.syspath_prepend(str(function_root))
+
+    top_level_modules = [
+        "function_app",
+        "processor",
+        "outbox",
+        "state_store",
+        "databricks_client",
+        "contracts",
+        "settings",
+    ]
+    for module_name in top_level_modules:
+        sys.modules.pop(module_name, None)
+
+    try:
+        module = importlib.import_module("function_app")
+        registrations = module.app.registered_functions
+        assert [registration[0] for registration in registrations] == [
+            "service_bus_queue_trigger",
+            "timer_trigger",
+        ]
+        assert [registration[2] for registration in registrations] == [
+            "video_dispatch_bridge",
+            "video_outbox_projection",
+        ]
+    finally:
+        for module_name in top_level_modules:
+            sys.modules.pop(module_name, None)
 
 
 def test_video_dispatch_payload_validates_required_fields():

@@ -83,9 +83,10 @@ jobs:
 
       - name: Sync triggers
         run: |
-          az functionapp sync-function-triggers \
-            --name "${{ steps.function-app.outputs.name }}" \
-            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+          SYNC_TRIGGER_URL="https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ vars.AZURE_RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ steps.function-app.outputs.name }}/syncfunctiontriggers?api-version=2016-08-01"
+          az rest \
+            --method post \
+            --url "$SYNC_TRIGGER_URL"
 
       - name: Deployment summary
         run: |

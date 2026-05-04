@@ -5,10 +5,16 @@ import logging
 import re
 from typing import Any
 
-from .contracts import DatabricksStatusEvent, PayloadValidationError
-from .databricks_client import DatabricksJobsClient
-from .settings import BridgeSettings
-from .state_store import PostgresDispatchStateStore
+if __package__:
+    from .contracts import DatabricksStatusEvent, PayloadValidationError
+    from .databricks_client import DatabricksJobsClient
+    from .settings import BridgeSettings
+    from .state_store import PostgresDispatchStateStore
+else:
+    from contracts import DatabricksStatusEvent, PayloadValidationError
+    from databricks_client import DatabricksJobsClient
+    from settings import BridgeSettings
+    from state_store import PostgresDispatchStateStore
 
 logger = logging.getLogger(__name__)
 

@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import logging
 
-from .contracts import DatabricksStatusEvent, VideoDispatchPayload
-from .databricks_client import DatabricksJobsClient
-from .outbox import DatabricksOutboxConsumer
-from .settings import BridgeSettings
-from .state_store import PostgresDispatchStateStore
+if __package__:
+    from .contracts import DatabricksStatusEvent, VideoDispatchPayload
+    from .databricks_client import DatabricksJobsClient
+    from .outbox import DatabricksOutboxConsumer
+    from .settings import BridgeSettings
+    from .state_store import PostgresDispatchStateStore
+else:
+    from contracts import DatabricksStatusEvent, VideoDispatchPayload
+    from databricks_client import DatabricksJobsClient
+    from outbox import DatabricksOutboxConsumer
+    from settings import BridgeSettings
+    from state_store import PostgresDispatchStateStore
 
 logger = logging.getLogger(__name__)
 

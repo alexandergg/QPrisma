@@ -7,7 +7,10 @@ from typing import Any
 
 import httpx
 
-from .settings import BridgeSettings
+if __package__:
+    from .settings import BridgeSettings
+else:
+    from settings import BridgeSettings
 
 
 class DatabricksAuthError(RuntimeError):
