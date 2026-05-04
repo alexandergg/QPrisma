@@ -14,8 +14,12 @@ graph TD
     Frontend -->|REST / WebSocket| Gateway[API Gateway / FastAPI]
 
     subgraph "Processing Core"
-        Gateway -->|Async Task| TaskMgr[Celery Task Manager]
+        Gateway -->|Default fallback| TaskMgr[Celery Task Manager]
+        Gateway -->|Databricks pilot| SB[Service Bus Dispatch Queue]
+        SB --> Bridge[Azure Function Bridge]
+        Bridge --> DBX[Azure Databricks Job]
         TaskMgr -->|Orchestrates| Pipeline[Video Pipeline]
+        DBX -->|Lakehouse processing| Pipeline
         Pipeline -->|1. Extract| FFmpeg[FFmpeg Service]
         Pipeline -->|2. Analyze| Vision[GPT-4o Vision Agent]
         Pipeline -->|3. Transcribe| Whisper[Whisper Service]
@@ -43,8 +47,14 @@ graph TD
 - **Frameworks**: FastAPI, Next.js 16, LangGraph, Celery
 - **AI/ML**: Azure AI Foundry (GPT-4o, GPT-5.2-chat, Whisper, text-embedding-3-large)
 - **Databases**: PostgreSQL (Metadata), Neo4j (Graph + Vector), Redis Enterprise (Cache/Queue)
-- **Infrastructure**: Azure Container Apps, Azure Bicep IaC, GitHub Actions CI/CD
-- **Storage**: Azure Blob Storage
+- **Infrastructure**: Azure Container Apps, Azure Bicep IaC, GitHub Actions CI/CD, optional Azure Databricks pilot
+- **Storage**: Azure Blob Storage, optional ADLS Gen2 lakehouse storage for Databricks medallion data
+
+### Databricks video-processing pilot
+
+The current production-safe design keeps FastAPI as the trusted control plane for authentication, authorization, upload commit, idempotency and frontend-compatible state. Heavy video processing can be dispatched to an optional Databricks data plane through Service Bus and an Azure Function bridge. The bridge starts Databricks Jobs, records the Databricks run in PostgreSQL and projects Databricks outbox events back into the existing media status fields.
+
+Celery remains the default fallback while the pilot is validated. Databricks Asset Bundles own the workspace-internal job graph under `databricks\video-pipeline`; Bicep owns Azure resources such as the workspace, access connector, lakehouse storage, Service Bus and Function bridge.
 
 ---
 

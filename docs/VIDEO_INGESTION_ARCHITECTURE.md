@@ -20,6 +20,9 @@ It does not attempt to re-document every backend class. For implementation detai
 - Portfolio index: `docs/ARCHITECTURE_PORTFOLIO.md`
 - Technical deep dive: `docs/ARCHITECTURE.md`
 - Runtime orchestration: `backend/tasks/video_tasks.py`
+- Databricks pilot bundle: `databricks\video-pipeline`
+- Dispatch abstraction: `backend\services\video_processing_dispatch_service.py`
+- Dispatch bridge: `backend\functions\video_dispatch_bridge`
 - Upload routes: `backend/api/routes/media_routes.py`, `backend/api/routes/chunked_upload_routes.py`
 
 ![QPrisma video ingestion pipeline diagram](assets/architecture/video-ingestion-pipeline.svg)
@@ -40,8 +43,8 @@ QPrisma extends that baseline with parallel multimodal enrichment, graph indexin
 |---|---|---|
 | Upload | FastAPI + Blob Storage | Raw media is uploaded directly into Azure Blob Storage |
 | Metadata registration | FastAPI + PostgreSQL | Media metadata and initial processing state are recorded |
-| Async dispatch | API + Redis + Celery | A background job is dispatched to the worker tier |
-| Download and extraction | Worker + Blob + FFmpeg/PyAV | The worker downloads the media and extracts frames/audio |
+| Async dispatch | API + dispatch service | The control plane selects Celery fallback or Service Bus/Databricks dispatch |
+| Download and extraction | Worker + Blob + FFmpeg/PyAV, or Databricks pilot | The active data plane reads the durable media asset and extracts/probes content |
 | Visual analysis | Worker + Azure OpenAI Batch | Frames are analyzed for OCR, entities, layout, and actions |
 | Audio analysis | Worker + Whisper + GPT analysis | Audio is transcribed and the transcript is summarized |
 | Semantic indexing | Embedding service + Neo4j | Embeddings and structured nodes are written to the knowledge graph |
@@ -69,20 +72,27 @@ This separation is important when documenting enterprise ingestion systems: raw 
 
 ## 2. Queue-based orchestration
 
-Once the upload is durably registered, the API tier dispatches a Celery job that ultimately runs `process_video_pipeline`.
+Once the upload is durably registered, the API tier delegates to `VideoProcessingDispatchService`. The default backend remains Celery/Redis, but the Databricks pilot can publish the same media handoff as a durable Service Bus message.
 
-The worker tier is the only tier that owns the long-running enrichment path. That design keeps HTTP request latency bounded and allows scaling worker replicas independently from frontend/API replicas.
+The control plane never exposes Databricks credentials to the browser. It still owns authentication, authorization, Blob upload contracts, idempotency and frontend-compatible state. The selected data plane owns the long-running enrichment path, which keeps HTTP request latency bounded and allows heavy processing to scale independently from frontend/API replicas.
 
 ### Key patterns
 
-- queue-based load leveling through Redis-backed Celery
-- background execution in the worker Container App
-- KEDA-driven autoscaling based on queue depth
+- queue-based load leveling through Redis-backed Celery or Azure Service Bus
+- background execution in the worker Container App or Databricks Jobs
+- KEDA-driven autoscaling for the Celery fallback path
 - explicit job progress updates during the pipeline
+- Databricks outbox projection for durable status/result handoff
 
 ### Why this matters
 
 This is one of the clearest examples of the repo applying Azure architecture guidance correctly: user interaction and long-running compute are decoupled by design.
+
+### Databricks pilot dispatch path
+
+When `PROCESSING_BACKEND` is set to `servicebus` or `databricks`, the upload route publishes a dispatch message to the `video-processing` Service Bus queue. The Azure Function bridge consumes the message with managed identity, validates the `source_media` contract, calls Databricks Jobs API `run-now`, and stores the `databricks_run_id` under `media.pipeline_config.dispatch`.
+
+Databricks writes operational records to `${catalog}.${schema}.video_pipeline_events` and frontend-compatible status/result records to `${catalog}.${schema}.video_pipeline_outbox`. A timer-triggered Function polls the outbox through Databricks SQL, applies each event to PostgreSQL, and marks rows consumed only after projection succeeds. If `DATABRICKS_SQL_WAREHOUSE_ID` is not configured, outbox polling is skipped and Celery fallback remains unaffected.
 
 ## 3. Worker orchestration model
 

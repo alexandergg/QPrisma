@@ -29,6 +29,7 @@ from models.benchmark_schemas import (
     BenchmarkStatusItem,
 )
 from services.database_service import get_database_service
+from services.video_processing_dispatch_service import get_video_processing_dispatch_service
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def _dataset_hash(items: Sequence[BenchmarkStatusItem]) -> str:
 
 
 class BenchmarkIngestService:
-    """Coordinate Blob copy + media row creation + Celery dispatch for benchmark media."""
+    """Coordinate Blob copy, media row creation, and configured processing dispatch."""
 
     def __init__(self) -> None:
         self._db = get_database_service()
@@ -138,18 +139,20 @@ class BenchmarkIngestService:
                 )
             raise
 
-        from tasks.video_tasks import process_video_pipeline
-
-        celery_config = {
-            "max_frames": request.max_frames,
-            "custom_prompt": None,
-            "index_graph": True,
-            "preset": request.preset,
-        }
-        async_result = process_video_pipeline.apply_async(
-            args=[media_id, destination_blob_name, celery_config]
+        dispatch_service = get_video_processing_dispatch_service()
+        dispatch_result = await dispatch_service.dispatch_video(
+            media_id=media_id,
+            blob_name=destination_blob_name,
+            user_id=user_id,
+            file_size=file_size,
+            preset=request.preset,
+            max_frames=request.max_frames,
+            pipeline_config={},
+            optimized_pipeline=False,
+            custom_prompt=None,
+            index_graph=True,
         )
-        self._db.update_media(media_id, {"job_id": async_result.id})
+        self._db.update_media(media_id, dispatch_result.media_updates())
 
         return BenchmarkIngestResponse(
             benchmark_name=benchmark_name,
@@ -159,7 +162,7 @@ class BenchmarkIngestService:
             media_id=media_id,
             blob_name=destination_blob_name,
             source_blob_name=request.source_blob_name,
-            job_id=async_result.id,
+            job_id=dispatch_result.job_id,
             processing_status="queued",
             ingest_status="queued",
         )

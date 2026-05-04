@@ -35,6 +35,7 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        GitHub Actions CI/CD                         │
 │  ci.yml → build-and-push.yml → deploy-infra.yml / deploy-app.yml  │
+│                         └→ deploy-function-bridge.yml             │
 └────────────────────────────────┬────────────────────────────────────┘
                                  │
 ┌────────────────────────────────▼────────────────────────────────────┐
@@ -75,6 +76,12 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 │  ┌────────────────────────────────────────────────────────────┐     │
 │  │  Log Analytics Workspace (30-day retention)                │     │
 │  └────────────────────────────────────────────────────────────┘     │
+│                                                                     │
+│  Optional Databricks video pilot (`enableDatabricksPilot`)          │
+│  ┌───────────────┐ ┌──────────────┐ ┌────────────────────────┐     │
+│  │ Databricks    │ │ ADLS Gen2    │ │ Service Bus + Function │     │
+│  │ Workspace     │ │ Lakehouse    │ │ Dispatch Bridge        │     │
+│  └───────────────┘ └──────────────┘ └────────────────────────┘     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -102,7 +109,48 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 | PostgreSQL Flexible Server | Standard_B1ms (Burstable) | North Europe | v16, 32GB auto-grow, 7-day backup |
 | Azure Managed Redis | Balanced_B0 (Enterprise) | West Europe | TLS 1.2+, port 10000, VolatileLRU eviction |
 | Azure Blob Storage | Standard_LRS (Hot) | West Europe | `media` container, CORS, HTTPS-only |
+| ADLS Gen2 Lakehouse Storage | Standard_LRS (Hot) | West Europe | Optional Databricks pilot storage with HNS and `raw`, `bronze`, `silver`, `gold`, `ops`, `checkpoints`, `artifacts` containers |
 | Neo4j Professional | Managed external service | Azure-hosted deployment | Public `neo4j+s://` endpoint, TLS, URI/user/password/database passed from GitHub secrets |
+
+### Databricks Video Pilot
+
+The Databricks pilot is opt-in through `enableDatabricksPilot`. Bicep provisions the Azure-side foundation while Databricks Asset Bundles own inside-workspace jobs and task graphs under `databricks\video-pipeline`.
+
+| Resource | Purpose |
+|---|---|
+| Azure Databricks workspace | Runs the video-processing workflow deployed by the bundle |
+| Databricks access connector | Grants Databricks managed identity access to lakehouse storage and read access to existing upload storage |
+| ADLS Gen2 lakehouse account | Dedicated HNS-enabled storage for medallion data and operational tables |
+| Service Bus queue `video-processing` | Durable dispatch handoff from QPrisma API to the bridge |
+| Azure Function bridge | Consumes dispatch messages, starts Databricks Jobs, and polls the Databricks outbox |
+
+The API control plane keeps `PROCESSING_BACKEND=celery` by default in `dev` for safe fallback. Switching to `servicebus` or `databricks` publishes dispatch payloads to Service Bus instead of invoking Celery directly.
+
+The Function bridge has two triggers:
+
+| Trigger | Function | Responsibility |
+|---|---|---|
+| Service Bus queue | `video_dispatch_bridge` | Validate dispatch payloads and call Databricks Jobs API `run-now` |
+| Timer | `video_outbox_projection` | Poll `${catalog}.${schema}.video_pipeline_outbox` through Databricks SQL and project results into PostgreSQL |
+
+Key configuration is centralized in `infra\main.bicep` and `infra\parameters\dev.bicepparam`:
+
+| Parameter / environment variable | Purpose |
+|---|---|
+| `DATABRICKS_VIDEO_JOB_ID` | Job ID deployed by the Databricks Asset Bundle |
+| `DATABRICKS_SQL_WAREHOUSE_ID` | SQL warehouse used by the outbox projection timer |
+| `DATABRICKS_OUTBOX_CATALOG`, `DATABRICKS_OUTBOX_SCHEMA`, `DATABRICKS_OUTBOX_TABLE` | Outbox table location; defaults are `qprisma_dev.video.video_pipeline_outbox` |
+| `DATABRICKS_OUTBOX_POLL_BATCH_SIZE` | Maximum outbox rows projected per timer invocation |
+| `DATABRICKS_OUTBOX_POLL_SCHEDULE` | NCRONTAB schedule for the projection timer |
+| `DATABRICKS_BRIDGE_AUTH_TYPE` | Databricks auth mode: `oauth_m2m`, `azure_managed_identity`, or temporary `pat` for dev |
+| `DATABRICKS_BRIDGE_CLIENT_ID`, `DATABRICKS_BRIDGE_CLIENT_SECRET`, `DATABRICKS_BRIDGE_TOKEN` | Auth-specific credentials passed through Key Vault references where sensitive |
+
+Known pilot limitations:
+
+- Databricks authentication must still be validated against the real workspace/account configuration.
+- The current Databricks job is an observable minimal job, not the full production video-processing implementation.
+- `databricks bundle validate --target dev` requires the Databricks CLI to be installed and visible on PATH.
+- Celery remains the operational fallback until Databricks cost, duration, status fidelity and retry behavior are accepted.
 
 ### AI Tier
 
