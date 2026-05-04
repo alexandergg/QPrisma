@@ -6,14 +6,25 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from functions.video_dispatch_bridge.contracts import (
     DatabricksStatusEvent,
     PayloadValidationError,
     VideoDispatchPayload,
 )
-from functions.video_dispatch_bridge.databricks_client import DatabricksRunResult
+from functions.video_dispatch_bridge.databricks_client import (
+    DatabricksApiError,
+    DatabricksJobsClient,
+    DatabricksRunResult,
+)
 from functions.video_dispatch_bridge.processor import VideoDispatchBridge
+from functions.video_dispatch_bridge.source_media_stager import (
+    DatabricksSourceMediaStager,
+    SourceMediaStagingError,
+    SourceMediaStagingResult,
+    build_volume_path,
+)
 
 
 def _payload(**overrides):
@@ -45,6 +56,12 @@ def _settings(**overrides):
         "databricks_outbox_schema": "video",
         "databricks_outbox_table": "video_pipeline_outbox",
         "databricks_outbox_poll_batch_size": 10,
+        "databricks_staging_enabled": False,
+        "databricks_source_volume_catalog": "dbw_qprisma_dev",
+        "databricks_source_volume_schema": "video",
+        "databricks_source_volume_name": "source_media",
+        "databricks_source_volume_prefix": "",
+        "azure_storage_managed_identity_client_id": None,
     }
     settings.update(overrides)
     return SimpleNamespace(**settings)
@@ -87,6 +104,7 @@ def test_function_app_imports_from_function_root(monkeypatch):
         "outbox",
         "state_store",
         "databricks_client",
+        "source_media_stager",
         "contracts",
         "settings",
     ]
@@ -130,7 +148,7 @@ def test_video_dispatch_payload_builds_databricks_run_request():
 def test_video_dispatch_payload_accepts_volume_source_media():
     payload = _payload(
         source_media={
-            "volume_path": "/Volumes/dbw_qprisma_dev/video/source_media/source-media/media-1.mp4",
+            "volume_path": "/Volumes/dbw_qprisma_dev/video/source_media/media-1.mp4",
             "auth": {"mode": "managed_identity"},
         }
     )
@@ -141,6 +159,116 @@ def test_video_dispatch_payload_accepts_volume_source_media():
     assert json.loads(request["job_parameters"]["source_media"])["volume_path"].startswith(
         "/Volumes/dbw_qprisma_dev/video/source_media/"
     )
+
+
+def test_video_dispatch_payload_can_be_enriched_with_source_media():
+    payload = VideoDispatchPayload.from_json(json.dumps(_payload()))
+
+    enriched = payload.with_source_media(
+        {
+            **payload.source_media,
+            "volume_path": "/Volumes/dbw_qprisma_dev/video/source_media/media-1.mp4",
+        }
+    )
+
+    assert "volume_path" not in payload.source_media
+    assert enriched.source_media["volume_path"].startswith("/Volumes/dbw_qprisma_dev/")
+
+
+def test_build_volume_path_is_deterministic_and_sanitized():
+    payload = VideoDispatchPayload.from_json(
+        json.dumps(
+            _payload(
+                media_id="media 1",
+                source_media={
+                    "storage_account_url": "https://storage.blob.core.windows.net",
+                    "container_name": "media",
+                    "blob_name": "uploads/raw video!.mp4",
+                    "blob_url": "https://storage.blob.core.windows.net/media/uploads/raw%20video!.mp4",
+                    "auth": {"mode": "managed_identity"},
+                },
+            )
+        )
+    )
+
+    assert (
+        build_volume_path(payload, _settings())
+        == "/Volumes/dbw_qprisma_dev/video/source_media/media_1/raw_video_.mp4"
+    )
+
+
+@pytest.mark.asyncio
+async def test_source_media_stager_uploads_blob_to_volume_path():
+    payload = VideoDispatchPayload.from_json(json.dumps(_payload()))
+    databricks_client = MagicMock()
+    databricks_client.create_directory = AsyncMock()
+    databricks_client.upload_file = AsyncMock()
+
+    class FakeChunkReader:
+        async def chunks(self, source_media):
+            assert source_media["container_name"] == "media"
+            yield b"chunk-1"
+            yield b"chunk-2"
+
+    stager = DatabricksSourceMediaStager(
+        settings=_settings(),
+        databricks_client=databricks_client,
+        chunk_reader=FakeChunkReader(),
+    )
+
+    result = await stager.stage(payload)
+
+    assert result.volume_path == ("/Volumes/dbw_qprisma_dev/video/source_media/media-1/media-1.mp4")
+    databricks_client.create_directory.assert_awaited_once_with(
+        "/Volumes/dbw_qprisma_dev/video/source_media/media-1"
+    )
+    upload_args = databricks_client.upload_file.await_args.args
+    assert upload_args[0] == result.volume_path
+    assert [chunk async for chunk in upload_args[1]] == [b"chunk-1", b"chunk-2"]
+    assert databricks_client.upload_file.await_args.kwargs == {"overwrite": True}
+    assert result.source_media["volume_path"] == result.volume_path
+    assert result.source_media["staging"]["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_source_media_stager_reuses_existing_volume_path_without_upload():
+    payload = VideoDispatchPayload.from_json(json.dumps(_payload()))
+    databricks_client = MagicMock()
+    databricks_client.create_directory = AsyncMock()
+    databricks_client.upload_file = AsyncMock()
+    stager = DatabricksSourceMediaStager(
+        settings=_settings(),
+        databricks_client=databricks_client,
+        chunk_reader=MagicMock(),
+    )
+
+    result = await stager.stage(payload, existing_volume_path="/Volumes/existing/media-1.mp4")
+
+    assert result.volume_path == "/Volumes/existing/media-1.mp4"
+    databricks_client.create_directory.assert_not_called()
+    databricks_client.upload_file.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_source_media_stager_requires_blob_source_fields():
+    payload = VideoDispatchPayload.from_json(
+        json.dumps(
+            _payload(
+                source_media={
+                    "uri": "wasbs://media@storage.blob.core.windows.net/media-1.mp4",
+                    "auth": {"mode": "managed_identity"},
+                }
+            )
+        )
+    )
+    stager = DatabricksSourceMediaStager(
+        settings=_settings(),
+        databricks_client=MagicMock(),
+        chunk_reader=MagicMock(),
+    )
+
+    with pytest.raises(SourceMediaStagingError, match="storage_account_url"):
+        await stager.stage(payload)
 
 
 def test_databricks_status_event_parses_json_payload_fields():
@@ -176,6 +304,110 @@ def test_databricks_status_event_rejects_invalid_progress():
                 }
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_databricks_client_creates_uc_volume_directory_with_encoded_path():
+    requests = []
+
+    async def handler(request):
+        requests.append(request)
+        return httpx.Response(409, text="already exists")
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = DatabricksJobsClient(
+        settings=_settings(
+            databricks_workspace_url="https://example.cloud.databricks.com",
+            databricks_auth_type="pat",
+            databricks_token="token",
+            http_timeout_seconds=5,
+        ),
+        http_client=http_client,
+    )
+
+    try:
+        await client.create_directory("/Volumes/catalog/schema/source_media/media 1")
+    finally:
+        await http_client.aclose()
+
+    assert requests[0].method == "PUT"
+    assert requests[0].url.raw_path.decode() == (
+        "/api/2.0/fs/directories/%2FVolumes%2Fcatalog%2Fschema%2Fsource_media%2F" "media%201"
+    )
+    assert requests[0].headers["authorization"] == "Bearer token"
+
+
+@pytest.mark.asyncio
+async def test_databricks_client_uploads_file_content_to_uc_volume_path():
+    requests = []
+
+    async def handler(request):
+        requests.append(request)
+        content = await request.aread()
+        assert content == b"chunk-1chunk-2"
+        return httpx.Response(200)
+
+    async def chunks():
+        yield b"chunk-1"
+        yield b"chunk-2"
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = DatabricksJobsClient(
+        settings=_settings(
+            databricks_workspace_url="https://example.cloud.databricks.com",
+            databricks_auth_type="pat",
+            databricks_token="token",
+            http_timeout_seconds=5,
+        ),
+        http_client=http_client,
+    )
+
+    try:
+        await client.upload_file(
+            "/Volumes/catalog/schema/source_media/media-1/video.mp4",
+            chunks(),
+            overwrite=True,
+        )
+    finally:
+        await http_client.aclose()
+
+    assert requests[0].method == "PUT"
+    assert requests[0].url.raw_path.decode() == (
+        "/api/2.0/fs/files/%2FVolumes%2Fcatalog%2Fschema%2Fsource_media%2F"
+        "media-1%2Fvideo.mp4?overwrite=true"
+    )
+    assert requests[0].url.params["overwrite"] == "true"
+    assert requests[0].headers["content-type"] == "application/octet-stream"
+
+
+@pytest.mark.asyncio
+async def test_databricks_client_raises_on_uc_volume_upload_failure():
+    async def handler(request):
+        return httpx.Response(403, text="forbidden")
+
+    async def chunks():
+        yield b"content"
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client = DatabricksJobsClient(
+        settings=_settings(
+            databricks_workspace_url="https://example.cloud.databricks.com",
+            databricks_auth_type="pat",
+            databricks_token="token",
+            http_timeout_seconds=5,
+        ),
+        http_client=http_client,
+    )
+
+    try:
+        with pytest.raises(DatabricksApiError, match="file upload failed"):
+            await client.upload_file(
+                "/Volumes/catalog/schema/volume/file.mp4",
+                chunks(),
+                overwrite=True,
+            )
+    finally:
+        await http_client.aclose()
 
 
 @pytest.mark.asyncio
@@ -219,6 +451,104 @@ async def test_bridge_starts_databricks_run_and_updates_state():
     run_request = databricks_client.run_now.await_args.args[0]
     assert run_request["idempotency_token"] == "dbx-dispatch-1"
     state_store.mark_run_started.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_bridge_stages_source_media_before_starting_databricks_run():
+    settings = _settings(databricks_staging_enabled=True)
+    databricks_client = MagicMock()
+    databricks_client.run_now = AsyncMock(return_value=DatabricksRunResult(run_id=789))
+    state_store = MagicMock()
+    state_store.get_existing_run.return_value = None
+    state_store.get_staged_source_media.return_value = None
+    source_media_stager = MagicMock()
+    source_media_stager.stage = AsyncMock(
+        return_value=SourceMediaStagingResult(
+            volume_path="/Volumes/dbw_qprisma_dev/video/source_media/media-1.mp4",
+            source_media={
+                **_payload()["source_media"],
+                "volume_path": "/Volumes/dbw_qprisma_dev/video/source_media/media-1.mp4",
+                "staging": {
+                    "status": "completed",
+                    "volume_path": "/Volumes/dbw_qprisma_dev/video/source_media/media-1.mp4",
+                },
+            },
+        )
+    )
+    bridge = VideoDispatchBridge(
+        settings=settings,
+        databricks_client=databricks_client,
+        state_store=state_store,
+        source_media_stager=source_media_stager,
+    )
+
+    run_id = await bridge.process_message(json.dumps(_payload()))
+
+    assert run_id == 789
+    source_media_stager.stage.assert_awaited_once()
+    state_store.mark_source_media_staged.assert_called_once()
+    run_request = databricks_client.run_now.await_args.args[0]
+    source_media = json.loads(run_request["job_parameters"]["source_media"])
+    assert source_media["volume_path"].startswith("/Volumes/dbw_qprisma_dev/video/source_media/")
+
+
+@pytest.mark.asyncio
+async def test_bridge_passes_existing_staged_volume_path_to_stager():
+    settings = _settings(databricks_staging_enabled=True)
+    databricks_client = MagicMock()
+    databricks_client.run_now = AsyncMock(return_value=DatabricksRunResult(run_id=789))
+    state_store = MagicMock()
+    state_store.get_existing_run.return_value = None
+    state_store.get_staged_source_media.return_value = SimpleNamespace(
+        volume_path="/Volumes/existing/media-1.mp4"
+    )
+    source_media_stager = MagicMock()
+    source_media_stager.stage = AsyncMock(
+        return_value=SourceMediaStagingResult(
+            volume_path="/Volumes/existing/media-1.mp4",
+            source_media={
+                **_payload()["source_media"],
+                "volume_path": "/Volumes/existing/media-1.mp4",
+            },
+        )
+    )
+    bridge = VideoDispatchBridge(
+        settings=settings,
+        databricks_client=databricks_client,
+        state_store=state_store,
+        source_media_stager=source_media_stager,
+    )
+
+    await bridge.process_message(json.dumps(_payload()))
+
+    assert source_media_stager.stage.await_args.kwargs == {
+        "existing_volume_path": "/Volumes/existing/media-1.mp4"
+    }
+
+
+@pytest.mark.asyncio
+async def test_bridge_does_not_start_run_when_source_media_staging_fails():
+    settings = _settings(databricks_staging_enabled=True)
+    databricks_client = MagicMock()
+    databricks_client.run_now = AsyncMock()
+    state_store = MagicMock()
+    state_store.get_existing_run.return_value = None
+    state_store.get_staged_source_media.return_value = None
+    source_media_stager = MagicMock()
+    source_media_stager.stage = AsyncMock(side_effect=SourceMediaStagingError("cannot stage"))
+    bridge = VideoDispatchBridge(
+        settings=settings,
+        databricks_client=databricks_client,
+        state_store=state_store,
+        source_media_stager=source_media_stager,
+    )
+
+    with pytest.raises(SourceMediaStagingError, match="cannot stage"):
+        await bridge.process_message(json.dumps(_payload()))
+
+    databricks_client.run_now.assert_not_called()
+    state_store.mark_source_media_staged.assert_not_called()
+    state_store.mark_run_started.assert_not_called()
 
 
 def test_bridge_projects_databricks_status_event():

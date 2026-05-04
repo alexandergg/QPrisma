@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -73,6 +75,34 @@ class DatabricksJobsClient:
 
         return await self._post_sql_statement(self._http_client, token, request_body)
 
+    async def create_directory(self, directory_path: str) -> None:
+        token = await self._get_access_token()
+        encoded_path = _encode_files_api_path(directory_path)
+
+        if self._http_client is None:
+            async with httpx.AsyncClient(timeout=self._settings.http_timeout_seconds) as client:
+                await self._put_directory(client, token, encoded_path)
+                return
+
+        await self._put_directory(self._http_client, token, encoded_path)
+
+    async def upload_file(
+        self,
+        file_path: str,
+        content: AsyncIterator[bytes],
+        *,
+        overwrite: bool,
+    ) -> None:
+        token = await self._get_access_token()
+        encoded_path = _encode_files_api_path(file_path)
+
+        if self._http_client is None:
+            async with httpx.AsyncClient(timeout=self._settings.http_timeout_seconds) as client:
+                await self._put_file(client, token, encoded_path, content, overwrite=overwrite)
+                return
+
+        await self._put_file(self._http_client, token, encoded_path, content, overwrite=overwrite)
+
     async def _post_run_now(
         self,
         client: httpx.AsyncClient,
@@ -99,6 +129,44 @@ class DatabricksJobsClient:
             run_id=run_id,
             number_in_job=number_in_job if isinstance(number_in_job, int) else None,
         )
+
+    async def _put_directory(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+        encoded_path: str,
+    ) -> None:
+        response = await client.put(
+            f"{self._workspace_url}/api/2.0/fs/directories/{encoded_path}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if response.status_code >= 400 and response.status_code != 409:
+            raise DatabricksApiError(
+                f"Databricks directory creation failed with status {response.status_code}: {response.text}"
+            )
+
+    async def _put_file(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+        encoded_path: str,
+        content: AsyncIterator[bytes],
+        *,
+        overwrite: bool,
+    ) -> None:
+        response = await client.put(
+            f"{self._workspace_url}/api/2.0/fs/files/{encoded_path}",
+            params={"overwrite": str(overwrite).lower()},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/octet-stream",
+            },
+            content=content,
+        )
+        if response.status_code >= 400:
+            raise DatabricksApiError(
+                f"Databricks file upload failed with status {response.status_code}: {response.text}"
+            )
 
     async def _post_sql_statement(
         self,
@@ -227,3 +295,10 @@ class DatabricksJobsClient:
         async with DefaultAzureCredential(**credential_kwargs) as credential:
             token = await credential.get_token("2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default")
         return token.token
+
+
+def _encode_files_api_path(path: str) -> str:
+    normalized_path = path.strip()
+    if not normalized_path.startswith("/"):
+        normalized_path = f"/{normalized_path}"
+    return quote(normalized_path, safe="")

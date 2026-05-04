@@ -47,6 +47,21 @@ param databricksOutboxTable string = 'video_pipeline_outbox'
 @minValue(1)
 param databricksOutboxPollBatchSize int = 25
 
+@description('Enable source media staging from upload Blob storage into the Unity Catalog volume before starting Databricks Jobs')
+param databricksStagingEnabled bool = true
+
+@description('Unity Catalog catalog that contains the managed source media volume')
+param databricksSourceVolumeCatalog string = 'dbw_qprisma_dev'
+
+@description('Unity Catalog schema that contains the managed source media volume')
+param databricksSourceVolumeSchema string = 'video'
+
+@description('Unity Catalog managed volume name used for source media staging')
+param databricksSourceVolumeName string = 'source_media'
+
+@description('Path prefix inside the managed source media volume for staged uploads')
+param databricksSourceVolumePrefix string = ''
+
 @description('NCRONTAB schedule for the Databricks outbox projection timer')
 param outboxPollSchedule string = '0 */5 * * * *'
 
@@ -246,6 +261,30 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
         {
           name: 'DATABRICKS_OUTBOX_POLL_BATCH_SIZE'
           value: string(databricksOutboxPollBatchSize)
+        }
+        {
+          name: 'DATABRICKS_STAGING_ENABLED'
+          value: string(databricksStagingEnabled)
+        }
+        {
+          name: 'DATABRICKS_SOURCE_VOLUME_CATALOG'
+          value: databricksSourceVolumeCatalog
+        }
+        {
+          name: 'DATABRICKS_SOURCE_VOLUME_SCHEMA'
+          value: databricksSourceVolumeSchema
+        }
+        {
+          name: 'DATABRICKS_SOURCE_VOLUME_NAME'
+          value: databricksSourceVolumeName
+        }
+        {
+          name: 'DATABRICKS_SOURCE_VOLUME_PREFIX'
+          value: databricksSourceVolumePrefix
+        }
+        {
+          name: 'AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID'
+          value: runtimeIdentityClientId
         }
         {
           name: 'OutboxPollSchedule'

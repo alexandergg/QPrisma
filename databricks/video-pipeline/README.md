@@ -26,12 +26,25 @@ The bridge Function invokes this job through Databricks Jobs API `run-now` with 
 
 | Field | Use |
 |---|---|
-| `volume_path` | Preferred path for the current pilot. Use a logical Unity Catalog volume path such as `/Volumes/dbw_qprisma_dev/video/source_media/source-media/<media-id>.mp4`. |
+| `volume_path` | Preferred path for the current pilot. The Azure Function bridge stages uploaded Blob media into the managed Unity Catalog volume and passes a logical path such as `/Volumes/dbw_qprisma_dev/video/source_media/<media-id>/<file-name>.mp4`. |
 | `uri` | Explicit source URI. Supported values are `/Volumes/...`, `dbfs:/Volumes/...`, `abfss://...`, or `wasbs://...`. |
 | `abfss_uri` / `wasbs_uri` | Explicit storage URI when Databricks has a valid UC external location or Hadoop credential for that path. |
 | `container_name`, `blob_name`, `storage_account_url` | Fallback contract used by the control plane; the notebook derives `abfss://` for HNS accounts or `wasbs://` for Blob accounts. |
 
-For `dev`, the validated source path is the managed Unity Catalog volume `dbw_qprisma_dev.video.source_media`. The original upload account `stqprismadev` is Blob/non-HNS, so it cannot be registered directly as a Unity Catalog external location. Stage Databricks-bound pilot media into the managed volume and pass `source_media.volume_path`; do not pass the physical `abfss://.../__unitystorage/...` backing URI because Unity Catalog rejects reads that overlap managed storage internals.
+For `dev`, the validated source path is the managed Unity Catalog volume `dbw_qprisma_dev.video.source_media`. The original upload account `stqprismadev` is Blob/non-HNS, so it cannot be registered directly as a Unity Catalog external location. The Function bridge now performs this staging automatically before invoking `jobs/run-now`: it reads the upload Blob with managed identity, writes it to the UC volume through Databricks Files API, persists `pipeline_config.dispatch.source_media.volume_path`, and only then starts the processing job. Do not pass or persist physical `abfss://.../__unitystorage/...` backing URIs because Unity Catalog rejects reads that overlap managed storage internals.
+
+The bridge staging settings are deployed as Function App settings:
+
+| Setting | Purpose |
+|---|---|
+| `DATABRICKS_STAGING_ENABLED` | Enables Blob-to-UC-volume staging before Databricks processing. Default: `true`. |
+| `DATABRICKS_SOURCE_VOLUME_CATALOG` | Catalog containing the managed source media volume. Default: `dbw_qprisma_dev`. |
+| `DATABRICKS_SOURCE_VOLUME_SCHEMA` | Schema containing the managed source media volume. Default: `video`. |
+| `DATABRICKS_SOURCE_VOLUME_NAME` | Managed volume used for staged uploads. Default: `source_media`. |
+| `DATABRICKS_SOURCE_VOLUME_PREFIX` | Optional prefix inside the volume for staged source media. Default: empty. |
+| `AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID` | Managed identity client ID used by the bridge when reading the original upload Blob. |
+
+The bridge identity also needs `Storage Blob Data Reader` on the upload storage account and Databricks permissions to write files into the target UC volume.
 
 The local shell must be able to resolve `databricks`. If validation fails with `databricks` not found, refresh the shell/PATH or provide the explicit Databricks CLI installation path before deploying the bundle.
 

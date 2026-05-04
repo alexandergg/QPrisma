@@ -87,6 +87,18 @@ class VideoDispatchPayload:
             },
         }
 
+    def with_source_media(self, source_media: dict[str, Any]) -> VideoDispatchPayload:
+        return VideoDispatchPayload(
+            schema_version=self.schema_version,
+            dispatch_id=self.dispatch_id,
+            media_id=self.media_id,
+            blob_name=self.blob_name,
+            source_media=source_media,
+            user_id=self.user_id,
+            pipeline_config=self.pipeline_config,
+            databricks=self.databricks,
+        )
+
 
 @dataclass(frozen=True)
 class DatabricksStatusEvent:

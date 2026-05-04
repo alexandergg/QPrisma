@@ -104,6 +104,21 @@ param databricksOutboxTable string = 'video_pipeline_outbox'
 @minValue(1)
 param databricksOutboxPollBatchSize int = 25
 
+@description('Enable source media staging from upload Blob storage into the managed Unity Catalog volume before Databricks processing')
+param databricksStagingEnabled bool = true
+
+@description('Unity Catalog catalog that contains the managed source media staging volume')
+param databricksSourceVolumeCatalog string = 'dbw_qprisma_dev'
+
+@description('Unity Catalog schema that contains the managed source media staging volume')
+param databricksSourceVolumeSchema string = 'video'
+
+@description('Unity Catalog managed volume name for source media staging')
+param databricksSourceVolumeName string = 'source_media'
+
+@description('Path prefix inside the Unity Catalog managed source media volume')
+param databricksSourceVolumePrefix string = ''
+
 @description('NCRONTAB schedule for the Databricks outbox projection timer')
 param databricksOutboxPollSchedule string = '0 */5 * * * *'
 
@@ -330,6 +345,19 @@ resource existingStorage 'Microsoft.Storage/storageAccounts@2023-05-01' existing
   name: storageAccountName
 }
 
+resource databricksBridgeUploadStorageReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableDatabricksPilot && enableDatabricksDispatchBridge) {
+  name: guid(existingStorage.id, databricksBridgeIdentity!.name, 'blob-data-reader')
+  scope: existingStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+    )
+    principalId: databricksBridgeIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 resource existingRedis 'Microsoft.Cache/redisEnterprise@2025-04-01' existing = {
   name: redisName
 }
@@ -465,6 +493,11 @@ module databricksDispatchBridge 'modules/function-app-bridge.bicep' = if (enable
     databricksOutboxSchema: databricksOutboxSchema
     databricksOutboxTable: databricksOutboxTable
     databricksOutboxPollBatchSize: databricksOutboxPollBatchSize
+    databricksStagingEnabled: databricksStagingEnabled
+    databricksSourceVolumeCatalog: databricksSourceVolumeCatalog
+    databricksSourceVolumeSchema: databricksSourceVolumeSchema
+    databricksSourceVolumeName: databricksSourceVolumeName
+    databricksSourceVolumePrefix: databricksSourceVolumePrefix
     outboxPollSchedule: databricksOutboxPollSchedule
     databricksAuthType: databricksBridgeAuthType
     databricksClientId: databricksBridgeClientId
@@ -478,6 +511,7 @@ module databricksDispatchBridge 'modules/function-app-bridge.bicep' = if (enable
     databaseUrlSecret
     databricksBridgeClientSecretSecret
     databricksBridgeTokenSecret
+    databricksBridgeUploadStorageReaderRole
   ]
 }
 
