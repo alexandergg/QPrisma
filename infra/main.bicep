@@ -168,7 +168,7 @@ var databricksWorkspaceName = 'dbw-qprisma-${environment}'
 var databricksManagedResourceGroupName = 'rg-qprisma-${environment}-databricks-managed'
 var databricksAccessConnectorName = 'dbc-qprisma-${environment}'
 var serviceBusNamespaceName = 'sb-qprisma-${environment}'
-var databricksBridgeFunctionAppName = 'func-qprisma-dbx-bridge-${environment}'
+var databricksBridgeFunctionAppName = 'func-qprisma-dbx-bridge-flex-${environment}'
 var databricksBridgeFunctionPlanName = 'asp-qprisma-dbx-bridge-flex-${environment}'
 var databricksBridgeFunctionStorageName = 'stqprismadbxfn${environment}'
 

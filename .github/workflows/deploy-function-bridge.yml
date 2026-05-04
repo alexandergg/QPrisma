@@ -11,7 +11,7 @@ on:
       function_app_name:
         description: 'Azure Function App name'
         required: false
-        default: 'func-qprisma-dbx-bridge-dev'
+        default: 'func-qprisma-dbx-bridge-flex-dev'
         type: string
 
 permissions:
@@ -43,7 +43,7 @@ jobs:
           INPUT_FUNCTION_APP_NAME: ${{ inputs.function_app_name }}
           VAR_FUNCTION_APP_NAME: ${{ vars.DATABRICKS_BRIDGE_FUNCTION_APP_NAME }}
         run: |
-          FUNCTION_APP_NAME="${INPUT_FUNCTION_APP_NAME:-${VAR_FUNCTION_APP_NAME:-func-qprisma-dbx-bridge-dev}}"
+          FUNCTION_APP_NAME="${INPUT_FUNCTION_APP_NAME:-${VAR_FUNCTION_APP_NAME:-func-qprisma-dbx-bridge-flex-dev}}"
           if [ -z "$FUNCTION_APP_NAME" ]; then
             echo "::error::Function App name could not be resolved"
             exit 1
@@ -96,6 +96,48 @@ jobs:
           az rest \
             --method post \
             --url "$SYNC_TRIGGER_URL"
+
+      - name: Clean up legacy Linux Consumption Function bridge
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          TARGET_FUNCTION_APP: ${{ steps.function-app.outputs.name }}
+          LEGACY_FUNCTION_APP: func-qprisma-dbx-bridge-dev
+          LEGACY_PLAN_NAME: asp-qprisma-dbx-bridge-dev
+        run: |
+          if [ "$TARGET_FUNCTION_APP" = "$LEGACY_FUNCTION_APP" ]; then
+            echo "Target Function App is the legacy app; skipping legacy cleanup."
+            exit 0
+          fi
+
+          if az functionapp show --name "$LEGACY_FUNCTION_APP" --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+            echo "Deleting legacy Function App: $LEGACY_FUNCTION_APP"
+            az functionapp delete \
+              --name "$LEGACY_FUNCTION_APP" \
+              --resource-group "$RESOURCE_GROUP"
+          else
+            echo "No legacy Function App found."
+          fi
+
+          if az appservice plan show --name "$LEGACY_PLAN_NAME" --resource-group "$RESOURCE_GROUP" --output none 2>/dev/null; then
+            ATTACHED_SITES="$(az resource list \
+              --resource-group "$RESOURCE_GROUP" \
+              --resource-type Microsoft.Web/sites \
+              --query "[?contains(properties.serverFarmId, '/serverfarms/${LEGACY_PLAN_NAME}')].name" \
+              -o tsv)"
+
+            if [ -z "$ATTACHED_SITES" ]; then
+              echo "Deleting legacy App Service Plan: $LEGACY_PLAN_NAME"
+              az appservice plan delete \
+                --name "$LEGACY_PLAN_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --yes
+            else
+              echo "Legacy App Service Plan still has attached sites; skipping deletion:"
+              echo "$ATTACHED_SITES"
+            fi
+          else
+            echo "No legacy App Service Plan found."
+          fi
 
       - name: Deployment summary
         run: |
