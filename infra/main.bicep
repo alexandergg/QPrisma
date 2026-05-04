@@ -169,7 +169,7 @@ var databricksManagedResourceGroupName = 'rg-qprisma-${environment}-databricks-m
 var databricksAccessConnectorName = 'dbc-qprisma-${environment}'
 var serviceBusNamespaceName = 'sb-qprisma-${environment}'
 var databricksBridgeFunctionAppName = 'func-qprisma-dbx-bridge-${environment}'
-var databricksBridgeFunctionPlanName = 'asp-qprisma-dbx-bridge-${environment}'
+var databricksBridgeFunctionPlanName = 'asp-qprisma-dbx-bridge-flex-${environment}'
 var databricksBridgeFunctionStorageName = 'stqprismadbxfn${environment}'
 
 // Compute defaultcontainer images from ACR (used when image params are empty)
