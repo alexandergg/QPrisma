@@ -81,8 +81,10 @@ param tags object = {}
 var functionIdentity = {
   '${runtimeIdentityResourceId}': {}
 }
-
-var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${functionStorage.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${functionStorage.listKeys().keys[0].value}'
+var deploymentStorageContainerName = 'app-package-${take(name, 32)}'
+var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+var storageQueueDataContributorRoleId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+var storageTableDataContributorRoleId = '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
 
 resource functionStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
@@ -94,25 +96,73 @@ resource functionStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   kind: 'StorageV2'
   properties: {
     allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
   }
 }
 
-resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
+resource functionBlobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
+  parent: functionStorage
+  name: 'default'
+  properties: {
+    deleteRetentionPolicy: {}
+  }
+}
+
+resource deploymentStorageContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: functionBlobService
+  name: deploymentStorageContainerName
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+resource functionStorageBlobOwnerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(functionStorage.id, runtimeIdentityPrincipalId, storageBlobDataOwnerRoleId)
+  scope: functionStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
+    principalId: runtimeIdentityPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource functionStorageQueueContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(functionStorage.id, runtimeIdentityPrincipalId, storageQueueDataContributorRoleId)
+  scope: functionStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageQueueDataContributorRoleId)
+    principalId: runtimeIdentityPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource functionStorageTableContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(functionStorage.id, runtimeIdentityPrincipalId, storageTableDataContributorRoleId)
+  scope: functionStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageTableDataContributorRoleId)
+    principalId: runtimeIdentityPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: planName
   location: location
   tags: tags
+  kind: 'functionapp'
   sku: {
-    name: 'Y1'
-    tier: 'Dynamic'
+    name: 'FC1'
+    tier: 'FlexConsumption'
   }
   properties: {
     reserved: true
   }
 }
 
-resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
+resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
   name: name
   location: location
   tags: tags
@@ -126,13 +176,20 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
     httpsOnly: true
     keyVaultReferenceIdentity: runtimeIdentityResourceId
     siteConfig: {
-      linuxFxVersion: 'Python|3.11'
       ftpsState: 'Disabled'
       minTlsVersion: '1.2'
       appSettings: [
         {
-          name: 'AzureWebJobsStorage'
-          value: storageConnectionString
+          name: 'AzureWebJobsStorage__accountName'
+          value: functionStorage.name
+        }
+        {
+          name: 'AzureWebJobsStorage__credential'
+          value: 'managedidentity'
+        }
+        {
+          name: 'AzureWebJobsStorage__clientId'
+          value: runtimeIdentityClientId
         }
         {
           name: 'FUNCTIONS_EXTENSION_VERSION'
@@ -141,6 +198,10 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'FUNCTIONS_WORKER_RUNTIME'
           value: 'python'
+        }
+        {
+          name: 'AzureWebJobsFeatureFlags'
+          value: 'EnableWorkerIndexing'
         }
         {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
@@ -224,7 +285,32 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         }
       ]
     }
+    functionAppConfig: {
+      deployment: {
+        storage: {
+          type: 'blobContainer'
+          value: '${functionStorage.properties.primaryEndpoints.blob}${deploymentStorageContainer.name}'
+          authentication: {
+            type: 'UserAssignedIdentity'
+            userAssignedIdentityResourceId: runtimeIdentityResourceId
+          }
+        }
+      }
+      runtime: {
+        name: 'python'
+        version: '3.11'
+      }
+      scaleAndConcurrency: {
+        maximumInstanceCount: 40
+        instanceMemoryMB: 2048
+      }
+    }
   }
+  dependsOn: [
+    functionStorageBlobOwnerRole
+    functionStorageQueueContributorRole
+    functionStorageTableContributorRole
+  ]
 }
 
 output id string = functionApp.id

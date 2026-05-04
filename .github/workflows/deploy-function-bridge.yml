@@ -64,6 +64,14 @@ jobs:
           test -f requirements.txt
           python -m compileall . -q
 
+      - name: Install Function dependencies
+        working-directory: backend/functions/video_dispatch_bridge
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            --target ".python_packages/lib/site-packages" \
+            --requirement requirements.txt
+
       - name: Build deployment zip
         working-directory: backend/functions/video_dispatch_bridge
         run: |
@@ -79,7 +87,8 @@ jobs:
           az functionapp deployment source config-zip \
             --name "${{ steps.function-app.outputs.name }}" \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --src "$RUNNER_TEMP/video-dispatch-bridge.zip"
+            --src "$RUNNER_TEMP/video-dispatch-bridge.zip" \
+            --build-remote true
 
       - name: Sync triggers
         run: |
