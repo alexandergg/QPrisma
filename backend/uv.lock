@@ -3771,6 +3771,7 @@ source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk", extra = ["http-server"] },
     { name = "aiofiles" },
+    { name = "aiohttp" },
     { name = "av" },
     { name = "azure-ai-agents" },
     { name = "azure-ai-projects" },
@@ -3847,6 +3848,7 @@ dev = [
 requires-dist = [
     { name = "a2a-sdk", extras = ["http-server"], specifier = ">=0.3.22,<1.0.0" },
     { name = "aiofiles", specifier = ">=24.1.0,<25.0.0" },
+    { name = "aiohttp", specifier = ">=3.13.0,<4.0.0" },
     { name = "av", specifier = ">=16.0.0,<17.0.0" },
     { name = "azure-ai-agents", specifier = ">=1.0.0" },
     { name = "azure-ai-agentserver-core", marker = "extra == 'hosted'", specifier = ">=2.0.0b3" },
