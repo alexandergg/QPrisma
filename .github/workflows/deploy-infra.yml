@@ -220,7 +220,7 @@ jobs:
               workflow_id: 'deploy-function-bridge.yml',
               ref: 'main',
               inputs: {
-                function_app_name: "${{ vars.DATABRICKS_BRIDGE_FUNCTION_APP_NAME || 'func-qprisma-dbx-bridge-dev' }}"
+                function_app_name: "${{ vars.DATABRICKS_BRIDGE_FUNCTION_APP_NAME || 'func-qprisma-dbx-bridge-flex-dev' }}"
               }
             });
             console.log('Triggered deploy-function-bridge.yml for the Databricks dispatch bridge');
