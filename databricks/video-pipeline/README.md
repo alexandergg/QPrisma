@@ -22,7 +22,16 @@ databricks bundle deploy --target dev
 databricks bundle run video_processing --target dev
 ```
 
-The bridge Function invokes this job through Databricks Jobs API `run-now` with `job_parameters`. The `source_media` parameter is a JSON object produced by QPrisma's control plane and must describe a managed-identity-readable source blob.
+The bridge Function invokes this job through Databricks Jobs API `run-now` with `job_parameters`. The `source_media` parameter is a JSON object produced by QPrisma's control plane and must describe media that Databricks compute can read. The notebook accepts these source forms, in priority order:
+
+| Field | Use |
+|---|---|
+| `volume_path` | Preferred path for the current pilot. Use a logical Unity Catalog volume path such as `/Volumes/dbw_qprisma_dev/video/source_media/source-media/<media-id>.mp4`. |
+| `uri` | Explicit source URI. Supported values are `/Volumes/...`, `dbfs:/Volumes/...`, `abfss://...`, or `wasbs://...`. |
+| `abfss_uri` / `wasbs_uri` | Explicit storage URI when Databricks has a valid UC external location or Hadoop credential for that path. |
+| `container_name`, `blob_name`, `storage_account_url` | Fallback contract used by the control plane; the notebook derives `abfss://` for HNS accounts or `wasbs://` for Blob accounts. |
+
+For `dev`, the validated source path is the managed Unity Catalog volume `dbw_qprisma_dev.video.source_media`. The original upload account `stqprismadev` is Blob/non-HNS, so it cannot be registered directly as a Unity Catalog external location. Stage Databricks-bound pilot media into the managed volume and pass `source_media.volume_path`; do not pass the physical `abfss://.../__unitystorage/...` backing URI because Unity Catalog rejects reads that overlap managed storage internals.
 
 The local shell must be able to resolve `databricks`. If validation fails with `databricks` not found, refresh the shell/PATH or provide the explicit Databricks CLI installation path before deploying the bundle.
 
@@ -45,7 +54,7 @@ The projector is configured by Bicep through these Function App settings:
 | Setting | Purpose |
 |---|---|
 | `DATABRICKS_SQL_WAREHOUSE_ID` | SQL warehouse used for Statement Execution polling. If empty, polling is skipped. |
-| `DATABRICKS_OUTBOX_CATALOG` | Catalog that contains the outbox table. Default: `qprisma_dev`. |
+| `DATABRICKS_OUTBOX_CATALOG` | Catalog that contains the outbox table. Default: `dbw_qprisma_dev`. |
 | `DATABRICKS_OUTBOX_SCHEMA` | Schema that contains the outbox table. Default: `video`. |
 | `DATABRICKS_OUTBOX_TABLE` | Outbox table name. Default: `video_pipeline_outbox`. |
 | `DATABRICKS_OUTBOX_POLL_BATCH_SIZE` | Maximum rows projected per timer invocation. Default: `25`. |

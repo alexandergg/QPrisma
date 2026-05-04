@@ -121,6 +121,7 @@ The Databricks pilot is opt-in through `enableDatabricksPilot`. Bicep provisions
 | Azure Databricks workspace | Runs the video-processing workflow deployed by the bundle |
 | Databricks access connector | Grants Databricks managed identity access to lakehouse storage and read access to existing upload storage |
 | ADLS Gen2 lakehouse account | Dedicated HNS-enabled storage for medallion data and operational tables |
+| Unity Catalog volume `dbw_qprisma_dev.video.source_media` | Managed staging location for source videos that Databricks can read through logical `/Volumes/...` paths |
 | Service Bus queue `video-processing` | Durable dispatch handoff from QPrisma API to the bridge |
 | Azure Function bridge | Consumes dispatch messages, starts Databricks Jobs, and polls the Databricks outbox |
 
@@ -139,7 +140,7 @@ Key configuration is centralized in `infra\main.bicep` and `infra\parameters\dev
 |---|---|
 | `DATABRICKS_VIDEO_JOB_ID` | Job ID deployed by the Databricks Asset Bundle |
 | `DATABRICKS_SQL_WAREHOUSE_ID` | SQL warehouse used by the outbox projection timer |
-| `DATABRICKS_OUTBOX_CATALOG`, `DATABRICKS_OUTBOX_SCHEMA`, `DATABRICKS_OUTBOX_TABLE` | Outbox table location; defaults are `qprisma_dev.video.video_pipeline_outbox` |
+| `DATABRICKS_OUTBOX_CATALOG`, `DATABRICKS_OUTBOX_SCHEMA`, `DATABRICKS_OUTBOX_TABLE` | Outbox table location; defaults are `dbw_qprisma_dev.video.video_pipeline_outbox` |
 | `DATABRICKS_OUTBOX_POLL_BATCH_SIZE` | Maximum outbox rows projected per timer invocation |
 | `DATABRICKS_OUTBOX_POLL_SCHEDULE` | NCRONTAB schedule for the projection timer |
 | `DATABRICKS_BRIDGE_AUTH_TYPE` | Databricks auth mode: `oauth_m2m`, `azure_managed_identity`, or temporary `pat` for dev |
@@ -147,8 +148,9 @@ Key configuration is centralized in `infra\main.bicep` and `infra\parameters\dev
 
 Known pilot limitations:
 
-- Databricks authentication must still be validated against the real workspace/account configuration.
 - The current Databricks job is an observable minimal job, not the full production video-processing implementation.
+- The QPrisma upload account `stqprismadev` is Blob/non-HNS and cannot be registered directly as a Unity Catalog external location. For the current `dev` pilot, stage Databricks-bound media into the managed Unity Catalog volume and pass `source_media.volume_path` using a logical `/Volumes/dbw_qprisma_dev/video/source_media/...` path.
+- The lakehouse `raw` container is HNS-enabled, but external-location access requires a storage credential that is not restricted to Databricks-managed storage paths.
 - `databricks bundle validate --target dev` requires the Databricks CLI to be installed and visible on PATH.
 - Celery remains the operational fallback until Databricks cost, duration, status fidelity and retry behavior are accepted.
 

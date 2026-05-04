@@ -147,14 +147,19 @@ class DatabricksStatusEvent:
 
 
 def _require_source_media(source_media: dict[str, Any]) -> None:
-    required = ("storage_account_url", "container_name", "blob_name", "blob_url")
-    missing = [
-        field
-        for field in required
-        if not isinstance(source_media.get(field), str) or not source_media[field].strip()
-    ]
-    if missing:
-        raise PayloadValidationError(f"Missing source_media fields: {', '.join(missing)}")
+    has_explicit_path = any(
+        isinstance(source_media.get(field), str) and source_media[field].strip()
+        for field in ("volume_path", "uri", "abfss_uri", "wasbs_uri")
+    )
+    if not has_explicit_path:
+        required = ("storage_account_url", "container_name", "blob_name", "blob_url")
+        missing = [
+            field
+            for field in required
+            if not isinstance(source_media.get(field), str) or not source_media[field].strip()
+        ]
+        if missing:
+            raise PayloadValidationError(f"Missing source_media fields: {', '.join(missing)}")
 
     auth = source_media.get("auth")
     if not isinstance(auth, dict) or auth.get("mode") != "managed_identity":

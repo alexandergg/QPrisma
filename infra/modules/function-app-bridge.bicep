@@ -35,7 +35,7 @@ param databricksVideoJobId string
 param databricksSqlWarehouseId string = ''
 
 @description('Databricks catalog that contains the video pipeline outbox table')
-param databricksOutboxCatalog string = 'qprisma_dev'
+param databricksOutboxCatalog string = 'dbw_qprisma_dev'
 
 @description('Databricks schema that contains the video pipeline outbox table')
 param databricksOutboxSchema string = 'video'

@@ -41,7 +41,7 @@ def _settings(**overrides):
     settings = {
         "databricks_video_job_id": "123",
         "databricks_sql_warehouse_id": "warehouse-1",
-        "databricks_outbox_catalog": "qprisma_dev",
+        "databricks_outbox_catalog": "dbw_qprisma_dev",
         "databricks_outbox_schema": "video",
         "databricks_outbox_table": "video_pipeline_outbox",
         "databricks_outbox_poll_batch_size": 10,
@@ -125,6 +125,22 @@ def test_video_dispatch_payload_builds_databricks_run_request():
     assert request["idempotency_token"] == "dbx-dispatch-1"
     assert request["job_parameters"]["media_id"] == "media-1"
     assert json.loads(request["job_parameters"]["source_media"])["container_name"] == "media"
+
+
+def test_video_dispatch_payload_accepts_volume_source_media():
+    payload = _payload(
+        source_media={
+            "volume_path": "/Volumes/dbw_qprisma_dev/video/source_media/source-media/media-1.mp4",
+            "auth": {"mode": "managed_identity"},
+        }
+    )
+
+    parsed = VideoDispatchPayload.from_json(json.dumps(payload))
+    request = parsed.databricks_parameters(default_job_id="")
+
+    assert json.loads(request["job_parameters"]["source_media"])["volume_path"].startswith(
+        "/Volumes/dbw_qprisma_dev/video/source_media/"
+    )
 
 
 def test_databricks_status_event_parses_json_payload_fields():
@@ -271,7 +287,7 @@ async def test_bridge_polls_databricks_outbox_and_marks_consumed_after_projectio
     assert projected_event.media_id == "media-1"
     assert projected_event.processing_result["backend"] == "databricks"
     update_statement = databricks_client.execute_sql_statement.await_args_list[1].args[0]
-    assert "UPDATE `qprisma_dev`.`video`.`video_pipeline_outbox`" in update_statement
+    assert "UPDATE `dbw_qprisma_dev`.`video`.`video_pipeline_outbox`" in update_statement
     assert "outbox-1" in update_statement
 
 
