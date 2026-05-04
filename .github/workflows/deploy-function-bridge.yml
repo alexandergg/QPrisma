@@ -87,8 +87,7 @@ jobs:
           az functionapp deployment source config-zip \
             --name "${{ steps.function-app.outputs.name }}" \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --src "$RUNNER_TEMP/video-dispatch-bridge.zip" \
-            --build-remote true
+            --src "$RUNNER_TEMP/video-dispatch-bridge.zip"
 
       - name: Sync triggers
         run: |
