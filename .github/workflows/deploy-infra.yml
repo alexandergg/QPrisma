@@ -21,6 +21,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: dev
+    env:
+      DATABRICKS_VIDEO_JOB_ID: ${{ vars.DATABRICKS_VIDEO_JOB_ID || '' }}
+      DATABRICKS_SQL_WAREHOUSE_ID: ${{ vars.DATABRICKS_SQL_WAREHOUSE_ID || '' }}
+      DATABRICKS_OUTBOX_CATALOG: ${{ vars.DATABRICKS_OUTBOX_CATALOG || 'qprisma_dev' }}
+      DATABRICKS_OUTBOX_SCHEMA: ${{ vars.DATABRICKS_OUTBOX_SCHEMA || 'video' }}
+      DATABRICKS_OUTBOX_TABLE: ${{ vars.DATABRICKS_OUTBOX_TABLE || 'video_pipeline_outbox' }}
+      DATABRICKS_OUTBOX_POLL_BATCH_SIZE: ${{ vars.DATABRICKS_OUTBOX_POLL_BATCH_SIZE || '25' }}
+      DATABRICKS_OUTBOX_POLL_SCHEDULE: ${{ vars.DATABRICKS_OUTBOX_POLL_SCHEDULE || '0 */5 * * * *' }}
+      DATABRICKS_BRIDGE_AUTH_TYPE: ${{ vars.DATABRICKS_BRIDGE_AUTH_TYPE || 'oauth_m2m' }}
+      DATABRICKS_BRIDGE_CLIENT_ID: ${{ vars.DATABRICKS_BRIDGE_CLIENT_ID || '' }}
+      DATABRICKS_BRIDGE_CLIENT_SECRET: ${{ secrets.DATABRICKS_BRIDGE_CLIENT_SECRET || '' }}
+      DATABRICKS_BRIDGE_TOKEN: ${{ secrets.DATABRICKS_BRIDGE_TOKEN || '' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -106,6 +118,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: dev
+    env:
+      DATABRICKS_VIDEO_JOB_ID: ${{ vars.DATABRICKS_VIDEO_JOB_ID || '' }}
+      DATABRICKS_SQL_WAREHOUSE_ID: ${{ vars.DATABRICKS_SQL_WAREHOUSE_ID || '' }}
+      DATABRICKS_OUTBOX_CATALOG: ${{ vars.DATABRICKS_OUTBOX_CATALOG || 'qprisma_dev' }}
+      DATABRICKS_OUTBOX_SCHEMA: ${{ vars.DATABRICKS_OUTBOX_SCHEMA || 'video' }}
+      DATABRICKS_OUTBOX_TABLE: ${{ vars.DATABRICKS_OUTBOX_TABLE || 'video_pipeline_outbox' }}
+      DATABRICKS_OUTBOX_POLL_BATCH_SIZE: ${{ vars.DATABRICKS_OUTBOX_POLL_BATCH_SIZE || '25' }}
+      DATABRICKS_OUTBOX_POLL_SCHEDULE: ${{ vars.DATABRICKS_OUTBOX_POLL_SCHEDULE || '0 */5 * * * *' }}
+      DATABRICKS_BRIDGE_AUTH_TYPE: ${{ vars.DATABRICKS_BRIDGE_AUTH_TYPE || 'oauth_m2m' }}
+      DATABRICKS_BRIDGE_CLIENT_ID: ${{ vars.DATABRICKS_BRIDGE_CLIENT_ID || '' }}
+      DATABRICKS_BRIDGE_CLIENT_SECRET: ${{ secrets.DATABRICKS_BRIDGE_CLIENT_SECRET || '' }}
+      DATABRICKS_BRIDGE_TOKEN: ${{ secrets.DATABRICKS_BRIDGE_TOKEN || '' }}
     steps:
       - uses: actions/checkout@v6
 
