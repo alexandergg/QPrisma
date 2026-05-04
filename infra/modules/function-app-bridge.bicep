@@ -200,14 +200,6 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
           value: 'EnableWorkerIndexing'
         }
         {
-          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
-          value: 'true'
-        }
-        {
-          name: 'ENABLE_ORYX_BUILD'
-          value: 'true'
-        }
-        {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: appInsightsConnectionString
         }
