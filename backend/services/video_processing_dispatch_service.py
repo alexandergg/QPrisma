@@ -116,7 +116,7 @@ class VideoProcessingDispatchService:
                 "queued_at": datetime.now(UTC).isoformat(),
             },
         }
-        logger.info("Queued video processing via Celery", extra={"media_id": media_id})
+        logger.info("Queued video processing via Celery")
         return VideoProcessingDispatchResult(
             job_id=async_result.id,
             backend="celery",
@@ -194,7 +194,7 @@ class VideoProcessingDispatchService:
                 "queued_at": queued_at,
             },
         }
-        logger.info("Queued video processing via Service Bus", extra={"media_id": media_id})
+        logger.info("Queued video processing via Service Bus")
         return VideoProcessingDispatchResult(
             job_id=dispatch_id,
             backend=self._settings.processing.backend,

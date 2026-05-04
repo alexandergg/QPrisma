@@ -1,4 +1,5 @@
 import base64
+import logging
 import sys
 import types
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -296,3 +297,46 @@ class TestCommitBlockIdDecoding:
         )
         assert response.job_id == "job-123"
         assert response.status == "queued"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_failure_log_omits_user_controlled_values(self, caplog):
+        """Dispatch fallback should not emit user-controlled IDs or exception text."""
+        mod = _import_chunked_upload_module()
+
+        raw_ids = ["block-0001"]
+        b64_ids = [base64.b64encode(rid.encode()).decode() for rid in raw_ids]
+
+        blob_service, db_service = _build_commit_dependencies()
+        dispatch_service = MagicMock()
+        dispatch_service.dispatch_video = AsyncMock(
+            side_effect=RuntimeError("boom\nforged log line")
+        )
+        user = _make_user()
+        malicious_media_id = "media-123\nforged log line"
+
+        request = mod.CommitUploadRequest(
+            upload_id="upload-1",
+            media_id=malicious_media_id,
+            blob_name="videos/test.mp4",
+            block_ids=b64_ids,
+            use_scene_detection=False,
+            use_hierarchical_summary=False,
+        )
+
+        with (
+            patch.object(mod, "get_blob_service", return_value=blob_service),
+            patch.object(mod, "get_database_service", return_value=db_service),
+            patch.object(mod, "get_storage_container_name", return_value="media"),
+            patch.object(
+                mod,
+                "get_video_processing_dispatch_service",
+                return_value=dispatch_service,
+            ),
+            caplog.at_level(logging.WARNING, logger=mod.logger.name),
+        ):
+            response = await mod.commit_chunked_upload(request=request, current_user=user)
+
+        assert response.status == "uploaded"
+        assert malicious_media_id not in caplog.text
+        assert "boom" not in caplog.text
+        assert "forged log line" not in caplog.text

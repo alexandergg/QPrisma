@@ -72,6 +72,39 @@ async def test_dispatch_video_uses_celery_backend(monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_dispatch_logs_omit_user_controlled_media_id(monkeypatch, caplog):
+    async_result = MagicMock(id="celery-job-1")
+    process_video_pipeline = MagicMock()
+    process_video_pipeline.apply_async.return_value = async_result
+
+    tasks_module = types.ModuleType("tasks")
+    video_tasks_module = types.ModuleType("tasks.video_tasks")
+    video_tasks_module.process_video_pipeline = process_video_pipeline
+    monkeypatch.setitem(sys.modules, "tasks", tasks_module)
+    monkeypatch.setitem(sys.modules, "tasks.video_tasks", video_tasks_module)
+
+    service = VideoProcessingDispatchService(_settings())
+    malicious_media_id = "media-1\nforged log line"
+
+    with caplog.at_level("INFO", logger="services.video_processing_dispatch_service"):
+        await service.dispatch_video(
+            media_id=malicious_media_id,
+            blob_name="media-1.mp4",
+            user_id="user-1",
+            file_size=1024,
+            preset="balanced",
+            max_frames=150,
+            pipeline_config={},
+            optimized_pipeline=True,
+        )
+
+    assert malicious_media_id not in caplog.text
+    assert "forged log line" not in caplog.text
+    assert all(not hasattr(record, "media_id") for record in caplog.records)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_dispatch_video_requires_service_bus_namespace_for_databricks():
     service = VideoProcessingDispatchService(_settings(backend="databricks"))
 
@@ -131,6 +164,32 @@ async def test_dispatch_video_publishes_databricks_service_bus_message():
     }
     assert result.job_id.startswith("dbx-")
     assert result.backend == "databricks"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_service_bus_dispatch_log_omits_user_controlled_media_id(caplog):
+    service = VideoProcessingDispatchService(
+        _settings(backend="databricks", namespace="qprisma.servicebus.windows.net")
+    )
+    service._send_service_bus_message = AsyncMock()  # type: ignore[method-assign]
+    malicious_media_id = "media-1\nforged log line"
+
+    with caplog.at_level("INFO", logger="services.video_processing_dispatch_service"):
+        await service.dispatch_video(
+            media_id=malicious_media_id,
+            blob_name="media-1.mp4",
+            user_id="user-1",
+            file_size=1024,
+            preset="balanced",
+            max_frames=150,
+            pipeline_config={},
+            optimized_pipeline=True,
+        )
+
+    assert malicious_media_id not in caplog.text
+    assert "forged log line" not in caplog.text
+    assert all(not hasattr(record, "media_id") for record in caplog.records)
 
 
 @pytest.mark.unit

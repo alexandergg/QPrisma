@@ -352,8 +352,8 @@ async def commit_chunked_upload(
 
         db.update_media(request.media_id, dispatch_result.media_updates())
 
-    except Exception as e:
-        logger.warning(f"Processing dispatch not available for {request.media_id}: {e}")
+    except Exception:
+        logger.warning("Processing dispatch not available for committed chunked upload")
         # Still return success - file is uploaded, just not processed
 
     return CommitUploadResponse(
