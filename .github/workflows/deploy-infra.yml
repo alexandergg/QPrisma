@@ -193,7 +193,7 @@ jobs:
       actions: write
     steps:
       - name: Trigger app deployment with latest images
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.actions.createWorkflowDispatch({
@@ -211,7 +211,7 @@ jobs:
             console.log('Triggered deploy-app.yml with image_tag: latest to restore containers after infra update');
 
       - name: Trigger Databricks bridge Function deployment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.actions.createWorkflowDispatch({
