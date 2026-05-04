@@ -307,7 +307,7 @@ def test_databricks_status_event_rejects_invalid_progress():
 
 
 @pytest.mark.asyncio
-async def test_databricks_client_creates_uc_volume_directory_with_encoded_path():
+async def test_databricks_client_creates_uc_volume_directory_with_files_api_path():
     requests = []
 
     async def handler(request):
@@ -332,7 +332,7 @@ async def test_databricks_client_creates_uc_volume_directory_with_encoded_path()
 
     assert requests[0].method == "PUT"
     assert requests[0].url.raw_path.decode() == (
-        "/api/2.0/fs/directories/%2FVolumes%2Fcatalog%2Fschema%2Fsource_media%2F" "media%201"
+        "/api/2.0/fs/directories/Volumes/catalog/schema/source_media/media%201"
     )
     assert requests[0].headers["authorization"] == "Bearer token"
 
@@ -373,8 +373,7 @@ async def test_databricks_client_uploads_file_content_to_uc_volume_path():
 
     assert requests[0].method == "PUT"
     assert requests[0].url.raw_path.decode() == (
-        "/api/2.0/fs/files/%2FVolumes%2Fcatalog%2Fschema%2Fsource_media%2F"
-        "media-1%2Fvideo.mp4?overwrite=true"
+        "/api/2.0/fs/files/Volumes/catalog/schema/source_media/media-1/video.mp4?overwrite=true"
     )
     assert requests[0].url.params["overwrite"] == "true"
     assert requests[0].headers["content-type"] == "application/octet-stream"

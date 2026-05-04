@@ -298,7 +298,5 @@ class DatabricksJobsClient:
 
 
 def _encode_files_api_path(path: str) -> str:
-    normalized_path = path.strip()
-    if not normalized_path.startswith("/"):
-        normalized_path = f"/{normalized_path}"
-    return quote(normalized_path, safe="")
+    normalized_path = path.strip().lstrip("/")
+    return quote(normalized_path, safe="/")
