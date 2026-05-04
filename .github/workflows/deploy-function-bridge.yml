@@ -1,0 +1,97 @@
+name: Deploy Databricks Bridge Function
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/functions/video_dispatch_bridge/**'
+      - '.github/workflows/deploy-function-bridge.yml'
+  workflow_dispatch:
+    inputs:
+      function_app_name:
+        description: 'Azure Function App name'
+        required: false
+        default: 'func-qprisma-dbx-bridge-dev'
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-function-bridge-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: dev
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Resolve Function App
+        id: function-app
+        env:
+          INPUT_FUNCTION_APP_NAME: ${{ inputs.function_app_name }}
+          VAR_FUNCTION_APP_NAME: ${{ vars.DATABRICKS_BRIDGE_FUNCTION_APP_NAME }}
+        run: |
+          FUNCTION_APP_NAME="${INPUT_FUNCTION_APP_NAME:-${VAR_FUNCTION_APP_NAME:-func-qprisma-dbx-bridge-dev}}"
+          if [ -z "$FUNCTION_APP_NAME" ]; then
+            echo "::error::Function App name could not be resolved"
+            exit 1
+          fi
+
+          az functionapp show \
+            --name "$FUNCTION_APP_NAME" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --output none
+
+          echo "name=$FUNCTION_APP_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Function package
+        working-directory: backend/functions/video_dispatch_bridge
+        run: |
+          test -f function_app.py
+          test -f host.json
+          test -f requirements.txt
+          python -m compileall . -q
+
+      - name: Build deployment zip
+        working-directory: backend/functions/video_dispatch_bridge
+        run: |
+          zip -r "$RUNNER_TEMP/video-dispatch-bridge.zip" . \
+            -x "*.pyc" \
+            -x "__pycache__/*" \
+            -x ".pytest_cache/*" \
+            -x ".venv/*" \
+            -x "local.settings.json"
+
+      - name: Deploy Function package
+        run: |
+          az functionapp deployment source config-zip \
+            --name "${{ steps.function-app.outputs.name }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --src "$RUNNER_TEMP/video-dispatch-bridge.zip"
+
+      - name: Sync triggers
+        run: |
+          az functionapp sync-function-triggers \
+            --name "${{ steps.function-app.outputs.name }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}"
+
+      - name: Deployment summary
+        run: |
+          echo "## Databricks bridge Function deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Resource | Name |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Function App | ${{ steps.function-app.outputs.name }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Resource Group | ${{ vars.AZURE_RESOURCE_GROUP }} |" >> "$GITHUB_STEP_SUMMARY"

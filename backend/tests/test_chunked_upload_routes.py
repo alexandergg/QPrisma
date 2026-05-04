@@ -113,6 +113,22 @@ def _build_commit_dependencies(
     return blob_service, db_service
 
 
+def _build_dispatch_service() -> MagicMock:
+    dispatch_result = MagicMock()
+    dispatch_result.job_id = "job-123"
+    dispatch_result.backend = "celery"
+    dispatch_result.media_updates.return_value = {
+        "job_id": "job-123",
+        "processing_method": "celery",
+        "processing_status": "queued",
+        "pipeline_config": {"dispatch": {"backend": "celery"}},
+    }
+
+    dispatch_service = MagicMock()
+    dispatch_service.dispatch_video = AsyncMock(return_value=dispatch_result)
+    return dispatch_service
+
+
 def _make_user(user_id: str = "user_test123"):
     from datetime import UTC, datetime
 
@@ -157,6 +173,11 @@ class TestCommitBlockIdDecoding:
             patch.object(mod, "get_blob_service", return_value=blob_service),
             patch.object(mod, "get_database_service", return_value=db_service),
             patch.object(mod, "get_storage_container_name", return_value="media"),
+            patch.object(
+                mod,
+                "get_video_processing_dispatch_service",
+                return_value=_build_dispatch_service(),
+            ),
         ):
             await mod.commit_chunked_upload(request=request, current_user=user)
 
@@ -224,3 +245,54 @@ class TestCommitBlockIdDecoding:
 
         assert exc_info.value.status_code == 400
         assert "Invalid base64 block ID" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_commit_uses_configured_dispatch_service(self):
+        """Committed uploads should dispatch through the backend abstraction."""
+        mod = _import_chunked_upload_module()
+
+        raw_ids = ["block-0001"]
+        b64_ids = [base64.b64encode(rid.encode()).decode() for rid in raw_ids]
+
+        blob_service, db_service = _build_commit_dependencies()
+        dispatch_service = _build_dispatch_service()
+        user = _make_user()
+
+        request = mod.CommitUploadRequest(
+            upload_id="upload-1",
+            media_id="media_123",
+            blob_name="videos/test.mp4",
+            block_ids=b64_ids,
+            preset="quality",
+            max_frames=1000,
+            use_scene_detection=True,
+            use_hierarchical_summary=True,
+        )
+
+        with (
+            patch.object(mod, "get_blob_service", return_value=blob_service),
+            patch.object(mod, "get_database_service", return_value=db_service),
+            patch.object(mod, "get_storage_container_name", return_value="media"),
+            patch.object(
+                mod,
+                "get_video_processing_dispatch_service",
+                return_value=dispatch_service,
+            ),
+        ):
+            response = await mod.commit_chunked_upload(request=request, current_user=user)
+
+        dispatch_service.dispatch_video.assert_awaited_once_with(
+            media_id="media_123",
+            blob_name="videos/test.mp4",
+            user_id=user.id,
+            file_size=4096,
+            preset="quality",
+            max_frames=500,
+            pipeline_config={
+                "use_scene_detection": True,
+                "use_hierarchical_summary": True,
+            },
+            optimized_pipeline=True,
+        )
+        assert response.job_id == "job-123"
+        assert response.status == "queued"

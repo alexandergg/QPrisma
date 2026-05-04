@@ -44,7 +44,7 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 | Memory | Checkpointer + artifacts + optional Foundry Memory Store | Thread state, persisted tool artifacts, and available long-term semantic memory capability |
 | Cache | Redis Enterprise | Multi-layer caching with TTL |
 | Auth | Microsoft Entra ID | OIDC-based authentication and RBAC |
-| Tasks | Celery + Redis | Async video processing pipeline |
+| Tasks | Celery + Redis, optional Service Bus/Databricks dispatch | Async video processing pipeline and Databricks pilot handoff |
 | Protocol | A2A (Agent-to-Agent) | Google A2A interoperability protocol |
 
 ### AI Model Deployments
@@ -845,6 +845,18 @@ class TaskStatusResponse(BaseModel):
 ---
 
 ## 8. Async Tasks — Celery
+
+Celery remains the default and fallback processing backend. Upload routes no longer call Celery directly; they call `services.video_processing_dispatch_service.VideoProcessingDispatchService`, which selects the backend through centralized settings:
+
+| Setting | Purpose |
+|---|---|
+| `PROCESSING_BACKEND=celery` | Default path; dispatches `process_video_pipeline` through Celery/Redis |
+| `PROCESSING_BACKEND=servicebus` or `databricks` | Pilot path; publishes a durable Service Bus message consumed by the Databricks bridge |
+| `SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` | Required for Service Bus/Databricks dispatch |
+| `SERVICE_BUS_MANAGED_IDENTITY_CLIENT_ID` | Pins Service Bus SDK authentication to the intended user-assigned managed identity |
+| `DATABRICKS_WORKSPACE_URL`, `DATABRICKS_VIDEO_JOB_ID` | Passed to the bridge/bundle workflow for Databricks job invocation |
+
+The Databricks bridge is intentionally isolated under `backend\functions\video_dispatch_bridge` rather than imported into the FastAPI application. It validates Service Bus payloads, starts Databricks Jobs with `run-now`, projects `running`/`completed`/`failed` outbox events into PostgreSQL, and leaves Celery available as a safe rollback path.
 
 ### Celery Configuration (`tasks/celery_app.py`)
 

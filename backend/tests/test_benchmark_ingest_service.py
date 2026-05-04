@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import ANY, MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from azure.core.exceptions import AzureError
 from sqlalchemy.exc import IntegrityError
 
 from models.benchmark_schemas import BenchmarkIngestRequest, BenchmarkManifestRequest
+from services.video_processing_dispatch_service import VideoProcessingDispatchResult
 
 
 @pytest.mark.unit
@@ -52,15 +54,22 @@ async def test_ingest_video_copies_blob_and_dispatches_job():
     mock_db = MagicMock()
     mock_db.get_media_by_benchmark_key.return_value = None
     mock_blob = MagicMock()
+    dispatch_service = SimpleNamespace(dispatch_video=AsyncMock())
+    dispatch_service.dispatch_video.return_value = VideoProcessingDispatchResult(
+        job_id="job_123",
+        backend="databricks",
+        pipeline_config={"dispatch": {"backend": "databricks"}},
+    )
 
     with (
         patch("services.benchmark_ingest_service.get_database_service", return_value=mock_db),
         patch("services.benchmark_ingest_service.get_blob_service", return_value=mock_blob),
         patch("services.benchmark_ingest_service.get_storage_container_name", return_value="media"),
-        patch("tasks.video_tasks.process_video_pipeline.apply_async") as mock_apply_async,
+        patch(
+            "services.benchmark_ingest_service.get_video_processing_dispatch_service",
+            return_value=dispatch_service,
+        ),
     ):
-        mock_apply_async.return_value = MagicMock(id="job_123")
-
         from services.benchmark_ingest_service import BenchmarkIngestService
 
         service = BenchmarkIngestService()
@@ -79,7 +88,27 @@ async def test_ingest_video_copies_blob_and_dispatches_job():
     assert result.ingest_status == "queued"
     assert result.job_id == "job_123"
     mock_db.create_media.assert_called_once()
-    mock_db.update_media.assert_called_once()
+    mock_db.update_media.assert_called_once_with(
+        ANY,
+        {
+            "job_id": "job_123",
+            "processing_method": "databricks",
+            "processing_status": "queued",
+            "pipeline_config": {"dispatch": {"backend": "databricks"}},
+        },
+    )
+    dispatch_service.dispatch_video.assert_awaited_once_with(
+        media_id=ANY,
+        blob_name=ANY,
+        user_id=ANY,
+        file_size=1024,
+        preset="benchmark",
+        max_frames=None,
+        pipeline_config={},
+        optimized_pipeline=False,
+        custom_prompt=None,
+        index_graph=True,
+    )
 
 
 @pytest.mark.unit
@@ -100,7 +129,9 @@ async def test_ingest_video_returns_existing_row_after_concurrent_duplicate_inse
         patch("services.benchmark_ingest_service.get_database_service", return_value=mock_db),
         patch("services.benchmark_ingest_service.get_blob_service", return_value=mock_blob),
         patch("services.benchmark_ingest_service.get_storage_container_name", return_value="media"),
-        patch("tasks.video_tasks.process_video_pipeline.apply_async") as mock_apply_async,
+        patch(
+            "services.benchmark_ingest_service.get_video_processing_dispatch_service"
+        ) as mock_get_dispatch_service,
     ):
         from services.benchmark_ingest_service import BenchmarkIngestService
 
@@ -119,7 +150,7 @@ async def test_ingest_video_returns_existing_row_after_concurrent_duplicate_inse
 
     assert result.ingest_status == "skipped_existing"
     assert result.media_id == "media_existing"
-    mock_apply_async.assert_not_called()
+    mock_get_dispatch_service.assert_not_called()
     mock_blob.get_blob_client.return_value.delete_blob.assert_called_once_with(
         delete_snapshots="include"
     )

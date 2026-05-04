@@ -74,6 +74,72 @@ param artifactCacheKeyPrefix string = 'tool_artifact'
 @description('Artifact blob prefix')
 param artifactBlobPrefix string = 'tool-artifacts'
 
+@description('Enable Azure Databricks pilot resources and API dispatch configuration')
+param enableDatabricksPilot bool = true
+
+@description('Azure Databricks workspace SKU for the video pipeline pilot')
+@allowed([
+  'standard'
+  'premium'
+  'trial'
+])
+param databricksSkuName string = 'premium'
+
+@description('Databricks job ID deployed by the Databricks Asset Bundle. Leave empty until the bundle is deployed.')
+param databricksVideoJobId string = ''
+
+@description('Databricks SQL warehouse ID used by the Function bridge to poll pipeline outbox rows')
+param databricksSqlWarehouseId string = ''
+
+@description('Databricks catalog that contains the video pipeline outbox table')
+param databricksOutboxCatalog string = 'qprisma_dev'
+
+@description('Databricks schema that contains the video pipeline outbox table')
+param databricksOutboxSchema string = 'video'
+
+@description('Databricks outbox table name')
+param databricksOutboxTable string = 'video_pipeline_outbox'
+
+@description('Maximum number of Databricks outbox rows projected per Function timer invocation')
+@minValue(1)
+param databricksOutboxPollBatchSize int = 25
+
+@description('NCRONTAB schedule for the Databricks outbox projection timer')
+param databricksOutboxPollSchedule string = '0 */5 * * * *'
+
+@description('Processing backend used by the API control plane')
+@allowed([
+  'celery'
+  'databricks'
+  'servicebus'
+])
+param processingBackend string = 'celery'
+
+@description('Service Bus queue name used for durable video processing dispatch')
+param videoProcessingQueueName string = 'video-processing'
+
+@description('Enable Azure Function bridge that consumes video dispatch messages and starts Databricks Jobs')
+param enableDatabricksDispatchBridge bool = true
+
+@description('Authentication mode used by the Azure Function bridge when calling Databricks Jobs API')
+@allowed([
+  'oauth_m2m'
+  'azure_managed_identity'
+  'pat'
+])
+param databricksBridgeAuthType string = 'oauth_m2m'
+
+@description('Databricks OAuth service principal client ID, or user-assigned managed identity client ID for azure_managed_identity mode')
+param databricksBridgeClientId string = ''
+
+@description('Databricks OAuth service principal client secret. Stored in Key Vault when provided.')
+@secure()
+param databricksBridgeClientSecret string = ''
+
+@description('Temporary dev-only Databricks PAT fallback. Stored in Key Vault when provided.')
+@secure()
+param databricksBridgeToken string = ''
+
 // =====================================================================
 // Tags & Naming
 // =====================================================================
@@ -84,6 +150,7 @@ var tags = {
 }
 
 var storageAccountName = 'stqprisma${environment}'
+var lakehouseStorageAccountName = 'stqprismalake${environment}'
 var postgresName = 'psql-qprisma-${environment}'
 var redisName = 'redis-qprisma-${environment}'
 var keyVaultName = 'kv-qprisma-${environment}'
@@ -96,6 +163,14 @@ var apiContainerAppName = 'ca-qprisma-api-${environment}'
 var frontendContainerAppName = 'ca-qprisma-web-${environment}'
 var workerContainerAppName = 'ca-qprisma-worker-${environment}'
 var runtimeIdentityName = 'id-qprisma-runtime-${environment}'
+var databricksBridgeIdentityName = 'id-qprisma-dbx-bridge-${environment}'
+var databricksWorkspaceName = 'dbw-qprisma-${environment}'
+var databricksManagedResourceGroupName = 'rg-qprisma-${environment}-databricks-managed'
+var databricksAccessConnectorName = 'dbc-qprisma-${environment}'
+var serviceBusNamespaceName = 'sb-qprisma-${environment}'
+var databricksBridgeFunctionAppName = 'func-qprisma-dbx-bridge-${environment}'
+var databricksBridgeFunctionPlanName = 'asp-qprisma-dbx-bridge-${environment}'
+var databricksBridgeFunctionStorageName = 'stqprismadbxfn${environment}'
 
 // Compute defaultcontainer images from ACR (used when image params are empty)
 var acrLoginServer = '${containerRegistryName}.azurecr.io'
@@ -188,6 +263,55 @@ resource runtimeIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
   tags: tags
 }
 
+resource databricksBridgeIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = if (enableDatabricksPilot && enableDatabricksDispatchBridge) {
+  name: databricksBridgeIdentityName
+  location: location
+  tags: tags
+}
+
+module databricksWorkspace 'modules/databricks-workspace.bicep' = if (enableDatabricksPilot) {
+  name: 'databricks-workspace-deployment'
+  params: {
+    name: databricksWorkspaceName
+    accessConnectorName: databricksAccessConnectorName
+    location: location
+    managedResourceGroupName: databricksManagedResourceGroupName
+    skuName: databricksSkuName
+    publicNetworkAccess: 'Enabled'
+    requiredNsgRules: 'AllRules'
+    tags: tags
+  }
+}
+
+module lakehouseStorage 'modules/lakehouse-storage.bicep' = if (enableDatabricksPilot) {
+  name: 'lakehouse-storage-deployment'
+  params: {
+    name: lakehouseStorageAccountName
+    location: location
+    blobDataContributorPrincipalIds: [
+      runtimeIdentity.properties.principalId
+      databricksWorkspace!.outputs.accessConnectorPrincipalId
+    ]
+    tags: tags
+  }
+}
+
+module videoServiceBus 'modules/service-bus.bicep' = if (enableDatabricksPilot) {
+  name: 'video-service-bus-deployment'
+  params: {
+    namespaceName: serviceBusNamespaceName
+    queueName: videoProcessingQueueName
+    location: location
+    dataSenderPrincipalIds: [
+      runtimeIdentity.properties.principalId
+    ]
+    dataReceiverPrincipalIds: enableDatabricksDispatchBridge ? [
+      databricksBridgeIdentity!.properties.principalId
+    ] : []
+    tags: tags
+  }
+}
+
 // Existing resource references for secret retrieval and RBAC scopes
 resource existingAcr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' existing = {
   name: containerRegistryName
@@ -229,9 +353,14 @@ module keyVault 'modules/key-vault.bicep' = {
   params: {
     name: keyVaultName
     location: location
-    principalIds: [
-      runtimeIdentity.properties.principalId
-    ]
+    principalIds: union(
+      [
+        runtimeIdentity.properties.principalId
+      ],
+      enableDatabricksPilot && enableDatabricksDispatchBridge ? [
+        databricksBridgeIdentity!.properties.principalId
+      ] : []
+    )
     tags: tags
   }
 }
@@ -292,6 +421,63 @@ resource benchmarkApiTokenSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' 
   }
   dependsOn: [
     keyVault
+  ]
+}
+
+resource databricksBridgeClientSecretSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (enableDatabricksPilot && enableDatabricksDispatchBridge && !empty(databricksBridgeClientSecret)) {
+  parent: keyVaultResource
+  name: 'databricks-bridge-client-secret'
+  properties: {
+    value: databricksBridgeClientSecret
+  }
+  dependsOn: [
+    keyVault
+  ]
+}
+
+resource databricksBridgeTokenSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (enableDatabricksPilot && enableDatabricksDispatchBridge && !empty(databricksBridgeToken)) {
+  parent: keyVaultResource
+  name: 'databricks-bridge-token'
+  properties: {
+    value: databricksBridgeToken
+  }
+  dependsOn: [
+    keyVault
+  ]
+}
+
+module databricksDispatchBridge 'modules/function-app-bridge.bicep' = if (enableDatabricksPilot && enableDatabricksDispatchBridge) {
+  name: 'databricks-dispatch-bridge-deployment'
+  params: {
+    name: databricksBridgeFunctionAppName
+    planName: databricksBridgeFunctionPlanName
+    storageAccountName: databricksBridgeFunctionStorageName
+    location: location
+    runtimeIdentityResourceId: databricksBridgeIdentity!.id
+    runtimeIdentityPrincipalId: databricksBridgeIdentity!.properties.principalId
+    runtimeIdentityClientId: databricksBridgeIdentity!.properties.clientId
+    serviceBusFullyQualifiedNamespace: videoServiceBus!.outputs.fullyQualifiedNamespace
+    serviceBusQueueName: videoServiceBus!.outputs.queueName
+    databricksWorkspaceUrl: 'https://${databricksWorkspace!.outputs.workspaceUrl}'
+    databricksVideoJobId: databricksVideoJobId
+    databricksSqlWarehouseId: databricksSqlWarehouseId
+    databricksOutboxCatalog: databricksOutboxCatalog
+    databricksOutboxSchema: databricksOutboxSchema
+    databricksOutboxTable: databricksOutboxTable
+    databricksOutboxPollBatchSize: databricksOutboxPollBatchSize
+    outboxPollSchedule: databricksOutboxPollSchedule
+    databricksAuthType: databricksBridgeAuthType
+    databricksClientId: databricksBridgeClientId
+    databricksClientSecretKeyVaultUrl: empty(databricksBridgeClientSecret) ? '' : '${keyVault.outputs.uri}secrets/databricks-bridge-client-secret'
+    databricksTokenKeyVaultUrl: empty(databricksBridgeToken) ? '' : '${keyVault.outputs.uri}secrets/databricks-bridge-token'
+    databaseUrlKeyVaultUrl: '${keyVault.outputs.uri}secrets/database-url'
+    appInsightsConnectionString: appInsights.outputs.connectionString
+    tags: tags
+  }
+  dependsOn: [
+    databaseUrlSecret
+    databricksBridgeClientSecretSecret
+    databricksBridgeTokenSecret
   ]
 }
 
@@ -360,6 +546,14 @@ var appEnvVars = [
   { name: 'ENTRA_TENANT_ID', value: entraAuthTenantId }
   { name: 'ENTRA_CLIENT_ID', value: entraAuthClientId }
   { name: 'ENTRA_API_SCOPE', value: entraAuthApiScope }
+  { name: 'PROCESSING_BACKEND', value: processingBackend }
+  { name: 'SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE', value: enableDatabricksPilot ? videoServiceBus!.outputs.fullyQualifiedNamespace : '' }
+  { name: 'SERVICE_BUS_VIDEO_PROCESSING_QUEUE_NAME', value: enableDatabricksPilot ? videoServiceBus!.outputs.queueName : videoProcessingQueueName }
+  { name: 'SERVICE_BUS_MANAGED_IDENTITY_CLIENT_ID', value: enableDatabricksPilot ? runtimeIdentity.properties.clientId : '' }
+  { name: 'DATABRICKS_WORKSPACE_URL', value: enableDatabricksPilot ? 'https://${databricksWorkspace!.outputs.workspaceUrl}' : '' }
+  { name: 'DATABRICKS_VIDEO_JOB_ID', value: databricksVideoJobId }
+  { name: 'DATABRICKS_LAKEHOUSE_STORAGE_ACCOUNT', value: enableDatabricksPilot ? lakehouseStorage!.outputs.name : '' }
+  { name: 'DATABRICKS_LAKEHOUSE_DFS_ENDPOINT', value: enableDatabricksPilot ? lakehouseStorage!.outputs.dfsEndpoint : '' }
 ]
 
 // Env vars that reference secrets by name
@@ -486,6 +680,16 @@ resource githubOidcStorageBlobReaderRole 'Microsoft.Authorization/roleAssignment
   }
 }
 
+resource databricksSourceMediaStorageReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableDatabricksPilot) {
+  name: guid(existingStorage.id, databricksAccessConnectorName, storageBlobDataReaderRoleId)
+  scope: existingStorage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataReaderRoleId)
+    principalId: databricksWorkspace!.outputs.accessConnectorPrincipalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 resource apiAiDeveloperRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(existingAiFoundry.id, 'ca-qprisma-api', azureAiDeveloperRoleId)
   scope: existingAiFoundry
@@ -551,3 +755,12 @@ output postgresServerName string = postgres.outputs.name
 output redisHostName string = redis.outputs.hostName
 output neo4jUri string = neo4jUri
 output appInsightsConnectionString string = appInsights.outputs.connectionString
+output databricksWorkspaceUrl string = enableDatabricksPilot ? 'https://${databricksWorkspace!.outputs.workspaceUrl}' : ''
+output databricksAccessConnectorPrincipalId string = enableDatabricksPilot ? databricksWorkspace!.outputs.accessConnectorPrincipalId : ''
+output lakehouseStorageAccountName string = enableDatabricksPilot ? lakehouseStorage!.outputs.name : ''
+output lakehouseDfsEndpoint string = enableDatabricksPilot ? lakehouseStorage!.outputs.dfsEndpoint : ''
+output videoServiceBusNamespace string = enableDatabricksPilot ? videoServiceBus!.outputs.fullyQualifiedNamespace : ''
+output videoProcessingDispatchQueueName string = enableDatabricksPilot ? videoServiceBus!.outputs.queueName : videoProcessingQueueName
+output databricksDispatchBridgeFunctionName string = enableDatabricksPilot && enableDatabricksDispatchBridge ? databricksDispatchBridge!.outputs.name : ''
+output databricksDispatchBridgePrincipalId string = enableDatabricksPilot && enableDatabricksDispatchBridge ? databricksDispatchBridge!.outputs.principalId : ''
+output databricksDispatchBridgeDefaultHostName string = enableDatabricksPilot && enableDatabricksDispatchBridge ? databricksDispatchBridge!.outputs.defaultHostName : ''

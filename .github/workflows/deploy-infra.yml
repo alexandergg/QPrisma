@@ -209,3 +209,18 @@ jobs:
               }
             });
             console.log('Triggered deploy-app.yml with image_tag: latest to restore containers after infra update');
+
+      - name: Trigger Databricks bridge Function deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy-function-bridge.yml',
+              ref: 'main',
+              inputs: {
+                function_app_name: "${{ vars.DATABRICKS_BRIDGE_FUNCTION_APP_NAME || 'func-qprisma-dbx-bridge-dev' }}"
+              }
+            });
+            console.log('Triggered deploy-function-bridge.yml for the Databricks dispatch bridge');

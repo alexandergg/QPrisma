@@ -1,0 +1,105 @@
+bundle:
+  name: qprisma-video-pipeline
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for QPrisma video pipeline assets.
+    default: qprisma_dev
+  schema:
+    description: Unity Catalog schema for QPrisma video pipeline assets.
+    default: video
+  queue_name:
+    description: Service Bus queue consumed by the Databricks video pipeline.
+    default: video-processing
+
+resources:
+  jobs:
+    video_processing:
+      name: qprisma-video-processing-${bundle.target}
+      description: Minimal observable Databricks workflow for QPrisma video processing events.
+      max_concurrent_runs: 4
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: queue_name
+          default: ${var.queue_name}
+        - name: schema_version
+          default: "2026-05-01"
+        - name: dispatch_id
+          default: ""
+        - name: media_id
+          default: ""
+        - name: blob_name
+          default: ""
+        - name: user_id
+          default: ""
+        - name: source_media
+          default: "{}"
+        - name: pipeline_config
+          default: "{}"
+      tasks:
+        - task_key: register_manifest
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: register_manifest
+        - task_key: validate_and_probe_media
+          depends_on:
+            - task_key: register_manifest
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: validate_and_probe_media
+        - task_key: publish_outbox
+          depends_on:
+            - task_key: validate_and_probe_media
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: publish_outbox
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+  prod:
+    mode: production
+    workspace:
+      root_path: /Shared/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: qprisma_prod
+      schema: video

@@ -39,6 +39,7 @@ from core.errors import bad_request, forbidden, not_found, service_unavailable
 from core.exceptions import internal_error
 from models.user import User
 from services.database_service import get_database_service
+from services.video_processing_dispatch_service import get_video_processing_dispatch_service
 
 router = APIRouter(tags=["Media"])
 logger = logging.getLogger(__name__)
@@ -55,6 +56,19 @@ async def generate_sas_url(blob_name: str, expiry_hours: int = 1) -> str | None:
         blob_name,
         permission=BlobSasPermissions(read=True),
         expiry=datetime.now(UTC) + timedelta(hours=expiry_hours),
+    )
+
+
+def mark_processing_dispatch_failed(db, media_id: str) -> None:
+    """Persist a failed processing state when upload succeeds but dispatch does not."""
+    db.update_media(
+        media_id,
+        {
+            "processing_status": "failed",
+            "processing_message": "Processing dispatch failed before the job was queued.",
+            "processing_progress": 0.0,
+            "processed": False,
+        },
     )
 
 
@@ -196,28 +210,31 @@ async def upload_media(
 
         db.create_media(media_data)
 
-        # Queue in Celery
+        # Queue video processing using the configured backend.
         job_id = None
+        dispatch_backend = None
         if media_type == "video":
             try:
-                from tasks.video_tasks import process_video_pipeline
-
-                celery_config = {
-                    "max_frames": int(max_frames) if max_frames else None,
-                    "custom_prompt": None,
-                    "index_graph": True,
-                    "preset": preset,
-                }
-                async_result = process_video_pipeline.apply_async(
-                    args=[media_id, blob_name, celery_config]
+                dispatch_service = get_video_processing_dispatch_service()
+                dispatch_result = await dispatch_service.dispatch_video(
+                    media_id=media_id,
+                    blob_name=blob_name,
+                    user_id=current_user.id,
+                    file_size=file_size,
+                    preset=preset,
+                    max_frames=int(max_frames) if max_frames else None,
+                    pipeline_config={},
+                    optimized_pipeline=False,
                 )
-                job_id = async_result.id
+                job_id = dispatch_result.job_id
+                dispatch_backend = dispatch_result.backend
 
                 # Update with job_id
-                db.update_media(media_id, {"job_id": job_id})
+                db.update_media(media_id, dispatch_result.media_updates())
 
             except Exception as e:
-                logger.error(f"Celery dispatch failed for {media_id}: {e}", exc_info=True)
+                logger.error(f"Processing dispatch failed for {media_id}: {e}", exc_info=True)
+                mark_processing_dispatch_failed(db, media_id)
                 raise service_unavailable("Task queue is unavailable") from e
 
         return {
@@ -228,6 +245,7 @@ async def upload_media(
             "job_id": job_id,
             "status": media_data.get("processing_status"),
             "message": "File uploaded. Processing queued." if job_id else "File uploaded.",
+            "pipeline": dispatch_backend,
         }
 
     except HTTPException:
@@ -312,28 +330,29 @@ async def upload_media_optimized(
 
         db.create_media(media_data)
 
-        # Queue in Celery
+        # Queue video processing using the configured backend.
         job_id = None
+        dispatch_backend = None
         try:
-            from tasks.video_tasks import process_video_pipeline
-
-            celery_config = {
-                "max_frames": min(max_frames, 500),  # User-configurable, capped at 500
-                "custom_prompt": None,
-                "index_graph": True,
-                "preset": preset,
-                "optimized_pipeline": True,
-                "pipeline_config": pipeline_config,
-            }
-            async_result = process_video_pipeline.apply_async(
-                args=[media_id, blob_name, celery_config]
+            dispatch_service = get_video_processing_dispatch_service()
+            dispatch_result = await dispatch_service.dispatch_video(
+                media_id=media_id,
+                blob_name=blob_name,
+                user_id=current_user.id,
+                file_size=file_size,
+                preset=preset,
+                max_frames=min(max_frames, 500),  # User-configurable, capped at 500
+                pipeline_config=pipeline_config,
+                optimized_pipeline=True,
             )
-            job_id = async_result.id
+            job_id = dispatch_result.job_id
+            dispatch_backend = dispatch_result.backend
 
-            db.update_media(media_id, {"job_id": job_id})
+            db.update_media(media_id, dispatch_result.media_updates())
 
         except Exception as e:
-            logger.error(f"Celery dispatch failed for {media_id}: {e}", exc_info=True)
+            logger.error(f"Processing dispatch failed for {media_id}: {e}", exc_info=True)
+            mark_processing_dispatch_failed(db, media_id)
             raise service_unavailable("Task queue is unavailable") from e
 
         return {
@@ -344,7 +363,7 @@ async def upload_media_optimized(
             "job_id": job_id,
             "status": "queued" if job_id else "uploaded",
             "message": "Video uploaded. Processing queued.",
-            "pipeline": "celery",
+            "pipeline": dispatch_backend,
         }
 
     except HTTPException:

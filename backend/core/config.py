@@ -224,6 +224,11 @@ class ProcessingSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="PROCESSING_", extra="ignore")
 
+    backend: str = Field(
+        default="celery",
+        description="Video processing dispatch backend: celery, databricks, or servicebus.",
+    )
+
     # Embedding batching
     embedding_batch_size: int = Field(
         default=512,
@@ -275,6 +280,36 @@ class ProcessingSettings(BaseSettings):
         ge=0,
         le=3,
     )
+
+    @field_validator("backend")
+    @classmethod
+    def validate_backend(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        allowed = {"celery", "databricks", "servicebus"}
+        if normalized not in allowed:
+            raise ValueError(f"Processing backend must be one of: {', '.join(sorted(allowed))}")
+        return normalized
+
+
+class ServiceBusSettings(BaseSettings):
+    """Azure Service Bus configuration for durable video processing dispatch."""
+
+    model_config = SettingsConfigDict(env_prefix="SERVICE_BUS_", extra="ignore")
+
+    fully_qualified_namespace: str | None = Field(default=None)
+    video_processing_queue_name: str = Field(default="video-processing")
+    managed_identity_client_id: str | None = Field(default=None)
+
+
+class DatabricksSettings(BaseSettings):
+    """Azure Databricks pilot configuration."""
+
+    model_config = SettingsConfigDict(env_prefix="DATABRICKS_", extra="ignore")
+
+    workspace_url: str | None = Field(default=None)
+    video_job_id: str | None = Field(default=None)
+    lakehouse_storage_account: str | None = Field(default=None)
+    lakehouse_dfs_endpoint: str | None = Field(default=None)
 
 
 class ArtifactSettings(BaseSettings):
@@ -534,6 +569,8 @@ class Settings(BaseSettings):
     azure: AzureSettings = Field(default_factory=AzureSettings)
     batch: BatchAPISettings = Field(default_factory=BatchAPISettings)
     processing: ProcessingSettings = Field(default_factory=ProcessingSettings)
+    service_bus: ServiceBusSettings = Field(default_factory=ServiceBusSettings)
+    databricks: DatabricksSettings = Field(default_factory=DatabricksSettings)
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)

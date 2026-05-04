@@ -29,6 +29,7 @@ from api.dependencies import (
 )
 from models.user import User
 from services.database_service import get_database_service
+from services.video_processing_dispatch_service import get_video_processing_dispatch_service
 
 router = APIRouter(prefix="/upload/chunked", tags=["Chunked Upload"])
 logger = logging.getLogger(__name__)
@@ -330,28 +331,29 @@ async def commit_chunked_upload(
         },
     )
 
-    # Queue processing in Celery
+    # Queue processing in the configured backend. Chunked uploads preserve the
+    # existing success behavior if dispatch is temporarily unavailable.
     job_id = None
+    dispatch_backend = None
     try:
-        from tasks.video_tasks import process_video_pipeline
-
-        celery_config = {
-            "max_frames": min(request.max_frames, 500),
-            "custom_prompt": None,
-            "index_graph": True,
-            "preset": request.preset,
-            "optimized_pipeline": True,
-            "pipeline_config": pipeline_config,
-        }
-        async_result = process_video_pipeline.apply_async(
-            args=[request.media_id, request.blob_name, celery_config]
+        dispatch_service = get_video_processing_dispatch_service()
+        dispatch_result = await dispatch_service.dispatch_video(
+            media_id=request.media_id,
+            blob_name=request.blob_name,
+            user_id=current_user.id,
+            file_size=final_size,
+            preset=request.preset,
+            max_frames=min(request.max_frames, 500),
+            pipeline_config=pipeline_config,
+            optimized_pipeline=True,
         )
-        job_id = async_result.id
+        job_id = dispatch_result.job_id
+        dispatch_backend = dispatch_result.backend
 
-        db.update_media(request.media_id, {"job_id": job_id})
+        db.update_media(request.media_id, dispatch_result.media_updates())
 
     except Exception as e:
-        logger.warning(f"Celery not available: {e}")
+        logger.warning(f"Processing dispatch not available for {request.media_id}: {e}")
         # Still return success - file is uploaded, just not processed
 
     return CommitUploadResponse(
@@ -360,7 +362,11 @@ async def commit_chunked_upload(
         file_size=final_size,
         job_id=job_id,
         status="queued" if job_id else "uploaded",
-        message="Upload complete. Processing queued." if job_id else "Upload complete.",
+        message=(
+            f"Upload complete. Processing queued via {dispatch_backend}."
+            if job_id and dispatch_backend
+            else "Upload complete."
+        ),
     )
 
 
