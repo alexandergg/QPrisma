@@ -22,7 +22,7 @@ on:
           Azure OpenAI chat deployment name to use for the hosted video agent.
           Must already be provisioned in Foundry by deploy-ai-foundry.yml.
           Switch models for A/B tests by re-running this workflow with a different value
-          (e.g. gpt-4o, gpt-5.5). Falls back to the AZURE_OPENAI_DEPLOYMENT_GPT
+          (e.g. gpt-5.5). Falls back to the AZURE_OPENAI_DEPLOYMENT_GPT
           repository variable, then to gpt-5.5.
         required: false
         default: gpt-5.5

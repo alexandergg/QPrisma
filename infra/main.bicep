@@ -60,7 +60,7 @@ param workerImageName string = ''
 param foundryMemoryStoreName string = ''
 
 @description('Foundry Memory Store chat model deployment')
-param foundryMemoryChatModel string = 'gpt-4o'
+param foundryMemoryChatModel string = 'gpt-5.5'
 
 @description('Foundry Memory Store embedding model deployment')
 param foundryMemoryEmbeddingModel string = 'text-embedding-3-large'
@@ -564,7 +564,7 @@ var appEnvVars = [
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-5.5' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_WHISPER', value: 'whisper' }
-  { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_BATCH', value: 'gpt-4o-batch' }
+  { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_BATCH', value: 'gpt-5.1-batch' }
   { name: 'ENVIRONMENT', value: environment }
   { name: 'ALLOWED_ORIGINS', value: 'https://${frontendFqdn}' }
   { name: 'FOUNDRY_MEMORY_STORE_NAME', value: foundryMemoryStoreName }

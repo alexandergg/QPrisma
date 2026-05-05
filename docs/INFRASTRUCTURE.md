@@ -158,11 +158,10 @@ Known pilot limitations:
 
 | Deployment | Model | SKU | Capacity |
 |------------|-------|-----|----------|
-| `gpt-4o` | GPT-4o | GlobalStandard | 450K TPM |
-| `gpt-5.2-chat` | GPT-5.2-chat | GlobalStandard | 1M TPM |
+| `gpt-5.5` | GPT-5.5 | GlobalStandard | 160K TPM |
 | `text-embedding-3-large` | text-embedding-3-large | GlobalStandard | 350K TPM |
 | `whisper` | Whisper | Standard | 3 RPM |
-| `gpt-4o-batch` | GPT-4o (Batch) | GlobalBatch | 200M tokens (conditional) |
+| `gpt-5.1-batch` | GPT-5.1 (Batch) | GlobalBatch | 200M enqueued tokens (conditional) |
 
 ### Security Tier
 
@@ -423,9 +422,9 @@ Phase 5:             Frontend Container App (needs API FQDN + runtime identity f
 | `AZURE_OPENAI_ENDPOINT` | AI Foundry endpoint | API, Worker |
 | `AZURE_USE_MANAGED_IDENTITY` | `true` in Azure runtime | API, Worker |
 | `AZURE_STORAGE_ACCOUNT_URL` | Storage blob endpoint | API, Worker |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | `gpt-4o` | API, Worker |
-| `AZURE_OPENAI_DEPLOYMENT_GPT_BATCH` | `gpt-4o-batch` | API, Worker |
-| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | `text-embedding-3-large` | API, Worker |
+| `AZURE_OPENAI_DEPLOYMENT_GPT` | `gpt-5.5` | API, Worker |
+| `AZURE_OPENAI_DEPLOYMENT_GPT_BATCH` | `gpt-5.1-batch` | API, Worker |
+| `AZURE_OPENAI_DEPLOYMENT_EMBEDDING` | `text-embedding-3-large` | API, Worker |
 | `NEO4J_URI` | `neo4j+s://<managed-neo4j-host>` | API, Worker |
 | `ENVIRONMENT` | `dev`/`staging`/`production` | API, Worker |
 | `CORS_ALLOWED_ORIGINS` | Frontend FQDN | API |

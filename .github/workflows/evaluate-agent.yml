@@ -85,7 +85,7 @@ jobs:
           # F2: reproducibility metadata captured into run-metadata.json
           AGENT_NAME: ${{ env.AGENT_NAME }}
           AGENT_VERSION_OVERRIDE: ${{ inputs.agent-version }}
-          EVAL_JUDGE_MODEL: ${{ vars.EVAL_JUDGE_MODEL || 'gpt-4o' }}
+          EVAL_JUDGE_MODEL: ${{ vars.EVAL_JUDGE_MODEL || 'gpt-5.5' }}
           EVAL_JUDGE_TEMPERATURE: ${{ vars.EVAL_JUDGE_TEMPERATURE || '0.0' }}
           EVAL_JUDGE_N_RUNS: ${{ vars.EVAL_JUDGE_N_RUNS || '1' }}
           EVAL_FRAME_SAMPLING_FPS: ${{ vars.EVAL_FRAME_SAMPLING_FPS }}
@@ -244,7 +244,7 @@ jobs:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
           data-path: ${{ runner.temp }}/eval-data/quality-eval.json
-          deployment-name: gpt-4o
+          deployment-name: gpt-5.5
 
       - name: Cleanup token refresh
         if: always()
@@ -310,7 +310,7 @@ jobs:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
           data-path: ${{ runner.temp }}/eval-data/agent-eval.json
-          deployment-name: gpt-4o
+          deployment-name: gpt-5.5
 
       - name: Cleanup token refresh
         if: always()
@@ -376,7 +376,7 @@ jobs:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
           data-path: ${{ runner.temp }}/eval-data/safety-eval.json
-          deployment-name: gpt-4o
+          deployment-name: gpt-5.5
 
       - name: Cleanup token refresh
         if: always()
@@ -775,7 +775,7 @@ jobs:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
           data-path: ${{ runner.temp }}/vmme/video-mme-eval.json
-          deployment-name: gpt-4o
+          deployment-name: gpt-5.5
 
       - name: Cleanup token refresh
         if: always()

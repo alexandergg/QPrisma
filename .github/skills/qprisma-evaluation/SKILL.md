@@ -56,7 +56,7 @@ python scripts/resolve_agent_version.py
 ```bash
 cd backend
 export AZURE_AI_PROJECT_ENDPOINT=https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
-export AZURE_AI_MODEL_DEPLOYMENT_NAME=gpt-4o
+export AZURE_AI_MODEL_DEPLOYMENT_NAME=gpt-5.5
 python -m evaluation_foundry.redteam_eval \
   --agent-id qprisma-video-agent:<version> \
   --endpoint "$AZURE_AI_PROJECT_ENDPOINT" \
