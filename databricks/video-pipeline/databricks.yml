@@ -11,6 +11,18 @@ variables:
   queue_name:
     description: Service Bus queue consumed by the Databricks video pipeline.
     default: video-processing
+  neo4j_uri:
+    description: Deployment-owned Neo4j Bolt URI. Leave empty to skip graph projection.
+    default: ""
+  neo4j_user:
+    description: Neo4j user for graph projection.
+    default: neo4j
+  neo4j_database:
+    description: Neo4j database for graph projection.
+    default: neo4j
+  neo4j_allowed_host_suffixes:
+    description: Optional comma-separated Neo4j host suffix allowlist.
+    default: ""
 
 resources:
   schemas:
@@ -26,11 +38,17 @@ resources:
       schema_name: ${var.schema}
       volume_type: MANAGED
       comment: Managed Unity Catalog volume for Databricks-readable QPrisma source media staging.
+    video_artifacts:
+      name: video_artifacts
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      volume_type: MANAGED
+      comment: Managed Unity Catalog volume for QPrisma video ETL audio, frame and inference artifacts.
 
   jobs:
     video_processing:
       name: qprisma-video-processing-${bundle.target}
-      description: Minimal observable Databricks workflow for QPrisma video processing events.
+      description: Observable Databricks lakehouse workflow for QPrisma video understanding.
       max_concurrent_runs: 4
       job_clusters:
         - job_cluster_key: video_pilot_cluster
@@ -42,6 +60,16 @@ resources:
             spark_conf:
               spark.databricks.cluster.profile: singleNode
               spark.master: local[*, 4]
+            spark_env_vars:
+              AZURE_OPENAI_ENDPOINT: "{{secrets/qprisma/azure-openai-endpoint}}"
+              AZURE_OPENAI_API_KEY: "{{secrets/qprisma/azure-openai-api-key}}"
+              NEO4J_URI: ${var.neo4j_uri}
+              NEO4J_USER: ${var.neo4j_user}
+              NEO4J_DATABASE: ${var.neo4j_database}
+              NEO4J_ALLOWED_HOST_SUFFIXES: ${var.neo4j_allowed_host_suffixes}
+            init_scripts:
+              - workspace:
+                  destination: ${workspace.file_path}/scripts/install-ffmpeg.sh
             custom_tags:
               ResourceClass: SingleNode
       parameters:
@@ -100,10 +128,197 @@ resources:
               source_media: "{{job.parameters.source_media}}"
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: validate_and_probe_media
-        - task_key: publish_outbox
+        - task_key: extract_audio_assets
           job_cluster_key: video_pilot_cluster
           depends_on:
             - task_key: validate_and_probe_media
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: extract_audio_assets
+        - task_key: extract_frame_assets
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: validate_and_probe_media
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: extract_frame_assets
+        - task_key: run_faster_whisper_asr
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: extract_audio_assets
+          libraries:
+            - pypi:
+                package: faster-whisper==1.1.1
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: run_faster_whisper_asr
+        - task_key: detect_scenes_and_windows
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: extract_frame_assets
+            - task_key: run_faster_whisper_asr
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: detect_scenes_and_windows
+        - task_key: build_multimodal_inference_requests
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: detect_scenes_and_windows
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: build_multimodal_inference_requests
+        - task_key: stage_ai_batch_payloads
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: build_multimodal_inference_requests
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: stage_ai_batch_payloads
+        - task_key: run_ai_batch_inference
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: stage_ai_batch_payloads
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: run_ai_batch_inference
+        - task_key: build_gold_processing_result
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: run_ai_batch_inference
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: build_gold_processing_result
+        - task_key: build_graph_upserts
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: build_gold_processing_result
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: build_graph_upserts
+        - task_key: project_neo4j_graph
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: build_graph_upserts
+          libraries:
+            - pypi:
+                package: "neo4j>=5.26.0,<6.0.0"
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: project_neo4j_graph
+        - task_key: publish_outbox
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: project_neo4j_graph
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:
