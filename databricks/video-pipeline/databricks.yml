@@ -200,10 +200,28 @@ resources:
               source_media: "{{job.parameters.source_media}}"
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: stage_ai_batch_payloads
-        - task_key: build_graph_upserts
+        - task_key: run_ai_batch_inference
           job_cluster_key: video_pilot_cluster
           depends_on:
             - task_key: stage_ai_batch_payloads
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: run_ai_batch_inference
+        - task_key: build_graph_upserts
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: run_ai_batch_inference
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:

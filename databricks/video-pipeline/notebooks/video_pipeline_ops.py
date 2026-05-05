@@ -18,6 +18,8 @@ import re
 import subprocess
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -73,6 +75,29 @@ pipeline_config_raw = widget("pipeline_config")
 # COMMAND ----------
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+ALLOWED_SECRET_REFERENCE_KEYS = {
+    "api_key_env",
+    "api_key_secret_key",
+    "api_key_secret_scope",
+}
+SENSITIVE_CONFIG_KEYS = {
+    "access_token",
+    "accesskey",
+    "account_key",
+    "api_key",
+    "apikey",
+    "client_secret",
+    "clientsecret",
+    "connection_string",
+    "connectionstring",
+    "id_token",
+    "password",
+    "refresh_token",
+    "sas_token",
+    "secret",
+    "storage_account_key",
+    "token",
+}
 OPS_EVENTS_TABLE = "video_pipeline_events"
 OPS_OUTBOX_TABLE = "video_pipeline_outbox"
 MEDIA_MANIFEST_TABLE = "video_media_manifest"
@@ -98,7 +123,8 @@ STAGE_PROGRESS = {
     "run_faster_whisper_asr": 0.55,
     "build_multimodal_inference_requests": 0.68,
     "stage_ai_batch_payloads": 0.78,
-    "build_graph_upserts": 0.88,
+    "run_ai_batch_inference": 0.84,
+    "build_graph_upserts": 0.90,
     "publish_outbox": 1.00,
 }
 STAGE_MESSAGES = {
@@ -109,6 +135,7 @@ STAGE_MESSAGES = {
     "run_faster_whisper_asr": "Preparing faster-whisper transcription",
     "build_multimodal_inference_requests": "Preparing multimodal inference requests",
     "stage_ai_batch_payloads": "Staging Azure OpenAI Batch payloads",
+    "run_ai_batch_inference": "Running Azure OpenAI Batch inference",
     "build_graph_upserts": "Preparing Neo4j graph upsert intents",
     "publish_outbox": "Publishing Databricks lakehouse result",
 }
@@ -120,6 +147,7 @@ PIPELINE_STAGES = [
     "run_faster_whisper_asr",
     "build_multimodal_inference_requests",
     "stage_ai_batch_payloads",
+    "run_ai_batch_inference",
     "build_graph_upserts",
     "publish_outbox",
 ]
@@ -328,7 +356,12 @@ AI_BATCHES_SCHEMA = StructType(
         StructField("request_count", LongType(), nullable=False),
         StructField("model_names", StringType(), nullable=False),
         StructField("status", StringType(), nullable=False),
+        StructField("provider_file_id", StringType(), nullable=True),
         StructField("provider_batch_id", StringType(), nullable=True),
+        StructField("provider_output_file_id", StringType(), nullable=True),
+        StructField("provider_error_file_id", StringType(), nullable=True),
+        StructField("provider_status", StringType(), nullable=True),
+        StructField("provider_metadata", StringType(), nullable=False),
         StructField("created_at", TimestampType(), nullable=False),
         StructField("updated_at", TimestampType(), nullable=False),
         StructField("submitted_at", TimestampType(), nullable=True),
@@ -443,8 +476,167 @@ def parse_json_object(raw_value: str, field_name: str) -> dict:
     return parsed
 
 
+def validate_no_raw_secrets(value: object, path: str = "pipeline_config") -> None:
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            validate_no_raw_secrets(item, f"{path}[{index}]")
+        return
+    if not isinstance(value, dict):
+        return
+    for key, nested_value in value.items():
+        key_text = str(key)
+        key_lower = key_text.lower()
+        normalized_key = re.sub(r"[^a-z0-9]", "", key_lower)
+        allowed_key = key_lower.replace("-", "_")
+        if allowed_key not in ALLOWED_SECRET_REFERENCE_KEYS and (
+            normalized_key in {re.sub(r"[^a-z0-9]", "", item) for item in SENSITIVE_CONFIG_KEYS}
+            or normalized_key.endswith("apikey")
+            or normalized_key.endswith("token")
+            or "password" in normalized_key
+            or "connectionstring" in normalized_key
+            or normalized_key.endswith("accountkey")
+            or "clientsecret" in normalized_key
+        ):
+            raise ValueError(
+                f"{path}.{key_text} looks like a raw secret. Use a Databricks secret reference "
+                "or environment variable reference instead."
+            )
+        validate_no_raw_secrets(nested_value, f"{path}.{key_text}")
+
+
+def filtered_dict(value: dict, allowed_keys: set[str], nested_allowed: dict[str, set[str]]) -> dict:
+    filtered = {}
+    for key in allowed_keys:
+        if key not in value:
+            continue
+        nested_value = value[key]
+        if isinstance(nested_value, dict) and key in nested_allowed:
+            filtered[key] = filtered_dict(nested_value, nested_allowed[key], {})
+        elif isinstance(nested_value, str | int | float | bool) or nested_value is None:
+            filtered[key] = nested_value
+    return filtered
+
+
+def safe_source_media_for_persistence() -> dict:
+    safe = filtered_dict(
+        source_media,
+        {"auth", "blob_name", "container", "container_name"},
+        {"auth": {"mode"}},
+    )
+    for field_name in ("abfss_uri", "uri", "wasbs_uri"):
+        if source_media.get(field_name):
+            safe[field_name] = validate_no_uri_credentials(str(source_media[field_name]), field_name)
+    if source_media.get("storage_account_url"):
+        safe["storage_account_url"] = validate_no_uri_credentials(
+            str(source_media["storage_account_url"]),
+            "storage_account_url",
+        )
+    if source_media.get("volume_path"):
+        safe["volume_path"] = validate_volume_path(str(source_media["volume_path"]), "volume_path")
+    staging = source_media.get("staging")
+    if isinstance(staging, dict):
+        safe_staging = {}
+        if staging.get("volume_path"):
+            safe_staging["volume_path"] = validate_volume_path(
+                str(staging["volume_path"]),
+                "staging.volume_path",
+            )
+        if isinstance(staging.get("original"), dict):
+            safe_staging["original"] = filtered_dict(
+                staging["original"],
+                {"blob_name", "container_name"},
+                {},
+            )
+            if staging["original"].get("storage_account_url"):
+                safe_staging["original"]["storage_account_url"] = validate_no_uri_credentials(
+                    str(staging["original"]["storage_account_url"]),
+                    "staging.original.storage_account_url",
+                )
+        if safe_staging:
+            safe["staging"] = safe_staging
+    return safe
+
+
+def safe_pipeline_config_for_persistence() -> dict:
+    nested_allowed = {
+        "asr": {"beam_size", "compute_type", "device", "language", "model_name", "vad_filter"},
+        "azure_openai": {
+            "api_key_env",
+            "api_key_secret_key",
+            "api_key_secret_scope",
+            "api_version",
+            "completion_window",
+            "endpoint",
+            "max_wait_seconds",
+            "poll_interval_seconds",
+            "request_timeout_seconds",
+        },
+        "azure_openai_batch": {
+            "api_key_env",
+            "api_key_secret_key",
+            "api_key_secret_scope",
+            "api_version",
+            "completion_window",
+            "endpoint",
+            "max_wait_seconds",
+            "poll_interval_seconds",
+            "request_timeout_seconds",
+        },
+        "faster_whisper": {
+            "beam_size",
+            "compute_type",
+            "device",
+            "language",
+            "model_name",
+            "vad_filter",
+        },
+        "frame_extraction": {
+            "format",
+            "height",
+            "interval_seconds",
+            "max_frames",
+            "quality",
+            "width",
+        },
+        "frames": {"format", "height", "interval_seconds", "max_frames", "quality", "width"},
+        "models": {"embedding", "prompt_version", "summary", "vision"},
+    }
+    return filtered_dict(
+        pipeline_config,
+        {
+            "asr",
+            "azure_openai",
+            "azure_openai_batch",
+            "custom_prompt",
+            "faster_whisper",
+            "frame_extraction",
+            "frame_interval",
+            "frames",
+            "graph_version",
+            "index_graph",
+            "language",
+            "max_frames",
+            "models",
+            "processing_version",
+            "prompt_version",
+            "summary_model",
+            "vision_model",
+        },
+        nested_allowed,
+    )
+
+
+def ensure_table_columns(table_name: str, columns: dict[str, str]) -> None:
+    existing_columns = set(spark.table(table_name).columns)
+    for column_name, column_type in columns.items():
+        if column_name not in existing_columns:
+            spark.sql(f"ALTER TABLE {table_name} ADD COLUMNS ({column_name} {column_type})")
+
+
 source_media = parse_json_object(source_media_raw, "source_media")
 pipeline_config = parse_json_object(pipeline_config_raw, "pipeline_config")
+validate_no_raw_secrets(source_media, "source_media")
+validate_no_raw_secrets(pipeline_config)
 run_id = dispatch_id
 processing_version = str(pipeline_config.get("processing_version") or schema_version)
 config_hash = hashlib.sha256(
@@ -717,7 +909,12 @@ def ensure_ops_table() -> None:
           request_count BIGINT,
           model_names STRING,
           status STRING,
+          provider_file_id STRING,
           provider_batch_id STRING,
+          provider_output_file_id STRING,
+          provider_error_file_id STRING,
+          provider_status STRING,
+          provider_metadata STRING,
           created_at TIMESTAMP,
           updated_at TIMESTAMP,
           submitted_at TIMESTAMP,
@@ -771,6 +968,16 @@ def ensure_ops_table() -> None:
         )
         USING DELTA
         """
+    )
+    ensure_table_columns(
+        qualified_ai_batches_table,
+        {
+            "provider_file_id": "STRING",
+            "provider_output_file_id": "STRING",
+            "provider_error_file_id": "STRING",
+            "provider_status": "STRING",
+            "provider_metadata": "STRING",
+        },
     )
 
 
@@ -949,8 +1156,8 @@ def register_manifest(source_uri: str = "") -> None:
             "user_id": user_id,
             "blob_name": blob_name,
             "source_uri": source_uri,
-            "source_media": json_dumps(source_media),
-            "pipeline_config": json_dumps(pipeline_config),
+            "source_media": json_dumps(safe_source_media_for_persistence()),
+            "pipeline_config": json_dumps(safe_pipeline_config_for_persistence()),
             "config_hash": config_hash,
             "created_at": now,
             "updated_at": now,
@@ -1662,7 +1869,12 @@ def load_existing_ai_batches() -> list[dict]:
           request_count,
           model_names,
           status,
+          provider_file_id,
           provider_batch_id,
+          provider_output_file_id,
+          provider_error_file_id,
+          provider_status,
+          provider_metadata,
           created_at,
           updated_at,
           submitted_at,
@@ -1671,7 +1883,7 @@ def load_existing_ai_batches() -> list[dict]:
         FROM {qualified_ai_batches_table}
         WHERE media_id = {sql_literal(media_id)}
           AND dispatch_id = {sql_literal(dispatch_id)}
-          AND status IN ('ready_for_submission', 'submitted', 'completed')
+          AND status IN ('ready_for_submission', 'submitted', 'completed', 'failed')
         ORDER BY updated_at DESC
         """
     ).collect()
@@ -1787,7 +1999,11 @@ def openai_batch_line(request: dict) -> dict:
 def stage_ai_batch_payloads() -> dict:
     all_requests = load_ai_requests()
     pending_requests = [request for request in all_requests if request["status"] == "pending"]
-    existing_batches = load_existing_ai_batches()
+    existing_batches = [
+        batch
+        for batch in load_existing_ai_batches()
+        if batch["status"] in {"ready_for_submission", "submitted", "completed"}
+    ]
     now = datetime.now(UTC)
     if not pending_requests and existing_batches:
         latest_batch = existing_batches[0]
@@ -1847,7 +2063,12 @@ def stage_ai_batch_payloads() -> dict:
             "request_count": len(pending_requests),
             "model_names": json_dumps({"models": model_names}),
             "status": "ready_for_submission",
+            "provider_file_id": None,
             "provider_batch_id": None,
+            "provider_output_file_id": None,
+            "provider_error_file_id": None,
+            "provider_status": None,
+            "provider_metadata": json_dumps({}),
             "created_at": now,
             "updated_at": now,
             "submitted_at": None,
@@ -1866,6 +2087,474 @@ def stage_ai_batch_payloads() -> dict:
         "status": "ready_for_submission",
         "reused": False,
         "size_bytes": os.path.getsize(batch_uri),
+    }
+
+
+def azure_openai_batch_config() -> dict:
+    cfg = pipeline_config.get("azure_openai_batch") or pipeline_config.get("azure_openai") or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.azure_openai_batch/azure_openai must be an object")
+
+    endpoint = str(cfg.get("endpoint") or os.environ.get("AZURE_OPENAI_ENDPOINT") or "").rstrip("/")
+    api_version = str(
+        cfg.get("api_version") or os.environ.get("AZURE_OPENAI_API_VERSION") or "2024-08-01-preview"
+    )
+    api_key = ""
+    secret_scope = cfg.get("api_key_secret_scope")
+    secret_key = cfg.get("api_key_secret_key")
+    if secret_scope and secret_key:
+        api_key = dbutils.secrets.get(str(secret_scope), str(secret_key))
+    else:
+        api_key_env = str(cfg.get("api_key_env") or "AZURE_OPENAI_API_KEY")
+        api_key = os.environ.get(api_key_env, "")
+
+    if not endpoint:
+        raise ValueError(
+            "Azure OpenAI Batch endpoint is missing. Set pipeline_config.azure_openai_batch.endpoint "
+            "or AZURE_OPENAI_ENDPOINT."
+        )
+    if not endpoint.startswith("https://"):
+        raise ValueError("Azure OpenAI Batch endpoint must use https://")
+    endpoint_host = (urlparse(endpoint).hostname or "").lower()
+    allowed_suffixes = [
+        suffix.strip().lower()
+        for suffix in os.environ.get(
+            "AZURE_OPENAI_ALLOWED_ENDPOINT_SUFFIXES",
+            "openai.azure.com,cognitiveservices.azure.com",
+        ).split(",")
+        if suffix.strip()
+    ]
+    if not allowed_suffixes:
+        raise ValueError("AZURE_OPENAI_ALLOWED_ENDPOINT_SUFFIXES cannot be empty")
+    if not any(
+        endpoint_host == suffix or endpoint_host.endswith(f".{suffix}")
+        for suffix in allowed_suffixes
+    ):
+        raise ValueError(
+            "Azure OpenAI Batch endpoint host is not in the allowed Azure OpenAI suffix list"
+        )
+    if not api_key:
+        raise ValueError(
+            "Azure OpenAI Batch API key is missing. Use pipeline_config.azure_openai_batch "
+            "api_key_secret_scope/api_key_secret_key or api_key_env."
+        )
+
+    return {
+        "endpoint": endpoint,
+        "api_version": api_version,
+        "api_key": api_key,
+        "completion_window": str(cfg.get("completion_window") or "24h"),
+        "poll_interval_seconds": int(cfg.get("poll_interval_seconds") or 30),
+        "max_wait_seconds": int(cfg.get("max_wait_seconds") or 3600),
+        "request_timeout_seconds": int(cfg.get("request_timeout_seconds") or 120),
+    }
+
+
+def azure_openai_url(config: dict, path: str) -> str:
+    separator = "&" if "?" in path else "?"
+    return f"{config['endpoint']}/openai{path}{separator}api-version={config['api_version']}"
+
+
+def azure_openai_request(
+    config: dict,
+    *,
+    method: str,
+    path: str,
+    body: bytes | None = None,
+    content_type: str | None = "application/json",
+) -> bytes:
+    headers = {"api-key": config["api_key"]}
+    if content_type:
+        headers["Content-Type"] = content_type
+    request = urllib.request.Request(  # noqa: S310
+        azure_openai_url(config, path),
+        data=body,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(  # noqa: S310
+            request,
+            timeout=config["request_timeout_seconds"],
+        ) as response:
+            return response.read()
+    except urllib.error.HTTPError as exc:
+        error_body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Azure OpenAI {method} {path} failed with {exc.code}: {error_body}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Azure OpenAI {method} {path} failed: {exc}") from exc
+
+
+def azure_openai_json(
+    config: dict,
+    *,
+    method: str,
+    path: str,
+    payload: dict | None = None,
+) -> dict:
+    body = None
+    if payload is not None:
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    raw_response = azure_openai_request(config, method=method, path=path, body=body)
+    return json.loads(raw_response.decode("utf-8"))
+
+
+def azure_openai_upload_batch_file(config: dict, batch_uri: str) -> dict:
+    boundary = f"----qprisma-{uuid4().hex}"
+    filename = os.path.basename(batch_uri)
+    with open(batch_uri, "rb") as batch_file:
+        file_content = batch_file.read()
+    body = b"".join(
+        [
+            f"--{boundary}\r\n".encode(),
+            b'Content-Disposition: form-data; name="purpose"\r\n\r\n',
+            b"batch\r\n",
+            f"--{boundary}\r\n".encode(),
+            (
+                f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+                "Content-Type: application/jsonl\r\n\r\n"
+            ).encode(),
+            file_content,
+            b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        ]
+    )
+    raw_response = azure_openai_request(
+        config,
+        method="POST",
+        path="/files",
+        body=body,
+        content_type=f"multipart/form-data; boundary={boundary}",
+    )
+    return json.loads(raw_response.decode("utf-8"))
+
+
+def azure_openai_create_batch(config: dict, input_file_id: str, batch: dict) -> dict:
+    return azure_openai_json(
+        config,
+        method="POST",
+        path="/batches",
+        payload={
+            "input_file_id": input_file_id,
+            "endpoint": "/chat/completions",
+            "completion_window": config["completion_window"],
+            "metadata": {
+                "media_id": media_id,
+                "dispatch_id": dispatch_id,
+                "qprisma_batch_id": batch["batch_id"],
+            },
+        },
+    )
+
+
+def azure_openai_retrieve_batch(config: dict, provider_batch_id: str) -> dict:
+    return azure_openai_json(config, method="GET", path=f"/batches/{provider_batch_id}")
+
+
+def azure_openai_download_file(config: dict, file_id: str) -> str:
+    raw_response = azure_openai_request(
+        config,
+        method="GET",
+        path=f"/files/{file_id}/content",
+        content_type=None,
+    )
+    return raw_response.decode("utf-8")
+
+
+def provider_request_counts(provider_batch: dict) -> dict:
+    request_counts = provider_batch.get("request_counts") or {}
+    return {
+        "total": int(request_counts.get("total") or 0),
+        "completed": int(request_counts.get("completed") or 0),
+        "failed": int(request_counts.get("failed") or 0),
+    }
+
+
+def batch_row_with_provider_state(
+    batch: dict,
+    *,
+    status: str,
+    provider_batch: dict | None = None,
+    provider_file_id: str | None = None,
+    provider_metadata: dict | None = None,
+    error: dict | None = None,
+    completed: bool = False,
+) -> dict:
+    provider_batch = provider_batch or {}
+    now = datetime.now(UTC)
+    metadata = {
+        "request_counts": provider_request_counts(provider_batch),
+        "raw_status": provider_batch.get("status"),
+    }
+    metadata.update(provider_metadata or {})
+    return {
+        **batch,
+        "status": status,
+        "provider_file_id": provider_file_id or batch.get("provider_file_id"),
+        "provider_batch_id": provider_batch.get("id") or batch.get("provider_batch_id"),
+        "provider_output_file_id": provider_batch.get("output_file_id")
+        or batch.get("provider_output_file_id"),
+        "provider_error_file_id": provider_batch.get("error_file_id")
+        or batch.get("provider_error_file_id"),
+        "provider_status": provider_batch.get("status") or batch.get("provider_status"),
+        "provider_metadata": json_dumps(metadata),
+        "updated_at": now,
+        "submitted_at": batch.get("submitted_at") or now if status == "submitted" else batch.get("submitted_at"),
+        "completed_at": now if completed else batch.get("completed_at"),
+        "error": json_dumps(error or {}),
+    }
+
+
+def write_ai_batch(batch: dict) -> None:
+    merge_row(qualified_ai_batches_table, batch, AI_BATCHES_SCHEMA, ["batch_id"])
+
+
+def mark_ai_request_status(request: dict, status: str, now: datetime) -> None:
+    merge_row(
+        qualified_ai_requests_table,
+        {**request, "status": status, "updated_at": now},
+        AI_REQUESTS_SCHEMA,
+        ["request_id"],
+    )
+
+
+def mark_batch_requests_status(batch: dict, status: str, now: datetime) -> int:
+    request_ids = read_batch_request_ids(batch["batch_uri"])
+    requests_by_id = {request["request_id"]: request for request in load_ai_requests()}
+    updated_count = 0
+    for request_id in request_ids:
+        request = requests_by_id.get(request_id)
+        if request:
+            mark_ai_request_status(request, status, now)
+            updated_count += 1
+    return updated_count
+
+
+def batch_artifact_uri(batch: dict, filename: str) -> str:
+    return f"{os.path.dirname(batch['batch_uri'])}/{filename}"
+
+
+def write_text_artifact(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as artifact_file:
+        artifact_file.write(content)
+
+
+def parse_jsonl(text: str) -> list[dict]:
+    rows = []
+    for line in text.splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
+def ai_result_row(batch: dict, request: dict, provider_result: dict) -> dict:
+    response = provider_result.get("response") or {}
+    body = response.get("body") or {}
+    usage = body.get("usage") or {}
+    status_code = int(response.get("status_code") or 0)
+    content = ""
+    normalized = {}
+    error = {}
+    status = "failed"
+    if status_code == 200:
+        choices = body.get("choices") or []
+        if choices:
+            content = str(((choices[0].get("message") or {}).get("content")) or "")
+        try:
+            parsed_content = json.loads(content or "{}")
+            if isinstance(parsed_content, dict):
+                normalized = parsed_content
+                status = "completed"
+            else:
+                error = {"reason": "model_response_not_json_object", "content": content}
+        except json.JSONDecodeError as exc:
+            error = {"reason": "model_response_json_parse_failed", "message": str(exc), "content": content}
+    else:
+        error = provider_result.get("error") or body.get("error") or {"status_code": status_code}
+
+    now = datetime.now(UTC)
+    return {
+        "result_id": f"{request['request_id']}:result:{stable_hash({'batch_id': batch['batch_id']})[:12]}",
+        "request_id": request["request_id"],
+        "batch_id": batch["batch_id"],
+        "media_id": request["media_id"],
+        "dispatch_id": request["dispatch_id"],
+        "source_type": request["source_type"],
+        "source_id": request["source_id"],
+        "model_name": request["model_name"],
+        "prompt_version": request["prompt_version"],
+        "status": status,
+        "response_json": json.dumps(provider_result, separators=(",", ":"), sort_keys=True),
+        "normalized_json": json_dumps(normalized),
+        "tokens_prompt": usage.get("prompt_tokens"),
+        "tokens_completion": usage.get("completion_tokens"),
+        "created_at": now,
+        "updated_at": now,
+        "error": json_dumps(error),
+    }
+
+
+def ingest_ai_batch_results(config: dict, batch: dict, provider_batch: dict) -> dict:
+    output_file_id = provider_batch.get("output_file_id")
+    error_file_id = provider_batch.get("error_file_id")
+    if not output_file_id and not error_file_id:
+        raise ValueError(f"Completed provider batch {provider_batch.get('id')} has no output or error file")
+
+    provider_results = []
+    provider_artifacts = {}
+    if output_file_id:
+        output_text = azure_openai_download_file(config, output_file_id)
+        output_uri = batch_artifact_uri(batch, "provider_output.jsonl")
+        write_text_artifact(output_uri, output_text)
+        provider_artifacts["output_uri"] = output_uri
+        provider_results.extend(parse_jsonl(output_text))
+    if error_file_id:
+        error_text = azure_openai_download_file(config, error_file_id)
+        error_uri = batch_artifact_uri(batch, "provider_errors.jsonl")
+        write_text_artifact(error_uri, error_text)
+        provider_artifacts["error_uri"] = error_uri
+        provider_results.extend(parse_jsonl(error_text))
+
+    requests_by_id = {request["request_id"]: request for request in load_ai_requests()}
+    status_counts: dict[str, int] = {}
+    now = datetime.now(UTC)
+    for provider_result in provider_results:
+        request_id = provider_result.get("custom_id")
+        request = requests_by_id.get(request_id)
+        if not request:
+            raise ValueError(f"Provider batch returned unknown custom_id: {request_id}")
+        result = ai_result_row(batch, request, provider_result)
+        merge_row(qualified_ai_results_table, result, AI_RESULTS_SCHEMA, ["result_id"])
+        mark_ai_request_status(request, result["status"], now)
+        status_counts[result["status"]] = status_counts.get(result["status"], 0) + 1
+
+    completed_batch = batch_row_with_provider_state(
+        batch,
+        status="completed",
+        provider_batch=provider_batch,
+        provider_metadata=provider_artifacts,
+        completed=True,
+    )
+    write_ai_batch(completed_batch)
+    return {
+        "batch_id": batch["batch_id"],
+        "provider_batch_id": provider_batch.get("id"),
+        "result_count": len(provider_results),
+        "status_counts": status_counts,
+        "request_counts": provider_request_counts(provider_batch),
+    }
+
+
+def submit_ai_batch(config: dict, batch: dict) -> dict:
+    provider_file_id = batch.get("provider_file_id")
+    if not provider_file_id:
+        provider_file = azure_openai_upload_batch_file(config, batch["batch_uri"])
+        provider_file_id = provider_file["id"]
+        batch = batch_row_with_provider_state(
+            batch,
+            status="ready_for_submission",
+            provider_file_id=provider_file_id,
+            provider_metadata={"provider_file_uploaded": True},
+        )
+        write_ai_batch(batch)
+    if batch.get("provider_batch_id"):
+        return batch
+    provider_batch = azure_openai_create_batch(config, provider_file_id, batch)
+    submitted_batch = batch_row_with_provider_state(
+        batch,
+        status="submitted",
+        provider_batch=provider_batch,
+        provider_file_id=provider_file_id,
+    )
+    write_ai_batch(submitted_batch)
+    return submitted_batch
+
+
+def wait_for_ai_batch(config: dict, batch: dict) -> dict:
+    started = time.time()
+    provider_batch_id = batch.get("provider_batch_id")
+    if not provider_batch_id:
+        raise ValueError(f"Batch {batch['batch_id']} has no provider_batch_id")
+
+    while True:
+        provider_batch = azure_openai_retrieve_batch(config, provider_batch_id)
+        provider_status = provider_batch.get("status")
+        if provider_status == "completed":
+            return ingest_ai_batch_results(config, batch, provider_batch)
+        if provider_status in {"failed", "expired", "cancelled"}:
+            failed_request_count = mark_batch_requests_status(batch, "failed", datetime.now(UTC))
+            failed_batch = batch_row_with_provider_state(
+                batch,
+                status="failed",
+                provider_batch=provider_batch,
+                provider_metadata={"failed_request_count": failed_request_count},
+                error={"provider_status": provider_status},
+                completed=True,
+            )
+            write_ai_batch(failed_batch)
+            raise RuntimeError(f"Azure OpenAI Batch {provider_batch_id} ended with status {provider_status}")
+
+        write_ai_batch(
+            batch_row_with_provider_state(
+                batch,
+                status="submitted",
+                provider_batch=provider_batch,
+            )
+        )
+        elapsed = time.time() - started
+        if elapsed >= config["max_wait_seconds"]:
+            write_ai_batch(
+                batch_row_with_provider_state(
+                    batch,
+                    status="submitted",
+                    provider_batch=provider_batch,
+                    error={
+                        "reason": "provider_batch_poll_timeout",
+                        "max_wait_seconds": config["max_wait_seconds"],
+                    },
+                )
+            )
+            raise TimeoutError(
+                f"Azure OpenAI Batch {provider_batch_id} did not complete within "
+                f"{config['max_wait_seconds']} seconds"
+            )
+        time.sleep(config["poll_interval_seconds"])
+
+
+def run_ai_batch_inference() -> dict:
+    config = azure_openai_batch_config()
+    batches = [
+        batch
+        for batch in load_existing_ai_batches()
+        if batch["status"] in {"ready_for_submission", "submitted"}
+    ]
+    if not batches:
+        completed_batches = [
+            batch for batch in load_existing_ai_batches() if batch["status"] == "completed"
+        ]
+        if completed_batches:
+            return {
+                "submitted_count": 0,
+                "completed_count": len(completed_batches),
+                "reused_completed": True,
+            }
+        raise ValueError("No AI batches are ready for inference. Run stage_ai_batch_payloads first.")
+
+    submitted_count = 0
+    result_summaries = []
+    for batch in batches:
+        active_batch = batch
+        if batch["status"] == "ready_for_submission":
+            active_batch = submit_ai_batch(config, batch)
+            submitted_count += 1
+        result_summaries.append(wait_for_ai_batch(config, active_batch))
+
+    return {
+        "submitted_count": submitted_count,
+        "completed_count": len(result_summaries),
+        "results": result_summaries,
+        "ai_batches_table": AI_BATCHES_TABLE,
+        "ai_results_table": AI_RESULTS_TABLE,
     }
 
 
@@ -2099,13 +2788,25 @@ def complete_observable_stage(
 
 def validate_volume_path(path: str, field_name: str) -> str:
     normalized = path.strip()
+    if "?" in normalized or "#" in normalized:
+        raise ValueError(f"source_media.{field_name} must not include query strings or fragments")
     if normalized.startswith(("dbfs:/Volumes/", "/Volumes/")):
         return normalized
     raise ValueError(f"source_media.{field_name} must be a Unity Catalog volume path")
 
 
-def validate_cloud_uri(uri: str, field_name: str) -> str:
+def validate_no_uri_credentials(uri: str, field_name: str) -> str:
     normalized = uri.strip()
+    parsed = urlparse(normalized)
+    if parsed.query or parsed.fragment:
+        raise ValueError(f"source_media.{field_name} must not include query strings or fragments")
+    if parsed.password or (parsed.scheme in {"http", "https"} and parsed.username):
+        raise ValueError(f"source_media.{field_name} must not include embedded credentials")
+    return normalized
+
+
+def validate_cloud_uri(uri: str, field_name: str) -> str:
+    normalized = validate_no_uri_credentials(uri, field_name)
     if normalized.startswith(("abfss://", "wasbs://")):
         return normalized
     if normalized.startswith(("dbfs:/Volumes/", "/Volumes/")):
@@ -2137,6 +2838,7 @@ def source_media_uri() -> str:
             "source_media must include volume_path, uri, or container_name, blob_name and storage_account_url"
         )
 
+    storage_account_url = validate_no_uri_credentials(storage_account_url, "storage_account_url")
     host = urlparse(storage_account_url).hostname or ""
     account_name = host.split(".")[0]
     if not account_name:
@@ -2152,6 +2854,7 @@ def validate_source_contract() -> None:
     auth = source_media.get("auth")
     if not isinstance(auth, dict) or auth.get("mode") != "managed_identity":
         raise ValueError("source_media.auth.mode must be 'managed_identity'")
+    source_media_uri()
 
 
 def probe_source_media(uri: str) -> dict:
@@ -2191,8 +2894,8 @@ try:
             status="running",
             message="Manifest registered",
             details={
-                "pipeline_config": pipeline_config,
-                "source_media": source_media,
+                "pipeline_config": safe_pipeline_config_for_persistence(),
+                "source_media": safe_source_media_for_persistence(),
                 "config_hash": config_hash,
                 "processing_version": processing_version,
             },
@@ -2429,7 +3132,32 @@ try:
                 **batch,
                 "ai_batches_table": AI_BATCHES_TABLE,
                 "ai_results_table": AI_RESULTS_TABLE,
-                "next": "Submit ready_for_submission batches to Azure OpenAI Batch",
+                "next": "Run Azure OpenAI Batch inference and ingest responses",
+            },
+            completed=True,
+        )
+    elif stage == "run_ai_batch_inference":
+        stage_message = "Submitting Azure OpenAI Batch jobs and ingesting results"
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        summary = run_ai_batch_inference()
+        write_event(
+            status="ai_batch_inference_completed",
+            message="Azure OpenAI Batch inference completed",
+            details=summary,
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="Azure OpenAI Batch inference completed",
+            metrics={
+                **summary,
+                "next": "Normalize AI results into Gold semantics and graph upserts",
             },
             completed=True,
         )
@@ -2509,8 +3237,8 @@ try:
             },
             "next": [
                 "implement_audio_chunking",
-                "implement_multimodal_batch_submission",
-                "implement_ai_result_normalization",
+                "normalize_ai_results_to_gold",
+                "build_frontend_processing_result",
                 "implement_neo4j_graph_projector",
             ],
         }
