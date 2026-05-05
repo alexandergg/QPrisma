@@ -6,9 +6,11 @@ Delta records per stage, and moves media understanding into governed
 Databricks ETL tasks.
 """
 
+# ruff: noqa: F821, S603, S608
+
 # COMMAND ----------
 
-from datetime import UTC, datetime
+import base64
 import hashlib
 import json
 import os
@@ -16,10 +18,18 @@ import re
 import subprocess
 import tempfile
 import time
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType, TimestampType
+from pyspark.sql.types import (
+    DoubleType,
+    LongType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
+)
 
 # COMMAND ----------
 
@@ -76,6 +86,8 @@ ASR_RUNS_TABLE = "video_asr_runs"
 TRANSCRIPT_SEGMENTS_TABLE = "video_transcript_segments"
 FRAME_ASSETS_TABLE = "video_frame_assets"
 AI_REQUESTS_TABLE = "video_ai_requests"
+AI_BATCHES_TABLE = "video_ai_batches"
+AI_RESULTS_TABLE = "video_ai_results"
 GRAPH_UPSERTS_TABLE = "video_graph_upserts"
 
 STAGE_PROGRESS = {
@@ -84,8 +96,9 @@ STAGE_PROGRESS = {
     "extract_audio_assets": 0.30,
     "extract_frame_assets": 0.40,
     "run_faster_whisper_asr": 0.55,
-    "build_multimodal_inference_requests": 0.70,
-    "build_graph_upserts": 0.85,
+    "build_multimodal_inference_requests": 0.68,
+    "stage_ai_batch_payloads": 0.78,
+    "build_graph_upserts": 0.88,
     "publish_outbox": 1.00,
 }
 STAGE_MESSAGES = {
@@ -95,6 +108,7 @@ STAGE_MESSAGES = {
     "extract_frame_assets": "Preparing frame extraction assets",
     "run_faster_whisper_asr": "Preparing faster-whisper transcription",
     "build_multimodal_inference_requests": "Preparing multimodal inference requests",
+    "stage_ai_batch_payloads": "Staging Azure OpenAI Batch payloads",
     "build_graph_upserts": "Preparing Neo4j graph upsert intents",
     "publish_outbox": "Publishing Databricks lakehouse result",
 }
@@ -105,6 +119,7 @@ PIPELINE_STAGES = [
     "extract_frame_assets",
     "run_faster_whisper_asr",
     "build_multimodal_inference_requests",
+    "stage_ai_batch_payloads",
     "build_graph_upserts",
     "publish_outbox",
 ]
@@ -304,6 +319,44 @@ AI_REQUESTS_SCHEMA = StructType(
         StructField("updated_at", TimestampType(), nullable=False),
     ]
 )
+AI_BATCHES_SCHEMA = StructType(
+    [
+        StructField("batch_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("batch_uri", StringType(), nullable=False),
+        StructField("request_count", LongType(), nullable=False),
+        StructField("model_names", StringType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("provider_batch_id", StringType(), nullable=True),
+        StructField("created_at", TimestampType(), nullable=False),
+        StructField("updated_at", TimestampType(), nullable=False),
+        StructField("submitted_at", TimestampType(), nullable=True),
+        StructField("completed_at", TimestampType(), nullable=True),
+        StructField("error", StringType(), nullable=False),
+    ]
+)
+AI_RESULTS_SCHEMA = StructType(
+    [
+        StructField("result_id", StringType(), nullable=False),
+        StructField("request_id", StringType(), nullable=False),
+        StructField("batch_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("source_type", StringType(), nullable=False),
+        StructField("source_id", StringType(), nullable=False),
+        StructField("model_name", StringType(), nullable=False),
+        StructField("prompt_version", StringType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("response_json", StringType(), nullable=False),
+        StructField("normalized_json", StringType(), nullable=False),
+        StructField("tokens_prompt", LongType(), nullable=True),
+        StructField("tokens_completion", LongType(), nullable=True),
+        StructField("created_at", TimestampType(), nullable=False),
+        StructField("updated_at", TimestampType(), nullable=False),
+        StructField("error", StringType(), nullable=False),
+    ]
+)
 GRAPH_UPSERTS_SCHEMA = StructType(
     [
         StructField("upsert_id", StringType(), nullable=False),
@@ -368,6 +421,12 @@ qualified_frame_assets_table = (
 )
 qualified_ai_requests_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AI_REQUESTS_TABLE)}"
+)
+qualified_ai_batches_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AI_BATCHES_TABLE)}"
+)
+qualified_ai_results_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AI_RESULTS_TABLE)}"
 )
 qualified_graph_upserts_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(GRAPH_UPSERTS_TABLE)}"
@@ -644,6 +703,50 @@ def ensure_ops_table() -> None:
           status STRING,
           created_at TIMESTAMP,
           updated_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_ai_batches_table} (
+          batch_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          batch_uri STRING,
+          request_count BIGINT,
+          model_names STRING,
+          status STRING,
+          provider_batch_id STRING,
+          created_at TIMESTAMP,
+          updated_at TIMESTAMP,
+          submitted_at TIMESTAMP,
+          completed_at TIMESTAMP,
+          error STRING
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_ai_results_table} (
+          result_id STRING,
+          request_id STRING,
+          batch_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          source_type STRING,
+          source_id STRING,
+          model_name STRING,
+          prompt_version STRING,
+          status STRING,
+          response_json STRING,
+          normalized_json STRING,
+          tokens_prompt BIGINT,
+          tokens_completion BIGINT,
+          created_at TIMESTAMP,
+          updated_at TIMESTAMP,
+          error STRING
         )
         USING DELTA
         """
@@ -1487,7 +1590,11 @@ def build_inference_request_rows() -> list[dict]:
 
 
 def register_ai_requests(requests: list[dict]) -> None:
+    existing_by_id = {request["request_id"]: request for request in load_ai_requests()}
     for request in requests:
+        existing = existing_by_id.get(request["request_id"])
+        if existing and existing["status"] != "pending":
+            continue
         merge_row(
             qualified_ai_requests_table,
             request,
@@ -1523,13 +1630,18 @@ def load_ai_requests() -> list[dict]:
         f"""
         SELECT
           request_id,
+          media_id,
+          dispatch_id,
           source_type,
           source_id,
           model_name,
           prompt_version,
           input_uri,
           input_hash,
-          status
+          request_payload,
+          status,
+          created_at,
+          updated_at
         FROM {qualified_ai_requests_table}
         WHERE media_id = {sql_literal(media_id)}
           AND dispatch_id = {sql_literal(dispatch_id)}
@@ -1537,6 +1649,224 @@ def load_ai_requests() -> list[dict]:
         """
     ).collect()
     return [row.asDict() for row in rows]
+
+
+def load_existing_ai_batches() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          batch_id,
+          media_id,
+          dispatch_id,
+          batch_uri,
+          request_count,
+          model_names,
+          status,
+          provider_batch_id,
+          created_at,
+          updated_at,
+          submitted_at,
+          completed_at,
+          error
+        FROM {qualified_ai_batches_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+          AND status IN ('ready_for_submission', 'submitted', 'completed')
+        ORDER BY updated_at DESC
+        """
+    ).collect()
+    return [row.asDict() for row in rows]
+
+
+def image_media_type(uri: str) -> str:
+    extension = uri.rsplit(".", 1)[-1].lower() if "." in uri else ""
+    return {
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "webp": "image/webp",
+    }.get(extension, "image/jpeg")
+
+
+def json_mode_prompt(prompt: str) -> str:
+    return (
+        f"{prompt}\n\n"
+        "Return only a valid JSON object. Do not include markdown fences or explanatory text."
+    )
+
+
+def read_batch_request_ids(batch_uri: str) -> set[str]:
+    request_ids: set[str] = set()
+    with open(batch_uri, encoding="utf-8") as batch_file:
+        for line in batch_file:
+            if line.strip():
+                request_ids.add(json.loads(line)["custom_id"])
+    return request_ids
+
+
+def mark_ai_requests_batched(requests: list[dict], now: datetime) -> None:
+    for request in requests:
+        updated_request = {
+            **request,
+            "status": "batched",
+            "updated_at": now,
+        }
+        merge_row(
+            qualified_ai_requests_table,
+            updated_request,
+            AI_REQUESTS_SCHEMA,
+            ["request_id"],
+        )
+
+
+def batch_request_body(request: dict) -> dict:
+    payload = json.loads(request["request_payload"] or "{}")
+    request_type = payload.get("request_type")
+    custom_prompt = payload.get("custom_prompt")
+    if request_type == "frame_understanding":
+        if not request.get("input_uri"):
+            raise ValueError(f"Frame request {request['request_id']} is missing input_uri")
+        with open(request["input_uri"], "rb") as frame_file:
+            image_base64 = base64.b64encode(frame_file.read()).decode("ascii")
+        media_type = image_media_type(payload.get("frame_uri") or request["input_uri"])
+        text_prompt = json_mode_prompt(
+            custom_prompt
+            or (
+                "Describe the visual content of this video frame as JSON. Include visible "
+                "objects, people, text, actions, setting and any temporal cues useful for "
+                "video search."
+            )
+        )
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{media_type};base64,{image_base64}"},
+                    },
+                ],
+            }
+        ]
+    elif request_type == "transcript_semantics":
+        text_prompt = json_mode_prompt(
+            custom_prompt
+            or (
+                "Extract concise topics, entities, relationships and timeline cues from this "
+                "video transcript. Return structured JSON."
+            )
+        )
+        messages = [
+            {
+                "role": "user",
+                "content": (
+                    f"{text_prompt}\n\nTranscript:\n{payload.get('transcript_text', '')}"
+                ),
+            }
+        ]
+    else:
+        raise ValueError(f"Unsupported AI request_type for {request['request_id']}: {request_type}")
+
+    return {
+        "model": request["model_name"],
+        "messages": messages,
+        "response_format": {"type": "json_object"},
+    }
+
+
+def openai_batch_line(request: dict) -> dict:
+    return {
+        "custom_id": request["request_id"],
+        "method": "POST",
+        "url": "/chat/completions",
+        "body": batch_request_body(request),
+    }
+
+
+def stage_ai_batch_payloads() -> dict:
+    all_requests = load_ai_requests()
+    pending_requests = [request for request in all_requests if request["status"] == "pending"]
+    existing_batches = load_existing_ai_batches()
+    now = datetime.now(UTC)
+    if not pending_requests and existing_batches:
+        latest_batch = existing_batches[0]
+        return {
+            "batch_id": latest_batch["batch_id"],
+            "batch_uri": latest_batch["batch_uri"],
+            "request_count": latest_batch["request_count"],
+            "model_names": json.loads(latest_batch["model_names"] or "{}").get("models", []),
+            "status": latest_batch["status"],
+            "reused": True,
+            "reconciled_request_count": 0,
+        }
+
+    for existing_batch in existing_batches:
+        batch_request_ids = read_batch_request_ids(existing_batch["batch_uri"])
+        pending_in_batch = [
+            request for request in pending_requests if request["request_id"] in batch_request_ids
+        ]
+        if not pending_requests or len(pending_in_batch) == len(pending_requests):
+            mark_ai_requests_batched(pending_in_batch, now)
+            return {
+                "batch_id": existing_batch["batch_id"],
+                "batch_uri": existing_batch["batch_uri"],
+                "request_count": existing_batch["request_count"],
+                "model_names": json.loads(existing_batch["model_names"] or "{}").get("models", []),
+                "status": existing_batch["status"],
+                "reused": True,
+                "reconciled_request_count": len(pending_in_batch),
+            }
+
+    if not pending_requests:
+        raise ValueError("No pending AI requests found. Run build_multimodal_inference_requests first.")
+
+    batch_hash = stable_hash(
+        {
+            "request_ids": [request["request_id"] for request in pending_requests],
+            "config_hash": config_hash,
+            "schema_version": schema_version,
+        }
+    )
+    batch_id = f"{media_id}:ai_batch:{batch_hash[:12]}"
+    batch_dir = volume_path(media_id, dispatch_id, "ai_batches", batch_id)
+    os.makedirs(batch_dir, exist_ok=True)
+    batch_uri = f"{batch_dir}/requests.jsonl"
+    with open(batch_uri, "w", encoding="utf-8") as batch_file:
+        for request in pending_requests:
+            batch_file.write(json.dumps(openai_batch_line(request), separators=(",", ":")) + "\n")
+
+    model_names = sorted({request["model_name"] for request in pending_requests})
+    merge_row(
+        qualified_ai_batches_table,
+        {
+            "batch_id": batch_id,
+            "media_id": media_id,
+            "dispatch_id": dispatch_id,
+            "batch_uri": batch_uri,
+            "request_count": len(pending_requests),
+            "model_names": json_dumps({"models": model_names}),
+            "status": "ready_for_submission",
+            "provider_batch_id": None,
+            "created_at": now,
+            "updated_at": now,
+            "submitted_at": None,
+            "completed_at": None,
+            "error": json_dumps({}),
+        },
+        AI_BATCHES_SCHEMA,
+        ["batch_id"],
+    )
+    mark_ai_requests_batched(pending_requests, now)
+    return {
+        "batch_id": batch_id,
+        "batch_uri": batch_uri,
+        "request_count": len(pending_requests),
+        "model_names": model_names,
+        "status": "ready_for_submission",
+        "reused": False,
+        "size_bytes": os.path.getsize(batch_uri),
+    }
 
 
 def graph_upsert_row(
@@ -2076,6 +2406,33 @@ try:
             },
             completed=True,
         )
+    elif stage == "stage_ai_batch_payloads":
+        stage_message = "Staging Azure OpenAI Batch JSONL payloads"
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        batch = stage_ai_batch_payloads()
+        write_event(
+            status="ai_batch_payloads_staged",
+            message="Azure OpenAI Batch payloads staged",
+            details=batch,
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="Azure OpenAI Batch payloads staged",
+            metrics={
+                **batch,
+                "ai_batches_table": AI_BATCHES_TABLE,
+                "ai_results_table": AI_RESULTS_TABLE,
+                "next": "Submit ready_for_submission batches to Azure OpenAI Batch",
+            },
+            completed=True,
+        )
     elif stage == "build_graph_upserts":
         stage_message = "Building Neo4j graph upsert intents from Delta records"
         upsert_processing_run(
@@ -2143,6 +2500,8 @@ try:
                 "transcript_segments": TRANSCRIPT_SEGMENTS_TABLE,
                 "frame_assets": FRAME_ASSETS_TABLE,
                 "ai_requests": AI_REQUESTS_TABLE,
+                "ai_batches": AI_BATCHES_TABLE,
+                "ai_results": AI_RESULTS_TABLE,
                 "graph_upserts": GRAPH_UPSERTS_TABLE,
                 "events": OPS_EVENTS_TABLE,
                 "outbox": OPS_OUTBOX_TABLE,
@@ -2151,6 +2510,7 @@ try:
             "next": [
                 "implement_audio_chunking",
                 "implement_multimodal_batch_submission",
+                "implement_ai_result_normalization",
                 "implement_neo4j_graph_projector",
             ],
         }
