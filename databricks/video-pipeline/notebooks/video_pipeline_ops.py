@@ -199,6 +199,16 @@ SOURCE_FILES_SCHEMA = StructType(
         StructField("path", StringType(), nullable=False),
         StructField("length", LongType(), nullable=False),
         StructField("modification_time", StringType(), nullable=True),
+        StructField("format_name", StringType(), nullable=True),
+        StructField("duration_seconds", DoubleType(), nullable=True),
+        StructField("video_codec", StringType(), nullable=True),
+        StructField("audio_codec", StringType(), nullable=True),
+        StructField("width", LongType(), nullable=True),
+        StructField("height", LongType(), nullable=True),
+        StructField("fps", DoubleType(), nullable=True),
+        StructField("has_audio", StringType(), nullable=False),
+        StructField("quality_status", StringType(), nullable=False),
+        StructField("quality_details", StringType(), nullable=False),
         StructField("validated_at", TimestampType(), nullable=False),
     ]
 )
@@ -549,6 +559,10 @@ def filtered_dict(value: dict, allowed_keys: set[str], nested_allowed: dict[str,
             filtered[key] = filtered_dict(nested_value, nested_allowed[key], {})
         elif isinstance(nested_value, str | int | float | bool) or nested_value is None:
             filtered[key] = nested_value
+        elif isinstance(nested_value, list) and all(
+            isinstance(item, str | int | float | bool) or item is None for item in nested_value
+        ):
+            filtered[key] = nested_value
     return filtered
 
 
@@ -636,6 +650,30 @@ def safe_pipeline_config_for_persistence() -> dict:
         "frames": {"format", "height", "interval_seconds", "max_frames", "quality", "width"},
         "models": {"embedding", "prompt_version", "summary", "vision"},
         "neo4j": {"enabled"},
+        "quality": {
+            "allowed_video_codecs",
+            "max_duration_seconds",
+            "max_fps",
+            "max_height",
+            "max_size_bytes",
+            "max_width",
+            "min_duration_seconds",
+            "min_size_bytes",
+            "require_audio",
+            "sample_decode_seconds",
+        },
+        "quality_gates": {
+            "allowed_video_codecs",
+            "max_duration_seconds",
+            "max_fps",
+            "max_height",
+            "max_size_bytes",
+            "max_width",
+            "min_duration_seconds",
+            "min_size_bytes",
+            "require_audio",
+            "sample_decode_seconds",
+        },
     }
     safe = filtered_dict(
         pipeline_config,
@@ -656,6 +694,8 @@ def safe_pipeline_config_for_persistence() -> dict:
             "neo4j",
             "processing_version",
             "prompt_version",
+            "quality",
+            "quality_gates",
             "summary_model",
             "vision_model",
         },
@@ -752,6 +792,16 @@ def ensure_ops_table() -> None:
           path STRING,
           length BIGINT,
           modification_time STRING,
+          format_name STRING,
+          duration_seconds DOUBLE,
+          video_codec STRING,
+          audio_codec STRING,
+          width BIGINT,
+          height BIGINT,
+          fps DOUBLE,
+          has_audio STRING,
+          quality_status STRING,
+          quality_details STRING,
           validated_at TIMESTAMP
         )
         USING DELTA
@@ -1033,6 +1083,21 @@ def ensure_ops_table() -> None:
         """
     )
     ensure_table_columns(
+        qualified_source_files_table,
+        {
+            "format_name": "STRING",
+            "duration_seconds": "DOUBLE",
+            "video_codec": "STRING",
+            "audio_codec": "STRING",
+            "width": "BIGINT",
+            "height": "BIGINT",
+            "fps": "DOUBLE",
+            "has_audio": "STRING",
+            "quality_status": "STRING",
+            "quality_details": "STRING",
+        },
+    )
+    ensure_table_columns(
         qualified_ai_batches_table,
         {
             "provider_file_id": "STRING",
@@ -1230,7 +1295,9 @@ def register_manifest(source_uri: str = "") -> None:
     )
 
 
-def register_source_file(source_uri: str, probe: dict) -> None:
+def register_source_file(source_uri: str, probe: dict, quality: dict | None = None) -> None:
+    quality = quality or {}
+    metadata = quality.get("metadata") or {}
     merge_row(
         qualified_source_files_table,
         {
@@ -1240,6 +1307,16 @@ def register_source_file(source_uri: str, probe: dict) -> None:
             "path": probe["path"],
             "length": int(probe["length"]),
             "modification_time": probe.get("modification_time"),
+            "format_name": metadata.get("format_name"),
+            "duration_seconds": metadata.get("duration_seconds"),
+            "video_codec": metadata.get("video_codec"),
+            "audio_codec": metadata.get("audio_codec"),
+            "width": metadata.get("width"),
+            "height": metadata.get("height"),
+            "fps": metadata.get("fps"),
+            "has_audio": str(bool(metadata.get("has_audio"))).lower(),
+            "quality_status": str(quality.get("status") or "unknown"),
+            "quality_details": json_dumps(quality),
             "validated_at": datetime.now(UTC),
         },
         SOURCE_FILES_SCHEMA,
@@ -1294,6 +1371,217 @@ def run_command(command: list[str]) -> subprocess.CompletedProcess:
     except subprocess.CalledProcessError as exc:
         stderr = (exc.stderr or "").strip()
         raise RuntimeError(f"Command failed: {' '.join(command)}\n{stderr}") from exc
+
+
+class QualityGateError(ValueError):
+    """Raised when source media fails pre-inference quality gates."""
+
+    def __init__(self, quality: dict):
+        self.quality = quality
+        super().__init__(json_dumps(quality))
+
+
+def string_set(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        return {item.strip().lower() for item in value.split(",") if item.strip()}
+    if isinstance(value, list):
+        return {str(item).strip().lower() for item in value if str(item).strip()}
+    raise ValueError(f"Expected a comma-separated string or list, got {value!r}")
+
+
+def bounded_int(name: str, value: Any, *, default: int, minimum: int, maximum: int) -> int:
+    parsed = int(value if value is not None else default)
+    if parsed < minimum or parsed > maximum:
+        raise ValueError(f"quality_gates.{name} must be between {minimum} and {maximum}")
+    return parsed
+
+
+def bounded_float(name: str, value: Any, *, default: float, minimum: float, maximum: float) -> float:
+    parsed = float(value if value is not None else default)
+    if parsed < minimum or parsed > maximum:
+        raise ValueError(f"quality_gates.{name} must be between {minimum} and {maximum}")
+    return parsed
+
+
+def quality_gate_config() -> dict:
+    cfg = pipeline_config.get("quality_gates") or pipeline_config.get("quality") or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.quality_gates/quality must be an object when provided")
+    return {
+        "min_size_bytes": bounded_int(
+            "min_size_bytes", cfg.get("min_size_bytes"), default=1024, minimum=1, maximum=1024 * 1024
+        ),
+        "max_size_bytes": bounded_int(
+            "max_size_bytes",
+            cfg.get("max_size_bytes"),
+            default=20 * 1024 * 1024 * 1024,
+            minimum=1024,
+            maximum=50 * 1024 * 1024 * 1024,
+        ),
+        "min_duration_seconds": bounded_float(
+            "min_duration_seconds", cfg.get("min_duration_seconds"), default=0.1, minimum=0.001, maximum=60
+        ),
+        "max_duration_seconds": bounded_float(
+            "max_duration_seconds", cfg.get("max_duration_seconds"), default=4 * 60 * 60, minimum=1, maximum=8 * 60 * 60
+        ),
+        "max_width": bounded_int("max_width", cfg.get("max_width"), default=7680, minimum=64, maximum=8192),
+        "max_height": bounded_int("max_height", cfg.get("max_height"), default=4320, minimum=64, maximum=8192),
+        "max_fps": bounded_float("max_fps", cfg.get("max_fps"), default=120, minimum=1, maximum=240),
+        "require_audio": config_bool(cfg.get("require_audio"), default=False),
+        "sample_decode_seconds": bounded_float(
+            "sample_decode_seconds", cfg.get("sample_decode_seconds"), default=1.0, minimum=0.1, maximum=30
+        ),
+        "allowed_video_codecs": string_set(
+            cfg.get("allowed_video_codecs") or "av1,h264,hevc,mjpeg,mpeg4,vp8,vp9"
+        ),
+    }
+
+
+def frame_rate(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        if "/" not in value:
+            return float(value)
+        numerator, denominator = value.split("/", 1)
+        denominator_float = float(denominator or 0)
+        if denominator_float == 0:
+            return None
+        return float(numerator) / denominator_float
+    except ValueError:
+        return None
+
+
+def ffprobe_source_metadata(input_path: str) -> dict:
+    result = run_command(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            input_path,
+        ]
+    )
+    probe = json.loads(result.stdout or "{}")
+    video_stream = next(
+        (stream for stream in probe.get("streams", []) if stream.get("codec_type") == "video"),
+        None,
+    )
+    audio_stream = next(
+        (stream for stream in probe.get("streams", []) if stream.get("codec_type") == "audio"),
+        None,
+    )
+    format_info = probe.get("format", {})
+    return {
+        "format_name": format_info.get("format_name"),
+        "duration_seconds": float(format_info.get("duration") or 0),
+        "video_codec": video_stream.get("codec_name") if video_stream else None,
+        "audio_codec": audio_stream.get("codec_name") if audio_stream else None,
+        "width": int(video_stream.get("width") or 0) if video_stream else None,
+        "height": int(video_stream.get("height") or 0) if video_stream else None,
+        "fps": frame_rate(video_stream.get("avg_frame_rate")) if video_stream else None,
+        "has_audio": audio_stream is not None,
+        "has_video": video_stream is not None,
+        "stream_count": len(probe.get("streams", [])),
+    }
+
+
+def verify_decode_sample(input_path: str, metadata: dict, config: dict) -> None:
+    sample_seconds = float(config["sample_decode_seconds"])
+    if sample_seconds <= 0:
+        return
+    duration_seconds = float(metadata.get("duration_seconds") or 0)
+    seek_seconds = max(0.0, min(duration_seconds / 2, max(duration_seconds - sample_seconds, 0.0)))
+    run_command(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-v",
+            "error",
+            "-ss",
+            f"{seek_seconds:.3f}",
+            "-i",
+            input_path,
+            "-t",
+            f"{sample_seconds:.3f}",
+            "-map",
+            "0:v:0",
+            "-f",
+            "null",
+            "-",
+        ]
+    )
+
+
+def evaluate_source_quality(uri: str, probe: dict) -> dict:
+    input_path = ffmpeg_input_path(uri)
+    config = quality_gate_config()
+    metadata = ffprobe_source_metadata(input_path)
+    violations: list[dict] = []
+
+    length = int(probe["length"])
+    duration = float(metadata.get("duration_seconds") or 0)
+    width = int(metadata.get("width") or 0)
+    height = int(metadata.get("height") or 0)
+    fps = float(metadata.get("fps") or 0)
+    video_codec = str(metadata.get("video_codec") or "").lower()
+
+    if length < config["min_size_bytes"]:
+        violations.append({"gate": "min_size_bytes", "actual": length, "expected": config["min_size_bytes"]})
+    if length > config["max_size_bytes"]:
+        violations.append({"gate": "max_size_bytes", "actual": length, "expected": config["max_size_bytes"]})
+    if not metadata.get("has_video"):
+        violations.append({"gate": "has_video", "actual": False, "expected": True})
+    if duration < config["min_duration_seconds"]:
+        violations.append(
+            {"gate": "min_duration_seconds", "actual": duration, "expected": config["min_duration_seconds"]}
+        )
+    if duration > config["max_duration_seconds"]:
+        violations.append(
+            {"gate": "max_duration_seconds", "actual": duration, "expected": config["max_duration_seconds"]}
+        )
+    if width > config["max_width"] or height > config["max_height"]:
+        violations.append(
+            {
+                "gate": "max_resolution",
+                "actual": {"width": width, "height": height},
+                "expected": {"width": config["max_width"], "height": config["max_height"]},
+            }
+        )
+    if fps > config["max_fps"]:
+        violations.append({"gate": "max_fps", "actual": fps, "expected": config["max_fps"]})
+    if config["require_audio"] and not metadata.get("has_audio"):
+        violations.append({"gate": "require_audio", "actual": False, "expected": True})
+    if video_codec and video_codec not in config["allowed_video_codecs"]:
+        violations.append(
+            {
+                "gate": "allowed_video_codecs",
+                "actual": video_codec,
+                "expected": sorted(config["allowed_video_codecs"]),
+            }
+        )
+
+    if not violations:
+        try:
+            verify_decode_sample(input_path, metadata, config)
+        except RuntimeError as exc:
+            violations.append({"gate": "decode_sample", "actual": "failed", "expected": "readable"})
+            metadata["decode_error"] = str(exc)
+
+    quality = {
+        "status": "passed" if not violations else "failed",
+        "config": {**config, "allowed_video_codecs": sorted(config["allowed_video_codecs"])},
+        "metadata": metadata,
+        "violations": violations,
+    }
+    if violations:
+        raise QualityGateError(quality)
+    return quality
 
 
 def file_sha256(path: str) -> str:
@@ -1436,6 +1724,38 @@ def load_audio_chunks() -> list[dict]:
             "Run extract_audio_assets first."
         )
     return [row.asDict() for row in rows]
+
+
+def load_source_quality() -> dict:
+    rows = spark.sql(
+        f"""
+        SELECT quality_status, quality_details, has_audio
+        FROM {qualified_source_files_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+        ORDER BY validated_at DESC
+        LIMIT 1
+        """
+    ).collect()
+    if not rows:
+        raise ValueError(
+            f"No validated source file found for media_id={media_id}, dispatch_id={dispatch_id}. "
+            "Run validate_and_probe_media first."
+        )
+    row = rows[0].asDict()
+    quality = parse_json_dict(row.get("quality_details"))
+    if not quality:
+        quality = {
+            "status": row.get("quality_status") or "unknown",
+            "metadata": {"has_audio": str(row.get("has_audio")).lower() == "true"},
+        }
+    return quality
+
+
+def source_has_audio() -> bool:
+    quality = load_source_quality()
+    metadata = quality.get("metadata") or {}
+    return bool(metadata.get("has_audio"))
 
 
 def write_asr_run(
@@ -3773,18 +4093,33 @@ try:
         uri = source_media_uri()
         probe = probe_source_media(uri)
         register_manifest(source_uri=uri)
-        register_source_file(uri, probe)
+        try:
+            quality = evaluate_source_quality(uri, probe)
+        except QualityGateError as exc:
+            register_source_file(uri, probe, exc.quality)
+            raise
+        register_source_file(uri, probe, quality)
         write_event(
             status="source_validated",
             message="Source media is readable by Databricks",
             source_uri=uri,
-            details={"probe": probe},
+            details={"probe": probe, "quality": quality},
         )
         write_stage_run(
             stage_name=stage,
             status="completed",
             message="Source media is readable by Databricks",
-            metrics={"bytes": probe["length"], "path": probe["path"]},
+            metrics={
+                "bytes": probe["length"],
+                "path": probe["path"],
+                "duration_seconds": quality["metadata"].get("duration_seconds"),
+                "video_codec": quality["metadata"].get("video_codec"),
+                "audio_codec": quality["metadata"].get("audio_codec"),
+                "width": quality["metadata"].get("width"),
+                "height": quality["metadata"].get("height"),
+                "fps": quality["metadata"].get("fps"),
+                "quality_status": quality["status"],
+            },
             completed=True,
         )
     elif stage == "extract_audio_assets":
@@ -3798,33 +4133,49 @@ try:
         write_progress_outbox(stage, stage_message)
         validate_source_contract()
         uri = source_media_uri()
-        audio_asset = extract_audio_asset(uri)
-        register_audio_asset(audio_asset)
-        write_event(
-            status="audio_extracted",
-            message="Audio asset extracted for faster-whisper",
-            source_uri=uri,
-            details={
-                "audio_asset_id": audio_asset["audio_asset_id"],
-                "audio_uri": audio_asset["audio_uri"],
-                "duration_seconds": audio_asset["duration_seconds"],
-                "size_bytes": audio_asset["size_bytes"],
-                "sample_rate_hz": audio_asset["sample_rate_hz"],
-                "channels": audio_asset["channels"],
-            },
-        )
-        write_stage_run(
-            stage_name=stage,
-            status="completed",
-            message="Audio asset extracted for faster-whisper",
-            metrics={
-                "audio_asset_id": audio_asset["audio_asset_id"],
-                "duration_seconds": audio_asset["duration_seconds"],
-                "size_bytes": audio_asset["size_bytes"],
-                "audio_uri": audio_asset["audio_uri"],
-            },
-            completed=True,
-        )
+        if not source_has_audio():
+            skip_metrics = {"skipped": True, "reason": "source_has_no_audio"}
+            write_event(
+                status="audio_extraction_skipped",
+                message="Source media has no audio stream; skipping audio extraction",
+                source_uri=uri,
+                details=skip_metrics,
+            )
+            write_stage_run(
+                stage_name=stage,
+                status="completed",
+                message="Audio extraction skipped because source has no audio stream",
+                metrics=skip_metrics,
+                completed=True,
+            )
+        else:
+            audio_asset = extract_audio_asset(uri)
+            register_audio_asset(audio_asset)
+            write_event(
+                status="audio_extracted",
+                message="Audio asset extracted for faster-whisper",
+                source_uri=uri,
+                details={
+                    "audio_asset_id": audio_asset["audio_asset_id"],
+                    "audio_uri": audio_asset["audio_uri"],
+                    "duration_seconds": audio_asset["duration_seconds"],
+                    "size_bytes": audio_asset["size_bytes"],
+                    "sample_rate_hz": audio_asset["sample_rate_hz"],
+                    "channels": audio_asset["channels"],
+                },
+            )
+            write_stage_run(
+                stage_name=stage,
+                status="completed",
+                message="Audio asset extracted for faster-whisper",
+                metrics={
+                    "audio_asset_id": audio_asset["audio_asset_id"],
+                    "duration_seconds": audio_asset["duration_seconds"],
+                    "size_bytes": audio_asset["size_bytes"],
+                    "audio_uri": audio_asset["audio_uri"],
+                },
+                completed=True,
+            )
     elif stage == "extract_frame_assets":
         stage_message = "Extracting representative frames with FFmpeg"
         upsert_processing_run(
@@ -3869,64 +4220,83 @@ try:
         )
         write_stage_run(stage_name=stage, status="running", message=stage_message)
         write_progress_outbox(stage, stage_message)
-        chunks = load_audio_chunks()
         model_config = faster_whisper_config()
-        audio_asset_id = chunks[0]["audio_asset_id"]
         asr_run_id = f"{media_id}:asr:{model_config['model_name']}:{config_hash[:12]}"
-        asr_started_at = datetime.now(UTC)
-        write_asr_run(
-            asr_run_id=asr_run_id,
-            audio_asset_id=audio_asset_id,
-            model_config=model_config,
-            status="running",
-            started_at=asr_started_at,
-            metrics={"chunk_count": len(chunks)},
-        )
-        transcript = transcribe_audio_chunks(chunks, model_config)
-        write_transcript_segments(asr_run_id, transcript["segments"])
-        write_asr_run(
-            asr_run_id=asr_run_id,
-            audio_asset_id=audio_asset_id,
-            model_config=model_config,
-            status="completed",
-            transcript_text=transcript["text"],
-            language=transcript["language"],
-            language_probability=transcript["language_probability"],
-            duration_seconds=transcript["duration_seconds"],
-            segment_count=len(transcript["segments"]),
-            started_at=asr_started_at,
-            completed=True,
-            metrics={
-                "chunk_count": len(chunks),
-                "elapsed_seconds": transcript["elapsed_seconds"],
-                "azure_openai_whisper": "disabled_for_primary_path",
-            },
-        )
-        write_event(
-            status="asr_completed",
-            message="faster-whisper ASR completed",
-            details={
-                "asr_run_id": asr_run_id,
-                "audio_asset_id": audio_asset_id,
-                "model_name": model_config["model_name"],
-                "segment_count": len(transcript["segments"]),
-                "language": transcript["language"],
-                "duration_seconds": transcript["duration_seconds"],
-            },
-        )
-        write_stage_run(
-            stage_name=stage,
-            status="completed",
-            message="faster-whisper ASR completed",
-            metrics={
-                "asr_run_id": asr_run_id,
-                "audio_asset_id": audio_asset_id,
-                "model_name": model_config["model_name"],
-                "segment_count": len(transcript["segments"]),
-                "elapsed_seconds": transcript["elapsed_seconds"],
-            },
-            completed=True,
-        )
+        if not source_has_audio():
+            skip_metrics = {"skipped": True, "reason": "source_has_no_audio"}
+            write_event(
+                status="asr_skipped",
+                message="Source media has no audio stream; skipping ASR",
+                details={"asr_run_id": asr_run_id, **skip_metrics},
+            )
+            write_stage_run(
+                stage_name=stage,
+                status="completed",
+                message="ASR skipped because source has no audio stream",
+                metrics={"asr_run_id": asr_run_id, **skip_metrics},
+                completed=True,
+            )
+            continue_stage = False
+        else:
+            continue_stage = True
+
+        if continue_stage:
+            chunks = load_audio_chunks()
+            audio_asset_id = chunks[0]["audio_asset_id"]
+            asr_started_at = datetime.now(UTC)
+            write_asr_run(
+                asr_run_id=asr_run_id,
+                audio_asset_id=audio_asset_id,
+                model_config=model_config,
+                status="running",
+                started_at=asr_started_at,
+                metrics={"chunk_count": len(chunks)},
+            )
+            transcript = transcribe_audio_chunks(chunks, model_config)
+            write_transcript_segments(asr_run_id, transcript["segments"])
+            write_asr_run(
+                asr_run_id=asr_run_id,
+                audio_asset_id=audio_asset_id,
+                model_config=model_config,
+                status="completed",
+                transcript_text=transcript["text"],
+                language=transcript["language"],
+                language_probability=transcript["language_probability"],
+                duration_seconds=transcript["duration_seconds"],
+                segment_count=len(transcript["segments"]),
+                started_at=asr_started_at,
+                completed=True,
+                metrics={
+                    "chunk_count": len(chunks),
+                    "elapsed_seconds": transcript["elapsed_seconds"],
+                    "azure_openai_whisper": "disabled_for_primary_path",
+                },
+            )
+            write_event(
+                status="asr_completed",
+                message="faster-whisper ASR completed",
+                details={
+                    "asr_run_id": asr_run_id,
+                    "audio_asset_id": audio_asset_id,
+                    "model_name": model_config["model_name"],
+                    "segment_count": len(transcript["segments"]),
+                    "language": transcript["language"],
+                    "duration_seconds": transcript["duration_seconds"],
+                },
+            )
+            write_stage_run(
+                stage_name=stage,
+                status="completed",
+                message="faster-whisper ASR completed",
+                metrics={
+                    "asr_run_id": asr_run_id,
+                    "audio_asset_id": audio_asset_id,
+                    "model_name": model_config["model_name"],
+                    "segment_count": len(transcript["segments"]),
+                    "elapsed_seconds": transcript["elapsed_seconds"],
+                },
+                completed=True,
+            )
     elif stage == "build_multimodal_inference_requests":
         stage_message = "Building table-driven multimodal inference requests"
         upsert_processing_run(
