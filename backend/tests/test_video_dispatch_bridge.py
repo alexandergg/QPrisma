@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-
 from functions.video_dispatch_bridge.contracts import (
     DatabricksStatusEvent,
     PayloadValidationError,
