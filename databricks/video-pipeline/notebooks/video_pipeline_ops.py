@@ -20,6 +20,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -712,7 +713,7 @@ def safe_pipeline_config_for_persistence() -> dict:
             "width",
         },
         "frames": {"format", "height", "interval_seconds", "max_frames", "quality", "width"},
-        "models": {"embedding", "prompt_version", "summary", "vision"},
+        "models": {"direct", "embedding", "prompt_version", "summary", "vision"},
         "neo4j": {"enabled"},
         "scene_detection": {
             "max_scene_seconds",
@@ -768,6 +769,7 @@ def safe_pipeline_config_for_persistence() -> dict:
             "quality",
             "quality_gates",
             "scene_detection",
+            "direct_model",
             "summary_model",
             "vision_model",
         },
@@ -3129,12 +3131,15 @@ def azure_openai_request(
     *,
     method: str,
     path: str,
-    body: bytes | None = None,
+    body: bytes | Iterable[bytes] | None = None,
     content_type: str | None = "application/json",
+    content_length: int | None = None,
 ) -> bytes:
     headers = {"api-key": config["api_key"]}
     if content_type:
         headers["Content-Type"] = content_type
+    if content_length is not None:
+        headers["Content-Length"] = str(content_length)
     request = urllib.request.Request(  # noqa: S310
         azure_openai_url(config, path),
         data=body,
@@ -3171,9 +3176,7 @@ def azure_openai_json(
 def azure_openai_upload_batch_file(config: dict, batch_uri: str) -> dict:
     boundary = f"----qprisma-{uuid4().hex}"
     filename = os.path.basename(batch_uri)
-    with open(batch_uri, "rb") as batch_file:
-        file_content = batch_file.read()
-    body = b"".join(
+    preamble = b"".join(
         [
             f"--{boundary}\r\n".encode(),
             b'Content-Disposition: form-data; name="purpose"\r\n\r\n',
@@ -3183,17 +3186,25 @@ def azure_openai_upload_batch_file(config: dict, batch_uri: str) -> dict:
                 f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
                 "Content-Type: application/jsonl\r\n\r\n"
             ).encode(),
-            file_content,
-            b"\r\n",
-            f"--{boundary}--\r\n".encode(),
         ]
     )
+    epilogue = b"\r\n" + f"--{boundary}--\r\n".encode()
+    content_length = len(preamble) + os.path.getsize(batch_uri) + len(epilogue)
+
+    def multipart_body() -> Iterable[bytes]:
+        yield preamble
+        with open(batch_uri, "rb") as batch_file:
+            while chunk := batch_file.read(1024 * 1024):
+                yield chunk
+        yield epilogue
+
     raw_response = azure_openai_request(
         config,
         method="POST",
         path="/files",
-        body=body,
+        body=multipart_body(),
         content_type=f"multipart/form-data; boundary={boundary}",
+        content_length=content_length,
     )
     return json.loads(raw_response.decode("utf-8"))
 
@@ -5277,7 +5288,7 @@ except Exception as exc:
     )
     write_outbox_event(
         status="failed",
-        progress=0.0,
+        progress=progress_for_stage(stage),
         message="Databricks video pipeline failed",
         error={"error_type": type(exc).__name__, "message": str(exc)},
     )
