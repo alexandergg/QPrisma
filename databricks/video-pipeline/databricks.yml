@@ -11,6 +11,18 @@ variables:
   queue_name:
     description: Service Bus queue consumed by the Databricks video pipeline.
     default: video-processing
+  neo4j_uri:
+    description: Deployment-owned Neo4j Bolt URI. Leave empty to skip graph projection.
+    default: ""
+  neo4j_user:
+    description: Neo4j user for graph projection.
+    default: neo4j
+  neo4j_database:
+    description: Neo4j database for graph projection.
+    default: neo4j
+  neo4j_allowed_host_suffixes:
+    description: Optional comma-separated Neo4j host suffix allowlist.
+    default: ""
 
 resources:
   schemas:
@@ -48,6 +60,11 @@ resources:
             spark_conf:
               spark.databricks.cluster.profile: singleNode
               spark.master: local[*, 4]
+            spark_env_vars:
+              NEO4J_URI: ${var.neo4j_uri}
+              NEO4J_USER: ${var.neo4j_user}
+              NEO4J_DATABASE: ${var.neo4j_database}
+              NEO4J_ALLOWED_HOST_SUFFIXES: ${var.neo4j_allowed_host_suffixes}
             custom_tags:
               ResourceClass: SingleNode
       parameters:
@@ -254,10 +271,31 @@ resources:
               source_media: "{{job.parameters.source_media}}"
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: build_graph_upserts
-        - task_key: publish_outbox
+        - task_key: project_neo4j_graph
           job_cluster_key: video_pilot_cluster
           depends_on:
             - task_key: build_graph_upserts
+          libraries:
+            - pypi:
+                package: "neo4j>=5.26.0,<6.0.0"
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: project_neo4j_graph
+        - task_key: publish_outbox
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: project_neo4j_graph
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:

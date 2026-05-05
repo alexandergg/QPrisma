@@ -128,6 +128,7 @@ STAGE_PROGRESS = {
     "run_ai_batch_inference": 0.84,
     "build_gold_processing_result": 0.88,
     "build_graph_upserts": 0.92,
+    "project_neo4j_graph": 0.96,
     "publish_outbox": 1.00,
 }
 STAGE_MESSAGES = {
@@ -141,6 +142,7 @@ STAGE_MESSAGES = {
     "run_ai_batch_inference": "Running Azure OpenAI Batch inference",
     "build_gold_processing_result": "Building frontend-compatible Gold result",
     "build_graph_upserts": "Preparing Neo4j graph upsert intents",
+    "project_neo4j_graph": "Applying graph upserts to Neo4j",
     "publish_outbox": "Publishing Databricks lakehouse result",
 }
 PIPELINE_STAGES = [
@@ -154,6 +156,7 @@ PIPELINE_STAGES = [
     "run_ai_batch_inference",
     "build_gold_processing_result",
     "build_graph_upserts",
+    "project_neo4j_graph",
     "publish_outbox",
 ]
 OUTBOX_SCHEMA = StructType(
@@ -632,8 +635,9 @@ def safe_pipeline_config_for_persistence() -> dict:
         },
         "frames": {"format", "height", "interval_seconds", "max_frames", "quality", "width"},
         "models": {"embedding", "prompt_version", "summary", "vision"},
+        "neo4j": {"enabled"},
     }
-    return filtered_dict(
+    safe = filtered_dict(
         pipeline_config,
         {
             "asr",
@@ -649,6 +653,7 @@ def safe_pipeline_config_for_persistence() -> dict:
             "language",
             "max_frames",
             "models",
+            "neo4j",
             "processing_version",
             "prompt_version",
             "summary_model",
@@ -656,6 +661,7 @@ def safe_pipeline_config_for_persistence() -> dict:
         },
         nested_allowed,
     )
+    return safe
 
 
 def ensure_table_columns(table_name: str, columns: dict[str, str]) -> None:
@@ -3054,7 +3060,39 @@ def graph_upsert_row(
     }
 
 
+def config_bool(value: Any, *, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    raise ValueError(f"Expected boolean-compatible config value, got {value!r}")
+
+
+def graph_indexing_enabled() -> bool:
+    return config_bool(pipeline_config.get("index_graph"), default=True)
+
+
+def neo4j_projector_enabled() -> bool:
+    cfg = pipeline_config.get("neo4j") or {}
+    if cfg and not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.neo4j must be an object when provided")
+    if isinstance(cfg, dict) and cfg.get("enabled") is not None:
+        return config_bool(cfg.get("enabled"), default=False)
+    if not graph_indexing_enabled():
+        return False
+    return bool(os.environ.get("NEO4J_URI"))
+
+
 def build_graph_upsert_rows() -> list[dict]:
+    if not graph_indexing_enabled():
+        return []
+
     frames = load_frame_assets()
     transcript_segments = load_transcript_segments()
     ai_requests = load_ai_requests()
@@ -3297,13 +3335,285 @@ def build_graph_upsert_rows() -> list[dict]:
 
 
 def register_graph_upserts(upserts: list[dict]) -> None:
+    existing = load_existing_graph_upsert_rows([upsert["upsert_id"] for upsert in upserts])
     for upsert in upserts:
+        upsert_to_write = upsert
+        existing_upsert = existing.get(upsert["upsert_id"])
+        if (
+            existing_upsert
+            and existing_upsert.get("status") == "applied"
+            and existing_upsert.get("properties_json") == upsert["properties_json"]
+        ):
+            upsert_to_write = {
+                **upsert,
+                "status": "applied",
+                "error": existing_upsert.get("error") or json_dumps({}),
+            }
         merge_row(
             qualified_graph_upserts_table,
-            upsert,
+            upsert_to_write,
             GRAPH_UPSERTS_SCHEMA,
             ["upsert_id"],
         )
+
+
+def load_existing_graph_upsert_rows(upsert_ids: list[str]) -> dict[str, dict]:
+    if not upsert_ids:
+        return {}
+    quoted_ids = ", ".join(sql_literal(upsert_id) for upsert_id in sorted(set(upsert_ids)))
+    rows = spark.sql(
+        f"""
+        SELECT upsert_id, status, properties_json, error
+        FROM {qualified_graph_upserts_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+          AND upsert_id IN ({quoted_ids})
+        """
+    ).collect()
+    return {row["upsert_id"]: row.asDict() for row in rows}
+
+
+def load_graph_upserts_for_projection() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          upsert_id,
+          media_id,
+          dispatch_id,
+          graph_version,
+          operation_type,
+          label_or_type,
+          natural_key,
+          source_table,
+          source_id,
+          properties_json,
+          status,
+          created_at,
+          updated_at,
+          error
+        FROM {qualified_graph_upserts_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+          AND status IN ('pending', 'failed')
+        ORDER BY
+          CASE operation_type WHEN 'node' THEN 0 ELSE 1 END,
+          created_at ASC,
+          upsert_id ASC
+        """
+    ).collect()
+    return [row.asDict() for row in rows]
+
+
+def update_graph_upsert_status(upsert: dict, status: str, error: dict | None = None) -> None:
+    merge_row(
+        qualified_graph_upserts_table,
+        {
+            **upsert,
+            "status": status,
+            "updated_at": datetime.now(UTC),
+            "error": json_dumps(error or {}),
+        },
+        GRAPH_UPSERTS_SCHEMA,
+        ["upsert_id"],
+    )
+
+
+def validate_neo4j_uri(uri: str) -> str:
+    normalized = validate_no_uri_credentials(uri, "neo4j.uri")
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"bolt", "bolt+s", "bolt+ssc", "neo4j", "neo4j+s", "neo4j+ssc"}:
+        raise ValueError("NEO4J_URI must use a Neo4j Bolt URI scheme")
+    if not parsed.hostname:
+        raise ValueError("NEO4J_URI must include a host")
+    allowed_suffixes = {
+        suffix.strip().lower()
+        for suffix in os.environ.get("NEO4J_ALLOWED_HOST_SUFFIXES", "").split(",")
+        if suffix.strip()
+    }
+    hostname = parsed.hostname.lower()
+    if allowed_suffixes and not any(
+        hostname == suffix or hostname.endswith(f".{suffix}") for suffix in allowed_suffixes
+    ):
+        raise ValueError("Neo4j URI host is not in the deployment allowlist")
+    return normalized
+
+
+def neo4j_projector_config() -> dict:
+    cfg = pipeline_config.get("neo4j") or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.neo4j must be an object when provided")
+
+    uri = str(os.environ.get("NEO4J_URI") or "").strip()
+    user = str(os.environ.get("NEO4J_USER") or "neo4j").strip()
+    database = str(os.environ.get("NEO4J_DATABASE") or "neo4j").strip()
+    password = os.environ.get("NEO4J_PASSWORD", "")
+
+    if not uri:
+        raise ValueError("Neo4j URI is missing. Set NEO4J_URI in the Databricks cluster environment.")
+    if not user:
+        raise ValueError("Neo4j user is missing. Set NEO4J_USER in the Databricks cluster environment.")
+    if not database:
+        raise ValueError("Neo4j database is missing. Set NEO4J_DATABASE in the Databricks cluster environment.")
+    if not password:
+        raise ValueError(
+            "Neo4j password is missing. Set NEO4J_PASSWORD from a Databricks secret-backed "
+            "cluster environment variable."
+        )
+    return {
+        "uri": validate_neo4j_uri(uri),
+        "user": user,
+        "password": password,
+        "database": database,
+    }
+
+
+def quote_neo4j_identifier(value: str, field_name: str) -> str:
+    if not IDENTIFIER_RE.fullmatch(value):
+        raise ValueError(f"Invalid Neo4j {field_name}: {value}")
+    return f"`{value}`"
+
+
+def neo4j_property_value(value: Any) -> Any:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, list):
+        normalized_items = []
+        for item in value:
+            if item is None or isinstance(item, str | int | float | bool):
+                normalized_items.append(item)
+            else:
+                normalized_items.append(json.dumps(item, separators=(",", ":"), sort_keys=True))
+        return normalized_items
+    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+
+
+def neo4j_properties(properties: dict) -> dict:
+    return {key: neo4j_property_value(value) for key, value in properties.items()}
+
+
+def apply_graph_upsert(session: Any, upsert: dict) -> None:
+    operation_type = upsert["operation_type"]
+    label_or_type = str(upsert["label_or_type"])
+    properties = neo4j_properties(parse_json_dict(upsert["properties_json"]))
+    now_iso = datetime.now(UTC).isoformat()
+
+    if operation_type == "node":
+        label = quote_neo4j_identifier(label_or_type, "label")
+        query = f"""
+        MERGE (node:{label} {{natural_key: $natural_key}})
+        SET node += $properties,
+            node.natural_key = $natural_key,
+            node.qprisma_source_table = $source_table,
+            node.qprisma_source_id = $source_id,
+            node.qprisma_graph_version = $graph_version,
+            node.qprisma_updated_at = $updated_at
+        """
+        session.run(
+            query,
+            natural_key=upsert["natural_key"],
+            properties=properties,
+            source_table=upsert["source_table"],
+            source_id=upsert["source_id"],
+            graph_version=upsert["graph_version"],
+            updated_at=now_iso,
+        ).consume()
+        return
+
+    if operation_type == "relationship":
+        rel_type = quote_neo4j_identifier(label_or_type, "relationship type")
+        from_label = quote_neo4j_identifier(str(properties.get("from_label") or ""), "label")
+        to_label = quote_neo4j_identifier(str(properties.get("to_label") or ""), "label")
+        from_key = properties.get("from_key")
+        to_key = properties.get("to_key")
+        if not isinstance(from_key, str) or not isinstance(to_key, str):
+            raise ValueError(f"Relationship upsert {upsert['upsert_id']} requires from_key and to_key")
+
+        query = f"""
+        MERGE (source:{from_label} {{natural_key: $from_key}})
+        MERGE (target:{to_label} {{natural_key: $to_key}})
+        MERGE (source)-[rel:{rel_type} {{natural_key: $natural_key}}]->(target)
+        SET rel += $properties,
+            rel.natural_key = $natural_key,
+            rel.qprisma_source_table = $source_table,
+            rel.qprisma_source_id = $source_id,
+            rel.qprisma_graph_version = $graph_version,
+            rel.qprisma_updated_at = $updated_at
+        """
+        session.run(
+            query,
+            from_key=from_key,
+            to_key=to_key,
+            natural_key=upsert["natural_key"],
+            properties=properties,
+            source_table=upsert["source_table"],
+            source_id=upsert["source_id"],
+            graph_version=upsert["graph_version"],
+            updated_at=now_iso,
+        ).consume()
+        return
+
+    raise ValueError(f"Unsupported graph upsert operation_type: {operation_type}")
+
+
+def project_neo4j_graph() -> dict:
+    if not neo4j_projector_enabled():
+        return {
+            "applied_count": 0,
+            "failed_count": 0,
+            "graph_upserts_table": GRAPH_UPSERTS_TABLE,
+            "skipped": True,
+            "skipped_reason": "neo4j_not_configured_or_disabled",
+        }
+
+    upserts = load_graph_upserts_for_projection()
+    if not upserts:
+        return {
+            "applied_count": 0,
+            "failed_count": 0,
+            "graph_upserts_table": GRAPH_UPSERTS_TABLE,
+            "reused_completed": True,
+        }
+
+    try:
+        from neo4j import GraphDatabase
+    except ImportError as exc:
+        raise RuntimeError(
+            "neo4j Python driver is not installed on the Databricks job cluster. "
+            "Install the task PyPI dependency before running project_neo4j_graph."
+        ) from exc
+
+    config = neo4j_projector_config()
+    driver = GraphDatabase.driver(config["uri"], auth=(config["user"], config["password"]))
+    applied_count = 0
+    failed: list[dict] = []
+    try:
+        driver.verify_connectivity()
+        with driver.session(database=config["database"]) as session:
+            for upsert in upserts:
+                try:
+                    apply_graph_upsert(session, upsert)
+                    update_graph_upsert_status(upsert, "applied")
+                    applied_count += 1
+                except Exception as exc:
+                    failure = {"upsert_id": upsert["upsert_id"], "message": str(exc)}
+                    failed.append(failure)
+                    update_graph_upsert_status(
+                        upsert,
+                        "failed",
+                        {"error_type": type(exc).__name__, "message": str(exc)},
+                    )
+    finally:
+        driver.close()
+
+    if failed:
+        raise RuntimeError(f"Failed to apply {len(failed)} Neo4j graph upserts")
+
+    return {
+        "applied_count": applied_count,
+        "failed_count": 0,
+        "graph_upserts_table": GRAPH_UPSERTS_TABLE,
+        "neo4j_database": config["database"],
+    }
 
 
 def complete_observable_stage(
@@ -3775,8 +4085,42 @@ try:
                 "operation_counts": operation_counts,
                 "label_counts": label_counts,
                 "graph_upserts_table": GRAPH_UPSERTS_TABLE,
-                "next": "Apply pending graph upserts with a dedicated Neo4j projector",
             },
+            completed=True,
+        )
+    elif stage == "project_neo4j_graph":
+        stage_message = STAGE_MESSAGES[stage]
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        projection_metrics = project_neo4j_graph()
+        projection_skipped = bool(projection_metrics.get("skipped"))
+        projection_message = (
+            "Neo4j graph projection skipped"
+            if projection_skipped
+            else "Neo4j graph upserts applied"
+        )
+        write_event(
+            status="neo4j_graph_skipped" if projection_skipped else "neo4j_graph_projected",
+            message=projection_message,
+            details={
+                "applied_count": projection_metrics["applied_count"],
+                "failed_count": projection_metrics["failed_count"],
+                "graph_upserts_table": projection_metrics["graph_upserts_table"],
+                "neo4j_database": projection_metrics.get("neo4j_database"),
+                "skipped": projection_skipped,
+                "skipped_reason": projection_metrics.get("skipped_reason"),
+            },
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message=projection_message,
+            metrics=projection_metrics,
             completed=True,
         )
     elif stage == "publish_outbox":
