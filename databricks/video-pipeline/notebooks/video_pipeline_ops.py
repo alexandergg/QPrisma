@@ -71,13 +71,30 @@ QUARANTINE_TABLE = "video_record_quarantine"
 STAGE_PROGRESS = {
     "register_manifest": 0.10,
     "validate_and_probe_media": 0.20,
+    "extract_audio_assets": 0.30,
+    "extract_frame_assets": 0.40,
+    "run_faster_whisper_asr": 0.55,
+    "build_multimodal_inference_requests": 0.70,
     "publish_outbox": 1.00,
 }
 STAGE_MESSAGES = {
     "register_manifest": "Registering video manifest in Databricks",
     "validate_and_probe_media": "Validating staged source media in Databricks",
-    "publish_outbox": "Publishing Databricks pilot result",
+    "extract_audio_assets": "Preparing audio extraction assets",
+    "extract_frame_assets": "Preparing frame extraction assets",
+    "run_faster_whisper_asr": "Preparing faster-whisper transcription",
+    "build_multimodal_inference_requests": "Preparing multimodal inference requests",
+    "publish_outbox": "Publishing Databricks lakehouse result",
 }
+PIPELINE_STAGES = [
+    "register_manifest",
+    "validate_and_probe_media",
+    "extract_audio_assets",
+    "extract_frame_assets",
+    "run_faster_whisper_asr",
+    "build_multimodal_inference_requests",
+    "publish_outbox",
+]
 OUTBOX_SCHEMA = StructType(
     [
         StructField("outbox_id", StringType(), nullable=False),
@@ -357,7 +374,10 @@ def merge_row(table_name: str, row: dict, row_schema: StructType, key_columns: l
     temp_view = f"merge_{uuid4().hex}"
     spark.createDataFrame([row], schema=row_schema).createOrReplaceTempView(temp_view)
     on_clause = " AND ".join(f"target.{key} = source.{key}" for key in key_columns)
-    update_clause = ", ".join(f"target.{field.name} = source.{field.name}" for field in row_schema)
+    update_fields = [
+        field.name for field in row_schema if field.name not in {"created_at", "started_at"}
+    ]
+    update_clause = ", ".join(f"target.{field} = source.{field}" for field in update_fields)
     insert_columns = ", ".join(field.name for field in row_schema)
     insert_values = ", ".join(f"source.{field.name}" for field in row_schema)
     spark.sql(
@@ -567,6 +587,30 @@ def write_quarantine(*, stage_name: str, reason: str, exc: Exception) -> None:
     ).write.mode("append").saveAsTable(qualified_quarantine_table)
 
 
+def complete_observable_stage(
+    *,
+    stage_name: str,
+    message: str,
+    metrics: dict | None = None,
+    event_status: str = "completed",
+) -> None:
+    upsert_processing_run(
+        status="running",
+        progress=progress_for_stage(stage_name),
+        current_stage=stage_name,
+    )
+    write_stage_run(stage_name=stage_name, status="running", message=STAGE_MESSAGES[stage_name])
+    write_progress_outbox(stage_name, STAGE_MESSAGES[stage_name])
+    write_event(status=event_status, message=message, details=metrics or {})
+    write_stage_run(
+        stage_name=stage_name,
+        status="completed",
+        message=message,
+        metrics=metrics or {},
+        completed=True,
+    )
+
+
 def validate_volume_path(path: str, field_name: str) -> str:
     normalized = path.strip()
     if normalized.startswith(("dbfs:/Volumes/", "/Volumes/")):
@@ -700,6 +744,48 @@ try:
             metrics={"bytes": probe["length"], "path": probe["path"]},
             completed=True,
         )
+    elif stage == "extract_audio_assets":
+        complete_observable_stage(
+            stage_name=stage,
+            message="Audio extraction stage registered",
+            metrics={
+                "implementation_status": "skeleton",
+                "target_outputs": ["video_audio_assets", "audio_chunks", "asr_requests"],
+                "next": "Extract audio to governed volume paths before faster-whisper ASR",
+            },
+        )
+    elif stage == "extract_frame_assets":
+        complete_observable_stage(
+            stage_name=stage,
+            message="Frame extraction stage registered",
+            metrics={
+                "implementation_status": "skeleton",
+                "target_outputs": ["video_frame_assets", "video_scene_candidates", "quality_metrics"],
+                "next": "Extract frames/keyframes/thumbnails with FFmpeg and register Delta manifests",
+            },
+        )
+    elif stage == "run_faster_whisper_asr":
+        complete_observable_stage(
+            stage_name=stage,
+            message="faster-whisper ASR stage registered",
+            metrics={
+                "implementation_status": "skeleton",
+                "asr_backend": "faster-whisper",
+                "azure_openai_whisper": "disabled_for_primary_path",
+                "target_outputs": ["asr_runs", "video_transcript_segments"],
+                "next": "Run faster-whisper over audio chunks and persist timestamped transcript segments",
+            },
+        )
+    elif stage == "build_multimodal_inference_requests":
+        complete_observable_stage(
+            stage_name=stage,
+            message="Multimodal inference request stage registered",
+            metrics={
+                "implementation_status": "skeleton",
+                "target_outputs": ["ai_requests", "ai_results", "embedding_inputs"],
+                "next": "Create table-driven Azure OpenAI Batch and embedding requests from frames/transcripts",
+            },
+        )
     elif stage == "publish_outbox":
         stage_message = STAGE_MESSAGES[stage]
         upsert_processing_run(
@@ -714,11 +800,7 @@ try:
             "dispatch_id": dispatch_id,
             "processing_version": processing_version,
             "config_hash": config_hash,
-            "stages": [
-                "register_manifest",
-                "validate_and_probe_media",
-                "publish_outbox",
-            ],
+            "stages": PIPELINE_STAGES,
             "delta_tables": {
                 "manifest": MEDIA_MANIFEST_TABLE,
                 "source_files": SOURCE_FILES_TABLE,
@@ -729,10 +811,10 @@ try:
                 "quarantine": QUARANTINE_TABLE,
             },
             "next": [
-                "extract_audio_assets",
-                "extract_frame_assets",
-                "run_faster_whisper_asr",
-                "build_multimodal_inference_requests",
+                "implement_audio_extraction",
+                "implement_frame_extraction",
+                "implement_faster_whisper_asr",
+                "implement_multimodal_batch_requests",
             ],
         }
         write_event(

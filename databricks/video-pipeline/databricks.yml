@@ -30,7 +30,7 @@ resources:
   jobs:
     video_processing:
       name: qprisma-video-processing-${bundle.target}
-      description: Minimal observable Databricks workflow for QPrisma video processing events.
+      description: Observable Databricks lakehouse workflow for QPrisma video understanding.
       max_concurrent_runs: 4
       job_clusters:
         - job_cluster_key: video_pilot_cluster
@@ -100,10 +100,83 @@ resources:
               source_media: "{{job.parameters.source_media}}"
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: validate_and_probe_media
-        - task_key: publish_outbox
+        - task_key: extract_audio_assets
           job_cluster_key: video_pilot_cluster
           depends_on:
             - task_key: validate_and_probe_media
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: extract_audio_assets
+        - task_key: extract_frame_assets
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: validate_and_probe_media
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: extract_frame_assets
+        - task_key: run_faster_whisper_asr
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: extract_audio_assets
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: run_faster_whisper_asr
+        - task_key: build_multimodal_inference_requests
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: extract_frame_assets
+            - task_key: run_faster_whisper_asr
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: build_multimodal_inference_requests
+        - task_key: publish_outbox
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: build_multimodal_inference_requests
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:

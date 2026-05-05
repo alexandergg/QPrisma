@@ -7,11 +7,25 @@ The Azure resources are provisioned by Bicep under `infra\`. This bundle owns th
 ## Current scope
 
 - Defines a `qprisma-video-processing` workflow with `dev` and `prod` targets.
-- Runs a lakehouse pilot job with three stages: manifest registration, source-media probe and outbox/status publication.
+- Runs a lakehouse pilot DAG with observable stages for manifest registration, source-media probe, audio asset preparation, frame asset preparation, `faster-whisper` ASR preparation, multimodal inference request preparation and outbox/status publication.
 - Establishes stable parameters for the Service Bus driven pipeline: `media_id`, `blob_name`, `dispatch_id`, `source_media`, `pipeline_config`, catalog, schema and queue name.
 - Writes stage events to the Delta table `${catalog}.${schema}.video_pipeline_events`.
 - Writes frontend-compatible running/completion/failure records to `${catalog}.${schema}.video_pipeline_outbox`; this is the durable handoff point for projecting Databricks progress back into QPrisma PostgreSQL/Neo4j/Redis.
 - Creates the first operational Delta contracts for the production ETL: `${catalog}.${schema}.video_media_manifest`, `video_source_files`, `video_processing_runs`, `video_job_stage_runs` and `video_record_quarantine`.
+
+The current DAG shape is intentionally production-like even though the heavy stages are still skeletons:
+
+```text
+register_manifest
+  -> validate_and_probe_media
+      -> extract_audio_assets
+          -> run_faster_whisper_asr
+      -> extract_frame_assets
+      -> build_multimodal_inference_requests  # waits for frames + ASR
+          -> publish_outbox
+```
+
+`extract_audio_assets`, `extract_frame_assets`, `run_faster_whisper_asr` and `build_multimodal_inference_requests` currently persist stage runs and progress events only. They are placeholders for the next implementation slices: FFmpeg audio/frame extraction, `faster-whisper` transcription and table-driven Azure OpenAI Batch request generation.
 
 ## Validate and deploy
 
@@ -74,4 +88,4 @@ The projector is configured by Bicep through these Function App settings:
 | `DATABRICKS_OUTBOX_POLL_BATCH_SIZE` | Maximum rows projected per timer invocation. Default: `25`. |
 | `OutboxPollSchedule` | Azure Functions NCRONTAB schedule. Default dev value: `0 */5 * * * *`. |
 
-For the pilot, the Databricks job is still intentionally lightweight: it validates access to the original media, records operational events, persists manifests/stage runs/quarantine records and publishes frontend-compatible progress/failure/completion records. The production pipeline should extend it with frame/audio extraction, `faster-whisper` transcription, model calls, Delta medallion writes, data quality expectations and graph/result publication while keeping the same dispatch and outbox contracts.
+For the pilot, the Databricks job is still intentionally lightweight: it validates access to the original media, records operational events, persists manifests/stage runs/quarantine records and publishes frontend-compatible progress/failure/completion records. The DAG already exposes the planned production stages so QPrisma can validate orchestration, parallel branches and frontend progress before adding heavy compute. The production pipeline should extend these stages with frame/audio extraction, `faster-whisper` transcription, model calls, Delta medallion writes, data quality expectations and graph/result publication while keeping the same dispatch and outbox contracts.
