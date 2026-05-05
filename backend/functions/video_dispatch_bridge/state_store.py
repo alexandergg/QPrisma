@@ -236,6 +236,9 @@ def _media_updates_for_status_event(
         }
         if event.video_metadata:
             updates["video_metadata"] = Json(event.video_metadata)
+        audio_data = event.processing_result.get("audio_data")
+        if isinstance(audio_data, dict):
+            updates["audio_data"] = Json(audio_data)
         return updates
 
     if event.status == "failed":

@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+
 from functions.video_dispatch_bridge.contracts import (
     DatabricksStatusEvent,
     PayloadValidationError,
@@ -25,6 +26,7 @@ from functions.video_dispatch_bridge.source_media_stager import (
     SourceMediaStagingResult,
     build_volume_path,
 )
+from functions.video_dispatch_bridge.state_store import _media_updates_for_status_event
 
 
 def _payload(**overrides):
@@ -304,6 +306,30 @@ def test_databricks_status_event_rejects_invalid_progress():
                 }
             )
         )
+
+
+def test_completed_status_event_projects_audio_data():
+    audio_data = {"transcription": {"text": "hello", "segments": []}}
+    event = DatabricksStatusEvent.from_json(
+        json.dumps(
+            {
+                "schema_version": "2026-05-01",
+                "media_id": "media-1",
+                "dispatch_id": "dbx-dispatch-1",
+                "status": "completed",
+                "progress": 1.0,
+                "message": "done",
+                "processing_result": {
+                    "backend": "databricks",
+                    "audio_data": audio_data,
+                },
+            }
+        )
+    )
+
+    updates = _media_updates_for_status_event(event, {})
+
+    assert updates["audio_data"].adapted == audio_data
 
 
 @pytest.mark.asyncio

@@ -21,6 +21,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -113,6 +114,7 @@ FRAME_ASSETS_TABLE = "video_frame_assets"
 AI_REQUESTS_TABLE = "video_ai_requests"
 AI_BATCHES_TABLE = "video_ai_batches"
 AI_RESULTS_TABLE = "video_ai_results"
+GOLD_PROCESSING_RESULTS_TABLE = "video_processing_results"
 GRAPH_UPSERTS_TABLE = "video_graph_upserts"
 
 STAGE_PROGRESS = {
@@ -124,7 +126,8 @@ STAGE_PROGRESS = {
     "build_multimodal_inference_requests": 0.68,
     "stage_ai_batch_payloads": 0.78,
     "run_ai_batch_inference": 0.84,
-    "build_graph_upserts": 0.90,
+    "build_gold_processing_result": 0.88,
+    "build_graph_upserts": 0.92,
     "publish_outbox": 1.00,
 }
 STAGE_MESSAGES = {
@@ -136,6 +139,7 @@ STAGE_MESSAGES = {
     "build_multimodal_inference_requests": "Preparing multimodal inference requests",
     "stage_ai_batch_payloads": "Staging Azure OpenAI Batch payloads",
     "run_ai_batch_inference": "Running Azure OpenAI Batch inference",
+    "build_gold_processing_result": "Building frontend-compatible Gold result",
     "build_graph_upserts": "Preparing Neo4j graph upsert intents",
     "publish_outbox": "Publishing Databricks lakehouse result",
 }
@@ -148,6 +152,7 @@ PIPELINE_STAGES = [
     "build_multimodal_inference_requests",
     "stage_ai_batch_payloads",
     "run_ai_batch_inference",
+    "build_gold_processing_result",
     "build_graph_upserts",
     "publish_outbox",
 ]
@@ -390,6 +395,28 @@ AI_RESULTS_SCHEMA = StructType(
         StructField("error", StringType(), nullable=False),
     ]
 )
+GOLD_PROCESSING_RESULTS_SCHEMA = StructType(
+    [
+        StructField("result_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("schema_version", StringType(), nullable=False),
+        StructField("processing_version", StringType(), nullable=False),
+        StructField("config_hash", StringType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("video_title", StringType(), nullable=True),
+        StructField("video_summary", StringType(), nullable=True),
+        StructField("key_topics", StringType(), nullable=False),
+        StructField("structure_json", StringType(), nullable=False),
+        StructField("audio_data_json", StringType(), nullable=False),
+        StructField("frames_data_json", StringType(), nullable=False),
+        StructField("video_metadata_json", StringType(), nullable=False),
+        StructField("processing_result_json", StringType(), nullable=False),
+        StructField("metrics_json", StringType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+        StructField("updated_at", TimestampType(), nullable=False),
+    ]
+)
 GRAPH_UPSERTS_SCHEMA = StructType(
     [
         StructField("upsert_id", StringType(), nullable=False),
@@ -460,6 +487,11 @@ qualified_ai_batches_table = (
 )
 qualified_ai_results_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AI_RESULTS_TABLE)}"
+)
+qualified_gold_processing_results_table = (
+    f"{quote_identifier(catalog)}."
+    f"{quote_identifier(schema)}."
+    f"{quote_identifier(GOLD_PROCESSING_RESULTS_TABLE)}"
 )
 qualified_graph_upserts_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(GRAPH_UPSERTS_TABLE)}"
@@ -944,6 +976,31 @@ def ensure_ops_table() -> None:
           created_at TIMESTAMP,
           updated_at TIMESTAMP,
           error STRING
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_gold_processing_results_table} (
+          result_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          schema_version STRING,
+          processing_version STRING,
+          config_hash STRING,
+          status STRING,
+          video_title STRING,
+          video_summary STRING,
+          key_topics STRING,
+          structure_json STRING,
+          audio_data_json STRING,
+          frames_data_json STRING,
+          video_metadata_json STRING,
+          processing_result_json STRING,
+          metrics_json STRING,
+          created_at TIMESTAMP,
+          updated_at TIMESTAMP
         )
         USING DELTA
         """
@@ -2558,6 +2615,406 @@ def run_ai_batch_inference() -> dict:
     }
 
 
+def load_completed_ai_results() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          result_id,
+          request_id,
+          batch_id,
+          source_type,
+          source_id,
+          model_name,
+          prompt_version,
+          status,
+          normalized_json,
+          tokens_prompt,
+          tokens_completion,
+          updated_at
+        FROM {qualified_ai_results_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+          AND status = 'completed'
+        ORDER BY source_type, source_id, updated_at DESC
+        """
+    ).collect()
+    return [row.asDict() for row in rows]
+
+
+def parse_json_dict(raw_value: str | dict | None) -> dict:
+    if isinstance(raw_value, dict):
+        return raw_value
+    if not raw_value:
+        return {}
+    parsed = json.loads(raw_value)
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def truncate_text(value: str | None, limit: int) -> str | None:
+    if not value:
+        return None
+    normalized = " ".join(str(value).split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
+
+
+def first_sentence(value: str | None, fallback: str) -> str:
+    text = truncate_text(value, 100)
+    if not text:
+        return fallback
+    sentence = text.split(".")[0].strip()
+    return sentence or fallback
+
+
+def string_field(payload: dict, keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def list_strings(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, dict):
+        candidates = []
+        for key in ("name", "label", "text", "value", "entity"):
+            item = value.get(key)
+            if isinstance(item, str) and item.strip():
+                candidates.append(item.strip())
+        return candidates
+    if isinstance(value, list):
+        items: list[str] = []
+        for item in value:
+            items.extend(list_strings(item))
+        return items
+    return []
+
+
+def unique_strings(values: list[str], limit: int) -> list[str]:
+    seen = set()
+    unique = []
+    for value in values:
+        normalized = value.strip()
+        key = normalized.lower()
+        if normalized and key not in seen:
+            seen.add(key)
+            unique.append(normalized)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
+def extract_objects(payload: dict) -> list[str]:
+    objects: list[str] = []
+    for key in (
+        "detected_objects",
+        "objects",
+        "visible_objects",
+        "people",
+        "entities",
+        "text",
+        "actions",
+        "setting",
+    ):
+        objects.extend(list_strings(payload.get(key)))
+    return unique_strings(objects, 25)
+
+
+def frame_understanding_by_source(ai_results: list[dict]) -> dict[str, dict]:
+    by_source: dict[str, dict] = {}
+    for result in ai_results:
+        if result["source_type"] != "frame" or result["source_id"] in by_source:
+            continue
+        normalized = parse_json_dict(result["normalized_json"])
+        description = string_field(
+            normalized,
+            ("description", "summary", "analysis", "caption", "content", "text"),
+        )
+        if not description and normalized:
+            description = truncate_text(json.dumps(normalized, sort_keys=True), 500)
+        by_source[result["source_id"]] = {
+            "result_id": result["result_id"],
+            "description": description,
+            "detected_objects": extract_objects(normalized),
+            "normalized": normalized,
+            "tokens_prompt": int(result["tokens_prompt"] or 0),
+            "tokens_completion": int(result["tokens_completion"] or 0),
+        }
+    return by_source
+
+
+def transcript_semantics(ai_results: list[dict]) -> dict:
+    for result in ai_results:
+        if result["source_type"] == "transcript":
+            return parse_json_dict(result["normalized_json"])
+    return {}
+
+
+def transcript_segments_for_range(segments: list[dict], start_seconds: float, end_seconds: float) -> str | None:
+    texts = [
+        segment["text"]
+        for segment in segments
+        if (float(segment["start_ms"]) / 1000) < end_seconds
+        and (float(segment["end_ms"]) / 1000) > start_seconds
+        and segment.get("text")
+    ]
+    return truncate_text(" ".join(texts), 500)
+
+
+def scene_boundaries(frames: list[dict], duration_seconds: float) -> list[tuple[float, float]]:
+    if not frames:
+        return []
+    timestamps = [float(frame["timestamp_ms"]) / 1000 for frame in frames]
+    boundaries = []
+    for index, timestamp in enumerate(timestamps):
+        start = 0.0 if index == 0 else (timestamps[index - 1] + timestamp) / 2
+        if index + 1 < len(timestamps):
+            end = (timestamp + timestamps[index + 1]) / 2
+        else:
+            end = max(duration_seconds, timestamp + 1.0)
+        boundaries.append((round(start, 3), round(max(end, start), 3)))
+    return boundaries
+
+
+def build_scenes(frames: list[dict], segments: list[dict], frame_ai: dict[str, dict], duration: float) -> list[dict]:
+    scenes = []
+    for index, (frame, boundary) in enumerate(zip(frames, scene_boundaries(frames, duration), strict=True)):
+        start_seconds, end_seconds = boundary
+        understanding = frame_ai.get(frame["frame_asset_id"], {})
+        summary = truncate_text(understanding.get("description"), 500)
+        scenes.append(
+            {
+                "scene_id": index,
+                "start_time": start_seconds,
+                "end_time": end_seconds,
+                "duration": round(max(0.0, end_seconds - start_seconds), 3),
+                "title": first_sentence(summary, f"Scene {index + 1}"),
+                "summary": summary,
+                "detected_objects": understanding.get("detected_objects", []),
+                "transcript_segment": transcript_segments_for_range(
+                    segments,
+                    start_seconds,
+                    end_seconds,
+                ),
+                "frame_asset_id": frame["frame_asset_id"],
+                "frame_uri": frame["frame_uri"],
+            }
+        )
+    return scenes
+
+
+def build_chapters_from_scenes(scenes: list[dict], max_scenes_per_chapter: int = 5) -> list[dict]:
+    chapters = []
+    for start_index in range(0, len(scenes), max_scenes_per_chapter):
+        chunk = scenes[start_index : start_index + max_scenes_per_chapter]
+        if not chunk:
+            continue
+        chapter_id = len(chapters)
+        summaries = [scene["summary"] for scene in chunk if scene.get("summary")]
+        chapters.append(
+            {
+                "chapter_id": chapter_id,
+                "title": chunk[0].get("title") or f"Part {chapter_id + 1}",
+                "summary": truncate_text(" ".join(summaries), 500),
+                "start_time": chunk[0]["start_time"],
+                "end_time": chunk[-1]["end_time"],
+                "duration": round(max(0.0, chunk[-1]["end_time"] - chunk[0]["start_time"]), 3),
+                "scene_ids": [scene["scene_id"] for scene in chunk],
+                "scene_count": len(chunk),
+            }
+        )
+    return chapters
+
+
+def build_audio_data(asr_run: dict | None, segments: list[dict]) -> dict:
+    transcript_text = asr_run.get("transcript_text") if asr_run else " ".join(
+        segment["text"] for segment in segments if segment.get("text")
+    )
+    transcript_segments = [
+        {
+            "id": int(segment["segment_index"]),
+            "start": round(float(segment["start_ms"]) / 1000, 3),
+            "end": round(float(segment["end_ms"]) / 1000, 3),
+            "text": segment["text"],
+        }
+        for segment in segments
+    ]
+    return {
+        "transcription": {
+            "text": transcript_text or "",
+            "segments": transcript_segments,
+        },
+        "stats": {
+            "has_audio": bool(asr_run or segments),
+            "total_words": len((transcript_text or "").split()),
+            "segment_count": len(transcript_segments),
+            "language": asr_run.get("language") if asr_run else None,
+            "duration_seconds": asr_run.get("duration_seconds") if asr_run else None,
+        },
+    }
+
+
+def build_frames_data(frames: list[dict], frame_ai: dict[str, dict]) -> list[dict]:
+    frames_data = []
+    for frame in frames:
+        understanding = frame_ai.get(frame["frame_asset_id"], {})
+        frames_data.append(
+            {
+                "frame_number": int(frame["frame_index"]),
+                "timestamp": round(float(frame["timestamp_ms"]) / 1000, 3),
+                "analysis": understanding.get("description"),
+                "analysis_structured": understanding.get("normalized"),
+                "tokens_used": int(understanding.get("tokens_prompt") or 0)
+                + int(understanding.get("tokens_completion") or 0),
+                "frame_uri": frame["frame_uri"],
+            }
+        )
+    return frames_data
+
+
+def build_video_metadata(frames: list[dict], asr_run: dict | None, segments: list[dict]) -> dict:
+    duration_seconds = float(asr_run.get("duration_seconds") or 0) if asr_run else 0.0
+    if frames:
+        duration_seconds = max(duration_seconds, float(frames[-1]["timestamp_ms"]) / 1000)
+    if segments:
+        duration_seconds = max(duration_seconds, float(segments[-1]["end_ms"]) / 1000)
+    first_frame = frames[0] if frames else {}
+    return {
+        "duration": duration_seconds or None,
+        "duration_seconds": duration_seconds or None,
+        "width": first_frame.get("width"),
+        "height": first_frame.get("height"),
+        "frames_extracted": len(frames),
+        "transcript_segments": len(segments),
+        "processing_backend": "databricks",
+    }
+
+
+def extract_key_topics(semantics: dict, frame_ai: dict[str, dict]) -> list[str]:
+    topics = []
+    for key in ("key_topics", "topics", "themes"):
+        topics.extend(list_strings(semantics.get(key)))
+    for understanding in frame_ai.values():
+        topics.extend(understanding.get("detected_objects", [])[:5])
+    return unique_strings(topics, 15)
+
+
+def build_gold_processing_result() -> dict:
+    frames = load_frame_assets()
+    segments = load_transcript_segments()
+    asr_run = load_completed_asr_run()
+    ai_results = load_completed_ai_results()
+    frame_ai = frame_understanding_by_source(ai_results)
+    semantics = transcript_semantics(ai_results)
+    video_metadata = build_video_metadata(frames, asr_run, segments)
+    duration = float(video_metadata.get("duration_seconds") or 0.0)
+    scenes = build_scenes(frames, segments, frame_ai, duration)
+    chapters = build_chapters_from_scenes(scenes)
+    key_topics = extract_key_topics(semantics, frame_ai)
+    video_summary = string_field(semantics, ("video_summary", "summary", "abstract"))
+    if not video_summary:
+        video_summary = truncate_text(
+            " ".join(scene["summary"] for scene in scenes[:5] if scene.get("summary")),
+            900,
+        )
+    video_title = string_field(semantics, ("video_title", "title"))
+    structure = {
+        "scenes": scenes,
+        "chapters": chapters,
+        "video_summary": video_summary,
+        "video_title": video_title,
+        "key_topics": key_topics,
+        "total_scenes": len(scenes),
+    }
+    audio_data = build_audio_data(asr_run, segments)
+    frames_data = build_frames_data(frames, frame_ai)
+    completed_ai_results = len(ai_results)
+    frames_analyzed = len([frame for frame in frames_data if frame.get("analysis")])
+    processing_stats = {
+        "frames_extracted": len(frames),
+        "frames_analyzed": frames_analyzed,
+        "tokens_total": sum(int(frame.get("tokens_used") or 0) for frame in frames_data),
+        "ai_results_completed": completed_ai_results,
+        "audio_processed": audio_data["stats"]["has_audio"],
+        "processing_mode": "databricks_lakehouse_batch",
+        "processing_version": processing_version,
+    }
+    processing_result = {
+        "backend": "databricks",
+        "pipeline": "lakehouse_gold",
+        "dispatch_id": dispatch_id,
+        "processing_version": processing_version,
+        "config_hash": config_hash,
+        "video_metadata": video_metadata,
+        "frames_data": frames_data,
+        "audio_data": audio_data,
+        "structure": structure,
+        "processing_stats": processing_stats,
+        "frames_analyzed": frames_analyzed,
+        "status": "completed" if completed_ai_results else "completed_with_warnings",
+        "delta_tables": {
+            "processing_results": GOLD_PROCESSING_RESULTS_TABLE,
+            "transcript_segments": TRANSCRIPT_SEGMENTS_TABLE,
+            "frame_assets": FRAME_ASSETS_TABLE,
+            "ai_results": AI_RESULTS_TABLE,
+            "graph_upserts": GRAPH_UPSERTS_TABLE,
+        },
+    }
+    now = datetime.now(UTC)
+    result_row = {
+        "result_id": f"{media_id}:{dispatch_id}:gold:{processing_version}:{config_hash[:12]}",
+        "media_id": media_id,
+        "dispatch_id": dispatch_id,
+        "schema_version": schema_version,
+        "processing_version": processing_version,
+        "config_hash": config_hash,
+        "status": processing_result["status"],
+        "video_title": video_title,
+        "video_summary": video_summary,
+        "key_topics": json_dumps({"items": key_topics}),
+        "structure_json": json_dumps(structure),
+        "audio_data_json": json_dumps(audio_data),
+        "frames_data_json": json.dumps(frames_data, separators=(",", ":"), sort_keys=True),
+        "video_metadata_json": json_dumps(video_metadata),
+        "processing_result_json": json_dumps(processing_result),
+        "metrics_json": json_dumps(processing_stats),
+        "created_at": now,
+        "updated_at": now,
+    }
+    merge_row(
+        qualified_gold_processing_results_table,
+        result_row,
+        GOLD_PROCESSING_RESULTS_SCHEMA,
+        ["result_id"],
+    )
+    return result_row
+
+
+def load_latest_gold_processing_result() -> dict | None:
+    rows = spark.sql(
+        f"""
+        SELECT
+          result_id,
+          status,
+          video_title,
+          video_summary,
+          structure_json,
+          video_metadata_json,
+          processing_result_json,
+          updated_at
+        FROM {qualified_gold_processing_results_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """
+    ).collect()
+    return rows[0].asDict() if rows else None
+
+
 def graph_upsert_row(
     *,
     operation_type: str,
@@ -2603,6 +3060,11 @@ def build_graph_upsert_rows() -> list[dict]:
     ai_requests = load_ai_requests()
     asr_run = load_completed_asr_run()
     graph_version = str(pipeline_config.get("graph_version") or schema_version)
+    gold_result = load_latest_gold_processing_result()
+    gold_processing_result = (
+        parse_json_dict(gold_result["processing_result_json"]) if gold_result else {}
+    )
+    gold_structure = parse_json_dict(gold_processing_result.get("structure"))
     rows: list[dict] = [
         graph_upsert_row(
             operation_type="node",
@@ -2618,9 +3080,91 @@ def build_graph_upsert_rows() -> list[dict]:
                 "processing_version": processing_version,
                 "config_hash": config_hash,
                 "graph_version": graph_version,
+                "title": gold_structure.get("video_title"),
+                "summary": gold_structure.get("video_summary"),
+                "topics": gold_structure.get("key_topics") or [],
             },
         )
     ]
+
+    if gold_result:
+        for scene in gold_structure.get("scenes") or []:
+            scene_id = int(scene.get("scene_id") or 0)
+            scene_key = f"{media_id}:scene:{scene_id:06d}"
+            rows.append(
+                graph_upsert_row(
+                    operation_type="node",
+                    label_or_type="Scene",
+                    natural_key=scene_key,
+                    source_table=GOLD_PROCESSING_RESULTS_TABLE,
+                    source_id=gold_result["result_id"],
+                    properties={
+                        "scene_id": scene_id,
+                        "scene_index": scene_id,
+                        "title": scene.get("title"),
+                        "description": scene.get("summary"),
+                        "start_time": scene.get("start_time"),
+                        "end_time": scene.get("end_time"),
+                        "duration": scene.get("duration"),
+                        "detected_objects": scene.get("detected_objects") or [],
+                        "transcript_segment": scene.get("transcript_segment"),
+                        "frame_asset_id": scene.get("frame_asset_id"),
+                    },
+                )
+            )
+            rows.append(
+                graph_upsert_row(
+                    operation_type="relationship",
+                    label_or_type="HAS_SCENE",
+                    natural_key=f"{media_id}->HAS_SCENE->{scene_key}",
+                    source_table=GOLD_PROCESSING_RESULTS_TABLE,
+                    source_id=gold_result["result_id"],
+                    properties={
+                        "from_label": "Video",
+                        "from_key": media_id,
+                        "to_label": "Scene",
+                        "to_key": scene_key,
+                        "scene_index": scene_id,
+                    },
+                )
+            )
+        for chapter in gold_structure.get("chapters") or []:
+            chapter_id = int(chapter.get("chapter_id") or 0)
+            chapter_key = f"{media_id}:chapter:{chapter_id:06d}"
+            rows.append(
+                graph_upsert_row(
+                    operation_type="node",
+                    label_or_type="Chapter",
+                    natural_key=chapter_key,
+                    source_table=GOLD_PROCESSING_RESULTS_TABLE,
+                    source_id=gold_result["result_id"],
+                    properties={
+                        "chapter_id": chapter_id,
+                        "title": chapter.get("title"),
+                        "summary": chapter.get("summary"),
+                        "start_time": chapter.get("start_time"),
+                        "end_time": chapter.get("end_time"),
+                        "duration": chapter.get("duration"),
+                        "scene_ids": chapter.get("scene_ids") or [],
+                    },
+                )
+            )
+            rows.append(
+                graph_upsert_row(
+                    operation_type="relationship",
+                    label_or_type="HAS_CHAPTER",
+                    natural_key=f"{media_id}->HAS_CHAPTER->{chapter_key}",
+                    source_table=GOLD_PROCESSING_RESULTS_TABLE,
+                    source_id=gold_result["result_id"],
+                    properties={
+                        "from_label": "Video",
+                        "from_key": media_id,
+                        "to_label": "Chapter",
+                        "to_key": chapter_key,
+                        "chapter_index": chapter_id,
+                    },
+                )
+            )
 
     if asr_run:
         rows.append(
@@ -3161,6 +3705,39 @@ try:
             },
             completed=True,
         )
+    elif stage == "build_gold_processing_result":
+        stage_message = "Building frontend-compatible Gold processing result"
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        gold_result = build_gold_processing_result()
+        metrics = parse_json_dict(gold_result["metrics_json"])
+        write_event(
+            status="gold_processing_result_built",
+            message="Gold processing result registered",
+            details={
+                "result_id": gold_result["result_id"],
+                "status": gold_result["status"],
+                "processing_results_table": GOLD_PROCESSING_RESULTS_TABLE,
+                "metrics": metrics,
+            },
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="Gold processing result registered",
+            metrics={
+                "result_id": gold_result["result_id"],
+                "status": gold_result["status"],
+                "processing_results_table": GOLD_PROCESSING_RESULTS_TABLE,
+                **metrics,
+            },
+            completed=True,
+        )
     elif stage == "build_graph_upserts":
         stage_message = "Building Neo4j graph upsert intents from Delta records"
         upsert_processing_run(
@@ -3210,49 +3787,25 @@ try:
             current_stage=stage,
         )
         write_stage_run(stage_name=stage, status="running", message=stage_message)
-        processing_result = {
-            "backend": "databricks",
-            "pipeline": "lakehouse_pilot",
-            "dispatch_id": dispatch_id,
-            "processing_version": processing_version,
-            "config_hash": config_hash,
-            "stages": PIPELINE_STAGES,
-            "delta_tables": {
-                "manifest": MEDIA_MANIFEST_TABLE,
-                "source_files": SOURCE_FILES_TABLE,
-                "processing_runs": PROCESSING_RUNS_TABLE,
-                "stage_runs": STAGE_RUNS_TABLE,
-                "audio_assets": AUDIO_ASSETS_TABLE,
-                "audio_chunks": AUDIO_CHUNKS_TABLE,
-                "asr_runs": ASR_RUNS_TABLE,
-                "transcript_segments": TRANSCRIPT_SEGMENTS_TABLE,
-                "frame_assets": FRAME_ASSETS_TABLE,
-                "ai_requests": AI_REQUESTS_TABLE,
-                "ai_batches": AI_BATCHES_TABLE,
-                "ai_results": AI_RESULTS_TABLE,
-                "graph_upserts": GRAPH_UPSERTS_TABLE,
-                "events": OPS_EVENTS_TABLE,
-                "outbox": OPS_OUTBOX_TABLE,
-                "quarantine": QUARANTINE_TABLE,
-            },
-            "next": [
-                "implement_audio_chunking",
-                "normalize_ai_results_to_gold",
-                "build_frontend_processing_result",
-                "implement_neo4j_graph_projector",
-            ],
-        }
+        gold_result = load_latest_gold_processing_result()
+        if not gold_result:
+            raise ValueError("Gold processing result is missing. Run build_gold_processing_result first.")
+        processing_result = parse_json_dict(gold_result["processing_result_json"])
+        video_metadata = parse_json_dict(gold_result["video_metadata_json"])
         write_event(
             status="completed",
-            message="Databricks lakehouse pilot job completed",
+            message="Databricks lakehouse video processing completed",
             details={
-                "processing_result": processing_result,
+                "gold_result_id": gold_result["result_id"],
+                "status": processing_result.get("status"),
+                "frames_analyzed": processing_result.get("frames_analyzed"),
+                "processing_results_table": GOLD_PROCESSING_RESULTS_TABLE,
             },
         )
         write_stage_run(
             stage_name=stage,
             status="completed",
-            message="Databricks lakehouse pilot job completed",
+            message="Databricks lakehouse video processing completed",
             completed=True,
         )
         upsert_processing_run(
@@ -3264,8 +3817,9 @@ try:
         write_outbox_event(
             status="completed",
             progress=1.0,
-            message="Databricks lakehouse pilot job completed",
+            message="Databricks lakehouse video processing completed",
             processing_result=processing_result,
+            video_metadata=video_metadata,
         )
     else:
         raise ValueError(f"Unsupported pipeline stage: {stage}")
