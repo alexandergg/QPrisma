@@ -26,6 +26,12 @@ resources:
       schema_name: ${var.schema}
       volume_type: MANAGED
       comment: Managed Unity Catalog volume for Databricks-readable QPrisma source media staging.
+    video_artifacts:
+      name: video_artifacts
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      volume_type: MANAGED
+      comment: Managed Unity Catalog volume for QPrisma video ETL audio, frame and inference artifacts.
 
   jobs:
     video_processing:

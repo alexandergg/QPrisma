@@ -1,10 +1,9 @@
 # Databricks notebook source
-"""Minimal observable QPrisma video-processing job.
+"""Observable QPrisma video-processing lakehouse job.
 
-This first real pilot job validates the Service Bus -> Databricks contract,
-checks that the original media can be read by Databricks compute, and writes
-stage events to a Delta ops table. Heavy video stages will be added after this
-end-to-end control-plane path is proven.
+This job validates the Service Bus -> Databricks contract, writes operational
+Delta records per stage, and incrementally replaces Celery-heavy media work
+with governed Databricks ETL tasks.
 """
 
 # COMMAND ----------
@@ -12,7 +11,10 @@ end-to-end control-plane path is proven.
 from datetime import UTC, datetime
 import hashlib
 import json
+import os
 import re
+import subprocess
+import tempfile
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -67,6 +69,8 @@ SOURCE_FILES_TABLE = "video_source_files"
 PROCESSING_RUNS_TABLE = "video_processing_runs"
 STAGE_RUNS_TABLE = "video_job_stage_runs"
 QUARANTINE_TABLE = "video_record_quarantine"
+AUDIO_ASSETS_TABLE = "video_audio_assets"
+AUDIO_CHUNKS_TABLE = "video_audio_chunks"
 
 STAGE_PROGRESS = {
     "register_manifest": 0.10,
@@ -80,7 +84,7 @@ STAGE_PROGRESS = {
 STAGE_MESSAGES = {
     "register_manifest": "Registering video manifest in Databricks",
     "validate_and_probe_media": "Validating staged source media in Databricks",
-    "extract_audio_assets": "Preparing audio extraction assets",
+    "extract_audio_assets": "Extracting audio assets with FFmpeg",
     "extract_frame_assets": "Preparing frame extraction assets",
     "run_faster_whisper_asr": "Preparing faster-whisper transcription",
     "build_multimodal_inference_requests": "Preparing multimodal inference requests",
@@ -184,6 +188,38 @@ QUARANTINE_SCHEMA = StructType(
         StructField("created_at", TimestampType(), nullable=False),
     ]
 )
+AUDIO_ASSETS_SCHEMA = StructType(
+    [
+        StructField("audio_asset_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("source_uri", StringType(), nullable=False),
+        StructField("audio_uri", StringType(), nullable=False),
+        StructField("format", StringType(), nullable=False),
+        StructField("codec", StringType(), nullable=False),
+        StructField("sample_rate_hz", LongType(), nullable=False),
+        StructField("channels", LongType(), nullable=False),
+        StructField("duration_seconds", DoubleType(), nullable=False),
+        StructField("size_bytes", LongType(), nullable=False),
+        StructField("sha256", StringType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+        StructField("updated_at", TimestampType(), nullable=False),
+    ]
+)
+AUDIO_CHUNKS_SCHEMA = StructType(
+    [
+        StructField("chunk_id", StringType(), nullable=False),
+        StructField("audio_asset_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("chunk_index", LongType(), nullable=False),
+        StructField("start_ms", LongType(), nullable=False),
+        StructField("end_ms", LongType(), nullable=False),
+        StructField("audio_uri", StringType(), nullable=False),
+        StructField("duration_seconds", DoubleType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+    ]
+)
 
 
 def quote_identifier(value: str) -> str:
@@ -212,6 +248,12 @@ qualified_stage_runs_table = (
 )
 qualified_quarantine_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(QUARANTINE_TABLE)}"
+)
+qualified_audio_assets_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AUDIO_ASSETS_TABLE)}"
+)
+qualified_audio_chunks_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AUDIO_CHUNKS_TABLE)}"
 )
 
 
@@ -359,6 +401,44 @@ def ensure_ops_table() -> None:
           reason STRING,
           error_type STRING,
           details STRING,
+          created_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_audio_assets_table} (
+          audio_asset_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          source_uri STRING,
+          audio_uri STRING,
+          format STRING,
+          codec STRING,
+          sample_rate_hz BIGINT,
+          channels BIGINT,
+          duration_seconds DOUBLE,
+          size_bytes BIGINT,
+          sha256 STRING,
+          created_at TIMESTAMP,
+          updated_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_audio_chunks_table} (
+          chunk_id STRING,
+          audio_asset_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          chunk_index BIGINT,
+          start_ms BIGINT,
+          end_ms BIGINT,
+          audio_uri STRING,
+          duration_seconds DOUBLE,
           created_at TIMESTAMP
         )
         USING DELTA
@@ -587,6 +667,137 @@ def write_quarantine(*, stage_name: str, reason: str, exc: Exception) -> None:
     ).write.mode("append").saveAsTable(qualified_quarantine_table)
 
 
+def safe_path_segment(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    return normalized.strip("._") or "unknown"
+
+
+def volume_path(*parts: str) -> str:
+    safe_parts = [safe_path_segment(part) for part in parts if part]
+    return "/".join([f"/Volumes/{catalog}/{schema}/video_artifacts", *safe_parts])
+
+
+def ffmpeg_input_path(uri: str) -> str:
+    if uri.startswith("/Volumes/"):
+        return uri
+    if uri.startswith("dbfs:/Volumes/"):
+        return uri.replace("dbfs:", "", 1)
+
+    suffix = os.path.splitext(blob_name)[1] or ".mp4"
+    local_dir = tempfile.mkdtemp(prefix="qprisma_video_")
+    local_path = os.path.join(local_dir, f"{safe_path_segment(media_id)}{suffix}")
+    dbutils.fs.cp(uri, f"file:{local_path}")
+    return local_path
+
+
+def run_command(command: list[str]) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(command, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        raise RuntimeError(f"Command failed: {' '.join(command)}\n{stderr}") from exc
+
+
+def file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as file_obj:
+        for chunk in iter(lambda: file_obj.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def audio_duration_seconds(path: str) -> float:
+    result = run_command(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path,
+        ]
+    )
+    return float(result.stdout.strip() or 0.0)
+
+
+def extract_audio_asset(source_uri: str) -> dict:
+    input_path = ffmpeg_input_path(source_uri)
+    audio_dir = volume_path(media_id, dispatch_id, "audio")
+    os.makedirs(audio_dir, exist_ok=True)
+    audio_path = f"{audio_dir}/audio_16khz_mono.wav"
+
+    run_command(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            input_path,
+            "-vn",
+            "-acodec",
+            "pcm_s16le",
+            "-ar",
+            "16000",
+            "-ac",
+            "1",
+            audio_path,
+        ]
+    )
+
+    duration = audio_duration_seconds(audio_path)
+    size_bytes = os.path.getsize(audio_path)
+    asset_id = f"{media_id}:audio:16khz_mono:{config_hash[:12]}"
+    return {
+        "audio_asset_id": asset_id,
+        "source_uri": source_uri,
+        "audio_uri": audio_path,
+        "format": "wav",
+        "codec": "pcm_s16le",
+        "sample_rate_hz": 16000,
+        "channels": 1,
+        "duration_seconds": duration,
+        "size_bytes": size_bytes,
+        "sha256": file_sha256(audio_path),
+    }
+
+
+def register_audio_asset(audio_asset: dict) -> None:
+    now = datetime.now(UTC)
+    merge_row(
+        qualified_audio_assets_table,
+        {
+            **audio_asset,
+            "media_id": media_id,
+            "dispatch_id": dispatch_id,
+            "created_at": now,
+            "updated_at": now,
+        },
+        AUDIO_ASSETS_SCHEMA,
+        ["audio_asset_id"],
+    )
+    merge_row(
+        qualified_audio_chunks_table,
+        {
+            "chunk_id": f"{audio_asset['audio_asset_id']}:chunk:000",
+            "audio_asset_id": audio_asset["audio_asset_id"],
+            "media_id": media_id,
+            "dispatch_id": dispatch_id,
+            "chunk_index": 0,
+            "start_ms": 0,
+            "end_ms": int(audio_asset["duration_seconds"] * 1000),
+            "audio_uri": audio_asset["audio_uri"],
+            "duration_seconds": audio_asset["duration_seconds"],
+            "created_at": now,
+        },
+        AUDIO_CHUNKS_SCHEMA,
+        ["chunk_id"],
+    )
+
+
 def complete_observable_stage(
     *,
     stage_name: str,
@@ -745,14 +956,42 @@ try:
             completed=True,
         )
     elif stage == "extract_audio_assets":
-        complete_observable_stage(
-            stage_name=stage,
-            message="Audio extraction stage registered",
-            metrics={
-                "implementation_status": "skeleton",
-                "target_outputs": ["video_audio_assets", "audio_chunks", "asr_requests"],
-                "next": "Extract audio to governed volume paths before faster-whisper ASR",
+        stage_message = "Extracting 16kHz mono audio asset with FFmpeg"
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        validate_source_contract()
+        uri = source_media_uri()
+        audio_asset = extract_audio_asset(uri)
+        register_audio_asset(audio_asset)
+        write_event(
+            status="audio_extracted",
+            message="Audio asset extracted for faster-whisper",
+            source_uri=uri,
+            details={
+                "audio_asset_id": audio_asset["audio_asset_id"],
+                "audio_uri": audio_asset["audio_uri"],
+                "duration_seconds": audio_asset["duration_seconds"],
+                "size_bytes": audio_asset["size_bytes"],
+                "sample_rate_hz": audio_asset["sample_rate_hz"],
+                "channels": audio_asset["channels"],
             },
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="Audio asset extracted for faster-whisper",
+            metrics={
+                "audio_asset_id": audio_asset["audio_asset_id"],
+                "duration_seconds": audio_asset["duration_seconds"],
+                "size_bytes": audio_asset["size_bytes"],
+                "audio_uri": audio_asset["audio_uri"],
+            },
+            completed=True,
         )
     elif stage == "extract_frame_assets":
         complete_observable_stage(
@@ -806,12 +1045,14 @@ try:
                 "source_files": SOURCE_FILES_TABLE,
                 "processing_runs": PROCESSING_RUNS_TABLE,
                 "stage_runs": STAGE_RUNS_TABLE,
+                "audio_assets": AUDIO_ASSETS_TABLE,
+                "audio_chunks": AUDIO_CHUNKS_TABLE,
                 "events": OPS_EVENTS_TABLE,
                 "outbox": OPS_OUTBOX_TABLE,
                 "quarantine": QUARANTINE_TABLE,
             },
             "next": [
-                "implement_audio_extraction",
+                "implement_audio_chunking",
                 "implement_frame_extraction",
                 "implement_faster_whisper_asr",
                 "implement_multimodal_batch_requests",
