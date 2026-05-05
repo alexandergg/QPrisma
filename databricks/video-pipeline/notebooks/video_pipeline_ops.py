@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -71,6 +72,8 @@ STAGE_RUNS_TABLE = "video_job_stage_runs"
 QUARANTINE_TABLE = "video_record_quarantine"
 AUDIO_ASSETS_TABLE = "video_audio_assets"
 AUDIO_CHUNKS_TABLE = "video_audio_chunks"
+ASR_RUNS_TABLE = "video_asr_runs"
+TRANSCRIPT_SEGMENTS_TABLE = "video_transcript_segments"
 
 STAGE_PROGRESS = {
     "register_manifest": 0.10,
@@ -220,6 +223,45 @@ AUDIO_CHUNKS_SCHEMA = StructType(
         StructField("created_at", TimestampType(), nullable=False),
     ]
 )
+ASR_RUNS_SCHEMA = StructType(
+    [
+        StructField("asr_run_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("audio_asset_id", StringType(), nullable=False),
+        StructField("model_name", StringType(), nullable=False),
+        StructField("device", StringType(), nullable=False),
+        StructField("compute_type", StringType(), nullable=False),
+        StructField("batch_size", LongType(), nullable=False),
+        StructField("language", StringType(), nullable=True),
+        StructField("language_probability", DoubleType(), nullable=True),
+        StructField("duration_seconds", DoubleType(), nullable=True),
+        StructField("segment_count", LongType(), nullable=False),
+        StructField("transcript_text", StringType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("started_at", TimestampType(), nullable=False),
+        StructField("completed_at", TimestampType(), nullable=True),
+        StructField("metrics", StringType(), nullable=False),
+        StructField("error", StringType(), nullable=False),
+    ]
+)
+TRANSCRIPT_SEGMENTS_SCHEMA = StructType(
+    [
+        StructField("segment_id", StringType(), nullable=False),
+        StructField("asr_run_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("audio_asset_id", StringType(), nullable=False),
+        StructField("chunk_id", StringType(), nullable=False),
+        StructField("segment_index", LongType(), nullable=False),
+        StructField("start_ms", LongType(), nullable=False),
+        StructField("end_ms", LongType(), nullable=False),
+        StructField("text", StringType(), nullable=False),
+        StructField("language", StringType(), nullable=True),
+        StructField("confidence", DoubleType(), nullable=True),
+        StructField("created_at", TimestampType(), nullable=False),
+    ]
+)
 
 
 def quote_identifier(value: str) -> str:
@@ -254,6 +296,12 @@ qualified_audio_assets_table = (
 )
 qualified_audio_chunks_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AUDIO_CHUNKS_TABLE)}"
+)
+qualified_asr_runs_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(ASR_RUNS_TABLE)}"
+)
+qualified_transcript_segments_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(TRANSCRIPT_SEGMENTS_TABLE)}"
 )
 
 
@@ -439,6 +487,51 @@ def ensure_ops_table() -> None:
           end_ms BIGINT,
           audio_uri STRING,
           duration_seconds DOUBLE,
+          created_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_asr_runs_table} (
+          asr_run_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          audio_asset_id STRING,
+          model_name STRING,
+          device STRING,
+          compute_type STRING,
+          batch_size BIGINT,
+          language STRING,
+          language_probability DOUBLE,
+          duration_seconds DOUBLE,
+          segment_count BIGINT,
+          transcript_text STRING,
+          status STRING,
+          started_at TIMESTAMP,
+          completed_at TIMESTAMP,
+          metrics STRING,
+          error STRING
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_transcript_segments_table} (
+          segment_id STRING,
+          asr_run_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          audio_asset_id STRING,
+          chunk_id STRING,
+          segment_index BIGINT,
+          start_ms BIGINT,
+          end_ms BIGINT,
+          text STRING,
+          language STRING,
+          confidence DOUBLE,
           created_at TIMESTAMP
         )
         USING DELTA
@@ -798,6 +891,186 @@ def register_audio_asset(audio_asset: dict) -> None:
     )
 
 
+def sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def faster_whisper_config() -> dict:
+    cfg = pipeline_config.get("faster_whisper") or pipeline_config.get("asr") or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.faster_whisper/asr must be an object when provided")
+    return {
+        "model_name": str(cfg.get("model_name") or cfg.get("model_size") or "large-v3"),
+        "device": str(cfg.get("device") or "auto"),
+        "compute_type": str(cfg.get("compute_type") or "int8"),
+        "batch_size": int(cfg.get("batch_size") or 16),
+        "language": cfg.get("language") or pipeline_config.get("language"),
+    }
+
+
+def load_audio_chunks() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          chunk_id,
+          audio_asset_id,
+          chunk_index,
+          start_ms,
+          end_ms,
+          audio_uri,
+          duration_seconds
+        FROM {qualified_audio_chunks_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+        ORDER BY chunk_index
+        """
+    ).collect()
+    if not rows:
+        raise ValueError(
+            f"No audio chunks found for media_id={media_id}, dispatch_id={dispatch_id}. "
+            "Run extract_audio_assets first."
+        )
+    return [row.asDict() for row in rows]
+
+
+def write_asr_run(
+    *,
+    asr_run_id: str,
+    audio_asset_id: str,
+    model_config: dict,
+    status: str,
+    transcript_text: str = "",
+    language: str | None = None,
+    language_probability: float | None = None,
+    duration_seconds: float | None = None,
+    segment_count: int = 0,
+    metrics: dict | None = None,
+    error: dict | None = None,
+    started_at: datetime | None = None,
+    completed: bool = False,
+) -> None:
+    now = datetime.now(UTC)
+    merge_row(
+        qualified_asr_runs_table,
+        {
+            "asr_run_id": asr_run_id,
+            "media_id": media_id,
+            "dispatch_id": dispatch_id,
+            "audio_asset_id": audio_asset_id,
+            "model_name": model_config["model_name"],
+            "device": model_config["device"],
+            "compute_type": model_config["compute_type"],
+            "batch_size": int(model_config["batch_size"]),
+            "language": language,
+            "language_probability": language_probability,
+            "duration_seconds": duration_seconds,
+            "segment_count": int(segment_count),
+            "transcript_text": transcript_text,
+            "status": status,
+            "started_at": started_at or now,
+            "completed_at": now if completed else None,
+            "metrics": json_dumps(metrics or {}),
+            "error": json_dumps(error or {}),
+        },
+        ASR_RUNS_SCHEMA,
+        ["asr_run_id"],
+    )
+
+
+def transcribe_audio_chunks(chunks: list[dict], model_config: dict) -> dict:
+    try:
+        from faster_whisper import BatchedInferencePipeline, WhisperModel
+    except ImportError as exc:
+        raise RuntimeError(
+            "faster-whisper is not installed on the Databricks job cluster. "
+            "Install the task PyPI dependency before running run_faster_whisper_asr."
+        ) from exc
+
+    model = WhisperModel(
+        model_config["model_name"],
+        device=model_config["device"],
+        compute_type=model_config["compute_type"],
+    )
+    pipeline = BatchedInferencePipeline(model=model)
+    result_segments: list[dict] = []
+    text_parts: list[str] = []
+    detected_language = None
+    detected_language_probability = None
+    segment_index = 0
+    inference_started = time.perf_counter()
+
+    for chunk in chunks:
+        chunk_offset_seconds = float(chunk["start_ms"]) / 1000
+        segments_iter, info = pipeline.transcribe(
+            chunk["audio_uri"],
+            language=model_config.get("language"),
+            batch_size=int(model_config["batch_size"]),
+            vad_filter=True,
+            vad_parameters={
+                "min_silence_duration_ms": 500,
+                "speech_pad_ms": 200,
+            },
+        )
+        detected_language = detected_language or info.language
+        detected_language_probability = detected_language_probability or info.language_probability
+
+        for segment in segments_iter:
+            text = segment.text.strip()
+            if not text:
+                continue
+            start_seconds = chunk_offset_seconds + float(segment.start)
+            end_seconds = chunk_offset_seconds + float(segment.end)
+            result_segments.append(
+                {
+                    "segment_index": segment_index,
+                    "chunk_id": chunk["chunk_id"],
+                    "audio_asset_id": chunk["audio_asset_id"],
+                    "start_ms": int(start_seconds * 1000),
+                    "end_ms": int(end_seconds * 1000),
+                    "text": text,
+                    "language": detected_language,
+                    "confidence": None,
+                }
+            )
+            text_parts.append(text)
+            segment_index += 1
+
+    elapsed = time.perf_counter() - inference_started
+    return {
+        "text": " ".join(text_parts),
+        "segments": result_segments,
+        "language": detected_language,
+        "language_probability": detected_language_probability,
+        "duration_seconds": sum(float(chunk["duration_seconds"] or 0) for chunk in chunks),
+        "elapsed_seconds": elapsed,
+    }
+
+
+def write_transcript_segments(asr_run_id: str, segments: list[dict]) -> None:
+    now = datetime.now(UTC)
+    for segment in segments:
+        merge_row(
+            qualified_transcript_segments_table,
+            {
+                "segment_id": f"{asr_run_id}:segment:{segment['segment_index']:06d}",
+                "asr_run_id": asr_run_id,
+                "media_id": media_id,
+                "dispatch_id": dispatch_id,
+                "audio_asset_id": segment["audio_asset_id"],
+                "chunk_id": segment["chunk_id"],
+                "segment_index": int(segment["segment_index"]),
+                "start_ms": int(segment["start_ms"]),
+                "end_ms": int(segment["end_ms"]),
+                "text": segment["text"],
+                "language": segment["language"],
+                "confidence": segment["confidence"],
+                "created_at": now,
+            },
+            TRANSCRIPT_SEGMENTS_SCHEMA,
+            ["segment_id"],
+        )
+
+
 def complete_observable_stage(
     *,
     stage_name: str,
@@ -1004,16 +1277,71 @@ try:
             },
         )
     elif stage == "run_faster_whisper_asr":
-        complete_observable_stage(
-            stage_name=stage,
-            message="faster-whisper ASR stage registered",
+        stage_message = "Transcribing audio chunks with faster-whisper"
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        chunks = load_audio_chunks()
+        model_config = faster_whisper_config()
+        audio_asset_id = chunks[0]["audio_asset_id"]
+        asr_run_id = f"{media_id}:asr:{model_config['model_name']}:{config_hash[:12]}"
+        asr_started_at = datetime.now(UTC)
+        write_asr_run(
+            asr_run_id=asr_run_id,
+            audio_asset_id=audio_asset_id,
+            model_config=model_config,
+            status="running",
+            started_at=asr_started_at,
+            metrics={"chunk_count": len(chunks)},
+        )
+        transcript = transcribe_audio_chunks(chunks, model_config)
+        write_transcript_segments(asr_run_id, transcript["segments"])
+        write_asr_run(
+            asr_run_id=asr_run_id,
+            audio_asset_id=audio_asset_id,
+            model_config=model_config,
+            status="completed",
+            transcript_text=transcript["text"],
+            language=transcript["language"],
+            language_probability=transcript["language_probability"],
+            duration_seconds=transcript["duration_seconds"],
+            segment_count=len(transcript["segments"]),
+            started_at=asr_started_at,
+            completed=True,
             metrics={
-                "implementation_status": "skeleton",
-                "asr_backend": "faster-whisper",
+                "chunk_count": len(chunks),
+                "elapsed_seconds": transcript["elapsed_seconds"],
                 "azure_openai_whisper": "disabled_for_primary_path",
-                "target_outputs": ["asr_runs", "video_transcript_segments"],
-                "next": "Run faster-whisper over audio chunks and persist timestamped transcript segments",
             },
+        )
+        write_event(
+            status="asr_completed",
+            message="faster-whisper ASR completed",
+            details={
+                "asr_run_id": asr_run_id,
+                "audio_asset_id": audio_asset_id,
+                "model_name": model_config["model_name"],
+                "segment_count": len(transcript["segments"]),
+                "language": transcript["language"],
+                "duration_seconds": transcript["duration_seconds"],
+            },
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="faster-whisper ASR completed",
+            metrics={
+                "asr_run_id": asr_run_id,
+                "audio_asset_id": audio_asset_id,
+                "model_name": model_config["model_name"],
+                "segment_count": len(transcript["segments"]),
+                "elapsed_seconds": transcript["elapsed_seconds"],
+            },
+            completed=True,
         )
     elif stage == "build_multimodal_inference_requests":
         complete_observable_stage(
@@ -1047,14 +1375,15 @@ try:
                 "stage_runs": STAGE_RUNS_TABLE,
                 "audio_assets": AUDIO_ASSETS_TABLE,
                 "audio_chunks": AUDIO_CHUNKS_TABLE,
+                "asr_runs": ASR_RUNS_TABLE,
+                "transcript_segments": TRANSCRIPT_SEGMENTS_TABLE,
                 "events": OPS_EVENTS_TABLE,
                 "outbox": OPS_OUTBOX_TABLE,
                 "quarantine": QUARANTINE_TABLE,
             },
             "next": [
-                "implement_audio_chunking",
                 "implement_frame_extraction",
-                "implement_faster_whisper_asr",
+                "implement_audio_chunking",
                 "implement_multimodal_batch_requests",
             ],
         }

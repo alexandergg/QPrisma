@@ -146,6 +146,9 @@ resources:
           job_cluster_key: video_pilot_cluster
           depends_on:
             - task_key: extract_audio_assets
+          libraries:
+            - pypi:
+                package: faster-whisper==1.1.1
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:
