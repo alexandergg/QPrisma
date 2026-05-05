@@ -7,10 +7,11 @@ The Azure resources are provisioned by Bicep under `infra\`. This bundle owns th
 ## Current scope
 
 - Defines a `qprisma-video-processing` workflow with `dev` and `prod` targets.
-- Runs a minimal observable job with three stages: manifest registration, source-media probe and outbox/status publication.
+- Runs a lakehouse pilot job with three stages: manifest registration, source-media probe and outbox/status publication.
 - Establishes stable parameters for the Service Bus driven pipeline: `media_id`, `blob_name`, `dispatch_id`, `source_media`, `pipeline_config`, catalog, schema and queue name.
 - Writes stage events to the Delta table `${catalog}.${schema}.video_pipeline_events`.
-- Writes frontend-compatible completion/failure records to `${catalog}.${schema}.video_pipeline_outbox`; this is the durable handoff point for projecting Databricks state back into QPrisma PostgreSQL/Neo4j/Redis.
+- Writes frontend-compatible running/completion/failure records to `${catalog}.${schema}.video_pipeline_outbox`; this is the durable handoff point for projecting Databricks progress back into QPrisma PostgreSQL/Neo4j/Redis.
+- Creates the first operational Delta contracts for the production ETL: `${catalog}.${schema}.video_media_manifest`, `video_source_files`, `video_processing_runs`, `video_job_stage_runs` and `video_record_quarantine`.
 
 ## Validate and deploy
 
@@ -56,7 +57,7 @@ The workflow runs on changes to the bridge package and can also be started manua
 
 ## Outbox projection back to QPrisma
 
-Databricks writes durable status/result records to `${catalog}.${schema}.video_pipeline_outbox`. The Azure Function bridge includes a timer-triggered outbox projector that:
+Databricks writes durable status/result records to `${catalog}.${schema}.video_pipeline_outbox`. The pilot now emits intermediate `running` records for stage progress as well as terminal `completed`/`failed` records. The Azure Function bridge includes a timer-triggered outbox projector that:
 
 1. polls the table through the Databricks SQL Statement Execution API;
 2. applies each event to QPrisma PostgreSQL through the same `DatabricksStatusEvent` contract used by direct status events;
@@ -73,4 +74,4 @@ The projector is configured by Bicep through these Function App settings:
 | `DATABRICKS_OUTBOX_POLL_BATCH_SIZE` | Maximum rows projected per timer invocation. Default: `25`. |
 | `OutboxPollSchedule` | Azure Functions NCRONTAB schedule. Default dev value: `0 */5 * * * *`. |
 
-For the pilot, the Databricks job is intentionally minimal: it validates access to the original media, records operational events and publishes completion/failure records. The production pipeline should extend it with frame/audio extraction, model calls, Delta medallion writes, data quality expectations and graph/result publication while keeping the same dispatch and outbox contracts.
+For the pilot, the Databricks job is still intentionally lightweight: it validates access to the original media, records operational events, persists manifests/stage runs/quarantine records and publishes frontend-compatible progress/failure/completion records. The production pipeline should extend it with frame/audio extraction, `faster-whisper` transcription, model calls, Delta medallion writes, data quality expectations and graph/result publication while keeping the same dispatch and outbox contracts.
