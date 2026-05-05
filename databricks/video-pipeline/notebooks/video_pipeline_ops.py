@@ -111,6 +111,8 @@ AUDIO_CHUNKS_TABLE = "video_audio_chunks"
 ASR_RUNS_TABLE = "video_asr_runs"
 TRANSCRIPT_SEGMENTS_TABLE = "video_transcript_segments"
 FRAME_ASSETS_TABLE = "video_frame_assets"
+TEMPORAL_WINDOWS_TABLE = "video_temporal_windows"
+SCENE_CANDIDATES_TABLE = "video_scene_candidates"
 AI_REQUESTS_TABLE = "video_ai_requests"
 AI_BATCHES_TABLE = "video_ai_batches"
 AI_RESULTS_TABLE = "video_ai_results"
@@ -123,6 +125,7 @@ STAGE_PROGRESS = {
     "extract_audio_assets": 0.30,
     "extract_frame_assets": 0.40,
     "run_faster_whisper_asr": 0.55,
+    "detect_scenes_and_windows": 0.62,
     "build_multimodal_inference_requests": 0.68,
     "stage_ai_batch_payloads": 0.78,
     "run_ai_batch_inference": 0.84,
@@ -137,6 +140,7 @@ STAGE_MESSAGES = {
     "extract_audio_assets": "Extracting audio assets with FFmpeg",
     "extract_frame_assets": "Preparing frame extraction assets",
     "run_faster_whisper_asr": "Preparing faster-whisper transcription",
+    "detect_scenes_and_windows": "Detecting temporal windows and scene candidates",
     "build_multimodal_inference_requests": "Preparing multimodal inference requests",
     "stage_ai_batch_payloads": "Staging Azure OpenAI Batch payloads",
     "run_ai_batch_inference": "Running Azure OpenAI Batch inference",
@@ -151,6 +155,7 @@ PIPELINE_STAGES = [
     "extract_audio_assets",
     "extract_frame_assets",
     "run_faster_whisper_asr",
+    "detect_scenes_and_windows",
     "build_multimodal_inference_requests",
     "stage_ai_batch_payloads",
     "run_ai_batch_inference",
@@ -348,6 +353,39 @@ FRAME_ASSETS_SCHEMA = StructType(
         StructField("updated_at", TimestampType(), nullable=False),
     ]
 )
+TEMPORAL_WINDOWS_SCHEMA = StructType(
+    [
+        StructField("window_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("window_index", LongType(), nullable=False),
+        StructField("start_ms", LongType(), nullable=False),
+        StructField("end_ms", LongType(), nullable=False),
+        StructField("duration_seconds", DoubleType(), nullable=False),
+        StructField("strategy", StringType(), nullable=False),
+        StructField("frame_asset_ids", StringType(), nullable=False),
+        StructField("transcript_segment_ids", StringType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+    ]
+)
+SCENE_CANDIDATES_SCHEMA = StructType(
+    [
+        StructField("scene_candidate_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("scene_index", LongType(), nullable=False),
+        StructField("start_ms", LongType(), nullable=False),
+        StructField("end_ms", LongType(), nullable=False),
+        StructField("duration_seconds", DoubleType(), nullable=False),
+        StructField("strategy", StringType(), nullable=False),
+        StructField("boundary_reasons", StringType(), nullable=False),
+        StructField("confidence", DoubleType(), nullable=False),
+        StructField("frame_asset_ids", StringType(), nullable=False),
+        StructField("transcript_segment_ids", StringType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+    ]
+)
 AI_REQUESTS_SCHEMA = StructType(
     [
         StructField("request_id", StringType(), nullable=False),
@@ -492,6 +530,16 @@ qualified_transcript_segments_table = (
 qualified_frame_assets_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(FRAME_ASSETS_TABLE)}"
 )
+qualified_temporal_windows_table = (
+    f"{quote_identifier(catalog)}."
+    f"{quote_identifier(schema)}."
+    f"{quote_identifier(TEMPORAL_WINDOWS_TABLE)}"
+)
+qualified_scene_candidates_table = (
+    f"{quote_identifier(catalog)}."
+    f"{quote_identifier(schema)}."
+    f"{quote_identifier(SCENE_CANDIDATES_TABLE)}"
+)
 qualified_ai_requests_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AI_REQUESTS_TABLE)}"
 )
@@ -608,7 +656,6 @@ def safe_source_media_for_persistence() -> dict:
 
 def safe_pipeline_config_for_persistence() -> dict:
     nested_allowed = {
-        "asr": {"beam_size", "compute_type", "device", "language", "model_name", "vad_filter"},
         "azure_openai": {
             "api_key_env",
             "api_key_secret_key",
@@ -632,11 +679,28 @@ def safe_pipeline_config_for_persistence() -> dict:
             "request_timeout_seconds",
         },
         "faster_whisper": {
+            "chunk_overlap_seconds",
+            "chunk_target_seconds",
             "beam_size",
             "compute_type",
             "device",
             "language",
+            "max_chunks",
+            "min_chunk_seconds",
             "model_name",
+            "vad_filter",
+        },
+        "asr": {
+            "beam_size",
+            "chunk_overlap_seconds",
+            "chunk_target_seconds",
+            "compute_type",
+            "device",
+            "language",
+            "max_chunks",
+            "min_chunk_seconds",
+            "model_name",
+            "model_size",
             "vad_filter",
         },
         "frame_extraction": {
@@ -650,6 +714,13 @@ def safe_pipeline_config_for_persistence() -> dict:
         "frames": {"format", "height", "interval_seconds", "max_frames", "quality", "width"},
         "models": {"embedding", "prompt_version", "summary", "vision"},
         "neo4j": {"enabled"},
+        "scene_detection": {
+            "max_scene_seconds",
+            "min_scene_seconds",
+            "target_window_seconds",
+            "transcript_gap_seconds",
+            "window_overlap_seconds",
+        },
         "quality": {
             "allowed_video_codecs",
             "max_duration_seconds",
@@ -696,6 +767,7 @@ def safe_pipeline_config_for_persistence() -> dict:
             "prompt_version",
             "quality",
             "quality_gates",
+            "scene_detection",
             "summary_model",
             "vision_model",
         },
@@ -963,6 +1035,45 @@ def ensure_ops_table() -> None:
           extraction_method STRING,
           created_at TIMESTAMP,
           updated_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_temporal_windows_table} (
+          window_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          window_index BIGINT,
+          start_ms BIGINT,
+          end_ms BIGINT,
+          duration_seconds DOUBLE,
+          strategy STRING,
+          frame_asset_ids STRING,
+          transcript_segment_ids STRING,
+          created_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_scene_candidates_table} (
+          scene_candidate_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          scene_index BIGINT,
+          start_ms BIGINT,
+          end_ms BIGINT,
+          duration_seconds DOUBLE,
+          strategy STRING,
+          boundary_reasons STRING,
+          confidence DOUBLE,
+          frame_asset_ids STRING,
+          transcript_segment_ids STRING,
+          status STRING,
+          created_at TIMESTAMP
         )
         USING DELTA
         """
@@ -1651,7 +1762,116 @@ def extract_audio_asset(source_uri: str) -> dict:
     }
 
 
-def register_audio_asset(audio_asset: dict) -> None:
+def asr_chunk_config() -> dict:
+    cfg = pipeline_config.get("faster_whisper") or pipeline_config.get("asr") or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.faster_whisper/asr must be an object when provided")
+    target_seconds = bounded_float(
+        "chunk_target_seconds",
+        cfg.get("chunk_target_seconds"),
+        default=300.0,
+        minimum=30.0,
+        maximum=1800.0,
+    )
+    overlap_seconds = bounded_float(
+        "chunk_overlap_seconds",
+        cfg.get("chunk_overlap_seconds"),
+        default=5.0,
+        minimum=0.0,
+        maximum=60.0,
+    )
+    min_chunk_seconds = bounded_float(
+        "min_chunk_seconds",
+        cfg.get("min_chunk_seconds"),
+        default=2.0,
+        minimum=0.1,
+        maximum=60.0,
+    )
+    if overlap_seconds >= target_seconds:
+        raise ValueError("ASR chunk overlap must be smaller than target chunk duration")
+    return {
+        "target_seconds": target_seconds,
+        "overlap_seconds": overlap_seconds,
+        "min_chunk_seconds": min_chunk_seconds,
+        "max_chunks": bounded_int("max_chunks", cfg.get("max_chunks"), default=200, minimum=1, maximum=2000),
+    }
+
+
+def audio_chunk_ranges(duration_seconds: float, config: dict) -> list[tuple[int, float, float]]:
+    if duration_seconds <= 0:
+        return []
+    ranges = []
+    start = 0.0
+    target = float(config["target_seconds"])
+    overlap = float(config["overlap_seconds"])
+    min_chunk = float(config["min_chunk_seconds"])
+    while start < duration_seconds and len(ranges) < int(config["max_chunks"]):
+        end = min(duration_seconds, start + target)
+        if end - start >= min_chunk or not ranges:
+            ranges.append((len(ranges), round(start, 3), round(end, 3)))
+        if end >= duration_seconds:
+            break
+        start = max(0.0, end - overlap)
+    if not ranges:
+        ranges.append((0, 0.0, round(duration_seconds, 3)))
+    if ranges[-1][2] < duration_seconds:
+        raise ValueError(
+            "Audio duration exceeds configured ASR chunk coverage. Increase asr.max_chunks "
+            "or asr.chunk_target_seconds within bounded limits."
+        )
+    return ranges
+
+
+def build_audio_chunk_rows(audio_asset: dict) -> list[dict]:
+    config = asr_chunk_config()
+    ranges = audio_chunk_ranges(float(audio_asset["duration_seconds"]), config)
+    chunk_dir = volume_path(media_id, dispatch_id, "audio", "chunks")
+    os.makedirs(chunk_dir, exist_ok=True)
+    now = datetime.now(UTC)
+    rows = []
+    for chunk_index, start_seconds, end_seconds in ranges:
+        duration_seconds = round(max(0.0, end_seconds - start_seconds), 3)
+        chunk_path = f"{chunk_dir}/chunk_{chunk_index:06d}_{int(start_seconds * 1000):012d}.wav"
+        run_command(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-ss",
+                f"{start_seconds:.3f}",
+                "-i",
+                audio_asset["audio_uri"],
+                "-t",
+                f"{duration_seconds:.3f}",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                chunk_path,
+            ]
+        )
+        rows.append(
+            {
+                "chunk_id": f"{audio_asset['audio_asset_id']}:chunk:{chunk_index:06d}",
+                "audio_asset_id": audio_asset["audio_asset_id"],
+                "media_id": media_id,
+                "dispatch_id": dispatch_id,
+                "chunk_index": chunk_index,
+                "start_ms": int(start_seconds * 1000),
+                "end_ms": int(end_seconds * 1000),
+                "audio_uri": chunk_path,
+                "duration_seconds": duration_seconds,
+                "created_at": now,
+            }
+        )
+    return rows
+
+
+def register_audio_asset(audio_asset: dict, chunks: list[dict]) -> None:
     now = datetime.now(UTC)
     merge_row(
         qualified_audio_assets_table,
@@ -1665,23 +1885,8 @@ def register_audio_asset(audio_asset: dict) -> None:
         AUDIO_ASSETS_SCHEMA,
         ["audio_asset_id"],
     )
-    merge_row(
-        qualified_audio_chunks_table,
-        {
-            "chunk_id": f"{audio_asset['audio_asset_id']}:chunk:000",
-            "audio_asset_id": audio_asset["audio_asset_id"],
-            "media_id": media_id,
-            "dispatch_id": dispatch_id,
-            "chunk_index": 0,
-            "start_ms": 0,
-            "end_ms": int(audio_asset["duration_seconds"] * 1000),
-            "audio_uri": audio_asset["audio_uri"],
-            "duration_seconds": audio_asset["duration_seconds"],
-            "created_at": now,
-        },
-        AUDIO_CHUNKS_SCHEMA,
-        ["chunk_id"],
-    )
+    for chunk in chunks:
+        merge_row(qualified_audio_chunks_table, chunk, AUDIO_CHUNKS_SCHEMA, ["chunk_id"])
 
 
 def sql_literal(value: str) -> str:
@@ -1822,6 +2027,7 @@ def transcribe_audio_chunks(chunks: list[dict], model_config: dict) -> dict:
     detected_language = None
     detected_language_probability = None
     segment_index = 0
+    emitted_until_ms = 0
     inference_started = time.perf_counter()
 
     for chunk in chunks:
@@ -1845,13 +2051,17 @@ def transcribe_audio_chunks(chunks: list[dict], model_config: dict) -> dict:
                 continue
             start_seconds = chunk_offset_seconds + float(segment.start)
             end_seconds = chunk_offset_seconds + float(segment.end)
+            start_ms = int(start_seconds * 1000)
+            end_ms = int(end_seconds * 1000)
+            if start_ms < emitted_until_ms:
+                continue
             result_segments.append(
                 {
                     "segment_index": segment_index,
                     "chunk_id": chunk["chunk_id"],
                     "audio_asset_id": chunk["audio_asset_id"],
-                    "start_ms": int(start_seconds * 1000),
-                    "end_ms": int(end_seconds * 1000),
+                    "start_ms": start_ms,
+                    "end_ms": end_ms,
                     "text": text,
                     "language": detected_language,
                     "confidence": None,
@@ -1859,6 +2069,7 @@ def transcribe_audio_chunks(chunks: list[dict], model_config: dict) -> dict:
             )
             text_parts.append(text)
             segment_index += 1
+        emitted_until_ms = max(emitted_until_ms, int(chunk["end_ms"]))
 
     elapsed = time.perf_counter() - inference_started
     return {
@@ -1900,12 +2111,27 @@ def frame_extraction_config() -> dict:
     cfg = pipeline_config.get("frames") or pipeline_config.get("frame_extraction") or {}
     if not isinstance(cfg, dict):
         raise ValueError("pipeline_config.frames/frame_extraction must be an object when provided")
+    interval_seconds = cfg.get("interval_seconds") or pipeline_config.get("frame_interval")
     return {
         "method": str(cfg.get("method") or "uniform"),
-        "max_frames": int(cfg.get("max_frames") or pipeline_config.get("max_frames") or 20),
-        "interval_seconds": cfg.get("interval_seconds") or pipeline_config.get("frame_interval"),
+        "max_frames": bounded_int(
+            "max_frames",
+            cfg.get("max_frames") or pipeline_config.get("max_frames"),
+            default=20,
+            minimum=1,
+            maximum=120,
+        ),
+        "interval_seconds": None
+        if interval_seconds is None
+        else bounded_float(
+            "interval_seconds",
+            interval_seconds,
+            default=10.0,
+            minimum=0.5,
+            maximum=600.0,
+        ),
         "format": str(cfg.get("format") or "jpg"),
-        "quality": int(cfg.get("quality") or 2),
+        "quality": bounded_int("quality", cfg.get("quality"), default=2, minimum=1, maximum=31),
     }
 
 
@@ -2210,6 +2436,265 @@ def load_transcript_segments() -> list[dict]:
         WHERE media_id = {sql_literal(media_id)}
           AND dispatch_id = {sql_literal(dispatch_id)}
         ORDER BY segment_index
+        """
+    ).collect()
+    return [row.asDict() for row in rows]
+
+
+def scene_detection_config() -> dict:
+    cfg = pipeline_config.get("scene_detection") or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.scene_detection must be an object when provided")
+    target_window_seconds = bounded_float(
+        "target_window_seconds",
+        cfg.get("target_window_seconds"),
+        default=60.0,
+        minimum=10.0,
+        maximum=300.0,
+    )
+    window_overlap_seconds = bounded_float(
+        "window_overlap_seconds",
+        cfg.get("window_overlap_seconds"),
+        default=5.0,
+        minimum=0.0,
+        maximum=60.0,
+    )
+    if window_overlap_seconds >= target_window_seconds:
+        raise ValueError("scene_detection.window_overlap_seconds must be smaller than target_window_seconds")
+    return {
+        "target_window_seconds": target_window_seconds,
+        "window_overlap_seconds": window_overlap_seconds,
+        "transcript_gap_seconds": bounded_float(
+            "transcript_gap_seconds",
+            cfg.get("transcript_gap_seconds"),
+            default=2.5,
+            minimum=0.5,
+            maximum=30.0,
+        ),
+        "min_scene_seconds": bounded_float(
+            "min_scene_seconds",
+            cfg.get("min_scene_seconds"),
+            default=8.0,
+            minimum=1.0,
+            maximum=120.0,
+        ),
+        "max_scene_seconds": bounded_float(
+            "max_scene_seconds",
+            cfg.get("max_scene_seconds"),
+            default=120.0,
+            minimum=15.0,
+            maximum=600.0,
+        ),
+    }
+
+
+def media_duration_seconds(frames: list[dict], segments: list[dict]) -> float:
+    quality = load_source_quality()
+    metadata = quality.get("metadata") or {}
+    duration = float(metadata.get("duration_seconds") or 0.0)
+    if frames:
+        duration = max(duration, float(frames[-1]["timestamp_ms"]) / 1000)
+    if segments:
+        duration = max(duration, float(segments[-1]["end_ms"]) / 1000)
+    return duration
+
+
+def frame_ids_for_range(frames: list[dict], start_ms: int, end_ms: int) -> list[str]:
+    return [
+        frame["frame_asset_id"]
+        for frame in frames
+        if int(frame["timestamp_ms"]) >= start_ms and int(frame["timestamp_ms"]) < end_ms
+    ]
+
+
+def segment_ids_for_range(segments: list[dict], start_ms: int, end_ms: int) -> list[str]:
+    return [
+        segment["segment_id"]
+        for segment in segments
+        if int(segment["start_ms"]) < end_ms and int(segment["end_ms"]) > start_ms
+    ]
+
+
+def build_temporal_window_rows(frames: list[dict], segments: list[dict], duration: float) -> list[dict]:
+    config = scene_detection_config()
+    if duration <= 0:
+        return []
+    rows = []
+    start = 0.0
+    target = float(config["target_window_seconds"])
+    overlap = float(config["window_overlap_seconds"])
+    now = datetime.now(UTC)
+    while start < duration:
+        end = min(duration, start + target)
+        start_ms = int(start * 1000)
+        end_ms = int(end * 1000)
+        rows.append(
+            {
+                "window_id": f"{media_id}:{dispatch_id}:window:{config_hash[:12]}:{len(rows):06d}",
+                "media_id": media_id,
+                "dispatch_id": dispatch_id,
+                "window_index": len(rows),
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "duration_seconds": round(max(0.0, end - start), 3),
+                "strategy": "fixed_window_with_overlap",
+                "frame_asset_ids": json.dumps(frame_ids_for_range(frames, start_ms, end_ms)),
+                "transcript_segment_ids": json.dumps(segment_ids_for_range(segments, start_ms, end_ms)),
+                "created_at": now,
+            }
+        )
+        if end >= duration:
+            break
+        start = max(0.0, end - overlap)
+    return rows
+
+
+def scene_boundary_points(frames: list[dict], segments: list[dict], duration: float, config: dict) -> dict[int, set[str]]:
+    boundaries: dict[int, set[str]] = {0: {"start"}, int(duration * 1000): {"end"}}
+    gap_ms = int(float(config["transcript_gap_seconds"]) * 1000)
+    max_scene_ms = int(float(config["max_scene_seconds"]) * 1000)
+
+    previous_end = None
+    for segment in segments:
+        start_ms = int(segment["start_ms"])
+        if previous_end is not None and start_ms - previous_end >= gap_ms:
+            boundaries.setdefault(start_ms, set()).add("transcript_gap")
+        previous_end = int(segment["end_ms"])
+
+    for frame in frames:
+        timestamp_ms = int(frame["timestamp_ms"])
+        if 0 < timestamp_ms < int(duration * 1000):
+            boundaries.setdefault(timestamp_ms, set()).add("frame_anchor")
+
+    next_forced = max_scene_ms
+    while next_forced < int(duration * 1000):
+        boundaries.setdefault(next_forced, set()).add("max_scene_duration")
+        next_forced += max_scene_ms
+
+    return boundaries
+
+
+def build_scene_candidate_rows(frames: list[dict], segments: list[dict], duration: float) -> list[dict]:
+    config = scene_detection_config()
+    if duration <= 0:
+        return []
+    raw_boundaries = scene_boundary_points(frames, segments, duration, config)
+    min_scene_ms = int(float(config["min_scene_seconds"]) * 1000)
+    points = sorted(raw_boundaries)
+    rows = []
+    now = datetime.now(UTC)
+    current_start = points[0]
+    current_reasons = set(raw_boundaries[current_start])
+    for point in points[1:]:
+        if point - current_start < min_scene_ms and point != points[-1]:
+            current_reasons.update(raw_boundaries[point])
+            continue
+        start_ms = current_start
+        end_ms = max(point, start_ms)
+        frame_ids = frame_ids_for_range(frames, start_ms, end_ms)
+        segment_ids = segment_ids_for_range(segments, start_ms, end_ms)
+        reasons = sorted(current_reasons.union(raw_boundaries[point]))
+        confidence = min(
+            0.95,
+            0.45
+            + (0.2 if segment_ids else 0.0)
+            + (0.15 if frame_ids else 0.0)
+            + (0.1 if "transcript_gap" in reasons else 0.0),
+        )
+        rows.append(
+            {
+                "scene_candidate_id": (
+                    f"{media_id}:{dispatch_id}:scene_candidate:{config_hash[:12]}:{len(rows):06d}"
+                ),
+                "media_id": media_id,
+                "dispatch_id": dispatch_id,
+                "scene_index": len(rows),
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "duration_seconds": round((end_ms - start_ms) / 1000, 3),
+                "strategy": "hybrid_ffmpeg_asr_frame_boundaries",
+                "boundary_reasons": json.dumps(reasons),
+                "confidence": round(confidence, 3),
+                "frame_asset_ids": json.dumps(frame_ids),
+                "transcript_segment_ids": json.dumps(segment_ids),
+                "status": "candidate",
+                "created_at": now,
+            }
+        )
+        current_start = point
+        current_reasons = set(raw_boundaries[point])
+    return rows
+
+
+def register_temporal_windows(windows: list[dict]) -> None:
+    for window in windows:
+        merge_row(qualified_temporal_windows_table, window, TEMPORAL_WINDOWS_SCHEMA, ["window_id"])
+
+
+def register_scene_candidates(candidates: list[dict]) -> None:
+    for candidate in candidates:
+        merge_row(
+            qualified_scene_candidates_table,
+            candidate,
+            SCENE_CANDIDATES_SCHEMA,
+            ["scene_candidate_id"],
+        )
+
+
+def clear_scene_detection_rows() -> None:
+    spark.sql(
+        f"""
+        DELETE FROM {qualified_temporal_windows_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+        """
+    )
+    spark.sql(
+        f"""
+        DELETE FROM {qualified_scene_candidates_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+        """
+    )
+
+
+def detect_scenes_and_windows() -> dict:
+    frames = load_frame_assets()
+    segments = load_transcript_segments()
+    duration = media_duration_seconds(frames, segments)
+    windows = build_temporal_window_rows(frames, segments, duration)
+    candidates = build_scene_candidate_rows(frames, segments, duration)
+    clear_scene_detection_rows()
+    register_temporal_windows(windows)
+    register_scene_candidates(candidates)
+    return {
+        "window_count": len(windows),
+        "scene_candidate_count": len(candidates),
+        "duration_seconds": duration,
+        "temporal_windows_table": TEMPORAL_WINDOWS_TABLE,
+        "scene_candidates_table": SCENE_CANDIDATES_TABLE,
+    }
+
+
+def load_scene_candidates() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          scene_candidate_id,
+          scene_index,
+          start_ms,
+          end_ms,
+          duration_seconds,
+          strategy,
+          boundary_reasons,
+          confidence,
+          frame_asset_ids,
+          transcript_segment_ids
+        FROM {qualified_scene_candidates_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+          AND status = 'candidate'
+        ORDER BY scene_index
         """
     ).collect()
     return [row.asDict() for row in rows]
@@ -3090,6 +3575,21 @@ def transcript_segments_for_range(segments: list[dict], start_seconds: float, en
     return truncate_text(" ".join(texts), 500)
 
 
+def parse_json_list(raw_value: str | list | None) -> list:
+    if isinstance(raw_value, list):
+        return raw_value
+    if not raw_value:
+        return []
+    parsed = json.loads(raw_value)
+    return parsed if isinstance(parsed, list) else []
+
+
+def nearest_frame(frames: list[dict], target_ms: int) -> dict | None:
+    if not frames:
+        return None
+    return min(frames, key=lambda frame: abs(int(frame["timestamp_ms"]) - target_ms))
+
+
 def scene_boundaries(frames: list[dict], duration_seconds: float) -> list[tuple[float, float]]:
     if not frames:
         return []
@@ -3105,7 +3605,78 @@ def scene_boundaries(frames: list[dict], duration_seconds: float) -> list[tuple[
     return boundaries
 
 
-def build_scenes(frames: list[dict], segments: list[dict], frame_ai: dict[str, dict], duration: float) -> list[dict]:
+def build_scenes_from_candidates(
+    candidates: list[dict],
+    frames: list[dict],
+    segments: list[dict],
+    frame_ai: dict[str, dict],
+) -> list[dict]:
+    frames_by_id = {frame["frame_asset_id"]: frame for frame in frames}
+    scenes = []
+    for candidate in candidates:
+        start_seconds = round(float(candidate["start_ms"]) / 1000, 3)
+        end_seconds = round(float(candidate["end_ms"]) / 1000, 3)
+        frame_ids = [str(item) for item in parse_json_list(candidate.get("frame_asset_ids"))]
+        candidate_frames = [frames_by_id[frame_id] for frame_id in frame_ids if frame_id in frames_by_id]
+        representative_frame = (
+            candidate_frames[0]
+            if candidate_frames
+            else nearest_frame(frames, int((int(candidate["start_ms"]) + int(candidate["end_ms"])) / 2))
+        )
+        understandings = [frame_ai.get(frame["frame_asset_id"], {}) for frame in candidate_frames]
+        detected_objects = unique_strings(
+            [
+                detected_object
+                for understanding in understandings
+                for detected_object in understanding.get("detected_objects", [])
+            ],
+            20,
+        )
+        visual_summary = truncate_text(
+            " ".join(
+                understanding.get("description", "")
+                for understanding in understandings[:3]
+                if understanding.get("description")
+            ),
+            500,
+        )
+        transcript_summary = transcript_segments_for_range(segments, start_seconds, end_seconds)
+        summary = visual_summary or transcript_summary
+        scene_id = int(candidate["scene_index"])
+        scenes.append(
+            {
+                "scene_id": scene_id,
+                "scene_candidate_id": candidate["scene_candidate_id"],
+                "start_time": start_seconds,
+                "end_time": end_seconds,
+                "duration": round(max(0.0, end_seconds - start_seconds), 3),
+                "title": first_sentence(summary, f"Scene {scene_id + 1}"),
+                "summary": summary,
+                "detected_objects": detected_objects,
+                "transcript_segment": transcript_summary,
+                "frame_asset_id": representative_frame["frame_asset_id"] if representative_frame else None,
+                "frame_uri": representative_frame["frame_uri"] if representative_frame else None,
+                "confidence": float(candidate["confidence"]),
+                "boundary_reasons": parse_json_list(candidate.get("boundary_reasons")),
+                "evidence": {
+                    "frame_asset_ids": frame_ids,
+                    "transcript_segment_ids": parse_json_list(candidate.get("transcript_segment_ids")),
+                },
+            }
+        )
+    return scenes
+
+
+def build_scenes(
+    frames: list[dict],
+    segments: list[dict],
+    frame_ai: dict[str, dict],
+    duration: float,
+    candidates: list[dict] | None = None,
+) -> list[dict]:
+    if candidates:
+        return build_scenes_from_candidates(candidates, frames, segments, frame_ai)
+
     scenes = []
     for index, (frame, boundary) in enumerate(zip(frames, scene_boundaries(frames, duration), strict=True)):
         start_seconds, end_seconds = boundary
@@ -3202,7 +3773,11 @@ def build_frames_data(frames: list[dict], frame_ai: dict[str, dict]) -> list[dic
 
 
 def build_video_metadata(frames: list[dict], asr_run: dict | None, segments: list[dict]) -> dict:
-    duration_seconds = float(asr_run.get("duration_seconds") or 0) if asr_run else 0.0
+    quality = load_source_quality()
+    source_metadata = quality.get("metadata") or {}
+    duration_seconds = float(source_metadata.get("duration_seconds") or 0.0)
+    if asr_run:
+        duration_seconds = max(duration_seconds, float(asr_run.get("duration_seconds") or 0))
     if frames:
         duration_seconds = max(duration_seconds, float(frames[-1]["timestamp_ms"]) / 1000)
     if segments:
@@ -3211,8 +3786,11 @@ def build_video_metadata(frames: list[dict], asr_run: dict | None, segments: lis
     return {
         "duration": duration_seconds or None,
         "duration_seconds": duration_seconds or None,
-        "width": first_frame.get("width"),
-        "height": first_frame.get("height"),
+        "width": source_metadata.get("width") or first_frame.get("width"),
+        "height": source_metadata.get("height") or first_frame.get("height"),
+        "fps": source_metadata.get("fps"),
+        "video_codec": source_metadata.get("video_codec"),
+        "audio_codec": source_metadata.get("audio_codec"),
         "frames_extracted": len(frames),
         "transcript_segments": len(segments),
         "processing_backend": "databricks",
@@ -3235,9 +3813,10 @@ def build_gold_processing_result() -> dict:
     ai_results = load_completed_ai_results()
     frame_ai = frame_understanding_by_source(ai_results)
     semantics = transcript_semantics(ai_results)
+    scene_candidates = load_scene_candidates()
     video_metadata = build_video_metadata(frames, asr_run, segments)
     duration = float(video_metadata.get("duration_seconds") or 0.0)
-    scenes = build_scenes(frames, segments, frame_ai, duration)
+    scenes = build_scenes(frames, segments, frame_ai, duration, scene_candidates)
     chapters = build_chapters_from_scenes(scenes)
     key_topics = extract_key_topics(semantics, frame_ai)
     video_summary = string_field(semantics, ("video_summary", "summary", "abstract"))
@@ -4150,7 +4729,8 @@ try:
             )
         else:
             audio_asset = extract_audio_asset(uri)
-            register_audio_asset(audio_asset)
+            audio_chunks = build_audio_chunk_rows(audio_asset)
+            register_audio_asset(audio_asset, audio_chunks)
             write_event(
                 status="audio_extracted",
                 message="Audio asset extracted for faster-whisper",
@@ -4162,6 +4742,7 @@ try:
                     "size_bytes": audio_asset["size_bytes"],
                     "sample_rate_hz": audio_asset["sample_rate_hz"],
                     "channels": audio_asset["channels"],
+                    "chunk_count": len(audio_chunks),
                 },
             )
             write_stage_run(
@@ -4173,6 +4754,7 @@ try:
                     "duration_seconds": audio_asset["duration_seconds"],
                     "size_bytes": audio_asset["size_bytes"],
                     "audio_uri": audio_asset["audio_uri"],
+                    "chunk_count": len(audio_chunks),
                 },
                 completed=True,
             )
@@ -4297,6 +4879,28 @@ try:
                 },
                 completed=True,
             )
+    elif stage == "detect_scenes_and_windows":
+        stage_message = STAGE_MESSAGES[stage]
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        detection_metrics = detect_scenes_and_windows()
+        write_event(
+            status="scene_windows_detected",
+            message="Temporal windows and scene candidates registered",
+            details=detection_metrics,
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="Temporal windows and scene candidates registered",
+            metrics=detection_metrics,
+            completed=True,
+        )
     elif stage == "build_multimodal_inference_requests":
         stage_message = "Building table-driven multimodal inference requests"
         upsert_processing_run(

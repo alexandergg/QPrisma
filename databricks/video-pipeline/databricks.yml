@@ -180,11 +180,29 @@ resources:
               source_media: "{{job.parameters.source_media}}"
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: run_faster_whisper_asr
-        - task_key: build_multimodal_inference_requests
+        - task_key: detect_scenes_and_windows
           job_cluster_key: video_pilot_cluster
           depends_on:
             - task_key: extract_frame_assets
             - task_key: run_faster_whisper_asr
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: detect_scenes_and_windows
+        - task_key: build_multimodal_inference_requests
+          job_cluster_key: video_pilot_cluster
+          depends_on:
+            - task_key: detect_scenes_and_windows
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:

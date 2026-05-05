@@ -7,14 +7,14 @@ The Azure resources are provisioned by Bicep under `infra\`. This bundle owns th
 ## Current scope
 
 - Defines a `qprisma-video-processing` workflow with `dev` and `prod` targets.
-- Runs a lakehouse pilot DAG with observable stages for manifest registration, source-media probe, FFmpeg audio extraction, FFmpeg frame extraction, `faster-whisper` ASR, table-driven multimodal inference request generation, Azure OpenAI Batch payload staging, Azure OpenAI Batch inference/result ingestion, Gold result normalization, Neo4j graph upsert planning, Neo4j projection and outbox/status publication.
+- Runs a lakehouse pilot DAG with observable stages for manifest registration, source-media probe, FFmpeg audio extraction/chunking, FFmpeg frame extraction, `faster-whisper` ASR, temporal window/scene candidate detection, table-driven multimodal inference request generation, Azure OpenAI Batch payload staging, Azure OpenAI Batch inference/result ingestion, Gold result normalization, Neo4j graph upsert planning, Neo4j projection and outbox/status publication.
 - Establishes stable parameters for the Service Bus driven pipeline: `media_id`, `blob_name`, `dispatch_id`, `source_media`, `pipeline_config`, catalog, schema and queue name.
 - Writes stage events to the Delta table `${catalog}.${schema}.video_pipeline_events`.
 - Writes frontend-compatible running/completion/failure records to `${catalog}.${schema}.video_pipeline_outbox`; this is the durable handoff point for projecting Databricks progress back into QPrisma PostgreSQL/Neo4j/Redis.
-- Creates the first operational Delta contracts for the production ETL: `${catalog}.${schema}.video_media_manifest`, `video_source_files`, `video_processing_runs`, `video_job_stage_runs`, `video_audio_assets`, `video_audio_chunks`, `video_asr_runs`, `video_transcript_segments`, `video_frame_assets`, `video_ai_requests`, `video_ai_batches`, `video_ai_results`, `video_processing_results`, `video_graph_upserts` and `video_record_quarantine`.
+- Creates the first operational Delta contracts for the production ETL: `${catalog}.${schema}.video_media_manifest`, `video_source_files`, `video_processing_runs`, `video_job_stage_runs`, `video_audio_assets`, `video_audio_chunks`, `video_asr_runs`, `video_transcript_segments`, `video_frame_assets`, `video_temporal_windows`, `video_scene_candidates`, `video_ai_requests`, `video_ai_batches`, `video_ai_results`, `video_processing_results`, `video_graph_upserts` and `video_record_quarantine`.
 - Creates a managed Unity Catalog artifact volume `${catalog}.${schema}.video_artifacts` for derived audio, frame and inference artifacts.
 
-The current DAG shape is intentionally production-like. `extract_audio_assets`, `extract_frame_assets`, `run_faster_whisper_asr`, `build_multimodal_inference_requests`, `stage_ai_batch_payloads`, `run_ai_batch_inference`, `build_gold_processing_result`, `build_graph_upserts` and `project_neo4j_graph` are now functional ETL stages. The next missing production slices are smarter ASR chunking and hardened scene/window detection:
+The current DAG shape is intentionally production-like. `extract_audio_assets`, `extract_frame_assets`, `run_faster_whisper_asr`, `detect_scenes_and_windows`, `build_multimodal_inference_requests`, `stage_ai_batch_payloads`, `run_ai_batch_inference`, `build_gold_processing_result`, `build_graph_upserts` and `project_neo4j_graph` are now functional ETL stages. The next missing production slice is broader observability/runbooks:
 
 ```text
 register_manifest
@@ -22,7 +22,8 @@ register_manifest
       -> extract_audio_assets
           -> run_faster_whisper_asr
       -> extract_frame_assets
-      -> build_multimodal_inference_requests  # waits for frames + ASR
+      -> detect_scenes_and_windows  # waits for frames + ASR
+          -> build_multimodal_inference_requests
           -> stage_ai_batch_payloads
               -> run_ai_batch_inference
                    -> build_gold_processing_result
@@ -31,7 +32,7 @@ register_manifest
                                -> publish_outbox
 ```
 
-`validate_and_probe_media` now performs Bronze quality gates before any expensive inference: it verifies the source file is readable, runs FFprobe, enforces size/duration/resolution/FPS/codec/audio policy, performs a small decode sample and records the technical metadata plus pass/fail details in `video_source_files` and `video_record_quarantine`. `extract_audio_assets` extracts a 16 kHz mono WAV with FFmpeg into `${catalog}.${schema}.video_artifacts` and registers the asset plus an initial full-length chunk in Delta; if the validated source has no audio stream, this stage completes as an explicit skip so frame-only video understanding can continue. `extract_frame_assets` extracts representative frames with FFmpeg into the same artifact volume and registers them in `video_frame_assets`. `run_faster_whisper_asr` installs `faster-whisper`, transcribes registered audio chunks, writes an ASR run record and persists timestamped transcript segments; for silent videos it records an explicit ASR skip. `build_multimodal_inference_requests` creates idempotent `video_ai_requests` rows for frame understanding and transcript semantics. `stage_ai_batch_payloads` converts pending requests into governed Azure OpenAI Batch JSONL artifacts in `video_artifacts` and registers them in `video_ai_batches`. `run_ai_batch_inference` uploads ready batches to Azure OpenAI Batch, polls until completion within the configured wait window, downloads output/error JSONL files, writes normalized response rows to `video_ai_results` and updates request/batch lifecycle state. `build_gold_processing_result` normalizes transcript segments, frame understanding and transcript semantics into `video_processing_results` with a frontend-compatible `processing_result` shape containing `structure`, `audio_data`, `frames_data`, `video_metadata` and `processing_stats`. `build_graph_upserts` creates idempotent `video_graph_upserts` rows for Neo4j, including Gold scenes and chapters. `project_neo4j_graph` applies pending graph intents with Cypher `MERGE`, marks rows `applied` or `failed`, and fails the stage if any row cannot be projected. `publish_outbox` emits the Gold result after graph projection so the bridge can update PostgreSQL media rows without relying on Celery. Databricks remains the source of truth and Neo4j is a serving projection.
+`validate_and_probe_media` now performs Bronze quality gates before any expensive inference: it verifies the source file is readable, runs FFprobe, enforces size/duration/resolution/FPS/codec/audio policy, performs a small decode sample and records the technical metadata plus pass/fail details in `video_source_files` and `video_record_quarantine`. `extract_audio_assets` extracts a 16 kHz mono WAV with FFmpeg into `${catalog}.${schema}.video_artifacts`, splits it into bounded ASR chunks in `video_audio_chunks`, and records chunk offsets for parallel retries; if the validated source has no audio stream, this stage completes as an explicit skip so frame-only video understanding can continue. `extract_frame_assets` extracts representative frames with FFmpeg into the same artifact volume and registers them in `video_frame_assets`. `run_faster_whisper_asr` installs `faster-whisper`, transcribes registered audio chunks, writes an ASR run record and persists timestamped transcript segments; for silent videos it records an explicit ASR skip. `detect_scenes_and_windows` builds deterministic temporal windows and scene candidates from source duration, frame timestamps and transcript gaps, then persists them in `video_temporal_windows` and `video_scene_candidates` for Gold scene construction. `build_multimodal_inference_requests` creates idempotent `video_ai_requests` rows for frame understanding and transcript semantics. `stage_ai_batch_payloads` converts pending requests into governed Azure OpenAI Batch JSONL artifacts in `video_artifacts` and registers them in `video_ai_batches`. `run_ai_batch_inference` uploads ready batches to Azure OpenAI Batch, polls until completion within the configured wait window, downloads output/error JSONL files, writes normalized response rows to `video_ai_results` and updates request/batch lifecycle state. `build_gold_processing_result` normalizes transcript segments, frame understanding, scene candidates and transcript semantics into `video_processing_results` with a frontend-compatible `processing_result` shape containing `structure`, `audio_data`, `frames_data`, `video_metadata` and `processing_stats`. `build_graph_upserts` creates idempotent `video_graph_upserts` rows for Neo4j, including Gold scenes and chapters. `project_neo4j_graph` applies pending graph intents with Cypher `MERGE`, marks rows `applied` or `failed`, and fails the stage if any row cannot be projected. `publish_outbox` emits the Gold result after graph projection so the bridge can update PostgreSQL media rows without relying on Celery. Databricks remains the source of truth and Neo4j is a serving projection.
 
 Azure OpenAI Batch is configured through `pipeline_config.azure_openai_batch` or Databricks environment variables. Do not put raw API keys in `pipeline_config`, because the notebook rejects raw secret-like fields before persisting the config in Delta manifests. Use either `api_key_secret_scope`/`api_key_secret_key` or `api_key_env`. The endpoint must be HTTPS and match the trusted Azure OpenAI suffix allowlist from the Databricks environment variable `AZURE_OPENAI_ALLOWED_ENDPOINT_SUFFIXES` (`openai.azure.com,cognitiveservices.azure.com` by default):
 
@@ -67,6 +68,28 @@ Bronze quality gates can be tuned with `pipeline_config.quality_gates` or `pipel
   }
 }
 ```
+
+ASR chunking and deterministic scene/window detection are configured through the existing `pipeline_config.asr` / `pipeline_config.faster_whisper` and `pipeline_config.scene_detection` objects:
+
+```json
+{
+  "asr": {
+    "chunk_target_seconds": 300,
+    "chunk_overlap_seconds": 5,
+    "min_chunk_seconds": 2,
+    "max_chunks": 200
+  },
+  "scene_detection": {
+    "target_window_seconds": 60,
+    "window_overlap_seconds": 5,
+    "transcript_gap_seconds": 2.5,
+    "min_scene_seconds": 8,
+    "max_scene_seconds": 120
+  }
+}
+```
+
+This is intentionally a hybrid baseline rather than a black-box scene detector: FFmpeg/FFprobe and transcript gaps produce replayable candidates, Azure OpenAI frame/transcript understanding enriches them later, and Gold scenes keep evidence references back to frame and transcript segment IDs.
 
 Neo4j projection is configured from deployment-owned Databricks environment variables, not caller-supplied endpoints in `pipeline_config`. The bundle exposes non-secret variables for `NEO4J_URI`, `NEO4J_USER`, `NEO4J_DATABASE` and an optional `NEO4J_ALLOWED_HOST_SUFFIXES` allowlist; set `NEO4J_PASSWORD` separately as a Databricks secret-backed cluster environment variable. `pipeline_config.neo4j.enabled` can explicitly require or disable projection for a run, but it cannot override the Neo4j endpoint or credential source. When Neo4j is not configured, `project_neo4j_graph` records an explicit skipped stage and still allows the Gold outbox to publish.
 
