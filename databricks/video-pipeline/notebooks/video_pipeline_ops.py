@@ -74,6 +74,7 @@ AUDIO_ASSETS_TABLE = "video_audio_assets"
 AUDIO_CHUNKS_TABLE = "video_audio_chunks"
 ASR_RUNS_TABLE = "video_asr_runs"
 TRANSCRIPT_SEGMENTS_TABLE = "video_transcript_segments"
+FRAME_ASSETS_TABLE = "video_frame_assets"
 
 STAGE_PROGRESS = {
     "register_manifest": 0.10,
@@ -262,6 +263,25 @@ TRANSCRIPT_SEGMENTS_SCHEMA = StructType(
         StructField("created_at", TimestampType(), nullable=False),
     ]
 )
+FRAME_ASSETS_SCHEMA = StructType(
+    [
+        StructField("frame_asset_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("source_uri", StringType(), nullable=False),
+        StructField("frame_uri", StringType(), nullable=False),
+        StructField("frame_index", LongType(), nullable=False),
+        StructField("timestamp_ms", LongType(), nullable=False),
+        StructField("format", StringType(), nullable=False),
+        StructField("width", LongType(), nullable=True),
+        StructField("height", LongType(), nullable=True),
+        StructField("size_bytes", LongType(), nullable=False),
+        StructField("sha256", StringType(), nullable=False),
+        StructField("extraction_method", StringType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+        StructField("updated_at", TimestampType(), nullable=False),
+    ]
+)
 
 
 def quote_identifier(value: str) -> str:
@@ -302,6 +322,9 @@ qualified_asr_runs_table = (
 )
 qualified_transcript_segments_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(TRANSCRIPT_SEGMENTS_TABLE)}"
+)
+qualified_frame_assets_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(FRAME_ASSETS_TABLE)}"
 )
 
 
@@ -533,6 +556,28 @@ def ensure_ops_table() -> None:
           language STRING,
           confidence DOUBLE,
           created_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_frame_assets_table} (
+          frame_asset_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          source_uri STRING,
+          frame_uri STRING,
+          frame_index BIGINT,
+          timestamp_ms BIGINT,
+          format STRING,
+          width BIGINT,
+          height BIGINT,
+          size_bytes BIGINT,
+          sha256 STRING,
+          extraction_method STRING,
+          created_at TIMESTAMP,
+          updated_at TIMESTAMP
         )
         USING DELTA
         """
@@ -1071,6 +1116,140 @@ def write_transcript_segments(asr_run_id: str, segments: list[dict]) -> None:
         )
 
 
+def frame_extraction_config() -> dict:
+    cfg = pipeline_config.get("frames") or pipeline_config.get("frame_extraction") or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.frames/frame_extraction must be an object when provided")
+    return {
+        "method": str(cfg.get("method") or "uniform"),
+        "max_frames": int(cfg.get("max_frames") or pipeline_config.get("max_frames") or 20),
+        "interval_seconds": cfg.get("interval_seconds") or pipeline_config.get("frame_interval"),
+        "format": str(cfg.get("format") or "jpg"),
+        "quality": int(cfg.get("quality") or 2),
+    }
+
+
+def ffprobe_video_metadata(input_path: str) -> dict:
+    result = run_command(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            input_path,
+        ]
+    )
+    probe = json.loads(result.stdout or "{}")
+    video_stream = next(
+        (stream for stream in probe.get("streams", []) if stream.get("codec_type") == "video"),
+        None,
+    )
+    if not video_stream:
+        raise ValueError("No video stream found for frame extraction")
+    format_info = probe.get("format", {})
+    return {
+        "duration_seconds": float(format_info.get("duration") or 0),
+        "width": int(video_stream.get("width") or 0),
+        "height": int(video_stream.get("height") or 0),
+        "codec": video_stream.get("codec_name") or "",
+    }
+
+
+def frame_timestamps(video_metadata: dict, config: dict) -> list[float]:
+    duration = float(video_metadata["duration_seconds"] or 0)
+    max_frames = max(1, int(config["max_frames"]))
+    method = config["method"].lower()
+    interval = config.get("interval_seconds")
+
+    if duration <= 0:
+        return [0.0]
+    if method == "interval" and interval:
+        timestamps = []
+        current = 0.0
+        while current < duration and len(timestamps) < max_frames:
+            timestamps.append(current)
+            current += float(interval)
+        return timestamps or [min(duration / 2, max(duration - 0.1, 0))]
+    if max_frames == 1:
+        return [min(duration / 2, max(duration - 0.1, 0))]
+
+    step = duration / (max_frames - 1)
+    return [min(index * step, max(duration - 0.1, 0)) for index in range(max_frames)]
+
+
+def extract_frame_assets(source_uri: str) -> list[dict]:
+    input_path = ffmpeg_input_path(source_uri)
+    config = frame_extraction_config()
+    metadata = ffprobe_video_metadata(input_path)
+    timestamps = frame_timestamps(metadata, config)
+    frame_format = config["format"].lower()
+    if frame_format not in {"jpg", "jpeg", "png", "webp"}:
+        raise ValueError("Frame format must be one of: jpg, jpeg, png, webp")
+
+    frame_dir = volume_path(media_id, dispatch_id, "frames")
+    os.makedirs(frame_dir, exist_ok=True)
+    frames: list[dict] = []
+    extension = "jpg" if frame_format == "jpeg" else frame_format
+
+    for index, timestamp_seconds in enumerate(timestamps):
+        timestamp_ms = int(timestamp_seconds * 1000)
+        frame_path = f"{frame_dir}/frame_{index:06d}_{timestamp_ms:012d}.{extension}"
+        command = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-ss",
+            f"{timestamp_seconds:.3f}",
+            "-i",
+            input_path,
+            "-frames:v",
+            "1",
+        ]
+        if extension in {"jpg", "webp"}:
+            command.extend(["-q:v", str(config["quality"])])
+        command.append(frame_path)
+        run_command(command)
+        frame_asset_id = f"{media_id}:frame:{index:06d}:{timestamp_ms}:{config_hash[:12]}"
+        frames.append(
+            {
+                "frame_asset_id": frame_asset_id,
+                "source_uri": source_uri,
+                "frame_uri": frame_path,
+                "frame_index": index,
+                "timestamp_ms": timestamp_ms,
+                "format": extension,
+                "width": metadata["width"],
+                "height": metadata["height"],
+                "size_bytes": os.path.getsize(frame_path),
+                "sha256": file_sha256(frame_path),
+                "extraction_method": config["method"],
+            }
+        )
+    return frames
+
+
+def register_frame_assets(frame_assets: list[dict]) -> None:
+    now = datetime.now(UTC)
+    for frame_asset in frame_assets:
+        merge_row(
+            qualified_frame_assets_table,
+            {
+                **frame_asset,
+                "media_id": media_id,
+                "dispatch_id": dispatch_id,
+                "created_at": now,
+                "updated_at": now,
+            },
+            FRAME_ASSETS_SCHEMA,
+            ["frame_asset_id"],
+        )
+
+
 def complete_observable_stage(
     *,
     stage_name: str,
@@ -1267,14 +1446,39 @@ try:
             completed=True,
         )
     elif stage == "extract_frame_assets":
-        complete_observable_stage(
-            stage_name=stage,
-            message="Frame extraction stage registered",
-            metrics={
-                "implementation_status": "skeleton",
-                "target_outputs": ["video_frame_assets", "video_scene_candidates", "quality_metrics"],
-                "next": "Extract frames/keyframes/thumbnails with FFmpeg and register Delta manifests",
+        stage_message = "Extracting representative frames with FFmpeg"
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        validate_source_contract()
+        uri = source_media_uri()
+        frame_assets = extract_frame_assets(uri)
+        register_frame_assets(frame_assets)
+        write_event(
+            status="frames_extracted",
+            message="Frame assets extracted for multimodal inference",
+            source_uri=uri,
+            details={
+                "frame_count": len(frame_assets),
+                "first_timestamp_ms": frame_assets[0]["timestamp_ms"] if frame_assets else None,
+                "last_timestamp_ms": frame_assets[-1]["timestamp_ms"] if frame_assets else None,
+                "frame_table": FRAME_ASSETS_TABLE,
             },
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="Frame assets extracted for multimodal inference",
+            metrics={
+                "frame_count": len(frame_assets),
+                "frame_table": FRAME_ASSETS_TABLE,
+                "total_size_bytes": sum(frame["size_bytes"] for frame in frame_assets),
+            },
+            completed=True,
         )
     elif stage == "run_faster_whisper_asr":
         stage_message = "Transcribing audio chunks with faster-whisper"
@@ -1377,12 +1581,12 @@ try:
                 "audio_chunks": AUDIO_CHUNKS_TABLE,
                 "asr_runs": ASR_RUNS_TABLE,
                 "transcript_segments": TRANSCRIPT_SEGMENTS_TABLE,
+                "frame_assets": FRAME_ASSETS_TABLE,
                 "events": OPS_EVENTS_TABLE,
                 "outbox": OPS_OUTBOX_TABLE,
                 "quarantine": QUARANTINE_TABLE,
             },
             "next": [
-                "implement_frame_extraction",
                 "implement_audio_chunking",
                 "implement_multimodal_batch_requests",
             ],
