@@ -2,8 +2,8 @@
 """Observable QPrisma video-processing lakehouse job.
 
 This job validates the Service Bus -> Databricks contract, writes operational
-Delta records per stage, and incrementally replaces Celery-heavy media work
-with governed Databricks ETL tasks.
+Delta records per stage, and moves media understanding into governed
+Databricks ETL tasks.
 """
 
 # COMMAND ----------
@@ -76,6 +76,7 @@ ASR_RUNS_TABLE = "video_asr_runs"
 TRANSCRIPT_SEGMENTS_TABLE = "video_transcript_segments"
 FRAME_ASSETS_TABLE = "video_frame_assets"
 AI_REQUESTS_TABLE = "video_ai_requests"
+GRAPH_UPSERTS_TABLE = "video_graph_upserts"
 
 STAGE_PROGRESS = {
     "register_manifest": 0.10,
@@ -84,6 +85,7 @@ STAGE_PROGRESS = {
     "extract_frame_assets": 0.40,
     "run_faster_whisper_asr": 0.55,
     "build_multimodal_inference_requests": 0.70,
+    "build_graph_upserts": 0.85,
     "publish_outbox": 1.00,
 }
 STAGE_MESSAGES = {
@@ -93,6 +95,7 @@ STAGE_MESSAGES = {
     "extract_frame_assets": "Preparing frame extraction assets",
     "run_faster_whisper_asr": "Preparing faster-whisper transcription",
     "build_multimodal_inference_requests": "Preparing multimodal inference requests",
+    "build_graph_upserts": "Preparing Neo4j graph upsert intents",
     "publish_outbox": "Publishing Databricks lakehouse result",
 }
 PIPELINE_STAGES = [
@@ -102,6 +105,7 @@ PIPELINE_STAGES = [
     "extract_frame_assets",
     "run_faster_whisper_asr",
     "build_multimodal_inference_requests",
+    "build_graph_upserts",
     "publish_outbox",
 ]
 OUTBOX_SCHEMA = StructType(
@@ -300,6 +304,24 @@ AI_REQUESTS_SCHEMA = StructType(
         StructField("updated_at", TimestampType(), nullable=False),
     ]
 )
+GRAPH_UPSERTS_SCHEMA = StructType(
+    [
+        StructField("upsert_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("graph_version", StringType(), nullable=False),
+        StructField("operation_type", StringType(), nullable=False),
+        StructField("label_or_type", StringType(), nullable=False),
+        StructField("natural_key", StringType(), nullable=False),
+        StructField("source_table", StringType(), nullable=False),
+        StructField("source_id", StringType(), nullable=False),
+        StructField("properties_json", StringType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+        StructField("updated_at", TimestampType(), nullable=False),
+        StructField("error", StringType(), nullable=False),
+    ]
+)
 
 
 def quote_identifier(value: str) -> str:
@@ -346,6 +368,9 @@ qualified_frame_assets_table = (
 )
 qualified_ai_requests_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AI_REQUESTS_TABLE)}"
+)
+qualified_graph_upserts_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(GRAPH_UPSERTS_TABLE)}"
 )
 
 
@@ -619,6 +644,27 @@ def ensure_ops_table() -> None:
           status STRING,
           created_at TIMESTAMP,
           updated_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_graph_upserts_table} (
+          upsert_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          graph_version STRING,
+          operation_type STRING,
+          label_or_type STRING,
+          natural_key STRING,
+          source_table STRING,
+          source_id STRING,
+          properties_json STRING,
+          status STRING,
+          created_at TIMESTAMP,
+          updated_at TIMESTAMP,
+          error STRING
         )
         USING DELTA
         """
@@ -1450,6 +1496,253 @@ def register_ai_requests(requests: list[dict]) -> None:
         )
 
 
+def load_transcript_segments() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          segment_id,
+          asr_run_id,
+          audio_asset_id,
+          chunk_id,
+          segment_index,
+          start_ms,
+          end_ms,
+          text,
+          language
+        FROM {qualified_transcript_segments_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+        ORDER BY segment_index
+        """
+    ).collect()
+    return [row.asDict() for row in rows]
+
+
+def load_ai_requests() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          request_id,
+          source_type,
+          source_id,
+          model_name,
+          prompt_version,
+          input_uri,
+          input_hash,
+          status
+        FROM {qualified_ai_requests_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+        ORDER BY source_type, source_id
+        """
+    ).collect()
+    return [row.asDict() for row in rows]
+
+
+def graph_upsert_row(
+    *,
+    operation_type: str,
+    label_or_type: str,
+    natural_key: str,
+    source_table: str,
+    source_id: str,
+    properties: dict,
+) -> dict:
+    now = datetime.now(UTC)
+    graph_version = str(pipeline_config.get("graph_version") or schema_version)
+    upsert_fingerprint = stable_hash(
+        {
+            "graph_version": graph_version,
+            "operation_type": operation_type,
+            "label_or_type": label_or_type,
+            "natural_key": natural_key,
+            "source_table": source_table,
+            "source_id": source_id,
+        }
+    )
+    return {
+        "upsert_id": f"{media_id}:graph:{upsert_fingerprint[:16]}",
+        "media_id": media_id,
+        "dispatch_id": dispatch_id,
+        "graph_version": graph_version,
+        "operation_type": operation_type,
+        "label_or_type": label_or_type,
+        "natural_key": natural_key,
+        "source_table": source_table,
+        "source_id": source_id,
+        "properties_json": json_dumps(properties),
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+        "error": json_dumps({}),
+    }
+
+
+def build_graph_upsert_rows() -> list[dict]:
+    frames = load_frame_assets()
+    transcript_segments = load_transcript_segments()
+    ai_requests = load_ai_requests()
+    asr_run = load_completed_asr_run()
+    graph_version = str(pipeline_config.get("graph_version") or schema_version)
+    rows: list[dict] = [
+        graph_upsert_row(
+            operation_type="node",
+            label_or_type="Video",
+            natural_key=media_id,
+            source_table=MEDIA_MANIFEST_TABLE,
+            source_id=media_id,
+            properties={
+                "media_id": media_id,
+                "dispatch_id": dispatch_id,
+                "blob_name": blob_name,
+                "user_id": user_id,
+                "processing_version": processing_version,
+                "config_hash": config_hash,
+                "graph_version": graph_version,
+            },
+        )
+    ]
+
+    if asr_run:
+        rows.append(
+            graph_upsert_row(
+                operation_type="node",
+                label_or_type="AsrRun",
+                natural_key=asr_run["asr_run_id"],
+                source_table=ASR_RUNS_TABLE,
+                source_id=asr_run["asr_run_id"],
+                properties={
+                    "asr_run_id": asr_run["asr_run_id"],
+                    "audio_asset_id": asr_run["audio_asset_id"],
+                    "model_name": asr_run["model_name"],
+                    "language": asr_run.get("language"),
+                    "duration_seconds": asr_run.get("duration_seconds"),
+                    "segment_count": asr_run.get("segment_count"),
+                },
+            )
+        )
+        rows.append(
+            graph_upsert_row(
+                operation_type="relationship",
+                label_or_type="HAS_ASR_RUN",
+                natural_key=f"{media_id}->HAS_ASR_RUN->{asr_run['asr_run_id']}",
+                source_table=ASR_RUNS_TABLE,
+                source_id=asr_run["asr_run_id"],
+                properties={
+                    "from_label": "Video",
+                    "from_key": media_id,
+                    "to_label": "AsrRun",
+                    "to_key": asr_run["asr_run_id"],
+                },
+            )
+        )
+
+    for frame in frames:
+        rows.append(
+            graph_upsert_row(
+                operation_type="node",
+                label_or_type="Frame",
+                natural_key=frame["frame_asset_id"],
+                source_table=FRAME_ASSETS_TABLE,
+                source_id=frame["frame_asset_id"],
+                properties={
+                    "frame_asset_id": frame["frame_asset_id"],
+                    "frame_uri": frame["frame_uri"],
+                    "frame_index": frame["frame_index"],
+                    "timestamp_ms": frame["timestamp_ms"],
+                    "format": frame["format"],
+                    "width": frame.get("width"),
+                    "height": frame.get("height"),
+                },
+            )
+        )
+        rows.append(
+            graph_upsert_row(
+                operation_type="relationship",
+                label_or_type="HAS_FRAME",
+                natural_key=f"{media_id}->HAS_FRAME->{frame['frame_asset_id']}",
+                source_table=FRAME_ASSETS_TABLE,
+                source_id=frame["frame_asset_id"],
+                properties={
+                    "from_label": "Video",
+                    "from_key": media_id,
+                    "to_label": "Frame",
+                    "to_key": frame["frame_asset_id"],
+                    "timestamp_ms": frame["timestamp_ms"],
+                },
+            )
+        )
+
+    for segment in transcript_segments:
+        rows.append(
+            graph_upsert_row(
+                operation_type="node",
+                label_or_type="TranscriptSegment",
+                natural_key=segment["segment_id"],
+                source_table=TRANSCRIPT_SEGMENTS_TABLE,
+                source_id=segment["segment_id"],
+                properties={
+                    "segment_id": segment["segment_id"],
+                    "asr_run_id": segment["asr_run_id"],
+                    "chunk_id": segment["chunk_id"],
+                    "segment_index": segment["segment_index"],
+                    "start_ms": segment["start_ms"],
+                    "end_ms": segment["end_ms"],
+                    "text": segment["text"],
+                    "language": segment.get("language"),
+                },
+            )
+        )
+        rows.append(
+            graph_upsert_row(
+                operation_type="relationship",
+                label_or_type="HAS_TRANSCRIPT_SEGMENT",
+                natural_key=f"{media_id}->HAS_TRANSCRIPT_SEGMENT->{segment['segment_id']}",
+                source_table=TRANSCRIPT_SEGMENTS_TABLE,
+                source_id=segment["segment_id"],
+                properties={
+                    "from_label": "Video",
+                    "from_key": media_id,
+                    "to_label": "TranscriptSegment",
+                    "to_key": segment["segment_id"],
+                    "start_ms": segment["start_ms"],
+                    "end_ms": segment["end_ms"],
+                },
+            )
+        )
+
+    for request in ai_requests:
+        rows.append(
+            graph_upsert_row(
+                operation_type="node",
+                label_or_type="AiRequest",
+                natural_key=request["request_id"],
+                source_table=AI_REQUESTS_TABLE,
+                source_id=request["request_id"],
+                properties={
+                    "request_id": request["request_id"],
+                    "source_type": request["source_type"],
+                    "source_id": request["source_id"],
+                    "model_name": request["model_name"],
+                    "prompt_version": request["prompt_version"],
+                    "status": request["status"],
+                },
+            )
+        )
+
+    return rows
+
+
+def register_graph_upserts(upserts: list[dict]) -> None:
+    for upsert in upserts:
+        merge_row(
+            qualified_graph_upserts_table,
+            upsert,
+            GRAPH_UPSERTS_SCHEMA,
+            ["upsert_id"],
+        )
+
+
 def complete_observable_stage(
     *,
     stage_name: str,
@@ -1783,6 +2076,47 @@ try:
             },
             completed=True,
         )
+    elif stage == "build_graph_upserts":
+        stage_message = "Building Neo4j graph upsert intents from Delta records"
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        graph_upserts = build_graph_upsert_rows()
+        register_graph_upserts(graph_upserts)
+        operation_counts: dict[str, int] = {}
+        label_counts: dict[str, int] = {}
+        for upsert in graph_upserts:
+            operation_counts[upsert["operation_type"]] = (
+                operation_counts.get(upsert["operation_type"], 0) + 1
+            )
+            label_counts[upsert["label_or_type"]] = label_counts.get(upsert["label_or_type"], 0) + 1
+        write_event(
+            status="graph_upserts_built",
+            message="Neo4j graph upsert intents registered",
+            details={
+                "upsert_count": len(graph_upserts),
+                "operation_counts": operation_counts,
+                "label_counts": label_counts,
+                "graph_upserts_table": GRAPH_UPSERTS_TABLE,
+            },
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="Neo4j graph upsert intents registered",
+            metrics={
+                "upsert_count": len(graph_upserts),
+                "operation_counts": operation_counts,
+                "label_counts": label_counts,
+                "graph_upserts_table": GRAPH_UPSERTS_TABLE,
+                "next": "Apply pending graph upserts with a dedicated Neo4j projector",
+            },
+            completed=True,
+        )
     elif stage == "publish_outbox":
         stage_message = STAGE_MESSAGES[stage]
         upsert_processing_run(
@@ -1809,6 +2143,7 @@ try:
                 "transcript_segments": TRANSCRIPT_SEGMENTS_TABLE,
                 "frame_assets": FRAME_ASSETS_TABLE,
                 "ai_requests": AI_REQUESTS_TABLE,
+                "graph_upserts": GRAPH_UPSERTS_TABLE,
                 "events": OPS_EVENTS_TABLE,
                 "outbox": OPS_OUTBOX_TABLE,
                 "quarantine": QUARANTINE_TABLE,
@@ -1816,6 +2151,7 @@ try:
             "next": [
                 "implement_audio_chunking",
                 "implement_multimodal_batch_submission",
+                "implement_neo4j_graph_projector",
             ],
         }
         write_event(
