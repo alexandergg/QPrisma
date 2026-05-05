@@ -75,6 +75,7 @@ AUDIO_CHUNKS_TABLE = "video_audio_chunks"
 ASR_RUNS_TABLE = "video_asr_runs"
 TRANSCRIPT_SEGMENTS_TABLE = "video_transcript_segments"
 FRAME_ASSETS_TABLE = "video_frame_assets"
+AI_REQUESTS_TABLE = "video_ai_requests"
 
 STAGE_PROGRESS = {
     "register_manifest": 0.10,
@@ -282,6 +283,23 @@ FRAME_ASSETS_SCHEMA = StructType(
         StructField("updated_at", TimestampType(), nullable=False),
     ]
 )
+AI_REQUESTS_SCHEMA = StructType(
+    [
+        StructField("request_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("source_type", StringType(), nullable=False),
+        StructField("source_id", StringType(), nullable=False),
+        StructField("model_name", StringType(), nullable=False),
+        StructField("prompt_version", StringType(), nullable=False),
+        StructField("input_uri", StringType(), nullable=True),
+        StructField("input_hash", StringType(), nullable=False),
+        StructField("request_payload", StringType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+        StructField("updated_at", TimestampType(), nullable=False),
+    ]
+)
 
 
 def quote_identifier(value: str) -> str:
@@ -325,6 +343,9 @@ qualified_transcript_segments_table = (
 )
 qualified_frame_assets_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(FRAME_ASSETS_TABLE)}"
+)
+qualified_ai_requests_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AI_REQUESTS_TABLE)}"
 )
 
 
@@ -576,6 +597,26 @@ def ensure_ops_table() -> None:
           size_bytes BIGINT,
           sha256 STRING,
           extraction_method STRING,
+          created_at TIMESTAMP,
+          updated_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_ai_requests_table} (
+          request_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          source_type STRING,
+          source_id STRING,
+          model_name STRING,
+          prompt_version STRING,
+          input_uri STRING,
+          input_hash STRING,
+          request_payload STRING,
+          status STRING,
           created_at TIMESTAMP,
           updated_at TIMESTAMP
         )
@@ -1250,6 +1291,165 @@ def register_frame_assets(frame_assets: list[dict]) -> None:
         )
 
 
+def pipeline_models_config() -> dict:
+    models = pipeline_config.get("models") or {}
+    if not isinstance(models, dict):
+        raise ValueError("pipeline_config.models must be an object when provided")
+    return {
+        "vision": str(models.get("vision") or pipeline_config.get("vision_model") or "gpt-4o"),
+        "summary": str(models.get("summary") or pipeline_config.get("summary_model") or "gpt-4o"),
+        "prompt_version": str(pipeline_config.get("prompt_version") or schema_version),
+    }
+
+
+def stable_hash(value: dict) -> str:
+    return hashlib.sha256(json_dumps(value).encode("utf-8")).hexdigest()
+
+
+def load_frame_assets() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          frame_asset_id,
+          frame_uri,
+          frame_index,
+          timestamp_ms,
+          format,
+          width,
+          height,
+          sha256
+        FROM {qualified_frame_assets_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+        ORDER BY frame_index
+        """
+    ).collect()
+    if not rows:
+        raise ValueError(
+            f"No frame assets found for media_id={media_id}, dispatch_id={dispatch_id}. "
+            "Run extract_frame_assets first."
+        )
+    return [row.asDict() for row in rows]
+
+
+def load_completed_asr_run() -> dict | None:
+    rows = spark.sql(
+        f"""
+        SELECT
+          asr_run_id,
+          audio_asset_id,
+          model_name,
+          language,
+          duration_seconds,
+          segment_count,
+          transcript_text
+        FROM {qualified_asr_runs_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+          AND status = 'completed'
+        ORDER BY completed_at DESC
+        LIMIT 1
+        """
+    ).collect()
+    return rows[0].asDict() if rows else None
+
+
+def build_inference_request_rows() -> list[dict]:
+    frames = load_frame_assets()
+    asr_run = load_completed_asr_run()
+    models = pipeline_models_config()
+    now = datetime.now(UTC)
+    custom_prompt = pipeline_config.get("custom_prompt")
+    requests: list[dict] = []
+
+    for frame in frames:
+        payload = {
+            "request_type": "frame_understanding",
+            "schema_version": "frame_understanding_v1",
+            "media_id": media_id,
+            "dispatch_id": dispatch_id,
+            "frame_uri": frame["frame_uri"],
+            "timestamp_ms": int(frame["timestamp_ms"]),
+            "custom_prompt": custom_prompt,
+        }
+        input_hash = stable_hash(
+            {
+                "frame_sha256": frame["sha256"],
+                "prompt_version": models["prompt_version"],
+                "model_name": models["vision"],
+                "custom_prompt": custom_prompt,
+            }
+        )
+        requests.append(
+            {
+                "request_id": f"{media_id}:ai:frame:{frame['frame_index']:06d}:{input_hash[:12]}",
+                "media_id": media_id,
+                "dispatch_id": dispatch_id,
+                "source_type": "frame",
+                "source_id": frame["frame_asset_id"],
+                "model_name": models["vision"],
+                "prompt_version": models["prompt_version"],
+                "input_uri": frame["frame_uri"],
+                "input_hash": input_hash,
+                "request_payload": json_dumps(payload),
+                "status": "pending",
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+
+    if asr_run and asr_run.get("transcript_text"):
+        payload = {
+            "request_type": "transcript_semantics",
+            "schema_version": "transcript_semantics_v1",
+            "media_id": media_id,
+            "dispatch_id": dispatch_id,
+            "asr_run_id": asr_run["asr_run_id"],
+            "language": asr_run.get("language"),
+            "segment_count": asr_run.get("segment_count"),
+            "transcript_text": asr_run["transcript_text"],
+            "custom_prompt": custom_prompt,
+        }
+        input_hash = stable_hash(
+            {
+                "asr_run_id": asr_run["asr_run_id"],
+                "transcript_text": asr_run["transcript_text"],
+                "prompt_version": models["prompt_version"],
+                "model_name": models["summary"],
+                "custom_prompt": custom_prompt,
+            }
+        )
+        requests.append(
+            {
+                "request_id": f"{media_id}:ai:transcript:{input_hash[:12]}",
+                "media_id": media_id,
+                "dispatch_id": dispatch_id,
+                "source_type": "transcript",
+                "source_id": asr_run["asr_run_id"],
+                "model_name": models["summary"],
+                "prompt_version": models["prompt_version"],
+                "input_uri": None,
+                "input_hash": input_hash,
+                "request_payload": json_dumps(payload),
+                "status": "pending",
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+
+    return requests
+
+
+def register_ai_requests(requests: list[dict]) -> None:
+    for request in requests:
+        merge_row(
+            qualified_ai_requests_table,
+            request,
+            AI_REQUESTS_SCHEMA,
+            ["request_id"],
+        )
+
+
 def complete_observable_stage(
     *,
     stage_name: str,
@@ -1548,14 +1748,40 @@ try:
             completed=True,
         )
     elif stage == "build_multimodal_inference_requests":
-        complete_observable_stage(
-            stage_name=stage,
-            message="Multimodal inference request stage registered",
-            metrics={
-                "implementation_status": "skeleton",
-                "target_outputs": ["ai_requests", "ai_results", "embedding_inputs"],
-                "next": "Create table-driven Azure OpenAI Batch and embedding requests from frames/transcripts",
+        stage_message = "Building table-driven multimodal inference requests"
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        ai_requests = build_inference_request_rows()
+        register_ai_requests(ai_requests)
+        request_counts: dict[str, int] = {}
+        for request in ai_requests:
+            request_counts[request["source_type"]] = request_counts.get(request["source_type"], 0) + 1
+        write_event(
+            status="inference_requests_built",
+            message="Multimodal inference requests registered",
+            details={
+                "request_count": len(ai_requests),
+                "request_counts": request_counts,
+                "request_table": AI_REQUESTS_TABLE,
             },
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="Multimodal inference requests registered",
+            metrics={
+                "request_count": len(ai_requests),
+                "request_counts": request_counts,
+                "request_table": AI_REQUESTS_TABLE,
+                "implementation_status": "request_generation_only",
+                "next": "Submit pending requests through Azure OpenAI Batch and persist responses",
+            },
+            completed=True,
         )
     elif stage == "publish_outbox":
         stage_message = STAGE_MESSAGES[stage]
@@ -1582,13 +1808,14 @@ try:
                 "asr_runs": ASR_RUNS_TABLE,
                 "transcript_segments": TRANSCRIPT_SEGMENTS_TABLE,
                 "frame_assets": FRAME_ASSETS_TABLE,
+                "ai_requests": AI_REQUESTS_TABLE,
                 "events": OPS_EVENTS_TABLE,
                 "outbox": OPS_OUTBOX_TABLE,
                 "quarantine": QUARANTINE_TABLE,
             },
             "next": [
                 "implement_audio_chunking",
-                "implement_multimodal_batch_requests",
+                "implement_multimodal_batch_submission",
             ],
         }
         write_event(
