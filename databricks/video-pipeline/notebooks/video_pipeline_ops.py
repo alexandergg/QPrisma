@@ -1224,9 +1224,20 @@ def json_dumps(value: dict) -> str:
     return json.dumps(value or {}, separators=(",", ":"), sort_keys=True)
 
 
+def is_delta_concurrency_error(exc: Exception) -> bool:
+    message = str(exc)
+    return any(
+        marker in message
+        for marker in (
+            "DELTA_CONCURRENT_APPEND",
+            "ConcurrentAppendException",
+            "ConcurrentDeleteReadException",
+            "ConcurrentWriteException",
+        )
+    )
+
+
 def merge_row(table_name: str, row: dict, row_schema: StructType, key_columns: list[str]) -> None:
-    temp_view = f"merge_{uuid4().hex}"
-    spark.createDataFrame([row], schema=row_schema).createOrReplaceTempView(temp_view)
     on_clause = " AND ".join(f"target.{key} = source.{key}" for key in key_columns)
     update_fields = [
         field.name for field in row_schema if field.name not in {"created_at", "started_at"}
@@ -1234,16 +1245,25 @@ def merge_row(table_name: str, row: dict, row_schema: StructType, key_columns: l
     update_clause = ", ".join(f"target.{field} = source.{field}" for field in update_fields)
     insert_columns = ", ".join(field.name for field in row_schema)
     insert_values = ", ".join(f"source.{field.name}" for field in row_schema)
-    spark.sql(
-        f"""
-        MERGE INTO {table_name} AS target
-        USING {temp_view} AS source
-        ON {on_clause}
-        WHEN MATCHED THEN UPDATE SET {update_clause}
-        WHEN NOT MATCHED THEN INSERT ({insert_columns})
-        VALUES ({insert_values})
-        """
-    )
+    for attempt in range(5):
+        temp_view = f"merge_{uuid4().hex}"
+        spark.createDataFrame([row], schema=row_schema).createOrReplaceTempView(temp_view)
+        try:
+            spark.sql(
+                f"""
+                MERGE INTO {table_name} AS target
+                USING {temp_view} AS source
+                ON {on_clause}
+                WHEN MATCHED THEN UPDATE SET {update_clause}
+                WHEN NOT MATCHED THEN INSERT ({insert_columns})
+                VALUES ({insert_values})
+                """
+            )
+            return
+        except Exception as exc:
+            if not is_delta_concurrency_error(exc) or attempt == 4:
+                raise
+            time.sleep(0.5 * (2**attempt))
 
 
 def write_event(
@@ -1461,6 +1481,21 @@ def safe_path_segment(value: str) -> str:
 def volume_path(*parts: str) -> str:
     safe_parts = [safe_path_segment(part) for part in parts if part]
     return "/".join([f"/Volumes/{catalog}/{schema}/video_artifacts", *safe_parts])
+
+
+def local_artifact_path(*parts: str) -> str:
+    safe_parts = [safe_path_segment(part) for part in parts if part]
+    return os.path.join(tempfile.gettempdir(), "qprisma-video-pipeline", *safe_parts)
+
+
+def copy_local_file_to_volume(local_path: str, destination: str) -> None:
+    dbutils.fs.mkdirs(os.path.dirname(destination))
+    try:
+        dbutils.fs.rm(destination)
+    except Exception as exc:
+        if "FileNotFound" not in str(exc) and "does not exist" not in str(exc):
+            raise
+    dbutils.fs.cp(f"file:{local_path}", destination)
 
 
 def ffmpeg_input_path(uri: str) -> str:
@@ -1722,8 +1757,9 @@ def audio_duration_seconds(path: str) -> float:
 def extract_audio_asset(source_uri: str) -> dict:
     input_path = ffmpeg_input_path(source_uri)
     audio_dir = volume_path(media_id, dispatch_id, "audio")
-    os.makedirs(audio_dir, exist_ok=True)
     audio_path = f"{audio_dir}/audio_16khz_mono.wav"
+    local_audio_path = local_artifact_path(media_id, dispatch_id, "audio", "audio_16khz_mono.wav")
+    os.makedirs(os.path.dirname(local_audio_path), exist_ok=True)
 
     run_command(
         [
@@ -1741,12 +1777,13 @@ def extract_audio_asset(source_uri: str) -> dict:
             "16000",
             "-ac",
             "1",
-            audio_path,
+            local_audio_path,
         ]
     )
+    copy_local_file_to_volume(local_audio_path, audio_path)
 
-    duration = audio_duration_seconds(audio_path)
-    size_bytes = os.path.getsize(audio_path)
+    duration = audio_duration_seconds(local_audio_path)
+    size_bytes = os.path.getsize(local_audio_path)
     asset_id = f"{media_id}:audio:16khz_mono:{config_hash[:12]}"
     return {
         "audio_asset_id": asset_id,
@@ -1758,7 +1795,7 @@ def extract_audio_asset(source_uri: str) -> dict:
         "channels": 1,
         "duration_seconds": duration,
         "size_bytes": size_bytes,
-        "sha256": file_sha256(audio_path),
+        "sha256": file_sha256(local_audio_path),
     }
 
 
@@ -1814,7 +1851,7 @@ def audio_chunk_ranges(duration_seconds: float, config: dict) -> list[tuple[int,
         start = max(0.0, end - overlap)
     if not ranges:
         ranges.append((0, 0.0, round(duration_seconds, 3)))
-    if ranges[-1][2] < duration_seconds:
+    if ranges[-1][2] + 0.001 < duration_seconds:
         raise ValueError(
             "Audio duration exceeds configured ASR chunk coverage. Increase asr.max_chunks "
             "or asr.chunk_target_seconds within bounded limits."
@@ -1826,12 +1863,19 @@ def build_audio_chunk_rows(audio_asset: dict) -> list[dict]:
     config = asr_chunk_config()
     ranges = audio_chunk_ranges(float(audio_asset["duration_seconds"]), config)
     chunk_dir = volume_path(media_id, dispatch_id, "audio", "chunks")
-    os.makedirs(chunk_dir, exist_ok=True)
     now = datetime.now(UTC)
     rows = []
     for chunk_index, start_seconds, end_seconds in ranges:
         duration_seconds = round(max(0.0, end_seconds - start_seconds), 3)
         chunk_path = f"{chunk_dir}/chunk_{chunk_index:06d}_{int(start_seconds * 1000):012d}.wav"
+        local_chunk_path = local_artifact_path(
+            media_id,
+            dispatch_id,
+            "audio",
+            "chunks",
+            f"chunk_{chunk_index:06d}_{int(start_seconds * 1000):012d}.wav",
+        )
+        os.makedirs(os.path.dirname(local_chunk_path), exist_ok=True)
         run_command(
             [
                 "ffmpeg",
@@ -1851,9 +1895,10 @@ def build_audio_chunk_rows(audio_asset: dict) -> list[dict]:
                 "16000",
                 "-ac",
                 "1",
-                chunk_path,
+                local_chunk_path,
             ]
         )
+        copy_local_file_to_volume(local_chunk_path, chunk_path)
         rows.append(
             {
                 "chunk_id": f"{audio_asset['audio_asset_id']}:chunk:{chunk_index:06d}",
@@ -2196,13 +2241,19 @@ def extract_frame_assets(source_uri: str) -> list[dict]:
         raise ValueError("Frame format must be one of: jpg, jpeg, png, webp")
 
     frame_dir = volume_path(media_id, dispatch_id, "frames")
-    os.makedirs(frame_dir, exist_ok=True)
     frames: list[dict] = []
     extension = "jpg" if frame_format == "jpeg" else frame_format
 
     for index, timestamp_seconds in enumerate(timestamps):
         timestamp_ms = int(timestamp_seconds * 1000)
         frame_path = f"{frame_dir}/frame_{index:06d}_{timestamp_ms:012d}.{extension}"
+        local_frame_path = local_artifact_path(
+            media_id,
+            dispatch_id,
+            "frames",
+            f"frame_{index:06d}_{timestamp_ms:012d}.{extension}",
+        )
+        os.makedirs(os.path.dirname(local_frame_path), exist_ok=True)
         command = [
             "ffmpeg",
             "-hide_banner",
@@ -2218,8 +2269,9 @@ def extract_frame_assets(source_uri: str) -> list[dict]:
         ]
         if extension in {"jpg", "webp"}:
             command.extend(["-q:v", str(config["quality"])])
-        command.append(frame_path)
+        command.append(local_frame_path)
         run_command(command)
+        copy_local_file_to_volume(local_frame_path, frame_path)
         frame_asset_id = f"{media_id}:frame:{index:06d}:{timestamp_ms}:{config_hash[:12]}"
         frames.append(
             {
@@ -2231,8 +2283,8 @@ def extract_frame_assets(source_uri: str) -> list[dict]:
                 "format": extension,
                 "width": metadata["width"],
                 "height": metadata["height"],
-                "size_bytes": os.path.getsize(frame_path),
-                "sha256": file_sha256(frame_path),
+                "size_bytes": os.path.getsize(local_frame_path),
+                "sha256": file_sha256(local_frame_path),
                 "extraction_method": config["method"],
             }
         )
@@ -2257,12 +2309,24 @@ def register_frame_assets(frame_assets: list[dict]) -> None:
 
 
 def pipeline_models_config() -> dict:
+    """Return model routing config for the pipeline.
+
+    Model routing rules:
+    - ``vision`` / ``summary``: used for Azure OpenAI Batch API requests. Defaults to
+      ``gpt-5.1-batch`` which is the only batch-capable deployment available.
+    - ``direct``: used for synchronous / non-batch LLM calls. Defaults to ``gpt-5.5``.
+
+    Callers should use ``models["vision"]`` and ``models["summary"]`` for batch
+    inference requests and ``models["direct"]`` for any real-time / conversational
+    calls so that the correct deployment endpoint is always targeted.
+    """
     models = pipeline_config.get("models") or {}
     if not isinstance(models, dict):
         raise ValueError("pipeline_config.models must be an object when provided")
     return {
-        "vision": str(models.get("vision") or pipeline_config.get("vision_model") or "gpt-4o"),
-        "summary": str(models.get("summary") or pipeline_config.get("summary_model") or "gpt-4o"),
+        "vision": str(models.get("vision") or pipeline_config.get("vision_model") or "gpt-5.1-batch"),
+        "summary": str(models.get("summary") or pipeline_config.get("summary_model") or "gpt-5.1-batch"),
+        "direct": str(models.get("direct") or pipeline_config.get("direct_model") or "gpt-5.5"),
         "prompt_version": str(pipeline_config.get("prompt_version") or schema_version),
     }
 
@@ -2337,11 +2401,13 @@ def build_inference_request_rows() -> list[dict]:
             "timestamp_ms": int(frame["timestamp_ms"]),
             "custom_prompt": custom_prompt,
         }
+        # model_name is intentionally excluded from the hash so that
+        # changing the model config updates the existing row in-place via
+        # the MERGE keyed on request_id, rather than inserting phantom rows.
         input_hash = stable_hash(
             {
                 "frame_sha256": frame["sha256"],
                 "prompt_version": models["prompt_version"],
-                "model_name": models["vision"],
                 "custom_prompt": custom_prompt,
             }
         )
@@ -2375,12 +2441,13 @@ def build_inference_request_rows() -> list[dict]:
             "transcript_text": asr_run["transcript_text"],
             "custom_prompt": custom_prompt,
         }
+        # model_name is intentionally excluded from the hash for the same
+        # reason as frames: stable request_id across model config changes.
         input_hash = stable_hash(
             {
                 "asr_run_id": asr_run["asr_run_id"],
                 "transcript_text": asr_run["transcript_text"],
                 "prompt_version": models["prompt_version"],
-                "model_name": models["summary"],
                 "custom_prompt": custom_prompt,
             }
         )
@@ -2873,6 +2940,30 @@ def stage_ai_batch_payloads() -> dict:
         if batch["status"] in {"ready_for_submission", "submitted", "completed"}
     ]
     now = datetime.now(UTC)
+
+    # Invalidate any ready_for_submission batches that already have a provider_file_id.
+    # Those files were uploaded to Azure OpenAI and are now stale (model config may have
+    # changed or a previous attempt left mixed content). Marking them failed prevents
+    # run_ai_batch_inference from picking them up and prevents the reuse trap below.
+    if pending_requests:
+        stale_batches = [
+            b for b in existing_batches
+            if b["status"] == "ready_for_submission" and b.get("provider_file_id")
+        ]
+        for stale in stale_batches:
+            stale_failed = batch_row_with_provider_state(
+                stale,
+                status="failed",
+                error={"stage": "stage_ai_batch_payloads", "reason": "invalidated_stale_file"},
+            )
+            write_ai_batch(stale_failed)
+        # Refresh existing_batches list after invalidation.
+        existing_batches = [
+            batch
+            for batch in load_existing_ai_batches()
+            if batch["status"] in {"ready_for_submission", "submitted", "completed"}
+        ]
+
     if not pending_requests and existing_batches:
         latest_batch = existing_batches[0]
         return {
@@ -2890,7 +2981,17 @@ def stage_ai_batch_payloads() -> dict:
         pending_in_batch = [
             request for request in pending_requests if request["request_id"] in batch_request_ids
         ]
-        if not pending_requests or len(pending_in_batch) == len(pending_requests):
+        # Require an exact match: all pending requests must be in the JSONL AND the JSONL
+        # must not contain any extra rows.  Extra rows mean the file was built from a
+        # different (larger) request set and must not be reused.
+        exact_match = (
+            not pending_requests
+            or (
+                len(pending_in_batch) == len(pending_requests)
+                and len(batch_request_ids) == len(pending_requests)
+            )
+        )
+        if exact_match:
             mark_ai_requests_batched(pending_in_batch, now)
             return {
                 "batch_id": existing_batch["batch_id"],
@@ -3327,7 +3428,19 @@ def submit_ai_batch(config: dict, batch: dict) -> dict:
         write_ai_batch(batch)
     if batch.get("provider_batch_id"):
         return batch
-    provider_batch = azure_openai_create_batch(config, provider_file_id, batch)
+    try:
+        provider_batch = azure_openai_create_batch(config, provider_file_id, batch)
+    except Exception as exc:
+        # Mark the batch as failed so that the next stage_ai_batch_payloads run does
+        # not attempt to reuse this batch row (which still has provider_file_id set).
+        failed_batch = batch_row_with_provider_state(
+            batch,
+            status="failed",
+            provider_file_id=provider_file_id,
+            error={"stage": "create_batch", "error": str(exc)},
+        )
+        write_ai_batch(failed_batch)
+        raise
     submitted_batch = batch_row_with_provider_state(
         batch,
         status="submitted",
