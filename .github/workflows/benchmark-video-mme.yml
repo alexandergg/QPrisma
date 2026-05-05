@@ -677,7 +677,7 @@ jobs:
           azure-ai-project-endpoint: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
           agent-ids: ${{ needs.resolve-version.outputs.agent-id }}
           data-path: ${{ runner.temp }}/vmme/video-mme-eval.json
-          deployment-name: gpt-4o
+          deployment-name: gpt-5.5
 
       - name: Cleanup token refresh
         if: always()

@@ -69,7 +69,7 @@ class TestAzureSettings:
         assert s.is_batch_configured is False
 
     def test_is_batch_configured_true(self):
-        s = AzureSettings(openai_deployment_gpt_batch="gpt-4o-global-batch")
+        s = AzureSettings(openai_deployment_gpt_batch="gpt-5.1-batch")
         assert s.is_batch_configured is True
 
     def test_default_container_name(self):

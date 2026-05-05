@@ -83,7 +83,7 @@ class AzureSettings(BaseSettings):
     # Global Batch deployment for 50% cost savings on bulk processing
     openai_deployment_gpt_batch: str | None = Field(
         default=None,
-        description="Azure OpenAI Global Batch deployment name (e.g., 'gpt-4o-global-batch')",
+        description="Azure OpenAI Global Batch deployment name (e.g., 'gpt-5.1-batch')",
     )
 
     # Whisper backend: "azure" (default) or "faster_whisper" (local CTranslate2)

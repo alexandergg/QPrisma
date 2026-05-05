@@ -51,11 +51,10 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 
 | Model | Deployment Name | Purpose |
 |---|---|---|
-| GPT-4o | `gpt-4o` | Primary chat + tool-calling |
-| GPT-5.2-chat | `gpt-5.2-chat` | Advanced reasoning and analysis |
+| GPT-5.5 | `gpt-5.5` | Primary chat, tool-calling, and evaluator judge |
 | text-embedding-3-large | `text-embedding-3-large` | Semantic embeddings (3072-dim) |
 | Whisper | `whisper` | Audio transcription |
-| GPT-4o (batch) | `gpt-4o-batch` | Batch processing operations |
+| GPT-5.1 (batch) | `gpt-5.1-batch` | Batch processing operations |
 
 ### Architecture Diagram
 
@@ -176,7 +175,10 @@ from pydantic import Field
 class AzureSettings(BaseSettings):
     openai_endpoint: str = Field(alias="AZURE_OPENAI_ENDPOINT")
     openai_api_key: str = Field(alias="AZURE_OPENAI_API_KEY")
-    openai_deployment: str = Field(default="gpt-4o", alias="AZURE_OPENAI_DEPLOYMENT")
+    openai_deployment_gpt: str = Field(default="gpt-5.5", alias="AZURE_OPENAI_DEPLOYMENT_GPT")
+    openai_deployment_gpt_batch: str | None = Field(
+        default="gpt-5.1-batch", alias="AZURE_OPENAI_DEPLOYMENT_GPT_BATCH"
+    )
     openai_embedding_deployment: str = Field(
         default="text-embedding-3-large", alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
     )
@@ -224,7 +226,8 @@ settings = Settings()
 |---|---|---|
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | `https://xxx.openai.azure.com/` |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | `sk-...` |
-| `AZURE_OPENAI_DEPLOYMENT` | Primary GPT model deployment | `gpt-4o` |
+| `AZURE_OPENAI_DEPLOYMENT_GPT` | Primary GPT model deployment | `gpt-5.5` |
+| `AZURE_OPENAI_DEPLOYMENT_GPT_BATCH` | Global Batch deployment | `gpt-5.1-batch` |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://...` |
 | `NEO4J_URI` | Neo4j Bolt endpoint | `neo4j+s://xxx.neo4j.io` |
 | `NEO4J_PASSWORD` | Neo4j password | `...` |
@@ -2033,7 +2036,7 @@ python -m evaluation_foundry.register_evaluators
 python -m evaluation_foundry.redteam_eval \
     --agent-id "<agent-name>:<version>" \
     --endpoint "$AZURE_AI_PROJECT_ENDPOINT" \
-    --model-deployment gpt-4o \
+    --model-deployment gpt-5.5 \
     --strategies base64,flip,indirect_jailbreak \
     --risk-categories prohibited_actions \
     --output redteam-results.json

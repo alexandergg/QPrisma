@@ -344,7 +344,7 @@ def _build_run_metadata(
             "version_override": _env("AGENT_VERSION_OVERRIDE"),
         },
         "judge": {
-            "model": _env("EVAL_JUDGE_MODEL", "gpt-4o"),
+            "model": _env("EVAL_JUDGE_MODEL", "gpt-5.5"),
             "temperature": _env_float("EVAL_JUDGE_TEMPERATURE") or 0.0,
             "n_runs": _env_int("EVAL_JUDGE_N_RUNS") or 1,
         },

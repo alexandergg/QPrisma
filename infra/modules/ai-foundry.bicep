@@ -4,7 +4,7 @@ param name string
 @description('Location for resources')
 param location string = resourceGroup().location
 
-@description('Deploy batch model (gpt-4o-batch)')
+@description('Deploy batch model (gpt-5.1-batch)')
 param deployBatchModel bool = true
 
 @description('Storage account resource ID for agents capability host')
@@ -64,25 +64,7 @@ resource aiProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = 
   properties: {}
 }
 
-// GPT-4o — GlobalStandard, default max 450K TPM
-resource gpt4oDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
-  parent: aiFoundry
-  name: 'gpt-4o'
-  sku: {
-    name: 'GlobalStandard'
-    capacity: 450
-  }
-  properties: {
-    model: {
-      format: 'OpenAI'
-      name: 'gpt-4o'
-      version: '2024-11-20'
-    }
-    versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
-  }
-}
-
-// GPT-5.5 — GlobalStandard, reasoning model used as primary chat for the hosted agent
+// GPT-5.5 — GlobalStandard, max 160K TPM
 resource gpt55Deployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: aiFoundry
   name: 'gpt-5.5'
@@ -98,9 +80,6 @@ resource gpt55Deployment 'Microsoft.CognitiveServices/accounts/deployments@2025-
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
-  dependsOn: [
-    gpt4oDeployment
-  ]
 }
 
 // text-embedding-3-large — GlobalStandard, default max 350K TPM
@@ -145,10 +124,10 @@ resource whisperDeployment 'Microsoft.CognitiveServices/accounts/deployments@202
   ]
 }
 
-// GPT-4o Batch — GlobalBatch, 200M enqueued tokens
-resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = if (deployBatchModel) {
+// GPT-5.1 Batch — GlobalBatch, max 200M enqueued tokens
+resource gpt51BatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = if (deployBatchModel) {
   parent: aiFoundry
-  name: 'gpt-4o-batch'
+  name: 'gpt-5.1-batch'
   sku: {
     name: 'GlobalBatch'
     capacity: 200
@@ -156,8 +135,8 @@ resource gpt4oBatchDeployment 'Microsoft.CognitiveServices/accounts/deployments@
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-4o'
-      version: '2024-11-20'
+      name: 'gpt-5.1'
+      version: '2025-11-13'
     }
     versionUpgradeOption: 'OnceNewDefaultVersionAvailable'
   }
