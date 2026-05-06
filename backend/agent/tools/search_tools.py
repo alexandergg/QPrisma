@@ -533,7 +533,7 @@ async def _hybrid_search_with_fallback(
                 break
 
         logger.info(
-            "hybrid_search_with_fallback: tier-1 filtered | " "raw=%d accepted=%d (limit=%d)",
+            "hybrid_search_with_fallback: tier-1 filtered | raw=%d accepted=%d (limit=%d)",
             len(search_response.results),
             len(results),
             limit,

@@ -17,6 +17,7 @@ from agent.utils.text import (
     VIDEO_SUMMARY_PREFIXES,
     clean_generated_text,
 )
+
 from core.legacy_usage import record_legacy_usage
 
 if TYPE_CHECKING:

@@ -220,7 +220,8 @@ class HierarchicalContextService:
         start_time = datetime.now(UTC)
         video_id = video_metadata.get("media_id", video_metadata.get("video_id", "unknown"))
 
-        logger.info(f"Starting hierarchical processing for video: {video_id}")
+        safe_video_id = str(video_id)[:100].replace("\r", "").replace("\n", "")
+        logger.info("Starting hierarchical processing for video: %s", safe_video_id)
 
         result = {
             "video_id": video_id,
@@ -335,10 +336,10 @@ class HierarchicalContextService:
             result["status"] = "completed"
             result["processing_time_seconds"] = (datetime.now(UTC) - start_time).total_seconds()
 
-            logger.info(f"Hierarchical processing completed for {video_id}")
+            logger.info("Hierarchical processing completed for %s", safe_video_id)
 
         except Exception as e:
-            logger.error(f"Hierarchical processing error: {e}")
+            logger.exception("Hierarchical processing error")
             result["status"] = "failed"
             result["errors"].append(str(e))
 

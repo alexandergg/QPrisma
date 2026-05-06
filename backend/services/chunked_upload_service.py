@@ -115,10 +115,11 @@ class ChunkedUploadService:
             logger.error("Failed to create media record: %s", e)
             raise HTTPException(status_code=500, detail="Failed to initialize upload") from e
 
+        safe_filename = filename[:200].replace("\r", "").replace("\n", "")
         logger.info(
             "Initialized chunked upload: %s, file=%s, size=%s, blocks=%s, block_size=%s",
             upload_id,
-            filename,
+            safe_filename,
             file_size,
             total_blocks,
             block_size_bytes,
@@ -161,7 +162,13 @@ class ChunkedUploadService:
                 block_list=[BlobBlock(block_id=bid) for bid in decoded_ids],
             )
             final_size = blob_client.get_blob_properties().size
-            logger.info("Committed blob: %s, blocks=%s, size=%s", blob_name, len(block_ids), final_size)
+            safe_blob_name = blob_name[:200].replace("\r", "").replace("\n", "")
+            logger.info(
+                "Committed blob: %s, blocks=%s, size=%s",
+                safe_blob_name,
+                len(block_ids),
+                final_size,
+            )
         except Exception as e:
             logger.error("Failed to commit blob: %s", e, exc_info=True)
             self.db.update_media(media_id, {"processing_status": "error"})
@@ -253,7 +260,9 @@ class ChunkedUploadService:
             "uploaded_blocks": len(uploaded_block_ids),
             "uploaded_block_ids": list(uploaded_block_ids),
             "remaining_blocks": [
-                b for b in upload_session.get("blocks", []) if b["block_id"] not in uploaded_block_ids
+                b
+                for b in upload_session.get("blocks", [])
+                if b["block_id"] not in uploaded_block_ids
             ],
         }
 

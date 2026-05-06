@@ -308,7 +308,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 await asyncio.to_thread(self.store_embedding, node_id, embedding, node_type)
 
             total_processed += len(nodes)
-            logger.info(f"Generated {total_processed} embeddings for {label}")
+            safe_label = label[:100].replace("\r", "").replace("\n", "")
+            logger.info("Generated %s embeddings for %s", total_processed, safe_label)
 
         return total_processed
 
@@ -528,7 +529,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             _g_start = datetime.now(UTC)
             if _elapsed_s() > _PIPELINE_BUDGET_S - 3.0:
                 logger.warning(
-                    "pipeline: skipping graph expansion (budget) | " "elapsed_s=%.1f candidates=%d",
+                    "pipeline: skipping graph expansion (budget) | elapsed_s=%.1f candidates=%d",
                     _elapsed_s(),
                     len(_all),
                 )

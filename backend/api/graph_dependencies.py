@@ -69,16 +69,11 @@ def get_hierarchical_query_service():
     import api.dependencies as deps
 
     if deps._hierarchical_query_service is None:
-        from services.embedding_service import get_embedding_service
         from services.hierarchical_query_service import (
             get_hierarchical_query_service as _get_hqs,
         )
 
-        graph_svc = deps.get_knowledge_graph_service()
-        embedding_svc = get_embedding_service()
-        deps._hierarchical_query_service = _get_hqs(
-            graph_service=graph_svc, embedding_service=embedding_svc
-        )
+        deps._hierarchical_query_service = _get_hqs()
     return deps._hierarchical_query_service
 
 

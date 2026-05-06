@@ -69,9 +69,8 @@ def _setup_telemetry() -> None:
 
         # Register span processor so gen_ai.conversation.id appears in Foundry traces
         try:
-            from opentelemetry.trace import get_tracer_provider
-
             from agent.utils.observability import ConversationIdSpanProcessor
+            from opentelemetry.trace import get_tracer_provider
 
             provider = get_tracer_provider()
             if hasattr(provider, "add_span_processor"):

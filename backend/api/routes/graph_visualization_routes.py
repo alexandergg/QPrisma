@@ -38,6 +38,7 @@ def get_media_or_404(media_id: str, current_user: User):
 
     return graph_routes.get_media_or_404(media_id, current_user)
 
+
 _NODE_VISUAL_MAP: dict[str, tuple[str, int]] = {
     "Video": ("#4F46E5", 40),
     "Chapter": ("#7C3AED", 30),

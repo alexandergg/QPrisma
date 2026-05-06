@@ -623,8 +623,7 @@ class VideoAgentGraph:
         config = self._build_config(media_id, session_id, media_ids)
 
         logger.info(
-            f"Agent starting - media_id={media_id}, "
-            f"media_ids={media_ids}, msg={message[:50]}..."
+            f"Agent starting - media_id={media_id}, media_ids={media_ids}, msg={message[:50]}..."
         )
 
         try:
@@ -886,7 +885,7 @@ class VideoAgentGraph:
 #     the durable source of truth. The graph only needs an in-process
 #     ``MemorySaver`` to run a single turn end-to-end.
 #   - Local / non-hosted callers (evaluations, dev): same
-    #     ``MemorySaver`` semantics — no external checkpointer is used.
+#     ``MemorySaver`` semantics — no external checkpointer is used.
 
 _shared_checkpointer: Any | None = None
 _checkpointer_lock: asyncio.Lock | None = None

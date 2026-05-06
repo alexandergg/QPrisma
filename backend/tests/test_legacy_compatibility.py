@@ -75,9 +75,7 @@ class TestLegacyStructureIntegration:
             "user_id": "user-456",
             "processing_result": {
                 "structure": {
-                    "scenes": [
-                        {"scene_id": 0, "title": "Legacy Scene (Should Be Ignored)"}
-                    ]
+                    "scenes": [{"scene_id": 0, "title": "Legacy Scene (Should Be Ignored)"}]
                 }
             },
         }
@@ -136,9 +134,7 @@ class TestLegacyStructureIntegration:
             "id": "vid-123",
             "user_id": "user-456",
             "processing_result": {
-                "structure": {
-                    "scenes": [{"scene_id": 0, "title": "Fallback Scene"}]
-                }
+                "structure": {"scenes": [{"scene_id": 0, "title": "Fallback Scene"}]}
             },
         }
 
@@ -250,8 +246,7 @@ class TestLegacyEnvelopeExtraction:
         from agent.hosted.context_envelope import extract_qprisma_context
 
         message = (
-            '[QPRISMA_CONTEXT:{"media_ids":["v1","v2","v3"],"user_id":"u1"}]\n'
-            "Compare these videos"
+            '[QPRISMA_CONTEXT:{"media_ids":["v1","v2","v3"],"user_id":"u1"}]\nCompare these videos'
         )
 
         metadata, cleaned = extract_qprisma_context(message)
@@ -316,9 +311,7 @@ class TestLegacyDeprecationMarkers:
         media_dict = {
             "id": "vid-123",
             "user_id": "user-456",
-            "processing_result": {
-                "structure": {"scenes": [], "chapters": []}
-            },
+            "processing_result": {"structure": {"scenes": [], "chapters": []}},
         }
 
         graph_service = MagicMock()

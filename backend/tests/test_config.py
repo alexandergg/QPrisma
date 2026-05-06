@@ -383,8 +383,6 @@ class TestProcessingSettings:
             ProcessingSettings(streaming_batch_size=-1)
 
 
-
-
 @pytest.mark.unit
 class TestSettings:
     def test_creation(self):

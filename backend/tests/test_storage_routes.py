@@ -177,18 +177,14 @@ class TestGetMediaTierEndpoint:
         assert body["source"] == "database"
         route_dependencies.update_media.assert_not_called()
 
-    def test_get_tier_returns_404_for_missing_media(
-        self, authenticated_client, route_dependencies
-    ):
+    def test_get_tier_returns_404_for_missing_media(self, authenticated_client, route_dependencies):
         route_dependencies.get_media.return_value = None
 
         response = authenticated_client.get("/storage/media/missing/tier")
 
         assert response.status_code == 404
 
-    def test_get_tier_forbids_cross_user_media(
-        self, authenticated_client, route_dependencies
-    ):
+    def test_get_tier_forbids_cross_user_media(self, authenticated_client, route_dependencies):
         route_dependencies.get_media.return_value = _media(user_id="other-user")
 
         response = authenticated_client.get("/storage/media/media-1/tier")
@@ -234,9 +230,7 @@ class TestRehydrateMediaEndpoint:
         )
         assert response.status_code in (401, 403)
 
-    def test_rehydrate_rejects_non_archive_media(
-        self, authenticated_client, route_dependencies
-    ):
+    def test_rehydrate_rejects_non_archive_media(self, authenticated_client, route_dependencies):
         route_dependencies.get_media.return_value = _media(storage_tier="Cool")
 
         response = authenticated_client.post(
@@ -313,9 +307,7 @@ class TestLifecyclePolicyEndpoint:
         response = client.post("/storage/lifecycle-policy", json={})
         assert response.status_code in (401, 403)
 
-    def test_lifecycle_policy_forbids_non_superuser(
-        self, authenticated_client, route_dependencies
-    ):
+    def test_lifecycle_policy_forbids_non_superuser(self, authenticated_client, route_dependencies):
         response = authenticated_client.post("/storage/lifecycle-policy", json={})
         assert response.status_code == 403
 

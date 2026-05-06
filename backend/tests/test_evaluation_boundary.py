@@ -18,12 +18,17 @@ def _imports_evaluation_foundry(path: Path) -> bool:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            if any(alias.name == "evaluation_foundry" or alias.name.startswith("evaluation_foundry.") for alias in node.names):
+            if any(
+                alias.name == "evaluation_foundry" or alias.name.startswith("evaluation_foundry.")
+                for alias in node.names
+            ):
                 return True
         elif (
             isinstance(node, ast.ImportFrom)
             and node.module
-            and (node.module == "evaluation_foundry" or node.module.startswith("evaluation_foundry."))
+            and (
+                node.module == "evaluation_foundry" or node.module.startswith("evaluation_foundry.")
+            )
         ):
             return True
     return False
