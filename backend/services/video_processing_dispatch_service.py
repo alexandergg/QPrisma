@@ -36,7 +36,7 @@ class VideoProcessingDispatchResult:
 
 
 class VideoProcessingDispatchService:
-    """Dispatch video processing to Celery or the Databricks pilot queue."""
+    """Dispatch video processing to the Databricks Service Bus queue."""
 
     def __init__(self, app_settings=settings):
         self._settings = app_settings
@@ -56,19 +56,6 @@ class VideoProcessingDispatchService:
         index_graph: bool = True,
     ) -> VideoProcessingDispatchResult:
         """Dispatch a video processing job using the configured backend."""
-        backend = self._settings.processing.backend
-        if backend == "celery":
-            return self._dispatch_celery(
-                media_id=media_id,
-                blob_name=blob_name,
-                preset=preset,
-                max_frames=max_frames,
-                pipeline_config=pipeline_config,
-                optimized_pipeline=optimized_pipeline,
-                custom_prompt=custom_prompt,
-                index_graph=index_graph,
-            )
-
         return await self._dispatch_databricks_queue(
             media_id=media_id,
             blob_name=blob_name,
@@ -80,47 +67,6 @@ class VideoProcessingDispatchService:
             optimized_pipeline=optimized_pipeline,
             custom_prompt=custom_prompt,
             index_graph=index_graph,
-        )
-
-    def _dispatch_celery(
-        self,
-        *,
-        media_id: str,
-        blob_name: str,
-        preset: str | None,
-        max_frames: int | None,
-        pipeline_config: dict[str, Any],
-        optimized_pipeline: bool,
-        custom_prompt: str | None,
-        index_graph: bool,
-    ) -> VideoProcessingDispatchResult:
-        """Dispatch to the existing Celery pipeline."""
-        from tasks.video_tasks import process_video_pipeline
-
-        celery_config = {
-            "max_frames": max_frames,
-            "custom_prompt": custom_prompt,
-            "index_graph": index_graph,
-            "preset": preset,
-        }
-        if optimized_pipeline:
-            celery_config["optimized_pipeline"] = True
-            celery_config["pipeline_config"] = pipeline_config
-
-        async_result = process_video_pipeline.apply_async(args=[media_id, blob_name, celery_config])
-        enriched_config = {
-            **pipeline_config,
-            "dispatch": {
-                "backend": "celery",
-                "task_id": async_result.id,
-                "queued_at": datetime.now(UTC).isoformat(),
-            },
-        }
-        logger.info("Queued video processing via Celery")
-        return VideoProcessingDispatchResult(
-            job_id=async_result.id,
-            backend="celery",
-            pipeline_config=enriched_config,
         )
 
     async def _dispatch_databricks_queue(

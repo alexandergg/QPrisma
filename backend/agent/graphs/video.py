@@ -885,7 +885,7 @@ class VideoAgentGraph:
 #   - Hosted runtime: Foundry Conversations + ``context.get_history()`` are
 #     the durable source of truth. The graph only needs an in-process
 #     ``MemorySaver`` to run a single turn end-to-end.
-#   - Local / non-hosted callers (Celery worker, evaluations, dev): same
+#   - Local / non-hosted callers (evaluations, dev): same
 #     ``MemorySaver`` semantics — no Redis or Postgres checkpointer is used.
 
 _shared_checkpointer: Any | None = None

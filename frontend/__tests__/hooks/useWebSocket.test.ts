@@ -79,6 +79,7 @@ describe('useJobWebSocket', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
+    localStorage.clear();
   });
   afterEach(() => {
     jest.useRealTimers();
@@ -114,6 +115,20 @@ describe('useJobWebSocket', () => {
 
     expect(result.current.status).toBe('connected');
     expect(result.current.isConnected).toBe(true);
+  });
+
+  it('passes the auth token in the WebSocket URL', async () => {
+    localStorage.setItem('auth_token', 'token with spaces');
+
+    renderHook(() => useJobWebSocket('job-auth'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(WebSocketMock).toHaveBeenCalledWith(
+      expect.stringContaining('/ws/jobs/job-auth?token=token%20with%20spaces'),
+    );
   });
 
   it('handles job_progress messages', async () => {

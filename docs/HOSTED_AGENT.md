@@ -55,10 +55,10 @@ There is **no custom state converter, no Redis-checkpointer, and no
 
 ### Hosted vs local dev
 
-| Aspect | Hosted (Foundry) | Local dev / Celery |
+| Aspect | Hosted (Foundry) | Local dev |
 |---|---|---|
 | Runtime | `azure-ai-agentserver-responses==1.0.0b5` | n/a (LangGraph driven directly) |
-| Entrypoint | `agent/hosted/main.py` | FastAPI routes or worker |
+| Entrypoint | `agent/hosted/main.py` | FastAPI routes or direct graph invocation |
 | Persistence | Foundry Conversations | `MemorySaver` only |
 | Tracer | `AzureAIOpenTelemetryTracer` (compile-time) | None or local OTEL collector |
 | LLM | `ChatOpenAI` against Foundry OpenAI v1 | `AzureChatOpenAI` (account-scoped) |
@@ -127,7 +127,7 @@ async def respond(request: CreateResponse, context: ResponseContext):
 * `MemorySaver` is still used **inside** a single turn so LangGraph can
   resume node-level state if the graph is re-entered (e.g. after a tool
   call in the same `ainvoke`).
-* Redis is still used for Celery, embedding cache, and rate limiting —
+* Redis is still used for embedding cache, WebSocket Pub/Sub, and rate limiting —
   just not for conversation state.
 
 ---

@@ -23,7 +23,7 @@ Usage:
         except WebSocketDisconnect:
             manager.disconnect(websocket, job_id)
 
-    # From a Celery task
+    # From a background processor or status bridge
     await manager.send_job_update(job_id, {
         "progress": 50,
         "stage": "analyzing"
@@ -389,8 +389,8 @@ class RedisPubSubManager:
     across multiple API instances.
 
     Useful when there are multiple backend replicas and a client
-    may be connected to a different instance than the one where
-    the Celery task is running.
+    may be connected to a different instance than the one publishing
+    processing status updates.
     """
 
     def __init__(self, redis_url: str):

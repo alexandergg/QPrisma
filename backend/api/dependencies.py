@@ -42,8 +42,6 @@ security = HTTPBearer()
 _blob_service: BlobServiceClient | None = None
 _openai_client: AzureOpenAI | None = None
 _async_openai_client: AsyncAzureOpenAI | None = None
-_video_processor = None
-_pyav_extractor = None
 
 
 def get_blob_service() -> BlobServiceClient | None:
@@ -91,91 +89,7 @@ def get_async_openai_client() -> AsyncAzureOpenAI | None:
     return _async_openai_client
 
 
-def get_video_processor():
-    """Get or create Video Processor service."""
-    global _video_processor
-    if _video_processor is None:
-        blob_service = get_blob_service()
-        openai_client = get_openai_client()
-        if blob_service and openai_client:
-            from services.video_processor import VideoProcessor
-
-            _video_processor = VideoProcessor(
-                openai_client=openai_client,
-                blob_service=blob_service,
-                container_name=settings.azure.storage_container_name,
-            )
-    return _video_processor
-
-
-def get_pyav_extractor():
-    """Get or create PyAVFrameExtractor singleton.
-
-    Returns ``None`` when the ``av`` package is not installed.
-    """
-    global _pyav_extractor
-    if _pyav_extractor is None:
-        try:
-            from services.pyav_extractor import PyAVFrameExtractor, is_pyav_available
-
-            if is_pyav_available():
-                _pyav_extractor = PyAVFrameExtractor()
-            else:
-                logger.debug("PyAV not available — get_pyav_extractor() returning None")
-        except ImportError:
-            logger.debug("pyav_extractor module not found — returning None")
-    return _pyav_extractor
-
-
 _knowledge_graph_service = None
-
-_scene_detect_service = None
-
-_video_decoder = None
-
-
-def get_video_decoder():
-    """Get or create a :class:`VideoDecoder` singleton.
-
-    The decoder backend is selected from ``settings.app.video_decoder_backend``
-    (default ``"pyav"``).  If the requested backend is unavailable the best
-    available decoder is returned instead.
-
-    Returns ``None`` only when **no** decoder can be instantiated (both
-    PyAV and FFmpeg missing).
-    """
-    global _video_decoder
-    if _video_decoder is None:
-        from services.video_decoder import get_best_decoder, get_decoder_by_name
-
-        try:
-            backend = settings.app.video_decoder_backend
-        except Exception:
-            backend = "pyav"
-
-        try:
-            _video_decoder = get_decoder_by_name(backend)
-        except (ValueError, RuntimeError):
-            logger.warning(
-                "Configured decoder %r unavailable — falling back to best available",
-                backend,
-            )
-            try:
-                _video_decoder = get_best_decoder()
-            except RuntimeError:
-                logger.error("No video decoder backend available")
-                return None
-    return _video_decoder
-
-
-def get_scene_detect_service():
-    """Get or create SceneDetectService singleton."""
-    global _scene_detect_service
-    if _scene_detect_service is None:
-        from services.scene_detect_service import SceneDetectService
-
-        _scene_detect_service = SceneDetectService()
-    return _scene_detect_service
 
 
 def get_knowledge_graph_service():
@@ -209,48 +123,6 @@ def get_async_graph_service():
     from services.async_graph_facade import get_async_knowledge_graph_facade
 
     return get_async_knowledge_graph_facade()
-
-
-_faster_whisper_transcriber = None
-
-
-def get_faster_whisper_transcriber():
-    """Get or create FasterWhisperTranscriber singleton.
-
-    Returns ``None`` when the ``faster-whisper`` package is not installed
-    or the backend is not configured.
-    """
-    global _faster_whisper_transcriber
-    if _faster_whisper_transcriber is None:
-        if settings.azure.whisper_backend != "faster_whisper":
-            logger.debug(
-                "faster-whisper backend not selected (whisper_backend=%s)",
-                settings.azure.whisper_backend,
-            )
-            return None
-        try:
-            from services.faster_whisper_service import (
-                FasterWhisperTranscriber,
-                is_faster_whisper_available,
-            )
-
-            if not is_faster_whisper_available():
-                logger.warning(
-                    "whisper_backend is 'faster_whisper' but the package is not installed. "
-                    "Install with: pip install 'qprisma-backend[gpu]'"
-                )
-                return None
-
-            _faster_whisper_transcriber = FasterWhisperTranscriber(
-                model_size=settings.azure.faster_whisper_model,
-                device=settings.azure.faster_whisper_device,
-                compute_type=settings.azure.faster_whisper_compute_type,
-                batch_size=settings.azure.faster_whisper_batch_size,
-            )
-        except Exception:
-            logger.exception("Failed to create FasterWhisperTranscriber")
-            return None
-    return _faster_whisper_transcriber
 
 
 def get_graph_search_service():

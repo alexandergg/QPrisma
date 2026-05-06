@@ -13,6 +13,7 @@ For the full architecture portfolio and the related Solution Architect views, st
 - [Secrets Management](#secrets-management)
 - [Deployment Flow](#deployment-flow)
   - [Entra ID SPA Redirect URI Sync](#entra-id-spa-redirect-uri-sync)
+- [Databricks Dispatch Runbook](#databricks-dispatch-runbook)
 - [Multi-Region Strategy](#multi-region-strategy)
 - [Monitoring & Observability](#monitoring--observability)
 - [Troubleshooting](#troubleshooting)
@@ -44,14 +45,14 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 │  ┌──────────────────── VNet (10.0.0.0/16) ─────────────────────┐   │
 │  │                  Container Apps Environment                  │   │
 │  │                                                              │   │
-│  │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐  │   │
-│  │  │  API (ext)  │  │ Frontend(ext)│  │  Worker (int)     │  │   │
-│  │  │  Port 8000  │  │  Port 3000   │  │  Celery + KEDA    │  │   │
-│  │  │  0.5C/1Gi   │  │  0.25C/0.5Gi │  │  1C/2Gi           │  │   │
-│  │  │  1-2 rep    │  │  1-2 rep     │  │  1-3 rep (scaler) │  │   │
-│  │  └──────┬──────┘  └──────┬───────┘  └──────┬────────────┘  │   │
-│  │         │                │                  │               │   │
-│  │  └──────┴────────────────┴──────────────────┴────────────┘  │   │
+│  │  ┌─────────────┐  ┌──────────────┐                           │   │
+│  │  │  API (ext)  │  │ Frontend(ext)│                           │   │
+│  │  │  Port 8000  │  │  Port 3000   │                           │   │
+│  │  │  0.5C/1Gi   │  │  0.25C/0.5Gi │                           │   │
+│  │  │  1-2 rep    │  │  1-2 rep     │                           │   │
+│  │  └──────┬──────┘  └──────┬───────┘                           │   │
+│  │         │                │                                    │   │
+│  │  └──────┴────────────────┴─────────────────────────────────┘ │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 │                                                                     │
 │  ┌────────────────────────────────────────────────────────────┐     │
@@ -95,11 +96,10 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 |-----|------|-----------|----------|---------|---------|
 | `ca-qprisma-api-{env}` | API Server | 0.5 CPU / 1Gi | 1–2 | HTTP concurrent requests (>10) | External (HTTPS) |
 | `ca-qprisma-web-{env}` | Frontend | 0.25 CPU / 0.5Gi | 1–2 | HTTP concurrent requests (>20) | External (HTTPS) |
-| `ca-qprisma-worker-{env}` | Celery Worker | 1 CPU / 2Gi | 1–3 | KEDA Redis scaler (queue >5) | None (internal) |
 
 **Key Design Decisions:**
-- **Managed Identity**: API, Worker, and Frontend use a shared user-assigned identity for ACR pulls and Key Vault-backed secret resolution; API and Worker keep system-assigned identities for runtime Azure SDK auth
-- **KEDA Autoscaling**: Worker scales based on Celery Redis queue depth, with 600s graceful termination
+- **Managed Identity**: API and Frontend use a shared user-assigned identity for ACR pulls and Key Vault-backed secret resolution; API keeps a system-assigned identity for runtime Azure SDK auth
+- **Async processing**: Video processing is dispatched through Service Bus to the Databricks bridge Function, not a Container Apps worker
 - **Min Replicas = 1**: API and Frontend always have at least 1 replica to avoid cold start latency
 
 ### Data Tier
@@ -125,7 +125,7 @@ The Databricks pilot is opt-in through `enableDatabricksPilot`. Bicep provisions
 | Service Bus queue `video-processing` | Durable dispatch handoff from QPrisma API to the bridge |
 | Azure Function bridge | Consumes dispatch messages, starts Databricks Jobs, and polls the Databricks outbox |
 
-The API control plane keeps `PROCESSING_BACKEND=celery` by default in `dev` for safe fallback. Switching to `servicebus` or `databricks` publishes dispatch payloads to Service Bus instead of invoking Celery directly.
+The API control plane uses `PROCESSING_BACKEND=servicebus` by default in `dev`. `servicebus` and `databricks` both publish dispatch payloads to Service Bus; the Azure Function bridge owns Databricks Jobs API `run-now` and outbox projection.
 
 The Function bridge has two triggers:
 
@@ -152,7 +152,35 @@ Known pilot limitations:
 - The QPrisma upload account `stqprismadev` is Blob/non-HNS and cannot be registered directly as a Unity Catalog external location. For the current `dev` pilot, stage Databricks-bound media into the managed Unity Catalog volume and pass `source_media.volume_path` using a logical `/Volumes/dbw_qprisma_dev/video/source_media/...` path.
 - The lakehouse `raw` container is HNS-enabled, but external-location access requires a storage credential that is not restricted to Databricks-managed storage paths.
 - `databricks bundle validate --target dev` requires the Databricks CLI to be installed and visible on PATH.
-- Celery remains the operational fallback until Databricks cost, duration, status fidelity and retry behavior are accepted.
+- Full end-to-end processing requires the Databricks Asset Bundle job ID and SQL warehouse ID to be configured in GitHub environment variables.
+
+### Databricks dispatch runbook
+
+Use this runbook after infrastructure or bundle changes, and before considering the Databricks processing path production-ready in an environment.
+
+#### Required environment configuration
+
+| Surface | Required values |
+|---|---|
+| GitHub environment variables | `DATABRICKS_VIDEO_JOB_ID`, `DATABRICKS_SQL_WAREHOUSE_ID`, `DATABRICKS_OUTBOX_CATALOG`, `DATABRICKS_OUTBOX_SCHEMA`, `DATABRICKS_OUTBOX_TABLE`, `DATABRICKS_BRIDGE_AUTH_TYPE` |
+| GitHub environment secrets | Auth-specific values such as `DATABRICKS_BRIDGE_CLIENT_SECRET` or temporary `DATABRICKS_BRIDGE_TOKEN` when not using managed identity |
+| API Container App | `PROCESSING_BACKEND=servicebus`, `SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE`, `SERVICE_BUS_VIDEO_PROCESSING_QUEUE_NAME`, `SERVICE_BUS_MANAGED_IDENTITY_CLIENT_ID` |
+| Function bridge | Databricks workspace URL/job ID, SQL warehouse/outbox settings, Service Bus queue settings, PostgreSQL connection settings |
+| Databricks bundle | Deployed job from `databricks\video-pipeline` and matching Unity Catalog catalog/schema/table names |
+
+#### Cloud smoke test
+
+1. Upload a small video through the frontend or `POST /upload`.
+2. Confirm the media row is created with `processing_status` set to `queued` or `processing`.
+3. Confirm one message is consumed from the Service Bus `video-processing` queue by the Function bridge.
+4. Confirm the Function bridge calls Databricks Jobs API `run-now` and records the `databricks_run_id` in media dispatch metadata.
+5. Confirm the Databricks run writes rows to `${DATABRICKS_OUTBOX_CATALOG}.${DATABRICKS_OUTBOX_SCHEMA}.${DATABRICKS_OUTBOX_TABLE}`.
+6. Confirm the timer-triggered outbox projection updates PostgreSQL `media.processing_status`, `processing_progress`, and `processing_result`.
+7. Confirm the frontend sees progress through `/media/{media_id}/status` and, when available, `/ws/jobs/{job_id}`.
+
+#### Operational cleanup after Celery removal
+
+Azure incremental deployments do not automatically delete resources that disappear from the Bicep template. After deploying this cleanup, check whether `ca-qprisma-worker-{env}` or old worker-related RBAC assignments still exist. Remove them manually or through a controlled cleanup task only after confirming no active deployment references `qprisma-worker`.
 
 ### AI Tier
 
@@ -161,7 +189,6 @@ Known pilot limitations:
 | `gpt-5.5` | GPT-5.5 | GlobalStandard | 160K TPM |
 | `text-embedding-3-large` | text-embedding-3-large | GlobalStandard | 350K TPM |
 | `whisper` | Whisper | Standard | 3 RPM |
-| `gpt-5.1-batch` | GPT-5.1 (Batch) | GlobalBatch | 200M enqueued tokens (conditional) |
 
 ### Security Tier
 
@@ -169,7 +196,7 @@ Known pilot limitations:
 |---------|--------|
 | Key Vault | Standard SKU, RBAC authorization, soft delete (7-day retention) |
 | Container Registry | Basic tier, admin user disabled, ARM-token auth enabled for managed-identity image pulls |
-| Managed Identity | Shared runtime UAMI granted "AcrPull" + "Key Vault Secrets User"; API + Worker system identities granted Storage Blob Data Contributor and Azure OpenAI access |
+| Managed Identity | Shared runtime UAMI granted "AcrPull" + "Key Vault Secrets User"; API system identity granted Storage Blob Data Contributor and Azure OpenAI access; Function bridge identity granted Service Bus/Databricks-related access |
 
 ---
 
@@ -225,7 +252,6 @@ Runs 5 parallel jobs:
 
 ```
 detect-changes ──┬──▶ build-api ────────┬──▶ trigger-deploy
-                 ├──▶ build-worker ─────┤
                  └──▶ build-frontend ───┘
 ```
 
@@ -233,7 +259,6 @@ detect-changes ──┬──▶ build-api ────────┬──▶
 |-----|-----------|------------|-----------|
 | `detect-changes` | Always | — | — |
 | `build-api` | Backend changed OR manual | `backend/Dockerfile` | `qprisma-api:{sha}` + `latest` |
-| `build-worker` | Backend changed OR manual | `backend/Dockerfile.worker` | `qprisma-worker:{sha}` + `latest` |
 | `build-frontend` | Frontend changed OR manual | `frontend/Dockerfile` | `qprisma-frontend:{sha}` + `latest` |
 | `trigger-deploy` | Any build succeeded | — | Dispatches `deploy-app.yml` |
 
@@ -285,7 +310,6 @@ jwtSecretKey=${{ secrets.JWT_SECRET_KEY }}
 
 ```
 deploy-api ──▶ deploy-frontend ──▶ smoke-test
-deploy-worker ──────────────────▶ smoke-test
 ```
 
 #### Deployment Strategy (per container app)
@@ -303,7 +327,6 @@ Each container app follows this rolling update pattern:
 | App | Health Endpoint | Rollback | Depends On |
 |-----|----------------|----------|------------|
 | API | `GET /health` (HTTP 200) | ✅ Yes | — |
-| Worker | — | ❌ No | — |
 | Frontend | `GET /` (HTTP 200) | ✅ Yes | API |
 
 #### Smoke Test
@@ -370,7 +393,6 @@ infra/
     ├── container-apps-env.bicep   # Managed environment + VNet + Log Analytics
     ├── container-app-api.bicep    # API container app
     ├── container-app-frontend.bicep  # Frontend container app
-    ├── container-app-worker.bicep    # Celery worker with KEDA scaler
     ├── container-registry.bicep   # ACR for Docker images
     ├── key-vault.bicep            # Key Vault + RBAC roles
     ├── neo4j.bicep                # Legacy self-hosted Neo4j module kept only for cleanup/migration compatibility
@@ -385,7 +407,7 @@ infra/
 Phase 1 (Parallel):  Storage, PostgreSQL, Redis, ACR, AI Foundry
 Phase 2:             Container Apps Environment (VNet + Log Analytics)
 Phase 3:             User-assigned runtime identity + Key Vault + runtime secrets
-Phase 4:             API + Worker Container Apps (need foundation services + runtime identity + Key Vault refs)
+Phase 4:             API Container App (needs foundation services + runtime identity + Key Vault refs)
 Phase 5:             Frontend Container App (needs API FQDN + runtime identity for ACR pulls)
 ```
 
@@ -410,23 +432,22 @@ Phase 5:             Frontend Container App (needs API FQDN + runtime identity f
 
 | Secret Name | Source | Used By |
 |-------------|--------|---------|
-| `database-url` | PostgreSQL FQDN + credentials | API, Worker |
-| `redis-url` | Redis hostname + access key | API, Worker |
-| `neo4j-password` | Parameter | API, Worker |
+| `database-url` | PostgreSQL FQDN + credentials | API |
+| `redis-url` | Redis hostname + access key | API |
+| `neo4j-password` | Parameter | API |
 | `jwt-secret-key` | Parameter | API |
 
 **Environment Variables:**
 
 | Variable | Value | Used By |
 |----------|-------|---------|
-| `AZURE_OPENAI_ENDPOINT` | AI Foundry endpoint | API, Worker |
-| `AZURE_USE_MANAGED_IDENTITY` | `true` in Azure runtime | API, Worker |
-| `AZURE_STORAGE_ACCOUNT_URL` | Storage blob endpoint | API, Worker |
-| `AZURE_OPENAI_DEPLOYMENT_GPT` | `gpt-5.5` | API, Worker |
-| `AZURE_OPENAI_DEPLOYMENT_GPT_BATCH` | `gpt-5.1-batch` | API, Worker |
-| `AZURE_OPENAI_DEPLOYMENT_EMBEDDING` | `text-embedding-3-large` | API, Worker |
-| `NEO4J_URI` | `neo4j+s://<managed-neo4j-host>` | API, Worker |
-| `ENVIRONMENT` | `dev`/`staging`/`production` | API, Worker |
+| `AZURE_OPENAI_ENDPOINT` | AI Foundry endpoint | API |
+| `AZURE_USE_MANAGED_IDENTITY` | `true` in Azure runtime | API |
+| `AZURE_STORAGE_ACCOUNT_URL` | Storage blob endpoint | API |
+| `AZURE_OPENAI_DEPLOYMENT_GPT` | `gpt-5.5` | API |
+| `AZURE_OPENAI_DEPLOYMENT_EMBEDDING` | `text-embedding-3-large` | API |
+| `NEO4J_URI` | `neo4j+s://<managed-neo4j-host>` | API |
+| `ENVIRONMENT` | `dev`/`staging`/`production` | API |
 | `CORS_ALLOWED_ORIGINS` | Frontend FQDN | API |
 | `NEXT_PUBLIC_API_URL` | API FQDN | Frontend |
 
@@ -473,7 +494,7 @@ GitHub Secrets
                                                               │
                                                               ▼
                                                      Managed Identity access
-                                                     (API + Worker apps)
+                                                     (API app)
 ```
 
 ### Hosted Agent secret flow
@@ -615,7 +636,6 @@ QPrisma deploys resources across 2 Azure regions for optimal performance and ser
 |-----|--------------|----------------|-----------------|
 | API | `GET /health` (60s timeout) | `GET /health` (90s) | `GET /health` |
 | Frontend | TCP 3000 | TCP 3000 | TCP 3000 |
-| Worker | — | — | — |
 
 ### CI/CD Observability
 - GitHub Step Summaries with deployment details (resource URLs, image tags)
@@ -666,7 +686,17 @@ QPrisma deploys resources across 2 Azure regions for optimal performance and ser
 - Ensure `NEO4J_PASSWORD` matches the initial password from provisioning
 - For local dev, use `bolt://localhost:7687` (docker-compose Neo4j service)
 
-**Problem: Celery tasks failing on Redis Enterprise**
-- Ensure Redis URL includes `ssl_cert_reqs=CERT_NONE` for Azure TLS
-- Verify hash tag prefix `{celery}` is configured for MULTI/EXEC compatibility
-- Check Redis Enterprise cluster mode compatibility settings
+**Problem: video dispatch messages are not reaching Databricks**
+- Verify `PROCESSING_BACKEND` is `servicebus` or `databricks`
+- Confirm `SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` and `SERVICE_BUS_VIDEO_PROCESSING_QUEUE_NAME` are set on the API Container App
+- Check the Databricks bridge Function logs for Service Bus trigger failures and Databricks Jobs API errors
+
+**Problem: Databricks run starts but API status never completes**
+- Confirm `DATABRICKS_SQL_WAREHOUSE_ID` is configured on the Function bridge; without it the outbox timer skips projection
+- Query `${DATABRICKS_OUTBOX_CATALOG}.${DATABRICKS_OUTBOX_SCHEMA}.${DATABRICKS_OUTBOX_TABLE}` for unconsumed rows
+- Check Function timer logs for PostgreSQL update failures before marking outbox rows consumed
+
+**Problem: stale Celery worker resource remains after deployment**
+- Azure incremental mode can leave `ca-qprisma-worker-{env}` behind after the module is removed
+- Confirm current workflows no longer deploy `qprisma-worker`
+- Delete the stale Container App and any worker-specific RBAC assignments through an explicit cleanup change or a reviewed manual operation

@@ -4,8 +4,8 @@ Wraps **every** sync method call with :func:`asyncio.to_thread` so that
 FastAPI route handlers and other async code never block the event loop
 on Neo4j I/O.
 
-The underlying sync service is unchanged — Celery workers and other
-sync consumers continue to use it directly.
+The underlying sync service is unchanged, so tests and sync maintenance
+scripts can continue to use it directly.
 
 Usage in route handlers::
 
@@ -59,7 +59,7 @@ class AsyncKnowledgeGraphFacade:
 
     @property
     def sync_service(self) -> KnowledgeGraphService:
-        """Access the underlying sync service for Celery / tests."""
+        """Access the underlying sync service for tests and maintenance scripts."""
         return self._sync
 
     # ------------------------------------------------------------------

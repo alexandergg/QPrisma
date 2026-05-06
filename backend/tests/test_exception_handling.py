@@ -112,36 +112,6 @@ class TestGraphSearchScoringLogging:
 
 
 # =============================================================================
-# FFmpeg Processor – raise from & debug logging
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestFFmpegProcessorExceptionChain:
-    """Verify ffmpeg_processor uses raise-from for proper exception chaining."""
-
-    def test_get_video_info_preserves_exception_chain(self):
-        from services.ffmpeg_processor import FFmpegVideoProcessor
-
-        processor = FFmpegVideoProcessor()
-
-        with pytest.raises(RuntimeError) as exc_info:
-            processor.get_video_info("/nonexistent/path.mp4")
-
-        # PEP 3134: __cause__ should be set via `raise ... from e`
-        assert (
-            exc_info.value.__cause__ is not None
-        ), "RuntimeError should chain original exception via 'from e'"
-
-    def test_optimal_workers_returns_valid_count(self):
-        from services.ffmpeg_processor import _get_optimal_workers
-
-        result = _get_optimal_workers()
-        assert isinstance(result, int)
-        assert result >= 2
-
-
-# =============================================================================
 # Graph Route Service – exception logging
 # =============================================================================
 

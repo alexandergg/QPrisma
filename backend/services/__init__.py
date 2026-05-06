@@ -4,8 +4,6 @@ Services package for QPrisma.
 This package contains all the service classes used by the API.
 """
 
-from .audio_processor import AudioProcessor
-from .batch_processor import BatchProcessor
 from .cache_service import CacheService, get_cache_service
 from .coverage_analyzer import CoverageAnalyzer
 from .cross_video_search_service import CrossVideoSearchService, get_cross_video_search_service
@@ -14,7 +12,6 @@ from .embedding_service import EmbeddingService, get_embedding_service
 from .enhanced_search import EnhancedSearchService
 from .entity_extractor import EntityExtractor, get_entity_extractor
 from .entra_auth_service import EntraAuthService, get_entra_auth_service
-from .ffmpeg_processor import FFmpegVideoProcessor
 from .foundry_memory_service import FoundryMemoryService, get_foundry_memory_service
 from .graph_expander import GraphExpander
 from .graph_node_repository import GraphNodeRepository
@@ -38,14 +35,8 @@ from .storage_tiering_service import StorageTieringService, get_storage_tiering_
 from .timestamp_calculator import TimestampCalculator
 from .tool_artifact_service import ToolArtifactService, get_tool_artifact_service
 from .user_provisioning_service import UserProvisioningService
-from .video_processor import VideoProcessor
 
 __all__ = [
-    # Core processors
-    "VideoProcessor",
-    "AudioProcessor",
-    "FFmpegVideoProcessor",
-    "BatchProcessor",
     # Video processing specialists
     "CoverageAnalyzer",
     "TimestampCalculator",

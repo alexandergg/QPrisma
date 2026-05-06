@@ -19,8 +19,7 @@ dependencies = [
     # Database (PostgreSQL)
     "sqlalchemy>=2.0.0,<3.0.0",
     "psycopg2-binary>=2.9.9,<3.0.0",
-    # Background Processing
-    "celery[redis]>=5.4.0,<6.0.0",
+    # Cache, WebSocket fan-out, and LangGraph checkpoints
     "redis>=5.2.0,<6.0.0",
     # Knowledge Graph
     "neo4j>=5.26.0,<6.0.0",
@@ -29,12 +28,9 @@ dependencies = [
     "python-louvain>=0.16,<1.0.0",
     "leidenalg>=0.10.0,<1.0.0",
     "igraph>=0.11.0,<1.0.0",
-    # Image/Video Processing
+    # Image hashing/cache utilities
     "pillow>=12.1.1,<13.0.0",
-    "ffmpeg-python>=0.2.0,<1.0.0",
-    "av>=16.0.0,<17.0.0",
     "imagehash>=4.3.0,<5.0.0",
-    "scenedetect[opencv]>=0.6.7,<1.0.0",
     # LangGraph Agent Framework
     "langgraph>=1.0.7,<2.0.0",
     "langchain-core>=1.2.8,<2.0.0",
@@ -64,9 +60,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu = [
-    "faster-whisper>=1.1.0,<2.0.0",
-]
 hosted = [
     # Refreshed Foundry hosted agent preview (Responses API runtime).
     # See: https://learn.microsoft.com/azure/ai-foundry/agents/concepts/hosted-agents
@@ -88,7 +81,7 @@ requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["api", "agent", "core", "models", "services", "tasks", "evaluation_foundry"]
+packages = ["api", "agent", "core", "models", "services", "evaluation_foundry"]
 
 [tool.uv]
 dev-dependencies = [
@@ -151,7 +144,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["api", "services", "models", "tasks", "core", "evaluation_foundry"]
+known-first-party = ["api", "services", "models", "core", "evaluation_foundry"]
 
 # =============================================================================
 # Black Configuration
@@ -216,7 +209,7 @@ markers = [
 # Coverage Configuration
 # =============================================================================
 [tool.coverage.run]
-source = ["api", "services", "models", "core", "agent", "tasks"]
+source = ["api", "services", "models", "core", "agent"]
 branch = true
 omit = [
     "tests/*",

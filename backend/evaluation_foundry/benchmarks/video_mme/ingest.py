@@ -37,6 +37,7 @@ Example
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import logging
@@ -254,7 +255,7 @@ def _wait_for_processing(
     timeout_s: int,
     poll_interval_s: int,
 ) -> str:
-    """Block until the Celery pipeline reports terminal status.
+    """Block until the Databricks processing pipeline reports terminal status.
 
     Returns the final ``processing_status`` (e.g. ``completed``, ``failed``).
     """
@@ -287,10 +288,11 @@ def ingest_records(
     # Imported lazily so `--help` works without backend deps installed.
     from api.dependencies import get_blob_service, get_storage_container_name
     from services.database_service import get_database_service
-    from tasks.video_tasks import process_video_pipeline
+    from services.video_processing_dispatch_service import VideoProcessingDispatchService
 
     db = get_database_service()
     blob_service = get_blob_service()
+    dispatch_service = VideoProcessingDispatchService()
     if blob_service is None:
         raise RuntimeError("Azure Blob Storage is not configured (BLOB env vars missing).")
     container = container_name or get_storage_container_name()
@@ -364,22 +366,28 @@ def ingest_records(
         }
         db.create_media(media_data)
 
-        # Dispatch the same Celery task the API uses.
-        celery_config = {
-            "max_frames": max_frames,
-            "custom_prompt": None,
-            "index_graph": True,
-            "preset": preset,
-        }
-        async_result = process_video_pipeline.apply_async(args=[media_id, blob_name, celery_config])
-        db.update_media(media_id, {"job_id": async_result.id})
+        dispatch_result = asyncio.run(
+            dispatch_service.dispatch_video(
+                media_id=media_id,
+                blob_name=blob_name,
+                user_id=user_id,
+                file_size=file_size,
+                preset=preset,
+                max_frames=max_frames,
+                pipeline_config={"benchmark": BENCHMARK_NAME},
+                optimized_pipeline=True,
+                custom_prompt=None,
+                index_graph=True,
+            )
+        )
+        db.update_media(media_id, dispatch_result.media_updates())
 
         logger.info(
             "Dispatched %s (bucket=%s) as media_id=%s job_id=%s",
             rec.video_id,
             rec.duration_bucket,
             media_id,
-            async_result.id,
+            dispatch_result.job_id,
         )
 
         final_status = _wait_for_processing(
@@ -393,7 +401,7 @@ def ingest_records(
                 "benchmark_video_id": rec.video_id,
                 "media_id": media_id,
                 "duration_bucket": rec.duration_bucket,
-                "job_id": async_result.id,
+                "job_id": dispatch_result.job_id,
                 "status": final_status,
             }
         )
@@ -405,7 +413,6 @@ def ingest_records(
                 final_status,
             )
 
-    # Make `asyncio` import side-effect explicit for linters.
     return summaries
 
 
@@ -516,7 +523,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Resolve the sample and print what would be ingested; do not call Blob/Celery.",
+        help="Resolve the sample and print what would be ingested; do not call Blob/Service Bus.",
     )
     return p
 

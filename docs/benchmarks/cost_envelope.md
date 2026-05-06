@@ -37,7 +37,7 @@ run completes.
   depending on resolution. Not committed; one-time download from HuggingFace.
 - Blob: ~250-400 GB stored under benchmark `media_id`s. Cleanup query in the
   plan (`DELETE FROM media WHERE user_id='user_7541242e88e3' AND benchmark_name IS NOT NULL`).
-- Celery processing: equivalent to ~900 customer uploads. Run once, off-hours.
+- Databricks processing: equivalent to ~900 customer uploads. Run once, off-hours.
 
 ## Quarterly red-team (E3)
 

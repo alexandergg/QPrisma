@@ -142,8 +142,8 @@ The QPrisma trust model can be described in five major zones:
 | Zone | Example components | Security concern |
 |---|---|---|
 | Client zone | Browser, Next.js frontend, authenticated user | Token handling, session integrity, UI exposure |
-| Application zone | FastAPI API, worker, hosted agent integration | Auth enforcement, business authorization, prompt integrity |
-| Messaging/cache zone | Redis, Pub/Sub, Celery broker | Internal event trust, queue isolation, transient data handling |
+| Application zone | FastAPI API, Databricks bridge Function, hosted agent integration | Auth enforcement, business authorization, prompt integrity |
+| Messaging/cache zone | Service Bus, Redis Pub/Sub | Internal event trust, queue isolation, transient data handling |
 | Data zone | Blob, PostgreSQL, Neo4j | Data confidentiality, tenant filtering, backup posture |
 | Control plane zone | GitHub Actions, Azure Resource Manager, Key Vault | Deployment trust, secret access, RBAC governance |
 

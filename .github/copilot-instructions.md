@@ -220,8 +220,11 @@ backend/
 ├── services/                # 24 business logic services
 ├── models/                  # Pydantic models and schemas
 ├── evaluation/              # Video-MME benchmark evaluation pipeline
-├── tasks/                   # Celery workers (celery_app.py, video_tasks.py)
+├── functions/               # Azure Function bridge for Databricks dispatch/status
 └── tests/                   # pytest tests
+
+databricks/
+└── video-pipeline/          # Databricks Asset Bundle + modular video pipeline package
 
 frontend/
 ├── app/                     # Next.js 16 App Router pages
@@ -253,8 +256,8 @@ Key patterns: OIDC auth, path-filtered builds, GHA Docker layer caching, automat
 
 ## Azure Infrastructure
 
-12 Bicep modules in `infra/modules/`:
-- **Compute**: Container Apps (API, Frontend, Worker) + Neo4j in VNet-enabled managed environment
+11 Bicep modules in `infra/modules/`:
+- **Compute**: Container Apps (API, Frontend) + Neo4j in VNet-enabled managed environment
 - **AI**: Azure AI Foundry with 5 model deployments (West Europe)
 - **Data**: PostgreSQL Flex v16 (North Europe), Redis Enterprise, Blob Storage
 - **Security**: Key Vault with RBAC + managed identity access

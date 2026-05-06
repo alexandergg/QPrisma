@@ -124,10 +124,6 @@ def app(reset_settings):
     deps._blob_service = None
     deps._openai_client = None
     deps._async_openai_client = None
-    deps._video_processor = None
-    deps._pyav_extractor = None
-    deps._faster_whisper_transcriber = None
-    deps._video_decoder = None
     deps._graph_search_service = None
 
     import services.benchmark_ingest_service as _bis

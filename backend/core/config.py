@@ -80,35 +80,6 @@ class AzureSettings(BaseSettings):
         default=3,
         description="Maximum concurrent Whisper transcription requests (match RPM limit)",
     )
-    # Global Batch deployment for 50% cost savings on bulk processing
-    openai_deployment_gpt_batch: str | None = Field(
-        default=None,
-        description="Azure OpenAI Global Batch deployment name (e.g., 'gpt-5.1-batch')",
-    )
-
-    # Whisper backend: "azure" (default) or "faster_whisper" (local CTranslate2)
-    whisper_backend: str = Field(
-        default="azure",
-        description="Transcription backend: 'azure' for Azure OpenAI Whisper API, "
-        "'faster_whisper' for local CTranslate2-based inference",
-    )
-    faster_whisper_model: str = Field(
-        default="large-v3",
-        description="faster-whisper model size "
-        "(e.g., 'tiny', 'base', 'small', 'medium', 'large-v3')",
-    )
-    faster_whisper_device: str = Field(
-        default="auto",
-        description="Device for faster-whisper: 'auto', 'cpu', or 'cuda'",
-    )
-    faster_whisper_compute_type: str = Field(
-        default="int8",
-        description="Compute type for faster-whisper: 'int8', 'float16', or 'float32'",
-    )
-    faster_whisper_batch_size: int = Field(
-        default=16,
-        description="Batch size for faster-whisper batched inference pipeline",
-    )
 
     @property
     def is_openai_configured(self) -> bool:
@@ -120,21 +91,6 @@ class AzureSettings(BaseSettings):
             self.storage_connection_string
             or (self.use_managed_identity and self.storage_account_url)
         )
-
-    @property
-    def is_batch_configured(self) -> bool:
-        """Check if Global Batch deployment is configured."""
-        return bool(self.openai_deployment_gpt_batch)
-
-
-class BatchAPISettings(BaseSettings):
-    """Azure OpenAI Batch API configuration."""
-
-    model_config = SettingsConfigDict(env_prefix="BATCH_", extra="ignore")
-
-    # Batch processing settings
-    check_interval_seconds: int = Field(default=30, description="Polling interval for batch status")
-    max_wait_time_seconds: int = Field(default=3600, description="Maximum wait time (1 hour)")
 
 
 class PostgresSettings(BaseSettings):
@@ -196,7 +152,7 @@ class Neo4jSettings(BaseSettings):
 
 
 class RedisSettings(BaseSettings):
-    """Redis configuration for Celery."""
+    """Redis configuration for cache, WebSocket fan-out, and LangGraph checkpoints."""
 
     model_config = SettingsConfigDict(env_prefix="REDIS_", extra="ignore")
 
@@ -225,8 +181,8 @@ class ProcessingSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PROCESSING_", extra="ignore")
 
     backend: str = Field(
-        default="celery",
-        description="Video processing dispatch backend: celery, databricks, or servicebus.",
+        default="servicebus",
+        description="Video processing dispatch backend: servicebus or databricks.",
     )
 
     # Embedding batching
@@ -285,7 +241,7 @@ class ProcessingSettings(BaseSettings):
     @classmethod
     def validate_backend(cls, value: str) -> str:
         normalized = value.strip().lower()
-        allowed = {"celery", "databricks", "servicebus"}
+        allowed = {"databricks", "servicebus"}
         if normalized not in allowed:
             raise ValueError(f"Processing backend must be one of: {', '.join(sorted(allowed))}")
         return normalized
@@ -567,7 +523,6 @@ class Settings(BaseSettings):
 
     app: AppSettings = Field(default_factory=AppSettings)
     azure: AzureSettings = Field(default_factory=AzureSettings)
-    batch: BatchAPISettings = Field(default_factory=BatchAPISettings)
     processing: ProcessingSettings = Field(default_factory=ProcessingSettings)
     service_bus: ServiceBusSettings = Field(default_factory=ServiceBusSettings)
     databricks: DatabricksSettings = Field(default_factory=DatabricksSettings)

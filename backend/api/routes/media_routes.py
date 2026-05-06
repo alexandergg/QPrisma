@@ -32,7 +32,6 @@ from api.dependencies import (
     get_knowledge_graph_service,
     get_media_or_404,
     get_storage_container_name,
-    get_video_processor,
 )
 from api.rate_limit import limiter
 from core.errors import bad_request, forbidden, not_found, service_unavailable
@@ -414,7 +413,6 @@ async def delete_media(media_id: str, current_user: User = Depends(get_current_u
     """
     db = get_database_service()
     blob_service = get_blob_service()
-    video_processor = get_video_processor()
 
     if not blob_service:
         raise service_unavailable("Azure Blob Storage not configured")
@@ -432,9 +430,13 @@ async def delete_media(media_id: str, current_user: User = Depends(get_current_u
         blob_name = media.blob_name
 
         # 1. Delete from Blob Storage
-        if blob_name and video_processor:
+        if blob_name:
             try:
-                video_processor.delete_video(blob_name)
+                blob_client = blob_service.get_blob_client(
+                    container=get_storage_container_name(),
+                    blob=blob_name,
+                )
+                await asyncio.get_running_loop().run_in_executor(None, blob_client.delete_blob)
             except Exception as e:
                 logger.warning(f"Error deleting blob: {e}")
 

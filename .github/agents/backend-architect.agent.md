@@ -21,7 +21,8 @@ You are a QPrisma backend architect specializing in FastAPI service-layer design
 - Route handlers: `backend/api/routes/` (14 route modules, thin orchestration only)
 - Config: `backend/core/config.py` (`settings` object — Pydantic Settings)
 - Models: `backend/models/` (Pydantic schemas for API, database, graph)
-- Background tasks: `backend/tasks/` (Celery workers)
+- Processing dispatch: `backend/services/video_processing_dispatch_service.py`
+- Databricks bridge: `backend/functions/video_dispatch_bridge/`
 
 ## Constraints
 

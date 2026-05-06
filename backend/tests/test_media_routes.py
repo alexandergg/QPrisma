@@ -29,16 +29,29 @@ class TestUploadMedia:
             patch("api.routes.media_routes.get_blob_service", return_value=mock_blob_service),
             patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
             patch("api.routes.media_routes.get_storage_container_name", return_value="media"),
-            patch("tasks.video_tasks.process_video_pipeline.apply_async") as mock_apply_async,
+            patch(
+                "api.routes.media_routes.get_video_processing_dispatch_service"
+            ) as mock_dispatch_getter,
         ):
-            mock_apply_async.return_value = MagicMock(id="job_test123")
+            dispatch_result = MagicMock()
+            dispatch_result.job_id = "dbx-job-test123"
+            dispatch_result.backend = "servicebus"
+            dispatch_result.media_updates.return_value = {
+                "job_id": "dbx-job-test123",
+                "processing_method": "servicebus",
+                "processing_status": "queued",
+                "pipeline_config": {"dispatch": {"backend": "servicebus"}},
+            }
+            mock_dispatch = MagicMock()
+            mock_dispatch.dispatch_video = AsyncMock(return_value=dispatch_result)
+            mock_dispatch_getter.return_value = mock_dispatch
             resp = authenticated_client.post(
                 "/upload",
                 files={"file": ("test.mp4", BytesIO(b"fake_video_data"), "video/mp4")},
             )
 
         assert resp.status_code == 200
-        assert resp.json()["job_id"] == "job_test123"
+        assert resp.json()["job_id"] == "dbx-job-test123"
 
     def test_upload_image_success(self, authenticated_client, mock_blob_service, mock_db_service):
         with (
@@ -175,7 +188,6 @@ class TestDeleteMedia:
         with (
             patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
             patch("api.routes.media_routes.get_blob_service", return_value=mock_blob_service),
-            patch("api.routes.media_routes.get_video_processor", return_value=None),
         ):
             resp = authenticated_client.delete("/media/nonexistent")
 
@@ -189,7 +201,6 @@ class TestDeleteMedia:
         with (
             patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
             patch("api.routes.media_routes.get_blob_service", return_value=mock_blob_service),
-            patch("api.routes.media_routes.get_video_processor", return_value=None),
         ):
             resp = authenticated_client.delete("/media/some_id")
 
@@ -204,15 +215,19 @@ class TestDeleteMedia:
         with (
             patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
             patch("api.routes.media_routes.get_blob_service", return_value=mock_blob_service),
-            patch("api.routes.media_routes.get_video_processor", return_value=None),
-            patch("services.knowledge_graph.KnowledgeGraphService") as mock_kg_cls,
+            patch("api.routes.media_routes.get_storage_container_name", return_value="media"),
+            patch("api.routes.media_routes.get_knowledge_graph_service") as mock_get_kg,
         ):
             mock_kg = MagicMock()
-            mock_kg.delete_video_subgraph.return_value = True
-            mock_kg_cls.return_value = mock_kg
+            mock_get_kg.return_value = mock_kg
             resp = authenticated_client.delete("/media/some_id")
 
         assert resp.status_code == 200
+        mock_blob_service.get_blob_client.assert_called_once_with(
+            container="media", blob="test.mp4"
+        )
+        mock_blob_service.get_blob_client.return_value.delete_blob.assert_called_once()
+        mock_kg.delete_video_graph.assert_called_once_with("some_id")
 
 
 @pytest.mark.unit

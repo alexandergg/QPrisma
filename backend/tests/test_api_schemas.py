@@ -11,7 +11,6 @@ from pydantic import ValidationError
 from models.api_schemas import (
     ChatRequest,
     JobStatus,
-    ProcessingConfig,
     SearchRequest,
 )
 
@@ -84,26 +83,6 @@ class TestSearchRequest:
     def test_limit_too_low(self):
         with pytest.raises(ValidationError):
             SearchRequest(query="test", limit=0)
-
-
-# =============================================================================
-# ProcessingConfig
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestProcessingConfig:
-    def test_defaults(self):
-        config = ProcessingConfig()
-        assert config.extract_frames is True
-        assert config.transcribe_audio is True
-        assert config.max_frames == 100
-        assert config.use_batch_api is True
-
-    def test_custom_values(self):
-        config = ProcessingConfig(max_frames=50, use_batch_api=False, priority="high")
-        assert config.max_frames == 50
-        assert config.use_batch_api is False
 
 
 # =============================================================================

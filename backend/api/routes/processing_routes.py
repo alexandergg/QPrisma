@@ -1,23 +1,19 @@
 """
 Processing Routes
 
-Handles video processing pipeline preview and presets.
+Handles video processing presets.
 Uses PostgreSQL for metadata storage (replaces Cosmos DB).
 """
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from api.dependencies import (
     get_current_user,
-    get_video_processor,
 )
 from models.ffmpeg_config import (
-    FFmpegProcessingConfig,
-    FrameExtractionConfig,
     ProcessingPreset,
-    VideoFilterConfig,
     get_preset_config,
 )
 from models.user import User
@@ -47,60 +43,6 @@ def _get_preset_description(preset: ProcessingPreset) -> str:
 # =============================================================================
 # Routes
 # =============================================================================
-
-
-@router.get("/pipeline/preview")
-async def get_pipeline_preview(
-    preset: ProcessingPreset | None = None,
-    extraction_method: str | None = None,
-    fps: float | None = None,
-    max_frames: int | None = None,
-    scale_width: int | None = None,
-    scale_height: int | None = None,
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Get a preview of the processing pipeline without executing it.
-    Useful for frontend visualization.
-    """
-    processor = get_video_processor()
-
-    if not processor:
-        raise HTTPException(status_code=503, detail="Video processor not available")
-
-    try:
-        config = None
-
-        if any([extraction_method, fps, max_frames, scale_width, scale_height]):
-            from models.ffmpeg_config import FrameExtractionMethod
-
-            frame_config = FrameExtractionConfig()
-            if extraction_method:
-                frame_config.method = FrameExtractionMethod(extraction_method)
-            if fps:
-                frame_config.fps = fps
-            if max_frames:
-                frame_config.max_frames = max_frames
-
-            filter_config = VideoFilterConfig()
-            if scale_width:
-                filter_config.scale_width = scale_width
-            if scale_height:
-                filter_config.scale_height = scale_height
-
-            config = FFmpegProcessingConfig(
-                frame_extraction=frame_config, video_filters=filter_config
-            )
-        elif preset:
-            config = get_preset_config(preset)
-
-        pipeline = processor.get_processing_pipeline_preview(config=config, preset=preset)
-
-        return pipeline.dict()
-
-    except Exception as e:
-        logger.error(f"Pipeline preview failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Processing operation failed") from e
 
 
 @router.get("/presets")
