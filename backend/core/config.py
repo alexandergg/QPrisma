@@ -6,12 +6,15 @@ All environment variables are loaded and validated here.
 """
 
 import importlib.metadata
+import logging
 import os
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, EnvSettingsSource, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from openai import AsyncAzureOpenAI, AzureOpenAI
@@ -151,18 +154,6 @@ class Neo4jSettings(BaseSettings):
         return bool(self.uri)
 
 
-class RedisSettings(BaseSettings):
-    """Redis configuration for cache, WebSocket fan-out, and LangGraph checkpoints."""
-
-    model_config = SettingsConfigDict(env_prefix="REDIS_", extra="ignore")
-
-    url: str = Field(default="redis://localhost:6379/0")
-
-    @property
-    def is_configured(self) -> bool:
-        return bool(self.url)
-
-
 class BenchmarkSettings(BaseSettings):
     """Benchmark automation configuration."""
 
@@ -182,7 +173,11 @@ class ProcessingSettings(BaseSettings):
 
     backend: str = Field(
         default="servicebus",
-        description="Video processing dispatch backend: servicebus or databricks.",
+        description=(
+            "Processing dispatch mechanism (deprecated alias: 'databricks' -> 'servicebus'). "
+            "All video processing is dispatched via Azure Service Bus to the Databricks consumer. "
+            "For operational clarity, prefer PROCESSING_BACKEND=servicebus or unset to use default."
+        ),
     )
 
     # Embedding batching
@@ -240,11 +235,32 @@ class ProcessingSettings(BaseSettings):
     @field_validator("backend")
     @classmethod
     def validate_backend(cls, value: str) -> str:
+        """Normalize backend setting.
+
+        Accepts 'servicebus' or legacy 'databricks' alias (both dispatch via Service Bus).
+        Returns normalized 'servicebus' value.
+
+        Rationale: All video processing is dispatched to Azure Service Bus regardless of
+        the backend setting. The 'databricks' alias is deprecated and maps to 'servicebus'
+        for backwards compatibility with existing deployments.
+        """
         normalized = value.strip().lower()
-        allowed = {"databricks", "servicebus"}
-        if normalized not in allowed:
-            raise ValueError(f"Processing backend must be one of: {', '.join(sorted(allowed))}")
-        return normalized
+
+        if normalized == "databricks":
+            logger.warning(
+                "PROCESSING_BACKEND='databricks' is deprecated (legacy alias). "
+                "All video processing is dispatched via Azure Service Bus. "
+                "Update to PROCESSING_BACKEND='servicebus' or unset to use default."
+            )
+            return "servicebus"
+
+        if normalized == "servicebus":
+            return "servicebus"
+
+        raise ValueError(
+            "PROCESSING_BACKEND must be 'servicebus'. "
+            "(Legacy value 'databricks' is deprecated but still accepted as an alias.)"
+        )
 
 
 class ServiceBusSettings(BaseSettings):
@@ -489,8 +505,6 @@ class AppSettings(BaseSettings):
     disable_startup_healthchecks: bool = Field(
         default=False, description="Skip health checks on startup"
     )
-    disable_redis_pubsub: bool = Field(default=False, description="Disable Redis pub/sub listener")
-
     # CORS
     cors_origins: list[str] = Field(
         default=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -528,7 +542,6 @@ class Settings(BaseSettings):
     databricks: DatabricksSettings = Field(default_factory=DatabricksSettings)
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
-    redis: RedisSettings = Field(default_factory=RedisSettings)
     benchmark: BenchmarkSettings = Field(default_factory=BenchmarkSettings)
     artifacts: ArtifactSettings = Field(default_factory=ArtifactSettings)
     community: CommunitySettings = Field(default_factory=CommunitySettings)

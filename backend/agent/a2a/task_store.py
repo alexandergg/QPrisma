@@ -32,7 +32,7 @@ class TaskStore:
     In-memory task store for A2A task management.
 
     In production, this should be replaced with a persistent store
-    (Redis, PostgreSQL, etc.) for durability and multi-instance support.
+    such as PostgreSQL for durability and multi-instance support.
     """
 
     def __init__(self):

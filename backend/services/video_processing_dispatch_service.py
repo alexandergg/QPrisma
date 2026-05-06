@@ -36,10 +36,21 @@ class VideoProcessingDispatchResult:
 
 
 class VideoProcessingDispatchService:
-    """Dispatch video processing to the Databricks Service Bus queue."""
+    """Dispatch video processing work via Azure Service Bus to the Databricks consumer.
+
+    This service publishes durable events to Azure Service Bus for consumption by the
+    Databricks video pipeline. All video processing, regardless of the PROCESSING_BACKEND
+    setting, is dispatched through this same Service Bus pathway.
+    """
 
     def __init__(self, app_settings=settings):
         self._settings = app_settings
+
+    @property
+    def _dispatch_backend(self) -> str:
+        """Return the canonical backend name recorded for dispatch metadata."""
+        backend = self._settings.processing.backend.strip().lower()
+        return "servicebus" if backend == "databricks" else backend
 
     async def dispatch_video(
         self,
@@ -55,7 +66,7 @@ class VideoProcessingDispatchService:
         custom_prompt: str | None = None,
         index_graph: bool = True,
     ) -> VideoProcessingDispatchResult:
-        """Dispatch a video processing job using the configured backend."""
+        """Dispatch a video processing job via the Service Bus pathway."""
         return await self._dispatch_databricks_queue(
             media_id=media_id,
             blob_name=blob_name,
@@ -83,12 +94,36 @@ class VideoProcessingDispatchService:
         custom_prompt: str | None,
         index_graph: bool,
     ) -> VideoProcessingDispatchResult:
-        """Publish a durable event for the Databricks video pipeline."""
+        """Publish a durable event to Azure Service Bus for the Databricks video pipeline.
+
+        This method is the sole dispatch pathway used regardless of PROCESSING_BACKEND
+        configuration. Both 'servicebus' and legacy 'databricks' settings use this path.
+        The method name is historical and refers to the consumer (Databricks), not the
+        dispatch mechanism (Service Bus).
+
+        Args:
+            media_id: Unique video media identifier
+            blob_name: Storage blob name for the video file
+            user_id: User ID owning the video
+            file_size: Video file size in bytes (optional)
+            preset: Processing preset name (e.g., 'balanced', 'high_quality')
+            max_frames: Maximum number of frames to extract
+            pipeline_config: Pipeline configuration dictionary
+            optimized_pipeline: Whether to use optimized pipeline
+            custom_prompt: Custom extraction prompt (optional)
+            index_graph: Whether to index the resulting knowledge graph
+
+        Returns:
+            VideoProcessingDispatchResult with job_id, backend setting, and enriched config
+
+        Raises:
+            VideoProcessingDispatchError: If Service Bus configuration is missing
+        """
         namespace = self._settings.service_bus.fully_qualified_namespace
         queue_name = self._settings.service_bus.video_processing_queue_name
         if not namespace:
             raise VideoProcessingDispatchError(
-                "SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE is required for Databricks dispatch"
+                "SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE is required for video dispatch"
             )
 
         dispatch_id = f"dbx-{uuid.uuid4()}"
@@ -128,7 +163,7 @@ class VideoProcessingDispatchService:
         enriched_config = {
             **pipeline_config,
             "dispatch": {
-                "backend": self._settings.processing.backend,
+                "backend": self._dispatch_backend,
                 "dispatch_id": dispatch_id,
                 "service_bus_queue": queue_name,
                 "databricks_video_job_id": self._settings.databricks.video_job_id,
@@ -143,7 +178,7 @@ class VideoProcessingDispatchService:
         logger.info("Queued video processing via Service Bus")
         return VideoProcessingDispatchResult(
             job_id=dispatch_id,
-            backend=self._settings.processing.backend,
+            backend=self._dispatch_backend,
             pipeline_config=enriched_config,
         )
 
@@ -209,7 +244,7 @@ class VideoProcessingDispatchService:
                         correlation_id=correlation_id,
                         application_properties={
                             "media_id": payload["media_id"],
-                            "backend": self._settings.processing.backend,
+                            "backend": self._dispatch_backend,
                         },
                     )
                 )

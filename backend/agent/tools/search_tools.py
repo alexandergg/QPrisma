@@ -533,7 +533,7 @@ async def _hybrid_search_with_fallback(
                 break
 
         logger.info(
-            "hybrid_search_with_fallback: tier-1 filtered | " "raw=%d accepted=%d (limit=%d)",
+            "hybrid_search_with_fallback: tier-1 filtered | raw=%d accepted=%d (limit=%d)",
             len(search_response.results),
             len(results),
             limit,
@@ -578,7 +578,7 @@ async def _keyword_search_fallback(
     time_range_start: float | None = None,
     time_range_end: float | None = None,
 ) -> tuple[list[dict[str, Any]], int, float, list[str], str]:
-    """Keyword-based Cypher search — no embeddings, no Redis, same pattern as working tools."""
+    """Keyword-based Cypher search — no embeddings or external cache."""
     from services.knowledge_graph import get_knowledge_graph_service
 
     kg = get_knowledge_graph_service()

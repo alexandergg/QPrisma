@@ -1,6 +1,6 @@
 ---
 name: backend-architect
-description: "Use when: FastAPI routes, service extraction, dependency injection, database models, Pydantic schemas, Neo4j queries, PostgreSQL, Redis caching, async patterns, API endpoints, route handlers, backend services, data integration."
+description: "Use when: FastAPI routes, service extraction, dependency injection, database models, Pydantic schemas, Neo4j queries, PostgreSQL, local caching, async patterns, API endpoints, route handlers, backend services, data integration."
 tools: [read, edit, search, execute]
 argument-hint: "Describe the backend feature, service change, or architectural issue."
 handoffs:

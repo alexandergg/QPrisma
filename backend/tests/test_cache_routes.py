@@ -1,8 +1,8 @@
 """
-Tests for api/routes/cache_routes.py
+Tests for api/routes/cache_routes.py.
 
-Covers authentication requirements on cache management endpoints
-and verifies that the health endpoint remains publicly accessible.
+Cache management endpoints expose process-local diagnostics and mutation, so
+they are restricted to superusers. Health remains public.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -28,8 +28,7 @@ def _mock_cache_service():
     mock.clear_all = AsyncMock(return_value=True)
     mock.invalidate_video = AsyncMock(return_value=3)
     mock.invalidate_by_pattern = AsyncMock(return_value=2)
-    mock.config = MagicMock(key_prefix="qprisma", similarity_threshold=8, max_memory_items=500)
-    mock.redis_url = "redis://localhost:6379"
+    mock.config = MagicMock(key_prefix="qprisma", max_memory_items=500)
     return mock
 
 
@@ -44,6 +43,19 @@ def _override_cache(app):
     app.dependency_overrides.pop(get_cache, None)
 
 
+@pytest.fixture
+def admin_client(app, superuser):
+    """TestClient authenticated as a superuser."""
+    from fastapi.testclient import TestClient
+
+    from api.dependencies import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: superuser
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client
+    app.dependency_overrides.pop(get_current_user, None)
+
+
 # =============================================================================
 # Authentication requirement tests — unauthenticated requests must be rejected
 # =============================================================================
@@ -55,8 +67,12 @@ class TestCacheMetricsAuth:
         resp = client.get("/cache/metrics")
         assert resp.status_code in (401, 403)
 
-    def test_authenticated_succeeds(self, authenticated_client, _override_cache):
+    def test_non_superuser_forbidden(self, authenticated_client, _override_cache):
         resp = authenticated_client.get("/cache/metrics")
+        assert resp.status_code == 403
+
+    def test_superuser_succeeds(self, admin_client, _override_cache):
+        resp = admin_client.get("/cache/metrics")
         assert resp.status_code == 200
         body = resp.json()
         assert body["connected"] is True
@@ -69,8 +85,12 @@ class TestCacheMetricsResetAuth:
         resp = client.post("/cache/metrics/reset")
         assert resp.status_code in (401, 403)
 
-    def test_authenticated_succeeds(self, authenticated_client, _override_cache):
+    def test_non_superuser_forbidden(self, authenticated_client, _override_cache):
         resp = authenticated_client.post("/cache/metrics/reset")
+        assert resp.status_code == 403
+
+    def test_superuser_succeeds(self, admin_client, _override_cache):
+        resp = admin_client.post("/cache/metrics/reset")
         assert resp.status_code == 200
         assert resp.json()["message"] == "Metrics reset successfully"
 
@@ -81,8 +101,12 @@ class TestCacheInvalidateAuth:
         resp = client.post("/cache/invalidate", json={"clear_all": True})
         assert resp.status_code in (401, 403)
 
-    def test_authenticated_clear_all(self, authenticated_client, _override_cache):
+    def test_non_superuser_forbidden(self, authenticated_client, _override_cache):
         resp = authenticated_client.post("/cache/invalidate", json={"clear_all": True})
+        assert resp.status_code == 403
+
+    def test_superuser_clear_all(self, admin_client, _override_cache):
+        resp = admin_client.post("/cache/invalidate", json={"clear_all": True})
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is True
@@ -95,8 +119,12 @@ class TestCacheInvalidateVideoAuth:
         resp = client.delete("/cache/video/vid_123")
         assert resp.status_code in (401, 403)
 
-    def test_authenticated_succeeds(self, authenticated_client, _override_cache):
+    def test_non_superuser_forbidden(self, authenticated_client, _override_cache):
         resp = authenticated_client.delete("/cache/video/vid_123")
+        assert resp.status_code == 403
+
+    def test_superuser_succeeds(self, admin_client, _override_cache):
+        resp = admin_client.delete("/cache/video/vid_123")
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is True
@@ -129,19 +157,23 @@ class TestCacheConfigSecurity:
         resp = client.get("/cache/config")
         assert resp.status_code in (401, 403)
 
-    def test_config_authenticated_succeeds(self, authenticated_client, _override_cache):
+    def test_config_non_superuser_forbidden(self, authenticated_client, _override_cache):
         resp = authenticated_client.get("/cache/config")
+        assert resp.status_code == 403
+
+    def test_config_superuser_succeeds(self, admin_client, _override_cache):
+        resp = admin_client.get("/cache/config")
         assert resp.status_code == 200
         body = resp.json()
         assert body["enabled"] is True
         assert body["key_prefix"] == "qprisma"
+        assert "similarity_threshold" not in body
 
-    def test_config_does_not_expose_redis_url(self, authenticated_client, _override_cache):
-        resp = authenticated_client.get("/cache/config")
+    def test_config_does_not_expose_external_cache_url(self, admin_client, _override_cache):
+        resp = admin_client.get("/cache/config")
         assert resp.status_code == 200
         body = resp.json()
-        assert "redis_url" not in body
-        assert "redis" not in str(body).lower() or "redis" in body.get("key_prefix", "").lower()
+        assert "url" not in body
 
 
 # =============================================================================

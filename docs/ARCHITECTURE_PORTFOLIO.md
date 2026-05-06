@@ -66,8 +66,8 @@ QPrisma documentation uses the following view types:
 |---|---|
 | `docs/VIDEO_INGESTION_ARCHITECTURE.md` | Service Bus + Databricks ingestion and enrichment pipeline |
 | `docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md` | Hosted agent request path, StateGraph loop, retrieval, tool orchestration |
-| `docs/DATA_KNOWLEDGE_ARCHITECTURE.md` | Blob, PostgreSQL, Redis, Neo4j, artifacts, graph, and retrieval context lifecycle |
-| `docs/SECURITY_IDENTITY_ARCHITECTURE.md` | Entra ID, WebSocket auth, managed identities, Key Vault, trust boundaries |
+| `docs/DATA_KNOWLEDGE_ARCHITECTURE.md` | Blob, PostgreSQL, Neo4j, artifacts, local cache, graph, and retrieval context lifecycle |
+| `docs/SECURITY_IDENTITY_ARCHITECTURE.md` | Entra ID, managed identities, Key Vault, trust boundaries |
 | `docs/OPERATIONS_NFRS_ARCHITECTURE.md` | Reliability, performance, cost, observability, scaling, deployment trade-offs |
 | `docs/SOLUTION_ARCHITECT_PLAYBOOK.md` | Reusable documentation and diagramming guidance for Data & AI workloads |
 

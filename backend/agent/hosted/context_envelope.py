@@ -7,6 +7,8 @@ import json
 import logging
 from typing import Any
 
+from core.legacy_usage import record_legacy_usage
+
 logger = logging.getLogger(__name__)
 
 CONTEXT_PREFIX_B64 = "[QPRISMA_CONTEXT_B64:"
@@ -70,6 +72,7 @@ def _extract_legacy_context(text: str) -> tuple[dict[str, Any], str]:
         logger.warning("QPRISMA_CONTEXT payload is not an object")
         return {}, text
 
+    record_legacy_usage(logger, feature="qprisma_context_legacy")
     return metadata, _strip_single_newline(text[closing_idx + 1 :])
 
 

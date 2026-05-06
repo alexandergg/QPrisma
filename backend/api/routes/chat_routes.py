@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.dependencies import get_async_openai_client, get_current_user, get_graph_search_service
 from core.exceptions import internal_error
+from core.legacy_usage import record_legacy_usage
 from models.api_schemas import (
     ChatRequest,
     ChatResponse,
@@ -22,17 +23,23 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, deprecated=True)
 async def chat(request: ChatRequest, current_user: User = Depends(get_current_user)):
     """
-    Conversational chat endpoint.
+    Classic RAG chat compatibility endpoint.
 
-    If media_id is provided, uses RAG to include video context.
-    Searches both visual content and audio transcriptions.
+    The canonical hosted-agent chat API is A2A (`/a2a/message:stream`).
+    This endpoint remains for clients that still need direct VideoRAG responses.
     """
     openai_client = get_async_openai_client()
     if not openai_client:
         raise HTTPException(status_code=503, detail="Azure OpenAI not configured")
+
+    record_legacy_usage(
+        logger,
+        feature="classic_chat_endpoint",
+        labels={"media_context": bool(request.media_id)},
+    )
 
     try:
         chat_service = ChatService(

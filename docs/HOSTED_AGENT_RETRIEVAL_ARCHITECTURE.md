@@ -226,7 +226,7 @@ The retrieval path includes several security-sensitive boundaries:
 - the user is authenticated before the hosted agent call is made
 - media context includes a user identifier for tenant scoping
 - graph and content retrieval are constrained by user-aware filtering
-- WebSocket and agent-related flows do not bypass the primary identity model
+- agent-related flows do not bypass the primary identity model
 
 Hosted agent design is not only a model orchestration concern. It is also a multi-tenant access-control concern.
 

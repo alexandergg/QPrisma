@@ -9,7 +9,6 @@ import pytest
 from fastapi import HTTPException
 
 from api.routes.graph_routes import (
-    clear_all_graph_data,
     cross_video_search,
     expand_context,
     generate_embeddings,
@@ -25,17 +24,6 @@ from models.graph_route_schemas import (
 
 @pytest.mark.unit
 class TestGraphRouteSecurity:
-    @pytest.mark.asyncio
-    async def test_clear_all_graph_data_requires_superuser(self, test_user):
-        with (
-            patch("api.routes.graph_routes.get_async_graph_service") as mock_service,
-            pytest.raises(HTTPException) as exc_info,
-        ):
-            await clear_all_graph_data(confirm=True, current_user=test_user)
-
-        assert exc_info.value.status_code == 403
-        mock_service.assert_not_called()
-
     @pytest.mark.asyncio
     async def test_get_video_graph_checks_media_ownership(self, test_user):
         mock_route_service = MagicMock()

@@ -177,7 +177,6 @@ jobs:
             ${{ vars.ACR_LOGIN_SERVER }}/qprisma-frontend:latest
           build-args: |
             NEXT_PUBLIC_API_URL=https://${{ steps.resolve-fqdn.outputs.api_fqdn }}
-            NEXT_PUBLIC_WS_URL=wss://${{ steps.resolve-fqdn.outputs.api_fqdn }}
             NEXT_PUBLIC_ENTRA_CLIENT_ID=${{ vars.ENTRA_SPA_CLIENT_ID }}
             NEXT_PUBLIC_ENTRA_AUTHORITY=https://login.microsoftonline.com/${{ vars.ENTRA_TENANT_ID }}
             NEXT_PUBLIC_ENTRA_REDIRECT_URI=https://${{ steps.resolve-frontend-fqdn.outputs.frontend_fqdn }}

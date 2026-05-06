@@ -172,7 +172,7 @@ async def subscribe_to_task(
         yield f"data: {response.model_dump_json(exclude_none=True)}\n\n"
 
         # For now, we don't have a real subscription mechanism
-        # In production, this would use Redis pub/sub or similar
+        # In production, this would use a durable event stream or similar
         # This is a placeholder that returns the final state
         current = await executor.get_task(task_id)
         if current and current.status.state != task.status.state:

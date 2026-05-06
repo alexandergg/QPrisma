@@ -16,7 +16,7 @@ run completes.
 | Tool call overhead | ~2,000 | Average across `search_*`, `analyze_*`, hybrid retrieval |
 | Judge tokens (deterministic path) | 0 | `qprisma.video_mme_mcq` is deterministic regex on the agent answer; **no judge call** in the code-based path |
 | Judge tokens (prompt fallback) | ~200 in / ~5 out | Only if SDK lacks `CodeBasedEvaluatorDefinition` and we use the prompt-judge fallback |
-| Storage write | 0 | Agent reads from the warm Postgres/Neo4j/Redis state; no new artifacts persisted per row |
+| Storage write | 0 | Agent reads from the warm Postgres/Neo4j state and local cache; no new artifacts persisted per row |
 
 ### Per-run totals
 

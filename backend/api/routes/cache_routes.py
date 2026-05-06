@@ -11,7 +11,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies import get_current_user
+from api.dependencies import require_superuser
 from models.cache_models import (
     CacheBackend,
     CacheConfigResponse,
@@ -53,7 +53,7 @@ async def get_cache() -> CacheService:
     """,
 )
 async def get_cache_metrics(
-    current_user: User = Depends(get_current_user), cache: CacheService = Depends(get_cache)
+    _current_user: User = Depends(require_superuser), cache: CacheService = Depends(get_cache)
 ):
     """Gets current cache metrics"""
     metrics = cache.get_metrics()
@@ -77,7 +77,7 @@ async def get_cache_metrics(
     description="Resets the hits, misses, and savings counters to zero.",
 )
 async def reset_cache_metrics(
-    current_user: User = Depends(get_current_user), cache: CacheService = Depends(get_cache)
+    _current_user: User = Depends(require_superuser), cache: CacheService = Depends(get_cache)
 ):
     """Resets cache metrics"""
     cache.reset_metrics()
@@ -122,7 +122,7 @@ async def cache_health(cache: CacheService = Depends(get_cache)):
 )
 async def invalidate_cache(
     request: CacheInvalidateRequest,
-    current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_superuser),
     cache: CacheService = Depends(get_cache),
 ):
     """Invalidates cache according to criteria"""
@@ -184,7 +184,7 @@ async def invalidate_cache(
 )
 async def invalidate_video_cache(
     video_id: str,
-    current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_superuser),
     cache: CacheService = Depends(get_cache),
 ):
     """Invalidates cache for a specific video"""
@@ -209,13 +209,12 @@ async def invalidate_video_cache(
     description="Returns the current cache configuration (connection strings redacted).",
 )
 async def get_cache_config(
-    current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(require_superuser),
     cache: CacheService = Depends(get_cache),
 ):
     """Gets current cache configuration (auth required, credentials redacted)."""
     return CacheConfigResponse(
         enabled=True,
         key_prefix=cache.config.key_prefix,
-        similarity_threshold=cache.config.similarity_threshold,
         max_memory_items=cache.config.max_memory_items,
     )

@@ -355,19 +355,35 @@ class TestEmbeddingStats:
         resp = client.get("/graph/embeddings/stats")
         assert resp.status_code in (401, 403)
 
-    def test_happy_path(self, authenticated_client):
-        with patch(f"{_P}.get_embedding_service", return_value=_embedding_service()):
-            resp = authenticated_client.get("/graph/embeddings/stats")
+    def test_non_superuser_forbidden(self, authenticated_client):
+        resp = authenticated_client.get("/graph/embeddings/stats")
+        assert resp.status_code == 403
+
+    def test_happy_path(self, app, superuser):
+        from api.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: superuser
+        with (
+            TestClient(app, raise_server_exceptions=False) as su_client,
+            patch(f"{_P}.get_embedding_service", return_value=_embedding_service()),
+        ):
+            resp = su_client.get("/graph/embeddings/stats")
         assert resp.status_code == 200
         body = resp.json()
         assert body["total_requests"] == 100
         assert body["cache_hits"] == 30
 
-    def test_service_error_returns_500(self, authenticated_client):
+    def test_service_error_returns_500(self, app, superuser):
+        from api.dependencies import get_current_user
+
+        app.dependency_overrides[get_current_user] = lambda: superuser
         svc = MagicMock()
-        svc.get_stats.side_effect = RuntimeError("redis gone")
-        with patch(f"{_P}.get_embedding_service", return_value=svc):
-            resp = authenticated_client.get("/graph/embeddings/stats")
+        svc.get_stats.side_effect = RuntimeError("cache gone")
+        with (
+            TestClient(app, raise_server_exceptions=False) as su_client,
+            patch(f"{_P}.get_embedding_service", return_value=svc),
+        ):
+            resp = su_client.get("/graph/embeddings/stats")
         assert resp.status_code == 500
 
 

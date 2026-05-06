@@ -17,6 +17,7 @@ import json
 import logging
 from datetime import UTC, datetime
 
+from core.degraded import DegradationImpact, record_degraded_operation
 from models.graph_models import (
     GraphSearchResponse,
     GraphSearchResult,
@@ -307,7 +308,8 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
                 await asyncio.to_thread(self.store_embedding, node_id, embedding, node_type)
 
             total_processed += len(nodes)
-            logger.info(f"Generated {total_processed} embeddings for {label}")
+            safe_label = label[:100].replace("\r", "").replace("\n", "")
+            logger.info("Generated %s embeddings for %s", total_processed, safe_label)
 
         return total_processed
 
@@ -396,8 +398,15 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             if cached:
                 logger.info("hybrid_search: cache HIT | key=%s", cache_key[:12])
                 return GraphSearchResponse(**cached)
-        except Exception:
-            logger.debug("hybrid_search: cache unavailable, skipping", exc_info=True)
+        except Exception as exc:
+            record_degraded_operation(
+                logger,
+                component="graph_search",
+                operation="hybrid_search_cache_read",
+                impact=DegradationImpact.CACHE_READ,
+                exc=exc,
+                level=logging.DEBUG,
+            )
             cache = None
 
         logger.info("hybrid_search: cache MISS | proceeding to embedding")
@@ -520,7 +529,7 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
             _g_start = datetime.now(UTC)
             if _elapsed_s() > _PIPELINE_BUDGET_S - 3.0:
                 logger.warning(
-                    "pipeline: skipping graph expansion (budget) | " "elapsed_s=%.1f candidates=%d",
+                    "pipeline: skipping graph expansion (budget) | elapsed_s=%.1f candidates=%d",
                     _elapsed_s(),
                     len(_all),
                 )
@@ -631,8 +640,15 @@ class GraphSearchService(GraphSearchQueryMixin, GraphSearchScoringMixin):
         if cache is not None:
             try:
                 await cache.set_search_result(cache_key, response.model_dump(mode="json"))
-            except Exception:
-                logger.debug("Failed to cache search result", exc_info=True)
+            except Exception as exc:
+                record_degraded_operation(
+                    logger,
+                    component="graph_search",
+                    operation="hybrid_search_cache_write",
+                    impact=DegradationImpact.CACHE_WRITE,
+                    exc=exc,
+                    level=logging.DEBUG,
+                )
 
         return response
 

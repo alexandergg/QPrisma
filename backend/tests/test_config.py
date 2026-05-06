@@ -16,7 +16,7 @@ from core.config import (
     AzureSettings,
     Neo4jSettings,
     PostgresSettings,
-    RedisSettings,
+    ProcessingSettings,
     Settings,
     get_settings,
 )
@@ -237,36 +237,150 @@ class TestAppSettings:
             s = AppSettings()
         assert s.disable_startup_healthchecks is True
 
-    def test_disable_redis_pubsub_default(self):
-        with patch.dict(os.environ, {}, clear=True):
-            s = AppSettings()
-        assert s.disable_redis_pubsub is False
-
-    def test_disable_redis_pubsub_from_env(self):
-        with patch.dict(os.environ, {"DISABLE_REDIS_PUBSUB": "1"}):
-            s = AppSettings()
-        assert s.disable_redis_pubsub is True
-
 
 # =============================================================================
-# RedisSettings
+# ProcessingSettings
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestRedisSettings:
-    def test_defaults(self):
-        s = RedisSettings()
-        assert s.url == "redis://localhost:6379/0"
+class TestProcessingSettings:
+    """Test video processing backend configuration and backwards compatibility."""
 
-    def test_is_configured(self):
-        s = RedisSettings()
-        assert s.is_configured is True
+    def test_default_backend_is_servicebus(self):
+        s = ProcessingSettings()
+        assert s.backend == "servicebus"
 
+    def test_explicit_servicebus_backend(self):
+        s = ProcessingSettings(backend="servicebus")
+        assert s.backend == "servicebus"
 
-# =============================================================================
-# Root Settings
-# =============================================================================
+    def test_databricks_backend_normalized_to_servicebus(self, caplog):
+        """Legacy 'databricks' alias is normalized to 'servicebus'."""
+        with caplog.at_level("WARNING"):
+            s = ProcessingSettings(backend="databricks")
+        assert s.backend == "servicebus"
+        # Verify deprecation warning is logged
+        assert "databricks" in caplog.text.lower()
+        assert "deprecated" in caplog.text.lower()
+        assert "servicebus" in caplog.text.lower()
+
+    def test_databricks_backend_case_insensitive(self, caplog):
+        """Backend setting normalization is case-insensitive."""
+        with caplog.at_level("WARNING"):
+            s = ProcessingSettings(backend="DATABRICKS")
+        assert s.backend == "servicebus"
+
+    def test_databricks_backend_with_whitespace(self, caplog):
+        """Backend setting normalization handles whitespace."""
+        with caplog.at_level("WARNING"):
+            s = ProcessingSettings(backend="  databricks  ")
+        assert s.backend == "servicebus"
+
+    def test_servicebus_backend_case_insensitive(self):
+        s = ProcessingSettings(backend="SERVICEBUS")
+        assert s.backend == "servicebus"
+
+    def test_invalid_backend_raises_error(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="must be 'servicebus'"):
+            ProcessingSettings(backend="invalid")
+
+    def test_invalid_backend_specific_error_message(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError) as exc_info:
+            ProcessingSettings(backend="redis")
+        assert "must be 'servicebus'" in str(exc_info.value)
+        assert "deprecated but still accepted" in str(exc_info.value)
+
+    def test_default_embedding_batch_size(self):
+        s = ProcessingSettings()
+        assert s.embedding_batch_size == 512
+
+    def test_custom_embedding_batch_size(self):
+        s = ProcessingSettings(embedding_batch_size=1024)
+        assert s.embedding_batch_size == 1024
+
+    def test_default_frame_encoding_format(self):
+        s = ProcessingSettings()
+        assert s.frame_encoding_format == "webp"
+
+    def test_custom_frame_encoding_format(self):
+        s = ProcessingSettings(frame_encoding_format="jpeg")
+        assert s.frame_encoding_format == "jpeg"
+
+    def test_default_frame_encoding_quality(self):
+        s = ProcessingSettings()
+        assert s.frame_encoding_quality == 80
+
+    def test_frame_encoding_quality_bounds(self):
+        from pydantic import ValidationError
+
+        # Too low
+        with pytest.raises(ValidationError):
+            ProcessingSettings(frame_encoding_quality=0)
+
+        # Too high
+        with pytest.raises(ValidationError):
+            ProcessingSettings(frame_encoding_quality=101)
+
+        # Valid edge cases
+        s1 = ProcessingSettings(frame_encoding_quality=1)
+        assert s1.frame_encoding_quality == 1
+        s2 = ProcessingSettings(frame_encoding_quality=100)
+        assert s2.frame_encoding_quality == 100
+
+    def test_default_max_gleanings(self):
+        s = ProcessingSettings()
+        assert s.max_gleanings == 1
+
+    def test_custom_max_gleanings(self):
+        s = ProcessingSettings(max_gleanings=3)
+        assert s.max_gleanings == 3
+
+    def test_max_gleanings_bounds(self):
+        from pydantic import ValidationError
+
+        # Negative not allowed
+        with pytest.raises(ValidationError):
+            ProcessingSettings(max_gleanings=-1)
+
+        # Too high
+        with pytest.raises(ValidationError):
+            ProcessingSettings(max_gleanings=4)
+
+        # Valid edge cases
+        s1 = ProcessingSettings(max_gleanings=0)
+        assert s1.max_gleanings == 0
+        s2 = ProcessingSettings(max_gleanings=3)
+        assert s2.max_gleanings == 3
+
+    def test_streaming_pipeline_disabled_by_default(self):
+        s = ProcessingSettings()
+        assert s.streaming_pipeline_enabled is False
+
+    def test_streaming_pipeline_enabled(self):
+        s = ProcessingSettings(streaming_pipeline_enabled=True)
+        assert s.streaming_pipeline_enabled is True
+
+    def test_default_streaming_batch_size(self):
+        s = ProcessingSettings()
+        assert s.streaming_batch_size == 32
+
+    def test_custom_streaming_batch_size(self):
+        s = ProcessingSettings(streaming_batch_size=64)
+        assert s.streaming_batch_size == 64
+
+    def test_streaming_batch_size_must_be_positive(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            ProcessingSettings(streaming_batch_size=0)
+
+        with pytest.raises(ValidationError):
+            ProcessingSettings(streaming_batch_size=-1)
 
 
 @pytest.mark.unit

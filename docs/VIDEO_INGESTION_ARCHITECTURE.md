@@ -49,7 +49,7 @@ QPrisma extends that baseline with parallel multimodal enrichment, graph indexin
 | Audio analysis | Databricks audio/ASR stages | Audio is chunked, transcribed, and summarized |
 | Semantic indexing | Embedding service + Neo4j | Embeddings and structured nodes are written to the knowledge graph |
 | Enrichment | Summarization + graph builders | Scenes, chapters, entities, communities, and relationships are added |
-| Completion | PostgreSQL + Redis Pub/Sub + WebSocket | Final state is persisted and progress/completion is broadcast |
+| Completion | PostgreSQL status projection | Final state and progress are persisted for authenticated HTTP polling through `/media/{media_id}/status` |
 
 ## 1. Upload and durable handoff
 
@@ -211,8 +211,7 @@ Databricks continuously emits status/outbox records as the pipeline advances. Th
 The completion path combines:
 
 - PostgreSQL for final processing status
-- Redis Pub/Sub for event propagation
-- WebSocket endpoints for real-time UX updates
+- HTTP status polling through `/media/{media_id}/status` as the durable cross-replica progress channel
 
 ## Reliability considerations
 

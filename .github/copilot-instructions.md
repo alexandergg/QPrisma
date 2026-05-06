@@ -7,7 +7,7 @@ This document provides context and guidelines for GitHub Copilot when working wi
 QPrisma is an intelligent multimedia processing platform built with:
 - **Backend**: FastAPI (Python 3.11+) with LangGraph agents
 - **Frontend**: Next.js 16 with React 19
-- **Data**: PostgreSQL, Neo4j Knowledge Graph, Redis Enterprise
+- **Data**: PostgreSQL, Neo4j Knowledge Graph
 - **AI**: Azure AI Foundry (GPT-4o, GPT-5.2-chat, Whisper, text-embedding-3-large)
 - **Infrastructure**: Azure Container Apps, Bicep IaC, GitHub Actions CI/CD
 
@@ -90,7 +90,6 @@ from core.config import settings
 settings.azure.openai_endpoint       # Azure OpenAI
 settings.azure.storage_connection     # Blob Storage
 settings.neo4j.uri                    # Neo4j
-settings.redis.url                    # Redis
 settings.app.environment              # App environment
 ```
 
@@ -130,7 +129,7 @@ async def my_tool(media_id: str, query: str) -> dict:
 
 Use the current layered memory approach:
 - **Checkpointer** for thread-scoped operational state (resume/retry continuity)
-- **Artifact storage** for full tool payloads (`ToolArtifactService`: Redis + Blob + Postgres metadata)
+- **Artifact storage** for full tool payloads (`ToolArtifactService`: Blob + Postgres metadata + local hot-cache)
 - **Foundry Memory Store** for compact semantic summaries (long-term user memory)
 
 Before each model call, prefer:
@@ -233,7 +232,7 @@ frontend/
 
 infra/
 ├── main.bicep               # Bicep orchestrator (12 modules)
-├── modules/                 # ACR, ACA, AI Foundry, PostgreSQL, Redis, Neo4j, etc.
+├── modules/                 # ACR, ACA, AI Foundry, PostgreSQL, Neo4j, etc.
 └── parameters/              # Environment-specific parameters (dev.bicepparam)
 
 .github/
@@ -259,7 +258,7 @@ Key patterns: OIDC auth, path-filtered builds, GHA Docker layer caching, automat
 11 Bicep modules in `infra/modules/`:
 - **Compute**: Container Apps (API, Frontend) + Neo4j in VNet-enabled managed environment
 - **AI**: Azure AI Foundry with 5 model deployments (West Europe)
-- **Data**: PostgreSQL Flex v16 (North Europe), Redis Enterprise, Blob Storage
+- **Data**: PostgreSQL Flex v16 (North Europe), Blob Storage, external managed Neo4j
 - **Security**: Key Vault with RBAC + managed identity access
 - **Observability**: Log Analytics workspace
 
@@ -358,7 +357,7 @@ it('handles click events', async () => {
 
 - Use async/await for I/O operations
 - Implement lazy initialization for expensive resources
-- Use Redis caching for frequent queries
+- Use local best-effort caching for frequent queries
 - Batch Azure OpenAI calls when possible (50% cost savings)
 - Truncate large tool results to prevent context overflow
 - Keep full tool payloads in artifacts and inject compact/ranked context into prompts

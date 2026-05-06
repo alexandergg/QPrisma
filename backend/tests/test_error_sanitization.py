@@ -56,24 +56,27 @@ class TestBatchRoutesRemoved:
 class TestCacheRoutesErrorSanitization:
     """Verify cache invalidation 500 never exposes internal details."""
 
-    def test_invalidate_hides_error(self, authenticated_client, app):
+    def test_invalidate_hides_error(self, authenticated_client, app, superuser):
+        from api.dependencies import get_current_user
         from api.routes.cache_routes import get_cache
 
         mock_cache = AsyncMock()
         mock_cache.clear_all = AsyncMock(
-            side_effect=ConnectionError("Redis AUTH failed: invalid password")
+            side_effect=ConnectionError("Cache backend auth failed: invalid password")
         )
+        app.dependency_overrides[get_current_user] = lambda: superuser
         app.dependency_overrides[get_cache] = lambda: mock_cache
 
         resp = authenticated_client.post("/cache/invalidate", json={"clear_all": True})
 
         assert resp.status_code == 500
         body = resp.json()
-        assert "Redis AUTH" not in body.get("detail", "")
+        assert "Cache backend auth" not in body.get("detail", "")
         assert "password" not in body.get("detail", "")
         assert body["detail"] == "Cache operation failed"
 
         app.dependency_overrides.pop(get_cache, None)
+        app.dependency_overrides.pop(get_current_user, None)
 
 
 # =============================================================================

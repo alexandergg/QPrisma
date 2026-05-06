@@ -1,5 +1,5 @@
 """
-Tests for Redis graph query caching in QPrisma.
+Tests for graph query caching in QPrisma.
 
 Covers:
 1. _build_search_cache_key determinism and param sensitivity
@@ -336,7 +336,7 @@ class TestHybridSearchCacheBehavior:
             patch(
                 "services.cache_service.get_cache_service",
                 new_callable=AsyncMock,
-                side_effect=ConnectionError("Redis down"),
+                side_effect=ConnectionError("Cache unavailable"),
             ),
             patch(
                 "services.graph_search_service.GraphSearchService.vector_search",
@@ -589,7 +589,7 @@ class TestGraphStatsCaching:
             patch(
                 _CACHE_SVC,
                 new_callable=AsyncMock,
-                side_effect=ConnectionError("Redis down"),
+                side_effect=ConnectionError("Cache unavailable"),
             ),
         ):
             resp = authenticated_client.get("/graph/stats")
@@ -771,7 +771,7 @@ class TestCacheInvalidation:
     def test_invalidation_failure_does_not_break_delete(self, authenticated_client):
         """If invalidate_video raises, DELETE still returns success."""
         cache = _mock_cache()
-        cache.invalidate_video = AsyncMock(side_effect=RuntimeError("Redis exploded"))
+        cache.invalidate_video = AsyncMock(side_effect=RuntimeError("Cache exploded"))
 
         with (
             patch(f"{_P}.get_media_or_404", return_value=_mock_media()),
@@ -786,7 +786,7 @@ class TestCacheInvalidation:
     def test_invalidation_failure_does_not_break_hierarchy_process(self, authenticated_client):
         """If invalidate_video raises during hierarchy process, response is still OK."""
         cache = _mock_cache()
-        cache.invalidate_video = AsyncMock(side_effect=RuntimeError("Redis gone"))
+        cache.invalidate_video = AsyncMock(side_effect=RuntimeError("Cache gone"))
 
         payload = {
             "video_path": "/videos/test.mp4",

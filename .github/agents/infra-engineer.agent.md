@@ -17,7 +17,7 @@ You are a QPrisma infrastructure engineer specializing in Azure resources, Bicep
 ## Key References
 
 - Bicep orchestrator: `infra/main.bicep` (12 modules)
-- Bicep modules: `infra/modules/` (ACR, ACA, AI Foundry, PostgreSQL, Redis, Neo4j, Key Vault, Log Analytics, etc.)
+- Bicep modules: `infra/modules/` (ACR, ACA, AI Foundry, PostgreSQL, Neo4j, Key Vault, Log Analytics, etc.)
 - Parameters: `infra/parameters/dev.bicepparam`
 - CI/CD workflows: `.github/workflows/` (ci.yml, build-and-push.yml, deploy-infra.yml, deploy-app.yml)
 - Reusable actions: `.github/actions/`
@@ -30,7 +30,7 @@ You are a QPrisma infrastructure engineer specializing in Azure resources, Bicep
 - **Multi-region**: West Europe (apps + AI), North Europe (PostgreSQL)
 - **Compute**: Azure Container Apps (API, Frontend) + Neo4j in VNet-enabled managed environment
 - **AI**: Azure AI Foundry with 5 model deployments
-- **Data**: PostgreSQL Flex v16, Redis Enterprise, Blob Storage
+- **Data**: PostgreSQL Flex v16, Blob Storage, external managed Neo4j
 - **Security**: Key Vault with RBAC + managed identity
 - **Observability**: Log Analytics workspace
 

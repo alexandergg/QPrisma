@@ -8,17 +8,11 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 /**
- * WebSocket URL - derived from API URL
- */
-export const WS_URL = API_URL.replace(/^http/, 'ws');
-
-/**
  * Application configuration
  */
 export const config = {
   api: {
     baseUrl: API_URL,
-    wsUrl: WS_URL,
     timeout: 30000,
   },
   upload: {

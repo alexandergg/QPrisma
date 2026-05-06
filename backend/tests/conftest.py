@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # initializes the module-level settings singleton.
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("LOG_LEVEL", "WARNING")
-os.environ.setdefault("DISABLE_REDIS_PUBSUB", "1")
 os.environ.setdefault("DISABLE_STARTUP_HEALTHCHECKS", "1")
 
 
@@ -67,7 +66,6 @@ def test_env():
 
     os.environ.setdefault("APP_ENV", "test")
     os.environ.setdefault("LOG_LEVEL", "WARNING")
-    os.environ.setdefault("DISABLE_REDIS_PUBSUB", "1")
     os.environ.setdefault("DISABLE_STARTUP_HEALTHCHECKS", "1")
     # Prevent production validators from firing
     os.environ.pop("ENVIRONMENT", None)
@@ -338,11 +336,6 @@ def skip_if_no_azure():
     """Skip test if Azure credentials are not configured."""
     skip_if_no_env("AZURE_OPENAI_API_KEY")
     skip_if_no_env("AZURE_OPENAI_ENDPOINT")
-
-
-def skip_if_no_redis():
-    """Skip test if Redis is not configured."""
-    skip_if_no_env("REDIS_URL")
 
 
 def skip_if_no_neo4j():

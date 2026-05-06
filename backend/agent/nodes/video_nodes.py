@@ -28,6 +28,7 @@ from agent.state.agent_state import AgentState, VideoContext
 from agent.tools import SEARCH_TOOLS
 from agent.utils.media_helpers import is_letter_only_benchmark, normalize_media_selection
 from core.config import settings
+from core.legacy_usage import record_legacy_usage
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ def _extract_message_envelopes(messages: list, updates: dict) -> None:
         except json.JSONDecodeError:
             logger.warning("QPRISMA_CONTEXT prefix found but payload is malformed")
             return
+        record_legacy_usage(logger, feature="qprisma_context_inline_regex")
         cleaned_content = content[: ctx_match.start()] + content[ctx_match.end() :]
 
     if not ctx:

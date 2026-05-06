@@ -142,7 +142,6 @@ def test_build_environment_variables_defaults_to_secretless_hosted_contract():
     assert env_vars["AZURE_USE_MANAGED_IDENTITY"] == "true"
     assert "NEO4J_PASSWORD" not in env_vars
     assert "DATABASE_URL" not in env_vars
-    assert "REDIS_URL" not in env_vars
     assert "AZURE_STORAGE_CONNECTION_STRING" not in env_vars
 
 
@@ -159,7 +158,6 @@ def test_build_environment_variables_preserves_explicit_runtime_overrides():
             "NEO4J_URI": "neo4j+s://example.databases.neo4j.io",
             "NEO4J_PASSWORD": "neo4j-secret",
             "DATABASE_URL": "postgresql://db-secret",
-            "REDIS_URL": "rediss://redis-secret",
             "AZURE_STORAGE_CONNECTION_STRING": "DefaultEndpointsProtocol=https;AccountKey=secret",
         }
     )
@@ -172,7 +170,6 @@ def test_build_environment_variables_preserves_explicit_runtime_overrides():
     assert env_vars["NEO4J_URI"] == "neo4j+s://example.databases.neo4j.io"
     assert env_vars["NEO4J_PASSWORD"] == "neo4j-secret"
     assert env_vars["DATABASE_URL"] == "postgresql://db-secret"
-    assert env_vars["REDIS_URL"] == "rediss://redis-secret"
     assert (
         env_vars["AZURE_STORAGE_CONNECTION_STRING"]
         == "DefaultEndpointsProtocol=https;AccountKey=secret"
@@ -185,7 +182,6 @@ def test_build_environment_variables_rejects_legacy_secret_reference_values():
     env = {
         "NEO4J_PASSWORD_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/neo4j-password",
         "DATABASE_URL_KV_URI": "https://kv.vault.azure.net/secrets/database-url",
-        "REDIS_URL_KEY_VAULT_URI": "https://kv.vault.azure.net/secrets/redis-url",
         "AZURE_STORAGE_ACCOUNT_URL": "https://storage.blob.core.windows.net",
     }
 
@@ -524,7 +520,6 @@ def _setup_main_env(monkeypatch, tmp_path: Path) -> Path:
     monkeypatch.setenv("NEO4J_URI", "neo4j+s://fake.databases.neo4j.io")
     monkeypatch.setenv("NEO4J_PASSWORD", "neo4j-secret")
     monkeypatch.setenv("DATABASE_URL", "postgresql://fake-db")
-    monkeypatch.setenv("REDIS_URL", "rediss://fake-redis")
     monkeypatch.setenv(
         "AZURE_STORAGE_CONNECTION_STRING",
         "DefaultEndpointsProtocol=https;AccountKey=fake",

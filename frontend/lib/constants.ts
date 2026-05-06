@@ -20,12 +20,6 @@ export const TIMING = {
   ANIMATION_DURATION: 200,
   /** Toast notification display time */
   TOAST_DURATION: 5000,
-  /** WebSocket heartbeat interval */
-  WS_HEARTBEAT_INTERVAL: 25000,
-  /** WebSocket reconnect base delay */
-  WS_RECONNECT_BASE_DELAY: 1000,
-  /** WebSocket max reconnect delay */
-  WS_MAX_RECONNECT_DELAY: 30000,
 } as const;
 
 // ============================================================================

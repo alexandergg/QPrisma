@@ -2,7 +2,7 @@
 """
 QPrisma Data Reset Script
 =========================
-Wipes all data from Blob Storage, Neo4j, PostgreSQL, and Redis
+Wipes all data from Blob Storage, Neo4j, and PostgreSQL
 so you can start fresh with a new knowledge graph technique.
 
 Usage:
@@ -13,7 +13,7 @@ Usage:
     python scripts/reset_all_data.py --execute
 
     # Skip specific stores
-    python scripts/reset_all_data.py --execute --skip-blob --skip-redis
+    python scripts/reset_all_data.py --execute --skip-blob
 
     # Non-interactive (CI) — skip confirmation prompt
     python scripts/reset_all_data.py --execute --yes
@@ -260,42 +260,6 @@ def reset_blob_storage(dry_run: bool) -> bool:
         return False
 
 
-def reset_redis(dry_run: bool) -> bool:
-    """Flush all QPrisma keys from Redis."""
-    from core.config import settings
-
-    header = "Redis"
-    print(f"\n{'─' * 60}")
-    print(bold(f"  {header}"))
-    print(f"{'─' * 60}")
-
-    try:
-        import redis as redis_lib
-
-        r = redis_lib.from_url(settings.redis.url, decode_responses=True)
-        r.ping()
-
-        db_size = r.dbsize()
-        print(f"  URL   : {cyan(_mask_url(settings.redis.url))}")
-        print(f"  Keys  : {db_size:,}")
-
-        if db_size == 0:
-            print(green("  Redis is already empty — nothing to reset."))
-            return True
-
-        if dry_run:
-            print(yellow(f"  [DRY-RUN] Would FLUSHDB ({db_size:,} keys)."))
-            return True
-
-        r.flushdb()
-        print(green(f"  Redis reset complete — {db_size:,} keys flushed."))
-        return True
-
-    except Exception as e:
-        print(red(f"  ✗ Redis reset failed: {e}"))
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -351,7 +315,6 @@ def main() -> None:
     parser.add_argument("--skip-postgres", action="store_true", help="Skip PostgreSQL reset.")
     parser.add_argument("--skip-neo4j", action="store_true", help="Skip Neo4j reset.")
     parser.add_argument("--skip-blob", action="store_true", help="Skip Blob Storage reset.")
-    parser.add_argument("--skip-redis", action="store_true", help="Skip Redis reset.")
     parser.add_argument(
         "--allow-production",
         action="store_true",
@@ -387,9 +350,6 @@ def main() -> None:
         stores.append(("Neo4j", reset_neo4j))
     if not args.skip_blob:
         stores.append(("Blob Storage", reset_blob_storage))
-    if not args.skip_redis:
-        stores.append(("Redis", reset_redis))
-
     if not stores:
         print(yellow("  All stores skipped — nothing to do."))
         sys.exit(0)

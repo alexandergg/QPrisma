@@ -16,7 +16,6 @@ from api.routes.media_routes import router as media_router
 from api.routes.processing_routes import router as processing_router
 from api.routes.storage_routes import router as storage_router
 from api.routes.structure_routes import router as structure_router
-from api.routes.websocket_routes import router as websocket_router
 
 __all__ = [
     "a2a_router",
@@ -30,5 +29,4 @@ __all__ = [
     "processing_router",
     "storage_router",
     "structure_router",
-    "websocket_router",
 ]

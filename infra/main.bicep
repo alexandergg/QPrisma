@@ -27,10 +27,6 @@ param neo4jDatabase string = 'neo4j'
 @secure()
 param neo4jPassword string
 
-@description('JWT secret key')
-@secure()
-param jwtSecretKey string = ''
-
 @description('Shared secret used by benchmark workflow automation to call /benchmark/* endpoints')
 @secure()
 param benchmarkApiToken string
@@ -163,7 +159,6 @@ var tags = {
 var storageAccountName = 'stqprisma${environment}'
 var lakehouseStorageAccountName = 'stqprismalake${environment}'
 var postgresName = 'psql-qprisma-${environment}'
-var redisName = 'redis-qprisma-${environment}'
 var keyVaultName = 'kv-qprisma-${environment}'
 var containerRegistryName = 'acrqprisma${environment}'
 var aiFoundryName = 'aif-qprisma-${environment}'
@@ -212,15 +207,6 @@ module postgres 'modules/postgresql.bicep' = {
     location: dbLocation
     adminLogin: dbAdminLogin
     adminPassword: dbAdminPassword
-    tags: tags
-  }
-}
-
-module redis 'modules/redis.bicep' = {
-  name: 'redis-deployment'
-  params: {
-    name: redisName
-    location: location
     tags: tags
   }
 }
@@ -352,19 +338,8 @@ resource databricksBridgeUploadStorageReaderRole 'Microsoft.Authorization/roleAs
   }
 }
 
-resource existingRedis 'Microsoft.Cache/redisEnterprise@2025-04-01' existing = {
-  name: redisName
-}
-
-resource existingRedisDb 'Microsoft.Cache/redisEnterprise/databases@2025-04-01' existing = {
-  name: 'default'
-  parent: existingRedis
-}
-
 // Resolve secrets via existing resource methods (never exposed as Bicep outputs)
 var pgConnectionString = 'postgresql://${dbAdminLogin}:${dbAdminPassword}@${postgres.outputs.fqdn}:5432/qprisma?sslmode=require'
-var redisAccessKey = existingRedisDb.listKeys().primaryKey
-var redisConnectionString = 'rediss://:${redisAccessKey}@${redis.outputs.hostName}'
 
 // =====================================================================
 // Key Vault (grants runtime identity access before Container Apps depend on it)
@@ -402,33 +377,11 @@ resource neo4jPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   ]
 }
 
-resource jwtSecretKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVaultResource
-  name: 'jwt-secret-key'
-  properties: {
-    value: jwtSecretKey
-  }
-  dependsOn: [
-    keyVault
-  ]
-}
-
 resource databaseUrlSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   parent: keyVaultResource
   name: 'database-url'
   properties: {
     value: pgConnectionString
-  }
-  dependsOn: [
-    keyVault
-  ]
-}
-
-resource redisUrlSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: keyVaultResource
-  name: 'redis-url'
-  properties: {
-    value: redisConnectionString
   }
   dependsOn: [
     keyVault
@@ -516,18 +469,8 @@ var appSecrets = [
     identity: runtimeIdentity.id
   }
   {
-    name: 'jwt-secret-key'
-    keyVaultUrl: '${keyVault.outputs.uri}secrets/jwt-secret-key'
-    identity: runtimeIdentity.id
-  }
-  {
     name: 'database-url'
     keyVaultUrl: '${keyVault.outputs.uri}secrets/database-url'
-    identity: runtimeIdentity.id
-  }
-  {
-    name: 'redis-url'
-    keyVaultUrl: '${keyVault.outputs.uri}secrets/redis-url'
     identity: runtimeIdentity.id
   }
 ]
@@ -586,9 +529,7 @@ var appEnvVars = [
 // Env vars that reference secrets by name
 var appSecretEnvVars = [
   { name: 'DATABASE_URL', secretRef: 'database-url' }
-  { name: 'REDIS_URL', secretRef: 'redis-url' }
   { name: 'NEO4J_PASSWORD', secretRef: 'neo4j-password' }
-  { name: 'JWT_SECRET_KEY', secretRef: 'jwt-secret-key' }
 ]
 
 var benchmarkApiSecretEnvVars = [
@@ -601,7 +542,7 @@ var benchmarkApiSecretEnvVars = [
 
 module apiContainerApp 'modules/container-app-api.bicep' = {
   name: 'api-deployment'
-  dependsOn: [neo4jPasswordSecret, jwtSecretKeySecret, databaseUrlSecret, redisUrlSecret, benchmarkApiTokenSecret, runtimeAcrPullRole]
+  dependsOn: [neo4jPasswordSecret, databaseUrlSecret, benchmarkApiTokenSecret, runtimeAcrPullRole]
   params: {
     name: apiContainerAppName
     location: location
@@ -732,7 +673,6 @@ output foundryProjectPrincipalId string = existingAiProject.identity.principalId
 output keyVaultUri string = keyVault.outputs.uri
 output storageAccountName string = storage.outputs.name
 output postgresServerName string = postgres.outputs.name
-output redisHostName string = redis.outputs.hostName
 output neo4jUri string = neo4jUri
 output appInsightsConnectionString string = appInsights.outputs.connectionString
 output databricksWorkspaceUrl string = enableDatabricksPilot ? 'https://${databricksWorkspace!.outputs.workspaceUrl}' : ''

@@ -7,7 +7,7 @@ This document explains how QPrisma authenticates users, protects service-to-serv
 This view focuses on:
 
 - Microsoft Entra ID sign-in
-- API and WebSocket authentication patterns
+- API authentication patterns
 - service-to-service identity
 - Key Vault and secret management
 - trust boundaries between clients, services, and data platforms
@@ -55,27 +55,7 @@ Examples include:
 
 The backend uses the authenticated user context as part of downstream authorization and data filtering.
 
-## 3. WebSocket authentication model
-
-QPrisma supports more than one WebSocket authentication pattern depending on the endpoint:
-
-| Endpoint shape | Authentication pattern |
-|---|---|
-| `/ws/jobs/{job_id}` | token provided as query parameter |
-| `/ws/user/{user_id}` | token provided as query parameter |
-| `/ws/all` | token sent as the first WebSocket message |
-
-### Security note on query-parameter tokens
-
-The `/ws/jobs/{job_id}` and `/ws/user/{user_id}` entries describe the current FastAPI implementation in `backend/api/routes/websocket_routes.py`, not a preferred security posture. Passing bearer tokens in the WebSocket URL creates the normal query-string exposure risk in logs, reverse proxies, browser tooling, and similar infrastructure.
-
-This repository does not document extra compensating controls for those two endpoints such as short-lived socket-specific tokens or log-scrubbing guarantees. By contrast, `/ws/all` avoids placing the bearer token in the URL by requiring first-message authentication after the socket opens.
-
-### Architectural implication
-
-WebSocket channels often become blind spots in architecture documentation. QPrisma explicitly documents and implements them as authenticated boundaries, not as trusted internal channels.
-
-## 4. Authorization and tenant scoping
+## 3. Authorization and tenant scoping
 
 Authentication answers who the caller is. Authorization answers what data that caller may access.
 
@@ -90,7 +70,7 @@ In QPrisma, authorization relies on:
 
 The hosted agent is not a free-floating model endpoint. It is part of a user-scoped application workflow. Media context, graph retrieval, and answer generation must remain aligned to the authenticated user boundary.
 
-## 5. Service-to-service identity
+## 4. Service-to-service identity
 
 The Azure platform uses managed identity to reduce dependency on static secrets.
 
@@ -103,7 +83,7 @@ The infrastructure provisions:
 
 This allows runtime services to authenticate to Azure resources through Azure AD-backed identity instead of embedding long-lived credentials in application configuration.
 
-## 6. Secret management
+## 5. Secret management
 
 Azure Key Vault is the central secret store for platform secrets and connection material that should not live in source control.
 
@@ -123,7 +103,7 @@ Key Vault centralization improves:
 - least-privilege access design
 - separation between IaC, CI/CD, and runtime secret consumers
 
-## 7. CI/CD trust boundary
+## 6. CI/CD trust boundary
 
 GitHub Actions deploys infrastructure and application changes using OIDC-based Azure login.
 
@@ -135,7 +115,7 @@ This is a strong pattern because:
 
 From an architecture review perspective, this is an important maturity signal.
 
-## 8. Trust boundaries
+## 7. Trust boundaries
 
 The QPrisma trust model can be described in five major zones:
 
@@ -143,40 +123,38 @@ The QPrisma trust model can be described in five major zones:
 |---|---|---|
 | Client zone | Browser, Next.js frontend, authenticated user | Token handling, session integrity, UI exposure |
 | Application zone | FastAPI API, Databricks bridge Function, hosted agent integration | Auth enforcement, business authorization, prompt integrity |
-| Messaging/cache zone | Service Bus, Redis Pub/Sub | Internal event trust, queue isolation, transient data handling |
+| Messaging/cache zone | Service Bus, in-process API cache | Internal event trust, queue isolation, transient data handling |
 | Data zone | Blob, PostgreSQL, Neo4j | Data confidentiality, tenant filtering, backup posture |
 | Control plane zone | GitHub Actions, Azure Resource Manager, Key Vault | Deployment trust, secret access, RBAC governance |
 
 These zones should be explicit in architecture diagrams because most real security issues appear at the transitions between zones.
 
-## 9. Security controls visible in the current architecture
+## 8. Security controls visible in the current architecture
 
 | Control area | Current pattern |
 |---|---|
 | Identity provider | Microsoft Entra ID |
 | API auth | Bearer token validation |
-| WebSocket auth | Authenticated connection bootstrap |
 | Secret storage | Azure Key Vault |
 | Azure resource access | Managed identity where possible |
 | Deployment auth | GitHub Actions OIDC federation |
 | Data access scoping | User-aware backend and retrieval filtering |
 
-## 10. Security review questions
+## 9. Security review questions
 
 When reviewing QPrisma professionally, these are the most useful architecture questions:
 
-1. Are all user-facing channels authenticated, including WebSockets?
+1. Are all user-facing API channels authenticated?
 2. Is every downstream data query scoped to the authenticated user and media set?
 3. Are managed identities used wherever Azure SDK access allows it?
 4. Which secrets still require key-based access and why?
 5. Are hosted agent calls guaranteed to preserve tenant context?
 6. Can audit and observability traces reconstruct user and conversation activity safely?
 
-## 11. Risks and trade-offs
+## 10. Risks and trade-offs
 
 | Trade-off | Benefit | Cost / review point |
 |---|---|---|
-| Mixed auth patterns across WebSockets | Supports practical realtime use cases | Requires careful endpoint-specific documentation |
 | Multiple identities in the platform | Better least-privilege design | More RBAC and operational complexity |
 | Hosted agent integration | Stronger AI capability boundary | More context-integrity and prompt-governance concerns |
 | Polyglot data platform | Better workload fit | More data access policies to review |
@@ -186,7 +164,7 @@ When reviewing QPrisma professionally, these are the most useful architecture qu
 For a Solution Architect audience, present QPrisma security in this order:
 
 1. **who authenticates users**: Microsoft Entra ID
-2. **where trust enters**: frontend to backend API/WebSocket boundary
+2. **where trust enters**: frontend to backend API boundary
 3. **how services authenticate to Azure**: managed identities and Key Vault
 4. **where secrets live**: Key Vault, not source control
 5. **where trust transitions happen**: client, app, messaging, data, control plane
