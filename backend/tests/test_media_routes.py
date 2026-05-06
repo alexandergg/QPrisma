@@ -29,7 +29,9 @@ class TestUploadMedia:
             patch("api.routes.media_routes.get_blob_service", return_value=mock_blob_service),
             patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
             patch("api.routes.media_routes.get_storage_container_name", return_value="media"),
-            patch("api.routes.media_routes.get_video_processing_dispatch_service") as mock_dispatch_getter,
+            patch(
+                "api.routes.media_routes.get_video_processing_dispatch_service"
+            ) as mock_dispatch_getter,
         ):
             dispatch_result = MagicMock()
             dispatch_result.job_id = "dbx-job-test123"
@@ -221,7 +223,9 @@ class TestDeleteMedia:
             resp = authenticated_client.delete("/media/some_id")
 
         assert resp.status_code == 200
-        mock_blob_service.get_blob_client.assert_called_once_with(container="media", blob="test.mp4")
+        mock_blob_service.get_blob_client.assert_called_once_with(
+            container="media", blob="test.mp4"
+        )
         mock_blob_service.get_blob_client.return_value.delete_blob.assert_called_once()
         mock_kg.delete_video_graph.assert_called_once_with("some_id")
 

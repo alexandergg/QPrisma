@@ -91,6 +91,7 @@ def get_async_openai_client() -> AsyncAzureOpenAI | None:
 
 _knowledge_graph_service = None
 
+
 def get_knowledge_graph_service():
     """Get or create Knowledge Graph Service, ensuring it is connected.
 

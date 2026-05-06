@@ -80,6 +80,7 @@ class AzureSettings(BaseSettings):
         default=3,
         description="Maximum concurrent Whisper transcription requests (match RPM limit)",
     )
+
     @property
     def is_openai_configured(self) -> bool:
         return bool(self.openai_endpoint and (self.openai_api_key or self.use_managed_identity))
@@ -90,6 +91,7 @@ class AzureSettings(BaseSettings):
             self.storage_connection_string
             or (self.use_managed_identity and self.storage_account_url)
         )
+
 
 class PostgresSettings(BaseSettings):
     """PostgreSQL database configuration (replaces Cosmos DB)."""

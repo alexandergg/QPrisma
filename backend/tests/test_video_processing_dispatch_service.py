@@ -104,9 +104,7 @@ async def test_dispatch_video_publishes_databricks_service_bus_message():
 @pytest.mark.unit
 @pytest.mark.asyncio
 async def test_dispatch_video_uses_servicebus_backend_by_default():
-    service = VideoProcessingDispatchService(
-        _settings(namespace="qprisma.servicebus.windows.net")
-    )
+    service = VideoProcessingDispatchService(_settings(namespace="qprisma.servicebus.windows.net"))
     service._send_service_bus_message = AsyncMock()  # type: ignore[method-assign]
 
     result = await service.dispatch_video(
