@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class ToolArtifactService:
-    """Stores tool artifacts with Redis hot-cache + Blob durability + SQL metadata."""
+    """Stores tool artifacts with local hot-cache + Blob durability + SQL metadata."""
 
     def __init__(
         self,

@@ -8,9 +8,7 @@ Uses PostgreSQL for metadata storage (replaces Cosmos DB).
 import asyncio
 import json
 import logging
-import uuid
 from datetime import UTC, datetime, timedelta
-from functools import partial
 
 from azure.storage.blob import BlobSasPermissions
 from fastapi import (
@@ -34,10 +32,12 @@ from api.dependencies import (
     get_storage_container_name,
 )
 from api.rate_limit import limiter
-from core.errors import bad_request, forbidden, not_found, service_unavailable
+from core.degraded import DegradationImpact, record_degraded_operation
+from core.errors import forbidden, not_found, service_unavailable
 from core.exceptions import internal_error
 from models.user import User
 from services.database_service import get_database_service
+from services.media_upload_service import MediaUploadService, OptimizedUploadOptions
 from services.video_processing_dispatch_service import get_video_processing_dispatch_service
 
 router = APIRouter(tags=["Media"])
@@ -55,19 +55,6 @@ async def generate_sas_url(blob_name: str, expiry_hours: int = 1) -> str | None:
         blob_name,
         permission=BlobSasPermissions(read=True),
         expiry=datetime.now(UTC) + timedelta(hours=expiry_hours),
-    )
-
-
-def mark_processing_dispatch_failed(db, media_id: str) -> None:
-    """Persist a failed processing state when upload succeeds but dispatch does not."""
-    db.update_media(
-        media_id,
-        {
-            "processing_status": "failed",
-            "processing_message": "Processing dispatch failed before the job was queued.",
-            "processing_progress": 0.0,
-            "processed": False,
-        },
     )
 
 
@@ -92,8 +79,14 @@ async def hydrate_data_from_blob(item: dict) -> dict:
                 None, lambda: blob_client.download_blob().readall()
             )
             item["audio_data"] = json.loads(audio_json)
-        except Exception as e:
-            logger.warning(f"Error hydrating audio data: {e}")
+        except Exception as exc:
+            record_degraded_operation(
+                logger,
+                component="media",
+                operation="hydrate_audio_data",
+                impact=DegradationImpact.BLOB_HYDRATION,
+                exc=exc,
+            )
 
     # 2. Hydrate Objects Data
     if item.get("objects_data_blob") and (
@@ -107,8 +100,14 @@ async def hydrate_data_from_blob(item: dict) -> dict:
                 None, lambda: blob_client.download_blob().readall()
             )
             item["objects_data"] = json.loads(objects_json)
-        except Exception as e:
-            logger.warning(f"Error hydrating objects data: {e}")
+        except Exception as exc:
+            record_degraded_operation(
+                logger,
+                component="media",
+                operation="hydrate_objects_data",
+                impact=DegradationImpact.BLOB_HYDRATION,
+                exc=exc,
+            )
 
     # 3. Hydrate Frames Data
     if item.get("frames_data_blob"):
@@ -137,10 +136,29 @@ async def hydrate_data_from_blob(item: dict) -> dict:
                         }
                     )
                 item["objects_data"] = {"frames": mapped_frames, "objects": []}
-        except Exception as e:
-            logger.warning(f"Error hydrating frames data: {e}")
+        except Exception as exc:
+            record_degraded_operation(
+                logger,
+                component="media",
+                operation="hydrate_frames_data",
+                impact=DegradationImpact.BLOB_HYDRATION,
+                exc=exc,
+            )
 
     return item
+
+
+def get_media_upload_service_instance() -> MediaUploadService:
+    blob_service = get_blob_service()
+    if not blob_service:
+        raise service_unavailable("Azure Blob Storage not configured")
+
+    return MediaUploadService(
+        blob_service=blob_service,
+        db=get_database_service(),
+        container_name=get_storage_container_name(),
+        dispatch_service_factory=get_video_processing_dispatch_service,
+    )
 
 
 # =============================================================================
@@ -163,95 +181,13 @@ async def upload_media(
     Upload a multimedia file (image or video) to Azure Blob Storage.
     Saves metadata to PostgreSQL and starts background processing.
     """
-    blob_service = get_blob_service()
-    db = get_database_service()
-
-    if not blob_service:
-        raise service_unavailable("Azure Blob Storage not configured")
-
-    try:
-        # Generate unique ID
-        media_id = str(uuid.uuid4())
-
-        # Determine file type
-        file_extension = file.filename.split(".")[-1].lower() if file.filename else "bin"
-        media_type = "video" if file_extension in ["mp4", "avi", "mov", "mkv", "webm"] else "image"
-
-        # Blob name
-        blob_name = f"{media_id}.{file_extension}"
-
-        # Stream upload to Blob Storage (avoids loading entire file into memory)
-        container_name = get_storage_container_name()
-        blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
-        file_size = file.size or 0
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            partial(blob_client.upload_blob, file.file, overwrite=True, length=file_size or None),
-        )
-
-        # Get actual size from blob if not known from the upload
-        if not file_size:
-            props = await loop.run_in_executor(None, blob_client.get_blob_properties)
-            file_size = props.size
-
-        # Save metadata to PostgreSQL
-        media_data = {
-            "id": media_id,
-            "user_id": current_user.id,
-            "blob_name": blob_name,
-            "original_filename": file.filename,
-            "media_type": media_type,
-            "file_size": file_size,
-            "content_type": file.content_type,
-            "processing_status": "queued" if media_type == "video" else "uploaded",
-        }
-
-        db.create_media(media_data)
-
-        # Queue video processing using the configured backend.
-        job_id = None
-        dispatch_backend = None
-        if media_type == "video":
-            try:
-                dispatch_service = get_video_processing_dispatch_service()
-                dispatch_result = await dispatch_service.dispatch_video(
-                    media_id=media_id,
-                    blob_name=blob_name,
-                    user_id=current_user.id,
-                    file_size=file_size,
-                    preset=preset,
-                    max_frames=int(max_frames) if max_frames else None,
-                    pipeline_config={},
-                    optimized_pipeline=False,
-                )
-                job_id = dispatch_result.job_id
-                dispatch_backend = dispatch_result.backend
-
-                # Update with job_id
-                db.update_media(media_id, dispatch_result.media_updates())
-
-            except Exception as e:
-                logger.error(f"Processing dispatch failed for {media_id}: {e}", exc_info=True)
-                mark_processing_dispatch_failed(db, media_id)
-                raise service_unavailable("Task queue is unavailable") from e
-
-        return {
-            "media_id": media_id,
-            "blob_name": blob_name,
-            "media_type": media_type,
-            "file_size": file_size,
-            "job_id": job_id,
-            "status": media_data.get("processing_status"),
-            "message": "File uploaded. Processing queued." if job_id else "File uploaded.",
-            "pipeline": dispatch_backend,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading file: {e}", exc_info=True)
-        raise internal_error() from e
+    service = get_media_upload_service_instance()
+    return await service.upload_media(
+        file=file,
+        user_id=current_user.id,
+        preset=preset,
+        max_frames=max_frames,
+    )
 
 
 @router.post("/upload/optimized")
@@ -274,102 +210,19 @@ async def upload_media_optimized(
     """
     logger.info(f"Upload optimized: {file.filename} by {current_user.email}")
 
-    blob_service = get_blob_service()
-    db = get_database_service()
-
-    if not blob_service:
-        raise service_unavailable("Azure Blob Storage not configured")
-
-    file_extension = file.filename.split(".")[-1].lower() if file.filename else ""
-    if file_extension not in ["mp4", "avi", "mov", "mkv", "webm"]:
-        raise bad_request("Only videos (mp4, avi, mov, mkv, webm)")
-
-    try:
-        media_id = str(uuid.uuid4())
-        blob_name = f"{media_id}.{file_extension}"
-
-        # Stream upload to Blob (avoids loading entire file into memory)
-        container_name = get_storage_container_name()
-        blob_client = blob_service.get_blob_client(container=container_name, blob=blob_name)
-        file_size = file.size or 0
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            partial(blob_client.upload_blob, file.file, overwrite=True, length=file_size or None),
-        )
-
-        # Get actual size from blob if not known
-        if not file_size:
-            props = await loop.run_in_executor(None, blob_client.get_blob_properties)
-            file_size = props.size
-
-        file_size_mb = file_size / (1024 * 1024)
-        logger.info(f"File size: {file_size_mb:.2f} MB")
-
-        # Save to PostgreSQL
-        pipeline_config = {
-            "use_scene_detection": use_scene_detection,
-            "use_hierarchical_summary": use_hierarchical_summary,
-            "scene_threshold": scene_threshold,
-            "max_scenes_per_chapter": max_scenes_per_chapter,
-        }
-
-        media_data = {
-            "id": media_id,
-            "user_id": current_user.id,
-            "blob_name": blob_name,
-            "original_filename": file.filename,
-            "media_type": "video",
-            "file_size": file_size,
-            "content_type": file.content_type,
-            "processing_status": "queued",
-            "optimized_pipeline": True,
-            "pipeline_config": pipeline_config,
-        }
-
-        db.create_media(media_data)
-
-        # Queue video processing using the configured backend.
-        job_id = None
-        dispatch_backend = None
-        try:
-            dispatch_service = get_video_processing_dispatch_service()
-            dispatch_result = await dispatch_service.dispatch_video(
-                media_id=media_id,
-                blob_name=blob_name,
-                user_id=current_user.id,
-                file_size=file_size,
-                preset=preset,
-                max_frames=min(max_frames, 500),  # User-configurable, capped at 500
-                pipeline_config=pipeline_config,
-                optimized_pipeline=True,
-            )
-            job_id = dispatch_result.job_id
-            dispatch_backend = dispatch_result.backend
-
-            db.update_media(media_id, dispatch_result.media_updates())
-
-        except Exception as e:
-            logger.error(f"Processing dispatch failed for {media_id}: {e}", exc_info=True)
-            mark_processing_dispatch_failed(db, media_id)
-            raise service_unavailable("Task queue is unavailable") from e
-
-        return {
-            "media_id": media_id,
-            "blob_name": blob_name,
-            "media_type": "video",
-            "file_size": file_size,
-            "job_id": job_id,
-            "status": "queued" if job_id else "uploaded",
-            "message": "Video uploaded. Processing queued.",
-            "pipeline": dispatch_backend,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Upload error: {e}", exc_info=True)
-        raise internal_error() from e
+    service = get_media_upload_service_instance()
+    return await service.upload_optimized_video(
+        file=file,
+        user_id=current_user.id,
+        options=OptimizedUploadOptions(
+            preset=preset,
+            max_frames=max_frames,
+            use_scene_detection=use_scene_detection,
+            use_hierarchical_summary=use_hierarchical_summary,
+            scene_threshold=scene_threshold,
+            max_scenes_per_chapter=max_scenes_per_chapter,
+        ),
+    )
 
 
 @router.get("/media")
@@ -556,8 +409,14 @@ async def get_video_audio_data(media_id: str, current_user: User = Depends(get_c
                         None, lambda: blob_client.download_blob().readall()
                     )
                     audio_data = json.loads(audio_json)
-            except Exception as e:
-                logger.warning(f"Error hydrating audio data: {e}")
+            except Exception as exc:
+                record_degraded_operation(
+                    logger,
+                    component="media",
+                    operation="hydrate_audio_endpoint_data",
+                    impact=DegradationImpact.BLOB_HYDRATION,
+                    exc=exc,
+                )
 
         if not audio_data:
             raise not_found(

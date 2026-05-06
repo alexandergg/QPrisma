@@ -18,7 +18,7 @@ You are a QPrisma frontend developer specializing in Next.js 16 and React 19.
 
 - Pages: `frontend/app/` (App Router — /auth, /chat, /upload, /library)
 - Components: `frontend/components/` (chat, editor, graph, layout, library, processing, upload, UI base)
-- Hooks: `frontend/hooks/` (useChatState, useStreamingChat, useWebSocket, useJobProgress)
+- Hooks: `frontend/hooks/` and feature-local hooks such as `frontend/components/upload/useJobProgress.ts`
 - Contexts: `frontend/contexts/AuthContext.tsx`
 - Utils: `frontend/lib/` (api.ts, chunked-upload.ts, config.ts, conversations.ts)
 - Types: `frontend/types/`

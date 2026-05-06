@@ -19,7 +19,7 @@
 10. [Knowledge Graph — Neo4j](#10-knowledge-graph--neo4j)
 11. [Hybrid Search System](#11-hybrid-search-system)
 12. [Memory System — Layered State and Foundry Memory Capability](#12-memory-system--layered-state-and-foundry-memory-capability)
-13. [Caching Layer — Redis Enterprise](#13-caching-layer--redis-enterprise)
+13. [Caching Layer — Local In-Process Cache](#13-caching-layer--local-in-process-cache)
 14. [A2A Protocol — Agent-to-Agent](#14-a2a-protocol--agent-to-agent)
 15. [Authentication and Authorization](#15-authentication-and-authorization)
 16. [Observability and Monitoring](#16-observability-and-monitoring)
@@ -42,7 +42,7 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 | Knowledge Graph | Neo4j | Entity relationships and semantic structure |
 | Search | PostgreSQL + Neo4j | Hybrid vector + graph search |
 | Memory | Checkpointer + artifacts + optional Foundry Memory Store | Thread state, persisted tool artifacts, and available long-term semantic memory capability |
-| Cache | Redis Enterprise | Multi-layer caching with TTL |
+| Cache | Local in-process cache | Best-effort caching with TTL |
 | Auth | Microsoft Entra ID | OIDC-based authentication and RBAC |
 | Processing dispatch | Service Bus/Databricks | Upload-triggered video processing handoff |
 | Protocol | A2A (Agent-to-Agent) | Google A2A interoperability protocol |
@@ -75,9 +75,9 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐  │
-│  │ PostgreSQL  │  │    Neo4j    │  │    Redis    │  │ Azure Blob│  │
-│  │ (primary)   │  │ (knowledge) │  │ (cache)    │  │ (storage) │  │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └───────────┘  │
+│  │ PostgreSQL  │  │    Neo4j    │  │ Azure Blob│  │ Local TTL │  │
+│  │ (primary)   │  │ (knowledge) │  │ (storage) │  │ cache     │  │
+│  └─────────────┘  └─────────────┘  └───────────┘  └───────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -89,7 +89,11 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 backend/
 ├── api/
 │   ├── main.py                      # FastAPI app entry point
-│   ├── dependencies.py              # Shared dependency providers
+│   ├── dependencies.py              # Stable dependency facade/reexports
+│   ├── auth_dependencies.py         # Auth and operator dependencies
+│   ├── azure_dependencies.py        # Azure clients and Blob SAS helpers
+│   ├── graph_dependencies.py        # Graph service dependency providers
+│   ├── media_dependencies.py        # Media ownership and storage helpers
 │   └── routes/
 │       ├── a2a_agent_cards.py        # A2A agent card endpoints
 │       ├── a2a_message_routes.py     # A2A message handling
@@ -98,13 +102,17 @@ backend/
 │       ├── cache_routes.py           # Cache management endpoints
 │       ├── chat_routes.py            # Chat/conversation endpoints
 │       ├── chunked_upload_routes.py  # Chunked file upload handling
-│       ├── graph_routes.py           # Knowledge graph queries
+│       ├── graph_routes.py           # Knowledge graph router aggregator
+│       ├── graph_admin_routes.py     # Graph destructive/admin operations
+│       ├── graph_embedding_routes.py # Embedding generation and diagnostics
+│       ├── graph_health_routes.py    # Graph health and statistics
+│       ├── graph_hierarchy_routes.py # Hierarchical graph processing/search
+│       ├── graph_search_routes.py    # Graph search, context, timeline, video graph
+│       ├── graph_visualization_routes.py # NVL visualization endpoints
 │       ├── media_routes.py           # Media CRUD operations
 │       ├── processing_routes.py      # Media processing endpoints
 │       ├── storage_routes.py         # Storage management
-│       ├── structure_routes.py       # Scene/chapter generation
-│       ├── websocket_manager.py      # WebSocket connection manager
-│       └── websocket_routes.py       # WebSocket connections
+│       └── structure_routes.py       # Scene/chapter generation
 ├── agent/
 │   ├── graph.py                     # LangGraph workflow definition
 │   ├── nodes.py                     # Graph node functions
@@ -122,7 +130,6 @@ backend/
 ├── core/
 │   ├── config.py                    # Pydantic Settings (centralized)
 │   ├── database.py                  # PostgreSQL session management
-│   └── redis_client.py              # Redis connection management
 ├── models/
 │   ├── database.py                  # SQLAlchemy ORM models
 │   ├── schemas.py                   # Pydantic request/response schemas
@@ -187,10 +194,6 @@ class Neo4jSettings(BaseSettings):
     username: str = Field(default="neo4j", alias="NEO4J_USERNAME")
     password: str = Field(alias="NEO4J_PASSWORD")
 
-class RedisSettings(BaseSettings):
-    url: str = Field(alias="REDIS_URL")
-    ssl: bool = Field(default=True)
-
 class AuthSettings(BaseSettings):
     entra_tenant_id: str = Field(alias="AZURE_ENTRA_TENANT_ID")
     entra_client_id: str = Field(alias="AZURE_ENTRA_CLIENT_ID")
@@ -205,7 +208,6 @@ class Settings(BaseSettings):
     azure: AzureSettings = AzureSettings()
     database: DatabaseSettings = DatabaseSettings()
     neo4j: Neo4jSettings = Neo4jSettings()
-    redis: RedisSettings = RedisSettings()
     auth: AuthSettings = AuthSettings()
     app: AppSettings = AppSettings()
 
@@ -222,12 +224,11 @@ settings = Settings()
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://...` |
 | `NEO4J_URI` | Neo4j Bolt endpoint | `neo4j+s://xxx.neo4j.io` |
 | `NEO4J_PASSWORD` | Neo4j password | `...` |
-| `REDIS_URL` | Redis connection URL | `rediss://...` |
 | `AZURE_STORAGE_CONNECTION_STRING` | Azure Blob connection string | `DefaultEndpointsProtocol=...` |
 | `AZURE_ENTRA_TENANT_ID` | Microsoft Entra ID tenant | `xxxxxxxx-xxxx-...` |
 | `AZURE_ENTRA_CLIENT_ID` | Entra application client ID | `xxxxxxxx-xxxx-...` |
-| `PROCESSING_BACKEND` | Video dispatch backend: `databricks` or `servicebus` | `servicebus` |
-| `SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` | Required for Databricks/Service Bus dispatch | `qprisma.servicebus.windows.net` |
+| `PROCESSING_BACKEND` | Optional video dispatch setting. Use `servicebus`; legacy `databricks` is accepted as an alias. | `servicebus` |
+| `SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` | Required for Service Bus dispatch to the Databricks bridge | `qprisma.servicebus.windows.net` |
 | `DATABRICKS_VIDEO_JOB_ID` | Databricks Job ID invoked by the video bridge/pipeline | `123456789` |
 
 
@@ -235,29 +236,33 @@ settings = Settings()
 
 ## 4. API Layer — FastAPI Routes
 
-The API layer consists of 17 route modules organized under `api/routes/`. Route handlers remain thin, delegating business logic to the service layer.
+The API layer is organized under `api/routes/`. Route handlers should remain thin, delegating business logic to the service layer.
 
 ### Route Module Summary
 
 | Module | Prefix | Auth | Description |
 |---|---|---|---|
-| `health_routes.py` | `/health` | No | Liveness and readiness probes |
-| `auth_routes.py` | `/auth` | No | Entra ID login/callback flows |
-| `media_routes.py` | `/media` | Yes | Media CRUD with ownership checks |
-| `upload_routes.py` | `/upload` | Yes | Multipart file upload |
-| `chat_routes.py` | `/chat` | Yes | Conversations and agent sessions |
-| `search_routes.py` | `/search` | Yes | Hybrid search endpoints |
-| `structure_routes.py` | `/structure` | Yes | Scene/chapter generation |
-| `highlight_routes.py` | `/highlights` | Yes | Video highlight management |
-| `graph_routes.py` | `/graph` | Yes | Knowledge graph queries |
-| `memory_routes.py` | `/memory` | Yes | User memory management |
-| `task_routes.py` | `/tasks` | Yes | Async task status polling |
-| `user_routes.py` | `/users` | Yes | User profile operations |
-| `admin_routes.py` | `/admin` | Yes (admin) | Administrative operations |
-| `websocket_routes.py` | `/ws` | Yes (token) | Real-time WebSocket streams |
-| `a2a_agent_cards.py` | `/a2a` | No | A2A agent card discovery |
-| `a2a_message_routes.py` | `/a2a` | Varies | A2A message exchange |
-| `a2a_task_routes.py` | `/a2a` | Varies | A2A task lifecycle |
+| `auth_routes.py` | `/auth` | Varies | Entra ID profile/config endpoints |
+| `media_routes.py` | `/media`, `/upload` | Yes | Media CRUD, upload, status, and ownership checks |
+| `chunked_upload_routes.py` | `/upload/chunked` | Yes | Large-file upload sessions and commit/cancel |
+| `chat_routes.py` | `/chat` | Yes | Deprecated classic VideoRAG compatibility endpoint |
+| `graph_routes.py` + `graph_*_routes.py` | `/graph` | Yes / admin for global operations | Aggregated graph API split into health/stats, search/context/video graph, embeddings, hierarchy, admin, and visualization submodules |
+| `structure_routes.py` | `/structure` | Yes | Scene/chapter generation with graph-to-legacy fallback |
+| `processing_routes.py` | `/processing` | Yes | Media processing options/status helpers |
+| `storage_routes.py` | `/storage` | Public health, owner-scoped media, admin lifecycle | Storage tiering and lifecycle policy generation |
+| `cache_routes.py` | `/cache` | Public health, admin diagnostics/mutation | Process-local cache diagnostics and invalidation |
+| `benchmark_routes.py` | `/benchmark` | Benchmark operator | Benchmark ingest/status/manifest automation |
+| `a2a_routes.py` | `/.well-known`, `/a2a` | Public discovery, auth for message/task lifecycle | A2A hosted-agent protocol endpoints |
+
+### Endpoint Authorization Contract
+
+| Scope | Examples | Rule |
+|---|---|---|
+| Public health/discovery | `/`, `/health`, `/config`, `/cache/health`, `/storage/health`, `/a2a/health`, A2A agent cards | No bearer token; no user data. |
+| Authenticated user | `/auth/me`, `/chat`, upload and user library operations | Requires Entra ID bearer token. |
+| Owner-scoped media/graph | `/media/{id}`, `/storage/media/{id}/*`, `/graph/video/{id}*`, `/graph/search/*`, `/graph/hierarchy/*` | Requires auth plus media/node ownership validation. |
+| Superuser operational | Cache diagnostics/mutation, `/storage/lifecycle-policy`, `/graph/embeddings/stats`, hidden `DELETE /graph/clear` | Requires `require_superuser`. |
+| Benchmark operator | `/benchmark/*` | Requires superuser bearer token or configured benchmark automation token. |
 
 ### Route Pattern Example
 
@@ -296,12 +301,11 @@ async def update_media(
 
 ### Dependency Injection
 
-Dependencies are defined in `api/dependencies.py` and shared across routes:
+Routes import stable dependencies from `api/dependencies.py`. The implementation is split by responsibility into `auth_dependencies.py`, `azure_dependencies.py`, `graph_dependencies.py`, and `media_dependencies.py`, while the facade preserves existing route/test imports.
 
 ```python
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from services.entra_auth_service import EntraAuthService
 
 security = HTTPBearer()
 
@@ -309,14 +313,17 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
     """ Validate Entra ID token and return user claims."""
-    auth_service = EntraAuthService()
-    user = await auth_service.validate_token(credentials.credentials)
-    if not user:
+    from services.entra_auth_service import get_entra_auth_service
+
+    try:
+        return await get_entra_auth_service().verify_token(credentials.credentials)
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
-        )
-    return user
+        ) from None
 
 def get_media_service():
     from services.media_service import get_media_service
@@ -327,25 +334,19 @@ def get_chat_service():
     return get_chat_service()
 ```
 
-### WebSocket Authentication
+### Processing Status Polling
 
-WebSocket connections use token-based auth via query parameters:
+Processing progress is exposed through authenticated REST polling:
 
 ```python
-@router.websocket("/ws/{session_id}")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    session_id: str,
-    token: str = Query(...),
+@router.get("/media/{media_id}/status")
+async def get_media_processing_status(
+    media_id: str,
+    current_user: User = Depends(get_current_user),
 ):
-    auth_service = EntraAuthService()
-    user = await auth_service.validate_token(token)
-    if not user:
-        await websocket.close(code=4001, reason="Unauthorized")
-        return
-
-    await websocket.accept()
-    # Stream agent responses...
+    db = get_database_service()
+    get_media_or_404(media_id, current_user)
+    return db.get_media_status(media_id)
 ```
 
 
@@ -527,7 +528,7 @@ class TokenBudgetManager:
 
 ## 6. Service Layer
 
-The service layer contains 51 files (41 root-level + 10 in the `graph/` submodule) implementing all business logic. Route handlers delegate to services; services are never imported by routes directly but through dependency providers.
+The service layer contains 49 Python files (38 root-level + 11 in the `graph/` submodule) implementing business logic. Route handlers should stay focused on HTTP concerns and delegate to services through dependency providers or small route-local factories when request-scoped dependencies are needed.
 
 ### Service Initialization Pattern
 
@@ -551,13 +552,15 @@ def get_chat_service() -> ChatService:
 | ChatService | `chat_service.py` | RAG chat with video context |
 | StructureService | `structure_service.py` | Scene/chapter generation |
 | GraphSearchService | `graph_search_service.py` | Hybrid graph+vector search |
+| MediaUploadService | `media_upload_service.py` | Standard and optimized media upload orchestration |
+| ChunkedUploadService | `chunked_upload_service.py` | Resumable block upload sessions, commit, status, and cancel |
 | MediaService | `media_service.py` | Media lifecycle (CRUD, status) |
 | EmbeddingService | `embedding_service.py` | Vector embedding generation |
 | TranscriptionService | `transcription_service.py` | Whisper transcription |
 | EntraAuthService | `entra_auth_service.py` | Microsoft Entra ID auth |
 | FoundryMemoryService | `foundry_memory_service.py` | Foundry Memory Store |
-| ToolArtifactService | `tool_artifact_service.py` | Artifact storage (Redis + Blob + PG) |
-| CacheService | `cache_service.py` | Multi-layer Redis caching |
+| ToolArtifactService | `tool_artifact_service.py` | Artifact storage (Blob + PG metadata + local hot-cache) |
+| CacheService | `cache_service.py` | Local in-process TTL caching |
 | HighlightService | `highlight_service.py` | Video highlight management |
 | SceneDetectionService | `scene_detection_service.py` | Visual scene boundary detection |
 | ThumbnailService | `thumbnail_service.py` | Thumbnail generation |
@@ -565,7 +568,6 @@ def get_chat_service() -> ChatService:
 | TaskService | `task_service.py` | Async task tracking |
 | UserService | `user_service.py` | User profile management |
 | AdminService | `admin_service.py` | Admin operations |
-| WebSocketService | `websocket_service.py` | Real-time communication |
 | NotificationService | `notification_service.py` | User notifications |
 | A2AService | `a2a_service.py` | A2A protocol handling |
 | BatchService | `batch_service.py` | Batch processing |
@@ -574,7 +576,7 @@ def get_chat_service() -> ChatService:
 | HealthService | `health_service.py` | Health check aggregation |
 | MetricsService | `metrics_service.py` | Application metrics |
 
-> **Note**: This is a representative listing. See the `services/` directory for the complete set of 41 root-level files.
+> **Note**: This is a representative listing. See the `services/` directory for the complete set of root-level files.
 
 ### Graph Submodule (10 files)
 
@@ -846,8 +848,8 @@ Upload routes do not call processing workers directly. They call `services.video
 
 | Setting | Purpose |
 |---|---|
-| `PROCESSING_BACKEND=databricks` or `servicebus` | Publishes a durable Service Bus message consumed by the Databricks bridge |
-| `SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` | Required for Service Bus/Databricks dispatch |
+| `PROCESSING_BACKEND=servicebus` | Canonical setting; legacy `databricks` is accepted as an alias and normalized to Service Bus dispatch |
+| `SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` | Required for Service Bus dispatch to the Databricks bridge |
 | `SERVICE_BUS_MANAGED_IDENTITY_CLIENT_ID` | Pins Service Bus SDK authentication to the intended user-assigned managed identity |
 | `DATABRICKS_WORKSPACE_URL`, `DATABRICKS_VIDEO_JOB_ID` | Passed to the bridge/bundle workflow for Databricks job invocation |
 
@@ -1149,7 +1151,7 @@ class GraphSearchService:
         limit: int = 10,
     ) -> list[SearchResult]:
         """Execute hybrid search with 25s pipeline budget."""
-        # 1. Check Redis cache
+        # 1. Check local cache
         # 2. Generate query embedding (Azure OpenAI)
         # 3. Classify intent → select weight profile
         # 4. Run _sync_search_pipeline via asyncio.to_thread()
@@ -1174,7 +1176,7 @@ QPrisma uses a layered memory approach. The active runtime path is built around 
 ```
 ┌─────────────────┐    ┌────────────────────┐    ┌────────────────────────────┐
 │ LangGraph Agent │───►│ local memory state │───►│ ToolArtifactService        │
-│ runtime         │    │ + artifact refs    │    │ Redis + Blob + Postgres    │
+│ runtime         │    │ + artifact refs    │    │ Blob + Postgres + local cache│
 └─────────────────┘    └────────────────────┘    └────────────────────────────┘
          │
          │ optional long-term semantic memory capability
@@ -1214,7 +1216,7 @@ The service exposes three key operations:
 The agent uses a layered memory approach:
 
 1. **Checkpointer** — Thread-scoped operational state for resume/retry continuity
-2. **Artifact storage** — Full tool payloads via `ToolArtifactService` (Redis + Blob + Postgres metadata)
+2. **Artifact storage** — Full tool payloads via `ToolArtifactService` (Blob + Postgres metadata + local hot-cache)
 3. **Foundry Memory Store** — Available long-term semantic memory capability for future automatic integration
 
 In the current runtime path, before each model call the system:
@@ -1228,71 +1230,32 @@ In the current runtime path, before each model call the system:
 
 ---
 
-## 13. Caching Layer — Redis Enterprise
+## 13. Caching Layer — Local In-Process Cache
 
 ### Cache Strategy
 
-QPrisma uses multi-layer caching with Redis Enterprise:
+QPrisma uses best-effort in-process caching for latency and cost reduction. The cache is scoped to one API replica, is not durable, and is not a source of truth.
 
 | Layer | TTL | Use Case |
 |---|---|---|
-| Hot cache | 5 min | Search results, embeddings |
+| Hot cache | 5 min | Search results |
 | Warm cache | 30 min | Graph queries, structured data |
-| Session cache | 24 h | User sessions, preferences |
-| Artifact cache | 7 d | Tool artifacts, large payloads |
+| Embedding cache | 7 d | Stable text/image embeddings |
+| Artifact hot-cache | Configured by `ARTIFACT_CACHE_TTL_SECONDS` | Recently-read tool artifacts |
 
 ### CacheService
 
-```python
-import redis.asyncio as redis
-from core.config import settings
+`services/cache_service.py` exposes typed helpers for search results and graph queries. It stores values in an in-process TTL/LRU cache and returns misses when a process restarts or another replica handles the request. Runtime state such as processing progress is stored in PostgreSQL, not cache.
 
-class CacheService:
-    """ Multi-layer Redis caching service."""
-
-    def __init__(self):
-        self.client = redis.from_url(
-            settings.redis.url,
-            encoding="utf-8",
-            decode_responses=True,
-            ssl=settings.redis.ssl,
-        )
-
-    async def get(self, key: str) -> dict | None:
-        """ Retrieve cached value by key."""
-        import json
-        value = await self.client.get(key)
-        if value:
-            return json.loads(value)
-        return None
-
-    async def set(self, key: str, value: any, ttl: int = 300) -> None:
-        """ Set cache value with TTL in seconds."""
-        import json
-        await self.client.setex(key, ttl, json.dumps(value, default=str))
-
-    async def delete(self, key: str) -> None:
-        """ Delete a cached value."""
-        await self.client.delete(key)
-
-    async def invalidate_pattern(self, pattern: str) -> int:
-        """ Delete all keys matching a pattern."""
-        keys = []
-        async for key in self.client.scan_iter(match=pattern):
-            keys.append(key)
-        if keys:
-            return await self.client.delete(*keys)
-        return 0
-```
+`GET /cache/health` is public for lightweight readiness checks. Cache diagnostics and mutation endpoints (`/cache/metrics`, `/cache/metrics/reset`, `/cache/invalidate`, `/cache/video/{video_id}`, `/cache/config`) are superuser-only because they expose or mutate process-local state for a single API replica.
 
 ### Cache Key Conventions
 
 ```
-search:{query_hash}:{media_id}:{limit}     # Search results
-embed:{text_hash}                           # Embedding vectors
-graph:{query_hash}                          # Graph query results
-user:{user_id}:profile                      # User profile
-session:{session_id}:state                  # Session state
+qprisma:search_result:{query_hash}          # Search results
+qprisma:embedding:{text_hash}               # Embedding vectors
+qprisma:graph_query:{query_hash}            # Graph query results
+tool_artifact:{artifact_id}                 # Artifact hot-cache payload
 artifact:{artifact_id}                      # Tool artifacts
 media:{media_id}:metadata                   # Media metadata
 ```
@@ -1493,6 +1456,18 @@ class Metrics:
         pass
 ```
 
+### Best-effort degradation tracking
+
+Optional operations must not fail user-facing requests when their result is only an accelerator or enrichment. Those paths use `core.degraded.record_degraded_operation()` to emit sanitized logs and in-process counters by component, operation, impact, and exception type. Current degraded categories cover local cache read/write/invalidation, Blob hydration, optional processing dispatch, and Foundry Memory Store update/search/delete.
+
+The warning-level log intentionally includes the exception type but not the raw exception message, so operational visibility does not leak connection strings, SAS tokens, or provider payloads. Debug logging retains traceback detail for local investigation.
+
+### Legacy compatibility usage tracking
+
+Compatibility paths that are intentionally retained are measured with `core.legacy_usage.record_legacy_usage()`. This keeps removal decisions evidence-based instead of speculative. Current counters cover the deprecated classic `/chat` endpoint, PostgreSQL structure fallback, legacy `QPRISMA_CONTEXT` envelopes, and the inline regex context fallback used by older evaluation payloads.
+
+These counters are in-process and per replica. They are sufficient for local regression tests and short-term operational sampling; production retirement decisions should aggregate the corresponding `legacy_usage_detected` logs centrally before removing a compatibility path.
+
 ### Health Checks
 
 ```python
@@ -1502,7 +1477,7 @@ async def health_check():
     checks = {
         "postgresql": await check_postgres(),
         "neo4j": await check_neo4j(),
-        "redis": await check_redis(),
+        "cache": await check_local_cache(),
         "azure_openai": await check_openai(),
         "azure_storage": await check_storage(),
     }
@@ -1738,7 +1713,6 @@ async def get_media(
 
 | Package | Version | Purpose |
 |---|---|---|
-| `redis` | ^5.x | Redis client (async) |
 | `neo4j` | ^5.x | Neo4j driver |
 | `azure-storage-blob` | ^12.x | Azure Blob Storage |
 | `azure-identity` | ^1.x | Azure credential management |
@@ -1785,7 +1759,7 @@ Client Request
        │
        ├──────► PostgreSQL (data persistence)
        ├──────► Neo4j (knowledge graph)
-       ├──────► Redis (caching)
+       ├──────► Local cache (best-effort acceleration)
        ├──────► Azure Blob (file storage)
        └──────► Azure OpenAI (LLM calls)
 ```
@@ -1819,7 +1793,7 @@ User Message
        │
        ▼
 ┌──────────────┐
-│  Stream      │──── SSE / WebSocket to client
+│  Return      │──── REST response to client
 │  Response    │
 └──────────────┘
        │
@@ -1837,18 +1811,18 @@ File Upload
       │
       ▼
 ┌──────────────┐
-│ upload_routes│
-│ .py          │
+│ media_routes │
+│ /upload      │
 └──────┬───────┘
        │
        ▼
-┌──────────────┐
-│ StorageService│──── Upload to Azure Blob
-└──────┬───────┘
+┌───────────────────┐
+│ MediaUploadService│──── Upload to Azure Blob
+└────────┬──────────┘
        │
        ▼
 ┌──────────────┐
-│ MediaService │──── Create DB record (status: PENDING)
+│ PostgreSQL   │──── Create media record (status: queued/uploaded)
 └──────┬───────┘
        │
        ▼
@@ -1892,6 +1866,12 @@ evaluation_foundry/
 | `register_evaluators.py` | Registers custom evaluators with Azure AI Foundry |
 | `redteam_eval.py` | Runs the cloud Foundry AI Red Teaming workflow against the hosted agent for direct-attack / jailbreak coverage |
 | `tool_definitions.py` | Provides tool schemas used in evaluation scenarios |
+
+### Runtime boundary
+
+`evaluation_foundry/` is operational tooling, not part of the API hot path. Runtime modules under `api/`, `agent/`, and `services/` must not import it directly. The only allowed bridge is `services/benchmark_ingest_service.py`, which powers authenticated `/benchmark/*` automation by loading benchmark manifests and dispatching media through the normal production ingestion path.
+
+This boundary is covered by `tests/test_evaluation_boundary.py` so future evaluation helpers do not become implicit runtime dependencies.
 
 ### Safety evaluator matrix
 

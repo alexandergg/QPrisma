@@ -12,7 +12,7 @@ The Azure resources are provisioned by Bicep under `infra\`. This bundle owns th
 - Writes FFmpeg-derived audio and frame files to local cluster storage first, then copies them into Unity Catalog Volumes; this avoids FUSE limitations for encoders that need seek/trailer operations when closing output files.
 - Establishes stable parameters for the Service Bus driven pipeline: `media_id`, `blob_name`, `dispatch_id`, `source_media`, `pipeline_config`, catalog, schema and queue name.
 - Writes stage events to the Delta table `${catalog}.${schema}.video_pipeline_events`.
-- Writes frontend-compatible running/completion/failure records to `${catalog}.${schema}.video_pipeline_outbox`; this is the durable handoff point for projecting Databricks progress back into QPrisma PostgreSQL/Neo4j/Redis.
+- Writes frontend-compatible running/completion/failure records to `${catalog}.${schema}.video_pipeline_outbox`; this is the durable handoff point for projecting Databricks progress back into QPrisma PostgreSQL/Neo4j for authenticated status polling.
 - Creates the first operational Delta contracts for the production ETL: `${catalog}.${schema}.video_media_manifest`, `video_source_files`, `video_processing_runs`, `video_job_stage_runs`, `video_audio_assets`, `video_audio_chunks`, `video_asr_runs`, `video_transcript_segments`, `video_frame_assets`, `video_frame_analysis`, `video_temporal_windows`, `video_scene_candidates`, `video_scene_visual_analysis`, `video_model_inference_runs`, `video_ai_requests`, `video_ai_batches`, `video_ai_results`, `video_processing_results`, `video_graph_upserts` and `video_record_quarantine`.
 - Creates a managed Unity Catalog artifact volume `${catalog}.${schema}.video_artifacts` for derived audio, frame and inference artifacts.
 

@@ -49,15 +49,6 @@ Authorization: Bearer eyJ0eXAiOiJKV1Qi...
 
 On first login, the backend automatically provisions the user from the Entra ID token claims (`oid`, `preferred_username`, `name`). No explicit `/auth/register` call is needed.
 
-### WebSocket Authentication
-
-WebSocket authentication is endpoint-specific:
-- **`/ws/jobs/*` and `/ws/user/*`**: pass the Entra ID access token as a query parameter on the connection URL, for example `?token=<access_token>`.
-- **`/ws/all`**: connect first, then immediately send an auth message in the following format:
-  ```json
-  {"type":"auth","token":"<access_token>"}
-  ```
-
 ### Auth Endpoints
 
 The authentication routes currently exposed by the backend are:
@@ -69,9 +60,32 @@ The authentication routes currently exposed by the backend are:
 
 > **Note**: Authentication uses Entra ID access tokens. There are no documented local email/password login or logout endpoints in the current backend routes.
 
+### Endpoint Authorization Contract
+
+QPrisma uses a small set of endpoint scopes so operational APIs do not look like
+regular user-facing product APIs:
+
+| Scope | Contract |
+|-------|----------|
+| Public health/discovery | No bearer token required. Limited to readiness or public A2A discovery data. |
+| Authenticated user | Requires `Authorization: Bearer <token>` and operates on the caller's own profile or library. |
+| Owner-scoped media/graph | Requires authentication and validates referenced `media_id`, `media_ids`, or graph node ownership. Superusers may access any media where explicitly supported. |
+| Superuser operational | Requires an authenticated superuser. Used for process-local cache mutation, account-level lifecycle policy generation, graph-wide clear, and global embedding diagnostics. |
+| Benchmark operator | Requires an authenticated superuser or the configured benchmark automation token. Used only by benchmark ingest/status/manifest automation. |
+
+Current high-risk operational endpoints:
+
+| Route family | Scope |
+|--------------|-------|
+| `GET /cache/health`, `GET /storage/health`, `/`, `/health`, `/config`, `GET /a2a/health`, A2A agent card discovery | Public health/discovery |
+| `/media/*`, `/upload`, `/upload/optimized`, `/upload/chunked/*`, `/storage/media/{media_id}/*`, `/graph/video/{video_id}*`, `/graph/search/*`, `/graph/hierarchy/*` | Owner-scoped media/graph |
+| `/cache/metrics`, `/cache/metrics/reset`, `/cache/invalidate`, `/cache/video/{video_id}`, `/cache/config`, `/storage/lifecycle-policy`, `/graph/embeddings/stats`, hidden `DELETE /graph/clear` | Superuser operational |
+| `POST /graph/embeddings/generate` | Owner-scoped when `video_id` is supplied; superuser-only for global generation without `video_id` |
+| `/benchmark/*` | Benchmark operator |
+
 ## A2A Protocol (Agent-to-Agent)
 
-QPrisma implements the [A2A Protocol](https://a2a-protocol.org/) as the canonical API for the Azure AI Foundry hosted video agent. Legacy `/chat/agent` access has been removed; use `/chat` for classic RAG chat and A2A for hosted-agent task execution.
+QPrisma implements the [A2A Protocol](https://a2a-protocol.org/) as the canonical API for the Azure AI Foundry hosted video agent. Legacy `/chat/agent` access has been removed. The classic `/chat` VideoRAG endpoint remains as a deprecated compatibility path for direct non-agentic chat clients.
 
 > **Rate Limiting**: All A2A endpoints are rate-limited via slowapi. Message endpoints allow 60 requests/minute; task listing allows 120/minute; task cancellation allows 30/minute.
 >
@@ -332,9 +346,12 @@ DELETE /media/{video_id}
 
 ### Video Processing
 
-Video processing is queued from the media upload endpoints. The active backend is selected by `PROCESSING_BACKEND`:
+Video processing is queued from the media upload endpoints. All video processing is dispatched via **Azure Service Bus** to the Databricks pipeline consumer.
 
-- `databricks` or `servicebus`: publish a durable Service Bus dispatch event for the Databricks video pipeline.
+**Configuration:**
+- `PROCESSING_BACKEND` (environment variable, optional): Accepts `servicebus` (default) or legacy `databricks` alias. Both values dispatch via Service Bus. The `databricks` setting is deprecated but remains supported for backwards compatibility with existing deployments.
+
+**Operational Note:** The backend records the canonical `servicebus` processing method. The legacy `databricks` value is accepted as input for existing deployments, but does not change the dispatch mechanism.
 
 The old local processing preview, `/jobs/*`, and Azure OpenAI Batch management routes have been retired from the FastAPI app. Status projection now comes from the Databricks outbox/bridge into the media status fields.
 
@@ -434,10 +451,14 @@ GET /media/{media_id}/status
 
 ### Storage Tiering
 
+> **Note**: Storage tiering endpoints are designed for cost optimization of archived videos. Per-media operations require authentication and validate media ownership. Superusers can manage tier for any media. `/storage/lifecycle-policy` is superuser-only because it generates an account-level Azure Storage management policy.
+
 #### Get Storage Health
 ```http
 GET /storage/health
 ```
+
+**No authentication required.** Returns service connectivity status.
 
 #### Get Media Tier
 ```http
@@ -451,7 +472,7 @@ Content-Type: application/json
 
 {
   "target_tier": "Cool",
-  "rehydrate_priority": "standard"
+  "rehydrate_priority": "Standard"
 }
 ```
 
@@ -461,7 +482,7 @@ POST /storage/media/{media_id}/rehydrate
 Content-Type: application/json
 
 {
-  "priority": "high",
+  "priority": "High",
   "target_tier": "Hot"
 }
 ```
@@ -487,16 +508,6 @@ Content-Type: application/json
   "archive_days": 180,
   "prefix_filter": "videos/"
 }
-```
-
-#### Sync All Tiers
-```http
-POST /storage/sync-tiers
-```
-
-#### Record Media Access
-```http
-POST /storage/media/{media_id}/access
 ```
 
 ### Search & Chat
@@ -592,25 +603,27 @@ The hosted agent container runs with a dedicated Microsoft Entra runtime identit
 
 #### Graph Search
 ```http
-POST /graph/search
+POST /graph/search/hybrid
 Content-Type: application/json
 
 {
   "query": "find all scenes with people and machinery",
   "video_id": "uuid",
-  "depth": 2
+  "limit": 10,
+  "use_graph_expansion": true
 }
 ```
 
 **Multi-Video Graph Search:**
 ```http
-POST /graph/search
+POST /graph/search/hybrid
 Content-Type: application/json
 
 {
   "query": "find common entities across videos",
   "video_ids": ["uuid1", "uuid2", "uuid3"],
-  "depth": 2
+  "limit": 10,
+  "use_reranking": true
 }
 ```
 
@@ -647,10 +660,14 @@ Content-Type: application/json
 }
 ```
 
-#### Get Video Hierarchy
+#### Get Video Hierarchy Stats
 ```http
-GET /graph/{video_id}/hierarchy
+GET /graph/hierarchy/stats/{video_id}
 ```
+
+Hierarchy drill-down and lazy child loading use `POST /graph/hierarchy/search/drill-down`
+and `POST /graph/hierarchy/children`. All hierarchy endpoints require media
+ownership for the referenced video or node.
 
 **Response:**
 ```json
@@ -709,6 +726,11 @@ All Neo4j access is funneled through `KnowledgeGraphService.execute_query()`, en
 
 ### Cache Management
 
+QPrisma uses a local in-process cache for search and graph hot paths. It is
+scoped to a single API replica and is not a source of truth. `GET /cache/health`
+is public for lightweight readiness checks; all other `/cache/*` endpoints are
+operational diagnostics and require an authenticated superuser.
+
 #### Cache Health
 ```http
 GET /cache/health
@@ -718,21 +740,23 @@ GET /cache/health
 ```json
 {
   "status": "healthy",
-  "redis_connected": true,
-  "memory_cache_entries": 42
+  "backend": "memory",
+  "connected": true,
+  "message": "Cache operational"
 }
 ```
 
 #### Cache Metrics
 ```http
 GET /cache/metrics
+Authorization: Bearer <superuser-token>
 ```
 
 **Response:**
 ```json
 {
   "connected": true,
-  "backend": "redis",
+  "backend": "memory",
   "hits": 15420,
   "misses": 3210,
   "errors": 0,
@@ -743,24 +767,10 @@ GET /cache/metrics
 }
 ```
 
-#### Cache Health (Public)
-```http
-GET /cache/health
-```
-
-**Response:**
-```json
-{
-  "status": "healthy",
-  "backend": "redis",
-  "connected": true,
-  "message": "Cache operational"
-}
-```
-
 #### Invalidate Cache
 ```http
 POST /cache/invalidate
+Authorization: Bearer <superuser-token>
 Content-Type: application/json
 
 {
@@ -768,7 +778,10 @@ Content-Type: application/json
 }
 ```
 
-> `GET /cache/health` is public (no auth required). All other cache endpoints (`/cache/metrics`, `/cache/invalidate`, `/cache/config`, etc.) require authentication.
+> `GET /cache/health` is public (no auth required). All other cache endpoints
+> (`/cache/metrics`, `/cache/metrics/reset`, `/cache/invalidate`,
+> `/cache/video/{video_id}`, `/cache/config`) require an authenticated
+> superuser and affect only the current API replica.
 
 ### Video Structure
 
@@ -803,36 +816,30 @@ Returns the scene and chapter structure for a processed video.
 }
 ```
 
-## WebSocket Endpoints
+## Processing Status Polling
 
-### Authentication
-
-All WebSocket endpoints require Entra ID token authentication via either:
-- **Query parameter**: `?token=<access_token>` on the connection URL
-- **First message**: send `{"token": "<access_token>"}` immediately after connecting
-
-### Real-time Processing Updates
-
-Connect to WebSocket for live updates:
+The frontend tracks processing progress by polling the persisted media status:
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/processing/{video_id}?token=eyJ...');
+const response = await fetch('http://localhost:8000/media/{media_id}/status', {
+  headers: { Authorization: `Bearer ${accessToken}` },
+});
 
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  console.log('Status:', data.status);
-  console.log('Progress:', data.progress);
-};
+const data = await response.json();
+console.log('Status:', data.processing_status);
+console.log('Progress:', data.processing_progress);
 ```
 
-**Message Format:**
+**Response Shape:**
 ```json
 {
-  "type": "progress",
-  "status": "processing",
-  "progress": 45,
-  "stage": "extracting_frames",
-  "message": "Processing frame 45 of 100"
+  "media_id": "abc-123",
+  "processing_status": "processing",
+  "processing_message": "Analyzing frames",
+  "processing_progress": 45,
+  "processed": false,
+  "frames_analyzed": 32,
+  "last_updated": "2026-05-06T13:00:00Z"
 }
 ```
 
@@ -879,7 +886,9 @@ Rate limits are enforced per-IP via slowapi:
 - **Upload endpoint**: 20 uploads/minute
 - **Standard endpoints**: 100 requests/minute
 
-> **Cache endpoints**: Cache management endpoints (`/cache/*`) require Entra ID authentication. Health and config endpoints are open; mutation endpoints (invalidate, reset metrics) require auth.
+> **Cache endpoints**: `GET /cache/health` is public. Cache diagnostics and
+> mutation endpoints require an authenticated superuser and affect only the
+> current API replica's in-process cache.
 
 Rate limit headers:
 ```http

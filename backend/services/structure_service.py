@@ -17,6 +17,7 @@ from agent.utils.text import (
     VIDEO_SUMMARY_PREFIXES,
     clean_generated_text,
 )
+from core.legacy_usage import record_legacy_usage
 
 if TYPE_CHECKING:
     from services.knowledge_graph import KnowledgeGraphService
@@ -286,22 +287,40 @@ class StructureService:
 
         .. deprecated::
             Legacy fallback for media processed before graph ingestion.
-            Will be removed once all media is migrated to the graph.
+            Remove only after affected media has been migrated/backfilled.
 
         Returns None if no structure data is available.
+
+        Emits warning logs with media_id and processing_method for audit trail
+        to identify old media still using this path.
         """
         legacy_structure = media_dict.get("structure") or (
             media_dict.get("processing_result") or {}
         ).get("structure")
         if legacy_structure:
+            media_id = media_dict.get("id", "unknown")
+            sanitized_id = str(media_id)[:100].replace("\n", "").replace("\r", "")
+
             logger.warning(
-                "Serving structure from legacy Postgres path for media=%s",
-                media_dict.get("id", "unknown"),
+                "structure_legacy_fallback",
+                extra={
+                    "media_id": sanitized_id,
+                    "processing_method": media_dict.get("processing_method"),
+                    "upload_date": media_dict.get("upload_date"),
+                    "legacy_path": True,
+                },
+            )
+            record_legacy_usage(
+                logger,
+                feature="structure_legacy_fallback",
+                labels={"processing_method": media_dict.get("processing_method") or "unknown"},
+                level=logging.WARNING,
             )
             return {
                 "structure": legacy_structure,
                 "processing_method": media_dict.get("processing_method"),
                 "processed_at": media_dict.get("last_updated"),
+                "_legacy_path": True,
             }
 
         return None

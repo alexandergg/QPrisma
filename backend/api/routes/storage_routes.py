@@ -14,13 +14,17 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.dependencies import get_current_user, get_media_or_404
+from api.dependencies import (
+    get_current_user,
+    get_database_service,
+    get_media_or_404,
+    get_storage_tiering_service,
+    require_superuser,
+)
 from models.user import User
-from services.database_service import get_database_service
 from services.storage_tiering_service import (
     RehydratePriority,
     StorageTier,
-    get_storage_tiering_service,
 )
 
 router = APIRouter(prefix="/storage", tags=["storage-tiering"])
@@ -321,7 +325,7 @@ async def get_cost_analysis(
 @router.post("/lifecycle-policy")
 async def generate_lifecycle_policy(
     request: LifecyclePolicyRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_superuser),
 ) -> dict[str, Any]:
     """
     Generate Azure Lifecycle Management Policy JSON.

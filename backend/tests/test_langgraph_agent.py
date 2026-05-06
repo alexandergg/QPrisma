@@ -636,8 +636,8 @@ class TestLangGraphTools:
         assert "Failed to get chapters" in result["error"]["message"]
 
 
-class TestRedisCheckpointer:
-    """Test Redis checkpointer creation via unified factory."""
+class TestMemoryCheckpointer:
+    """Test in-process checkpointer creation via unified factory."""
 
     @pytest.mark.asyncio
     async def test_checkpointer_fallback_to_memory(self):

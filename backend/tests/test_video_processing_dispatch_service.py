@@ -58,7 +58,7 @@ async def test_dispatch_video_requires_service_bus_namespace_for_databricks():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_dispatch_video_publishes_databricks_service_bus_message():
+async def test_dispatch_video_publishes_service_bus_message_for_databricks_alias():
     service = VideoProcessingDispatchService(
         _settings(backend="databricks", namespace="qprisma.servicebus.windows.net")
     )
@@ -98,7 +98,8 @@ async def test_dispatch_video_publishes_databricks_service_bus_message():
         "auth_mode": "managed_identity",
     }
     assert result.job_id.startswith("dbx-")
-    assert result.backend == "databricks"
+    assert result.backend == "servicebus"
+    assert result.pipeline_config["dispatch"]["backend"] == "servicebus"
 
 
 @pytest.mark.unit

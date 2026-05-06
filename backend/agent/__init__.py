@@ -15,7 +15,7 @@ Key Components:
 - AgentInputState/AgentOutputState: Input/Output schema separation (hides internal state)
 - VideoAgentGraph: Main video agent using LangGraph StateGraph
 - Tools: LangGraph @tool decorated functions with dynamic binding
-- Memory: Production checkpointer factory (PostgreSQL > Redis > Memory)
+- Memory: In-process LangGraph checkpointer with Foundry-managed hosted history
 - Error Handling: Graceful degradation with error_handler node
 
 Best Practices Applied (LangGraph v1.0+):
@@ -26,7 +26,7 @@ Best Practices Applied (LangGraph v1.0+):
 5. Multi-Tenant Security - user_id scoping
 6. Graph Execution Tests - Full path coverage
 7. Dynamic Tool Binding - Focused tool subsets
-8. Production Checkpointer Factory - Cascade fallback
+8. Shared Checkpointer Factory - Process-local runtime state
 """
 
 from __future__ import annotations

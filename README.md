@@ -56,7 +56,7 @@ QPrisma uses layered memory to maintain answer quality on long workflows:
 
 - **Foundry-native Hosted Agent history** via Foundry Responses/Conversations for production sessions, responses, streaming lifecycle, tool-call traces, and portal visibility with redacted QPrisma metadata.
 - **Backend-direct operational state** via LangGraph checkpointer when the graph runs outside Hosted Agent mode.
-- **Full tool payload artifacts** in Redis + Blob + PostgreSQL metadata.
+- **Full tool payload artifacts** in Azure Blob + PostgreSQL metadata, with local best-effort hot cache.
 - **Long-term user memory** via Azure AI Foundry Memory Store (per-user, Entra ID scoped).
 - **Prompt-time ranking** with recency and semantic/lexical signals.
 
@@ -173,7 +173,7 @@ See the [Architecture Portfolio](docs/ARCHITECTURE_PORTFOLIO.md) for the full se
 | Scene Detection | PySceneDetect (AdaptiveDetector + ContentDetector) |
 | Transcription | Azure Whisper (default), faster-whisper (optional, 4× faster, INT8/Silero VAD) |
 | Graph Intelligence | Community detection (Leiden via leidenalg/igraph, Louvain fallback), dense temporal chains, cross-video entity resolution, entity normalization |
-| Data | PostgreSQL, Neo4j, Redis |
+| Data | PostgreSQL, Neo4j |
 | Storage | Azure Blob Storage |
 | Infrastructure | Bicep, GitHub Actions, Azure Container Apps |
 
@@ -181,8 +181,8 @@ See the [Architecture Portfolio](docs/ARCHITECTURE_PORTFOLIO.md) for the full se
 
 QPrisma includes multiple layers of security hardening:
 
-- **Microsoft Entra ID authentication** (MSAL v5 popup flow) on protected REST and WebSocket endpoints; some operational endpoints remain public, including `GET /cache/health`
-- **Token/session invalidation** is handled by Microsoft Entra ID and the client-side MSAL token lifecycle; there is no backend `POST /auth/logout` route or Redis-backed JTI denylist
+- **Microsoft Entra ID authentication** (MSAL v5 popup flow) on protected REST endpoints; some operational endpoints remain public, including `GET /cache/health`
+- **Token/session invalidation** is handled by Microsoft Entra ID and the client-side MSAL token lifecycle; there is no backend `POST /auth/logout` route or JTI denylist
 - **Rate limiting** (slowapi) on auth, A2A, and media endpoints
 - **A2A ownership isolation** — hosted-agent message/task endpoints require bearer JWT, validate media ownership, and hide cross-user task continuations as 404
 - **Security headers** middleware (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, etc.)
@@ -302,7 +302,7 @@ The `scripts/` directory contains utilities for development and maintenance:
 
 | Script | Purpose |
 |--------|---------|
-| `reset_all_data.py` | Wipe all data from Blob Storage, Neo4j, PostgreSQL, and Redis for a fresh start |
+| `reset_all_data.py` | Wipe all data from Blob Storage, Neo4j, and PostgreSQL for a fresh start |
 | `deploy_agent.py` | SDK fallback/diagnostic deploy for the QPrisma hosted agent; the default path is `azd deploy qprisma-video-agent` |
 | `inspect_foundry_agent.py` | Safely inspect hosted-agent identity/blueprint metadata with redacted output |
 | `setup_entra_apps.ps1` | Set up Entra ID (Azure AD) applications for authentication |
@@ -324,7 +324,7 @@ python scripts/reset_all_data.py
 python scripts/reset_all_data.py --execute
 
 # Skip specific stores
-python scripts/reset_all_data.py --execute --skip-blob --skip-redis
+python scripts/reset_all_data.py --execute --skip-blob
 
 # Non-interactive mode (CI / automation)
 python scripts/reset_all_data.py --execute --yes
@@ -436,7 +436,7 @@ See `.github/workflows/evaluate-agent.yml` for the full CI/CD evaluation pipelin
 - [Video Ingestion Architecture](./docs/VIDEO_INGESTION_ARCHITECTURE.md) - Blob-first upload, queue-based orchestration, and multimodal enrichment
 - [Hosted Agent Retrieval Architecture](./docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md) - Foundry hosted agent, LangGraph loop, hybrid retrieval, and prompt-time context
 - [Data and Knowledge Architecture](./docs/DATA_KNOWLEDGE_ARCHITECTURE.md) - Data lifecycle, graph hierarchy, embeddings, lineage, and ownership
-- [Security and Identity Architecture](./docs/SECURITY_IDENTITY_ARCHITECTURE.md) - Entra ID, WebSocket auth, managed identities, secrets, and trust boundaries
+- [Security and Identity Architecture](./docs/SECURITY_IDENTITY_ARCHITECTURE.md) - Entra ID, managed identities, secrets, and trust boundaries
 - [Operations, NFRs, and Trade-offs](./docs/OPERATIONS_NFRS_ARCHITECTURE.md) - Reliability, scaling, observability, cost, and runbook-oriented review
 - [Solution Architect Playbook](./docs/SOLUTION_ARCHITECT_PLAYBOOK.md) - Reusable documentation and diagramming guidance for Data and AI solutions
 

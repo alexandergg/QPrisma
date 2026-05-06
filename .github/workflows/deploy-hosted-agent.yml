@@ -204,7 +204,6 @@ jobs:
         env:
           GH_NEO4J_PASSWORD: ${{ secrets.NEO4J_PASSWORD }}
           GH_DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GH_REDIS_URL: ${{ secrets.REDIS_URL }}
           GH_AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
         run: |
           set -euo pipefail
@@ -232,14 +231,12 @@ jobs:
 
           NEO4J_PASSWORD="${GH_NEO4J_PASSWORD:-$(fetch_secret neo4j-password)}"
           DATABASE_URL="${GH_DATABASE_URL:-$(fetch_secret database-url)}"
-          REDIS_URL="${GH_REDIS_URL:-$(fetch_secret redis-url)}"
           AZURE_STORAGE_CONNECTION_STRING="${GH_AZURE_STORAGE_CONNECTION_STRING:-$(az storage account show-connection-string \
             --name "$STORAGE_ACCOUNT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
             --query connectionString -o tsv 2>/dev/null || true)}"
 
           set_secret_output "neo4j_password" "$NEO4J_PASSWORD"
           set_secret_output "database_url" "$DATABASE_URL"
-          set_secret_output "redis_url" "$REDIS_URL"
           set_secret_output "azure_storage_connection_string" "$AZURE_STORAGE_CONNECTION_STRING"
 
       - name: Configure azd environment
@@ -254,7 +251,6 @@ jobs:
           NEO4J_PASSWORD: ${{ steps.services.outputs.neo4j_password }}
           NEO4J_DATABASE: ${{ secrets.NEO4J_DATABASE || 'neo4j' }}
           DATABASE_URL: ${{ steps.services.outputs.database_url }}
-          REDIS_URL: ${{ steps.services.outputs.redis_url }}
           AZURE_STORAGE_CONNECTION_STRING: ${{ steps.services.outputs.azure_storage_connection_string }}
         run: |
           set -euo pipefail
@@ -297,7 +293,6 @@ jobs:
           set_azd_env NEO4J_PASSWORD "$NEO4J_PASSWORD"
           set_azd_env NEO4J_DATABASE "$NEO4J_DATABASE"
           set_azd_env DATABASE_URL "$DATABASE_URL"
-          set_azd_env REDIS_URL "$REDIS_URL"
           set_azd_env AZURE_STORAGE_CONNECTION_STRING "$AZURE_STORAGE_CONNECTION_STRING"
           set_azd_env MEMORY_STORE_NAME "$MEMORY_STORE_NAME"
           set_azd_env MEMORY_CHAT_MODEL "$MEMORY_CHAT_MODEL"

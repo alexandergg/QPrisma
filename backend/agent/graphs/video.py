@@ -520,7 +520,7 @@ def create_video_agent_graph(checkpointer=None):
     if checkpointer is None:
         logger.warning(
             "No checkpointer provided, using in-memory MemorySaver. "
-            "This is NOT suitable for production - use Redis or PostgreSQL checkpointer."
+            "This is process-local and not durable across restarts."
         )
         checkpointer = MemorySaver()
 
@@ -886,7 +886,7 @@ class VideoAgentGraph:
 #     the durable source of truth. The graph only needs an in-process
 #     ``MemorySaver`` to run a single turn end-to-end.
 #   - Local / non-hosted callers (evaluations, dev): same
-#     ``MemorySaver`` semantics — no Redis or Postgres checkpointer is used.
+    #     ``MemorySaver`` semantics — no external checkpointer is used.
 
 _shared_checkpointer: Any | None = None
 _checkpointer_lock: asyncio.Lock | None = None
@@ -910,7 +910,7 @@ async def get_shared_checkpointer() -> Any:
           ``ResponseContext.get_history()``. The graph only needs an
           in-process checkpointer for a single turn.
         - Local / non-hosted callers: same in-process semantics — no
-          Postgres/Redis checkpointer is involved.
+          external checkpointer is involved.
 
     The ``async`` signature is preserved so existing call sites
     (``await get_shared_checkpointer()``) keep working.
@@ -946,8 +946,7 @@ def _get_graph_lock() -> asyncio.Lock:
 async def get_video_agent_graph() -> VideoAgentGraph:
     """Get or create the video agent graph singleton (async).
 
-    Initializes the checkpointer with proper async setup() so that
-    PostgreSQL/Redis connection pools are established before first use.
+    Initializes the shared in-process checkpointer before first use.
     """
     global _graph_instance
 

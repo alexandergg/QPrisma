@@ -32,7 +32,7 @@ QPrisma is not built around a single database. It uses multiple stores because d
 |---|---|---|
 | Azure Blob Storage | Durable object store for raw and large derived artifacts | Uploaded video, large payload artifacts |
 | PostgreSQL | Relational system state and metadata | Media metadata, processing state, user/application state, artifact metadata |
-| Redis | Hot cache, pub/sub, transient acceleration | Cached results, WebSocket event propagation, LangGraph checkpoint support |
+| Local in-process cache | Best-effort transient acceleration | Cached results and artifact hot-cache entries scoped to one API replica |
 | Neo4j | Semantic graph and vector-enabled retrieval structure | Video hierarchy, entities, topics, communities, relationships, embeddings |
 | Azure AI Foundry Memory Store | Available long-term semantic memory capability | User-scoped memory items when configured and used |
 
@@ -162,14 +162,14 @@ The architectural value emerges only when these two views are documented togethe
 
 ## 6. Caching and transient knowledge layers
 
-Redis plays an important role in reducing repeated work and improving responsiveness.
+QPrisma uses local in-process caching to reduce repeated work and improve responsiveness without adding an external cache service.
 
 Examples include:
 
 - search-result caching
-- transient orchestration state
-- pub/sub signaling
-- queue semantics for background work
+- graph-query caching
+- artifact hot-cache reads
+- transient job-status reads within one API replica
 
 This is not the long-term source of truth. It is the short-latency acceleration layer.
 
@@ -193,7 +193,8 @@ A professional data architecture document should always show which layer owns wh
 |---|---|
 | Raw uploaded binary | Azure Blob Storage |
 | Processing/application metadata | PostgreSQL |
-| Queue, transient cache, event fanout | Redis |
+| Queue and durable processing handoff | Service Bus + PostgreSQL |
+| Transient cache | Local in-process cache |
 | Semantic graph and retrieval structure | Neo4j |
 | Optional long-term semantic memory capability | Azure AI Foundry Memory Store |
 

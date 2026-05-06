@@ -16,7 +16,7 @@ backend/
     ├── test_community_search_integration.py # Community search integration
     ├── test_cross_video_search_service.py   # Multi-video cross-search service
     ├── test_graph_composition.py            # Knowledge graph service composition and delegation
-    ├── test_graph_search_caching.py         # Redis caching for hybrid search
+    ├── test_graph_search_caching.py         # Local cache behavior for hybrid search
     ├── test_langgraph_agent.py              # Agent tool routing and dynamic binding
     ├── test_search_tools.py                 # Search tool timeout, fallback, pipeline behavior
     ├── test_temporal_chains.py              # Dense temporal chains
@@ -37,7 +37,6 @@ frontend/
 | `test_security_headers.py` | Security headers middleware |
 | `test_dependencies.py` | Ownership helpers and access control dependencies |
 | `test_graph_routes_security.py` | Graph route authorization and tenant-scoped node access |
-| `test_websocket_auth.py` | WebSocket JWT authentication |
 | `test_a2a_security.py` | A2A authentication, media ownership, and task isolation |
 | `test_a2a_rate_limits.py` | A2A endpoint rate limiting and public discovery |
 | `test_a2a_executor.py` | Hosted-agent A2A task completion/failure semantics |
@@ -68,7 +67,7 @@ frontend/
 | `test_langgraph_agent.py` | Agent graph construction, dynamic tool binding, `select_tools_for_query` keyword classification, subtitle keyword avoidance |
 | `test_search_tools.py` | Search tool timeout/fallback behavior, pipeline budget behavior, `_sync_search_pipeline` candidate capping |
 | `test_tool_meta.py` | `tool_meta()` / `tool_error()` structured response helpers, `detail_hint` parameter |
-| `test_graph_search_caching.py` | Redis cache integration for hybrid search results |
+| `test_graph_search_caching.py` | Local cache integration for hybrid search results |
 | `test_cross_video_search_service.py` | Multi-video cross-search service, result aggregation |
 
 ## Backend Testing (Python)

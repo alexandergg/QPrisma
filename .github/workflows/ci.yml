@@ -74,7 +74,7 @@ jobs:
       - name: Run pytest with coverage
         run: |
           pytest tests/ -v --tb=short -x \
-            -m "not integration and not e2e and not slow and not requires_azure and not requires_redis and not requires_neo4j and not requires_postgres" \
+            -m "not integration and not e2e and not slow and not requires_azure and not requires_neo4j and not requires_postgres" \
             --cov --cov-report=xml --cov-report=term-missing --cov-fail-under=35
 
       - name: Upload coverage report

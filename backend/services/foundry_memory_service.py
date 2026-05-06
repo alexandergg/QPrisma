@@ -27,6 +27,7 @@ from typing import Any
 from azure.core.exceptions import ResourceNotFoundError
 
 from core.config import settings
+from core.degraded import DegradationImpact, record_degraded_operation
 
 logger = logging.getLogger(__name__)
 
@@ -188,8 +189,14 @@ class FoundryMemoryService:
             return {"update_id": poller.update_id, "status": poller.status()}
 
         except Exception as e:
-            logger.warning("Memory update failed (non-blocking): %s", e)
-            return {"error": str(e)}
+            record_degraded_operation(
+                logger,
+                component="foundry_memory",
+                operation="update_memories",
+                impact=DegradationImpact.MEMORY_UPDATE,
+                exc=e,
+            )
+            return {"error": type(e).__name__}
 
     async def search_memories(
         self,
@@ -242,7 +249,13 @@ class FoundryMemoryService:
             return memories
 
         except Exception as e:
-            logger.warning("Memory search failed: %s", e)
+            record_degraded_operation(
+                logger,
+                component="foundry_memory",
+                operation="search_memories",
+                impact=DegradationImpact.MEMORY_SEARCH,
+                exc=e,
+            )
             return []
 
     async def delete_user_memories(self, scope: str) -> bool:
@@ -261,7 +274,13 @@ class FoundryMemoryService:
             logger.info("Deleted memories for scope=%s", scope)
             return True
         except Exception as e:
-            logger.warning("Failed to delete memories for scope=%s: %s", scope, e)
+            record_degraded_operation(
+                logger,
+                component="foundry_memory",
+                operation="delete_user_memories",
+                impact=DegradationImpact.MEMORY_DELETE,
+                exc=e,
+            )
             return False
 
 

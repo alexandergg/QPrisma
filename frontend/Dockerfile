@@ -34,9 +34,7 @@ ENV NODE_ENV=production
 # For local Docker development, browser accesses localhost
 # For cloud deployment, pass via --build-arg
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ARG NEXT_PUBLIC_WS_URL=ws://localhost:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 
 # Microsoft Entra ID (SSO) — required for MSAL to send client_id
 ARG NEXT_PUBLIC_ENTRA_CLIENT_ID

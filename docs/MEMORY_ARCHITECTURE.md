@@ -13,7 +13,7 @@ Related views:
    - Purpose: operational graph state by `thread_id`, working state, and resume/retry continuity.
    - Scope: per conversation thread.
    - Persistence:
-     - **Backend-direct mode**: production saver cascade, PostgreSQL -> Redis -> `MemorySaver`, based on availability.
+      - **Backend-direct mode**: process-local `MemorySaver` in the current implementation.
      - **Foundry Hosted Agent mode**: intentionally process-local `MemorySaver` for in-run state only.
    - In Hosted Agent mode, it does not replace Foundry Responses/Conversations.
 
@@ -35,7 +35,7 @@ Related views:
 ## Source of Truth and Reconciliation
 
 - **Foundry Hosted Agent conversation history**: Foundry Responses/Conversations. This is the primary production path for sessions, response history, streaming lifecycle, and portal-visible traces.
-- **Backend-direct conversation history**: LangGraph checkpointer with the PostgreSQL -> Redis -> `MemorySaver` cascade.
+- **Backend-direct conversation history**: LangGraph checkpointer backed by process-local `MemorySaver` in the current implementation.
 - **User semantic knowledge**: Foundry Memory Store after automatic integration is enabled.
 - **A2A tasks and artifacts**: QPrisma stores, with explicit ownership, retention, and artifact references.
 
@@ -60,13 +60,13 @@ If there is a conflict in Hosted Agent mode, Foundry is authoritative for conver
 
 1. Client calls the backend-direct graph path without going through the Foundry Hosted Agent.
 2. Backend executes `get_video_agent_graph()`.
-3. `get_shared_checkpointer()` uses PostgreSQL -> Redis -> `MemorySaver`.
+3. `get_shared_checkpointer()` uses process-local `MemorySaver`.
 4. The checkpointer is the source of truth for continuity/resume of that thread.
 
 ## Latency and Quality
 
 - Backend-direct checkpointer overhead is typically smaller than LLM and retrieval latency.
-- Hosted Agent mode avoids duplicating conversation history in PostgreSQL/Redis, reducing compliance surface and keeping Foundry as the system of record for conversations.
+- Hosted Agent mode avoids duplicating conversation history in QPrisma stores, reducing compliance surface and keeping Foundry as the system of record for conversations.
 - For backend-direct mode, keep state compact, avoid large payloads in checkpoints, use connection pooling, and track p50/p95 metrics per phase.
 
 ## Recommended Operational Policies

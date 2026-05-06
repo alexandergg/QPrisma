@@ -8,7 +8,7 @@ Features (LangGraph v1.0+ Best Practices):
 - Input/Output schema separation
 - Error handler nodes for graceful degradation
 - Per-exception retry policies
-- Production checkpointer factory (PostgreSQL > Redis > Memory)
+- Shared in-process checkpointer factory
 """
 
 from agent.graphs.video import (

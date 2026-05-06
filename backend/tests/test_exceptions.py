@@ -131,8 +131,8 @@ class TestQPrismaException:
         assert err.details["key"] == "val"
 
     def test_service_unavailable(self):
-        err = ServiceUnavailableError("Redis")
-        assert "Redis" in str(err)
+        err = ServiceUnavailableError("Database")
+        assert "Database" in str(err)
         assert err.code == "SERVICE_UNAVAILABLE"
 
     def test_configuration_error(self):

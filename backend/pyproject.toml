@@ -19,8 +19,6 @@ dependencies = [
     # Database (PostgreSQL)
     "sqlalchemy>=2.0.0,<3.0.0",
     "psycopg2-binary>=2.9.9,<3.0.0",
-    # Cache, WebSocket fan-out, and LangGraph checkpoints
-    "redis>=5.2.0,<6.0.0",
     # Knowledge Graph
     "neo4j>=5.26.0,<6.0.0",
     # Community detection
@@ -28,14 +26,10 @@ dependencies = [
     "python-louvain>=0.16,<1.0.0",
     "leidenalg>=0.10.0,<1.0.0",
     "igraph>=0.11.0,<1.0.0",
-    # Image hashing/cache utilities
-    "pillow>=12.1.1,<13.0.0",
-    "imagehash>=4.3.0,<5.0.0",
     # LangGraph Agent Framework
     "langgraph>=1.0.7,<2.0.0",
     "langchain-core>=1.2.8,<2.0.0",
     "langchain-openai>=1.1.7,<2.0.0",
-    "langgraph-checkpoint-redis>=0.3.3,<1.0.0",
     "langgraph-checkpoint-postgres>=3.0.0",
     # A2A (Agent-to-Agent) Protocol
     "a2a-sdk[http-server]>=0.3.22,<1.0.0",
@@ -200,7 +194,6 @@ markers = [
     "e2e: mark test as end-to-end test",
     "slow: mark test as slow running",
     "requires_azure: mark test as requiring Azure services",
-    "requires_redis: mark test as requiring Redis",
     "requires_neo4j: mark test as requiring Neo4j",
     "requires_postgres: mark test as requiring PostgreSQL",
 ]

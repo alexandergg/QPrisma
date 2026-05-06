@@ -4,7 +4,7 @@ Replays the production media-upload path from
 ``backend/api/routes/media_routes.py:140-237`` programmatically against a
 benchmark user (default ``user_7541242e88e3``), so the agent indexes Video-MME
 videos exactly like a customer upload — frames in Blob, embeddings in Postgres,
-scenes/entities in Neo4j, retrieval cache warm in Redis.
+scenes/entities in Neo4j, retrieval cache warm in the local cache.
 
 Idempotency
 -----------

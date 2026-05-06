@@ -122,7 +122,7 @@ START → call_model → has_tool_calls? → tools → update_context → call_m
 | InjectedState for tools | ✅ Context injection without globals |
 | Async nodes | ✅ All nodes are `async def` |
 | RunnableConfig | ✅ Passed to all node functions |
-| Checkpointer support | ✅ MemorySaver and Redis |
+| Checkpointer support | ✅ MemorySaver |
 | Graph visualization | ✅ `get_graph().draw_mermaid()` |
 
 ## Configuration

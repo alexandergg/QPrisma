@@ -43,7 +43,7 @@ function ProcessingCard({
   uploadProgress,
   uploadSpeed,
 }: ProcessingCardProps) {
-  const { steps, overallProgress, status, error, estimatedTime, wsConnected } = useJobProgress(
+  const { steps, overallProgress, status, error, estimatedTime } = useJobProgress(
     jobId,
     mediaId,
     initialSteps || DEFAULT_STEPS,

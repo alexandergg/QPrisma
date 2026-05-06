@@ -14,7 +14,7 @@ ships:
 2. A thin `ResponsesAgentServerHost` entrypoint (`agent/hosted/main.py`).
 3. The Azure AI tracer wired in once at compile-time.
 
-There is **no custom state converter, no Redis-checkpointer, and no
+There is **no custom state converter, no external Redis checkpointer, and no
 `[QPRISMA_CONTEXT:…]` envelope** anymore.
 
 ---
@@ -107,7 +107,7 @@ assign custom downstream RBAC.
 
 Foundry persists every user message, every assistant reply, and every tool
 call/output as part of the conversation it manages. The hosted graph never
-writes to Redis or PostgreSQL for chat history.
+writes to external Redis or PostgreSQL for chat history.
 
 ### Reading history inside the agent
 
@@ -120,15 +120,15 @@ async def respond(request: CreateResponse, context: ResponseContext):
     return TextResponse(text=result["messages"][-1].content)
 ```
 
-### Why we removed the Redis checkpointer
+### Why we removed the external Redis checkpointer
 
 * Foundry owns history → the agent has no need to checkpoint between
   turns; the next `/responses` call rehydrates from `context.get_history()`.
 * `MemorySaver` is still used **inside** a single turn so LangGraph can
   resume node-level state if the graph is re-entered (e.g. after a tool
   call in the same `ainvoke`).
-* Redis is still used for embedding cache, WebSocket Pub/Sub, and rate limiting —
-  just not for conversation state.
+* Runtime caching is now local and best-effort, so conversation state has no
+  external cache dependency.
 
 ---
 

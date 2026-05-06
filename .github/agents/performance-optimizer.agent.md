@@ -1,6 +1,6 @@
 ---
 name: performance-optimizer
-description: "Use when: performance optimization, slow queries, caching strategy, token budget, context window, embedding batch size, Redis tuning, Neo4j query optimization, async bottleneck, memory usage, response latency, N+1 queries, LRU cache."
+description: "Use when: performance optimization, slow queries, caching strategy, token budget, context window, embedding batch size, local cache tuning, Neo4j query optimization, async bottleneck, memory usage, response latency, N+1 queries, LRU cache."
 tools: [read, search, execute]
 argument-hint: "Describe the performance issue, slow operation, or optimization target."
 handoffs:
@@ -19,7 +19,7 @@ You are a QPrisma performance optimization specialist. You analyze and recommend
 
 ## Key References
 
-- Redis caching: `backend/services/cache_service.py`
+- Local caching: `backend/services/cache_service.py`
 - Embedding service: `backend/services/embedding_service.py` (batch operations, `@lru_cache`)
 - Neo4j queries: `backend/services/knowledge_graph.py`, `backend/services/graph_search_service.py`
 - Database service: `backend/services/database_service.py` (PostgreSQL)
@@ -37,7 +37,7 @@ You are a QPrisma performance optimization specialist. You analyze and recommend
 - Connection pool sizing and async session management
 
 ### Caching
-- Redis cache hit rates and TTL strategy
+- Local cache hit rates and TTL strategy
 - `@lru_cache` usage on hot paths (LLM model creation, embedding clients)
 - Redundant cache invalidation or over-caching
 

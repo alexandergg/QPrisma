@@ -61,12 +61,12 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 │  │  URI/user/password/database injected via secrets          │     │
 │  └────────────────────────────────────────────────────────────┘     │
 │                                                                     │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐     │
-│  │ PostgreSQL   │  │  Redis       │  │  Azure AI Foundry      │     │
-│  │ Flex v16     │  │  Enterprise  │  │  (West Europe)         │     │
-│  │ (N. Europe)  │  │  Balanced_B0 │  │  GPT-4o, GPT-5.2-chat │     │
-│  │ 32GB         │  │  TLS 1.2+    │  │  Whisper, Embeddings   │     │
-│  └─────────────┘  └──────────────┘  └────────────────────────┘     │
+│  ┌─────────────┐  ┌────────────────────────┐                      │
+│  │ PostgreSQL   │  │  Azure AI Foundry      │                      │
+│  │ Flex v16     │  │  (West Europe)         │                      │
+│  │ (N. Europe)  │  │  GPT-4o, GPT-5.2-chat │                      │
+│  │ 32GB         │  │  Whisper, Embeddings   │                      │
+│  └─────────────┘  └────────────────────────┘                      │
 │                                                                     │
 │  ┌─────────────┐  ┌──────────────┐  ┌────────────────────────┐     │
 │  │ Storage     │  │  Container   │  │  Key Vault             │     │
@@ -107,7 +107,6 @@ QPrisma runs on **Azure Container Apps** with a microservices architecture. The 
 | Service | SKU | Location | Key Config |
 |---------|-----|----------|------------|
 | PostgreSQL Flexible Server | Standard_B1ms (Burstable) | North Europe | v16, 32GB auto-grow, 7-day backup |
-| Azure Managed Redis | Balanced_B0 (Enterprise) | West Europe | TLS 1.2+, port 10000, VolatileLRU eviction |
 | Azure Blob Storage | Standard_LRS (Hot) | West Europe | `media` container, CORS, HTTPS-only |
 | ADLS Gen2 Lakehouse Storage | Standard_LRS (Hot) | West Europe | Optional Databricks pilot storage with HNS and `raw`, `bronze`, `silver`, `gold`, `ops`, `checkpoints`, `artifacts` containers |
 | Neo4j Professional | Managed external service | Azure-hosted deployment | Public `neo4j+s://` endpoint, TLS, URI/user/password/database passed from GitHub secrets |
@@ -176,7 +175,7 @@ Use this runbook after infrastructure or bundle changes, and before considering 
 4. Confirm the Function bridge calls Databricks Jobs API `run-now` and records the `databricks_run_id` in media dispatch metadata.
 5. Confirm the Databricks run writes rows to `${DATABRICKS_OUTBOX_CATALOG}.${DATABRICKS_OUTBOX_SCHEMA}.${DATABRICKS_OUTBOX_TABLE}`.
 6. Confirm the timer-triggered outbox projection updates PostgreSQL `media.processing_status`, `processing_progress`, and `processing_result`.
-7. Confirm the frontend sees progress through `/media/{media_id}/status` and, when available, `/ws/jobs/{job_id}`.
+7. Confirm the frontend sees progress through `/media/{media_id}/status`.
 
 #### Operational cleanup after Celery removal
 
@@ -236,7 +235,7 @@ Runs 5 parallel jobs:
 | Job | Runner | Steps |
 |-----|--------|-------|
 | `backend-lint` | ubuntu-latest | Setup backend → `ruff check` → `black --check` |
-| `backend-test` | ubuntu-latest | Setup backend → `pytest` (excludes `requires_azure`, `requires_redis`, `requires_neo4j`, `requires_postgres`) |
+| `backend-test` | ubuntu-latest | Setup backend → `pytest` (excludes `requires_azure`, `requires_neo4j`, `requires_postgres`) |
 | `frontend-lint` | ubuntu-latest | Setup frontend → `npm run lint` |
 | `frontend-typecheck` | ubuntu-latest | Setup frontend → `npm run typecheck` |
 | `frontend-test` | ubuntu-latest | Setup frontend → `npm test -- --ci --coverage` |
@@ -300,7 +299,7 @@ validate ──▶ deploy
 ```
 dbAdminPassword=${{ secrets.DB_ADMIN_PASSWORD }}
 neo4jPassword=${{ secrets.NEO4J_PASSWORD }}
-jwtSecretKey=${{ secrets.JWT_SECRET_KEY }}
+benchmarkApiToken=${{ secrets.BENCHMARK_API_TOKEN }}
 ```
 
 ### 4. Application Deployment (`deploy-app.yml`)
@@ -397,14 +396,13 @@ infra/
     ├── key-vault.bicep            # Key Vault + RBAC roles
     ├── neo4j.bicep                # Legacy self-hosted Neo4j module kept only for cleanup/migration compatibility
     ├── postgresql.bicep           # PostgreSQL Flexible Server
-    ├── redis.bicep                # Azure Managed Redis Enterprise
     └── storage.bicep              # Storage account + blob container
 ```
 
 ### Deployment Order (Implicit Dependencies)
 
 ```
-Phase 1 (Parallel):  Storage, PostgreSQL, Redis, ACR, AI Foundry
+Phase 1 (Parallel):  Storage, PostgreSQL, ACR, AI Foundry
 Phase 2:             Container Apps Environment (VNet + Log Analytics)
 Phase 3:             User-assigned runtime identity + Key Vault + runtime secrets
 Phase 4:             API Container App (needs foundation services + runtime identity + Key Vault refs)
@@ -421,7 +419,6 @@ Phase 5:             Frontend Container App (needs API FQDN + runtime identity f
 | `dbAdminPassword` | secureString | — | PostgreSQL admin password |
 | `neo4jUri` | string | `''` | Managed Neo4j URI (`neo4j+s://...`) |
 | `neo4jPassword` | secureString | — | Neo4j authentication password |
-| `jwtSecretKey` | secureString | — | JWT signing secret |
 
 > **Note:** AI Foundry parameters (`aiLocation`, `deployBatchModel`) are now in
 > `infra/parameters/ai-foundry-dev.bicepparam`, deployed separately via `deploy-ai-foundry.yml`.
@@ -433,9 +430,7 @@ Phase 5:             Frontend Container App (needs API FQDN + runtime identity f
 | Secret Name | Source | Used By |
 |-------------|--------|---------|
 | `database-url` | PostgreSQL FQDN + credentials | API |
-| `redis-url` | Redis hostname + access key | API |
 | `neo4j-password` | Parameter | API |
-| `jwt-secret-key` | Parameter | API |
 
 **Environment Variables:**
 
@@ -467,7 +462,6 @@ Phase 5:             Frontend Container App (needs API FQDN + runtime identity f
 | `NEO4J_DATABASE` | Optional Neo4j database override (defaults to `neo4j`) |
 | `NEO4J_PASSWORD` | Neo4j authentication |
 | `NEO4J_URI` | Managed Neo4j connection URI (`neo4j+s://...`) |
-| `JWT_SECRET_KEY` | JWT token signing |
 
 ### GitHub Variables (CI/CD)
 
@@ -499,7 +493,7 @@ GitHub Secrets
 
 ### Hosted Agent secret flow
 
-`deploy-hosted-agent.yml` configures the `azd` environment and deploys the hosted agent declared in the root `azure.yaml` and `backend/agent/hosted/agent.yaml`. Database, Redis, Neo4j, and Storage connection-string secrets are resolved from GitHub Secrets or Key Vault and passed only as runtime configuration required by the hosted manifest.
+`deploy-hosted-agent.yml` configures the `azd` environment and deploys the hosted agent declared in the root `azure.yaml` and `backend/agent/hosted/agent.yaml`. Database, Neo4j, and Storage connection-string secrets are resolved from GitHub Secrets or Key Vault and passed only as runtime configuration required by the hosted manifest.
 
 After deployment, the `azd` postdeploy hook inspects the platform-created Hosted Agent identity once and grants downstream RBAC when the identity is available:
 
@@ -507,7 +501,7 @@ After deployment, the `azd` postdeploy hook inspects the platform-created Hosted
 |-------|------|---------|
 | Foundry account | `Azure AI User` | Model/tool access and streaming runtime access |
 | Foundry project | `Azure AI User` | Project-scoped agent artifacts and model access |
-| Key Vault | `Key Vault Secrets User` | Runtime resolution of database, Redis, and Neo4j secrets |
+| Key Vault | `Key Vault Secrets User` | Runtime resolution of database and Neo4j secrets |
 | Storage account | `Storage Blob Data Contributor` | Blob access through managed identity |
 
 The Hosted Agent container resolves Key Vault URIs at startup before `core.config.settings` is imported. `scripts/deploy_agent.py` remains only as an SDK fallback/diagnostic path; the default deployment path is `azd deploy qprisma-video-agent`.
@@ -521,7 +515,7 @@ The Hosted Agent image (`backend/agent/hosted/Dockerfile`) is built as linux/amd
 ### First-Time Setup
 
 1. **Create Azure Service Principal** with OIDC federation for GitHub Actions
-2. **Configure GitHub Secrets** (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, DB_ADMIN_PASSWORD, NEO4J_URI, NEO4J_PASSWORD, JWT_SECRET_KEY; optionally NEO4J_USER and NEO4J_DATABASE)
+2. **Configure GitHub Secrets** (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, DB_ADMIN_PASSWORD, NEO4J_URI, NEO4J_PASSWORD, BENCHMARK_API_TOKEN; optionally NEO4J_USER and NEO4J_DATABASE)
 3. **Configure GitHub Variables** (ACR_NAME, ACR_LOGIN_SERVER, AZURE_RESOURCE_GROUP, AZURE_LOCATION, KEY_VAULT_NAME, ENVIRONMENT, ENTRA_SPA_CLIENT_ID, ENTRA_TENANT_ID, ENTRA_API_SCOPE)
 4. **Grant OIDC SP Graph API permissions** for Entra SPA redirect URI sync (see [below](#entra-id-spa-redirect-uri-sync))
 5. **Run `deploy-infra.yml`** manually to provision all Azure resources and grant the GitHub Actions OIDC service principal `Storage Blob Data Reader` on the QPrisma storage account for benchmark dataset downloads
@@ -618,7 +612,7 @@ QPrisma deploys resources across 2 Azure regions for optimal performance and ser
 
 | Region | Resources | Rationale |
 |--------|-----------|-----------|
-| **West Europe** (default) | Container Apps, Redis, Storage, Key Vault, ACR, AI Foundry | User proximity, low latency, co-located compute + AI |
+| **West Europe** (default) | Container Apps, Storage, Key Vault, ACR, AI Foundry | User proximity, low latency, co-located compute + AI |
 | **North Europe** | PostgreSQL Flexible Server | PostgreSQL service availability |
 
 ---
@@ -672,13 +666,9 @@ QPrisma deploys resources across 2 Azure regions for optimal performance and ser
 **Problem: deploy-app health check fails and rolls back**
 - Check container logs: `az containerapp logs show --name <app> --resource-group <rg>`
 - Verify environment variables and secrets are correctly set
-- Check if dependent services (PostgreSQL, Redis, Neo4j) are accessible
+- Check if dependent services (PostgreSQL, Neo4j, Storage, AI Foundry) are accessible
 
 ### Infrastructure Issues
-
-**Problem: Redis `listKeys` failure**
-- Ensure access key authentication is enabled on the Redis Enterprise database
-- Check Redis Enterprise API version compatibility (currently using 2025-04-01)
 
 **Problem: Neo4j connection refused**
 - Verify `NEO4J_URI` points to the correct managed Neo4j endpoint (`neo4j+s://...`)

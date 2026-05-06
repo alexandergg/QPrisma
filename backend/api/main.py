@@ -69,8 +69,9 @@ def _setup_telemetry() -> None:
 
         # Register span processor so gen_ai.conversation.id appears in Foundry traces
         try:
-            from agent.utils.observability import ConversationIdSpanProcessor
             from opentelemetry.trace import get_tracer_provider
+
+            from agent.utils.observability import ConversationIdSpanProcessor
 
             provider = get_tracer_provider()
             if hasattr(provider, "add_span_processor"):
@@ -100,7 +101,6 @@ def _setup_telemetry() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    import asyncio
     import sys
 
     # Fix Windows console encoding for emojis
@@ -129,21 +129,6 @@ async def lifespan(app: FastAPI):
             "PostgreSQL: %s",
             "ok" if db_health.get("status") == "healthy" else "not configured",
         )
-
-    # Initialize Redis Pub/Sub listener for cross-replica WebSocket events.
-    pubsub_task = None
-    disable_pubsub = settings.app.disable_redis_pubsub
-    if disable_pubsub:
-        logger.info("Redis Pub/Sub: skipped (disabled by env)")
-    else:
-        try:
-            from api.routes.websocket_manager import get_pubsub_manager
-
-            pubsub_manager = await get_pubsub_manager()
-            pubsub_task = asyncio.create_task(pubsub_manager.listen())
-            logger.info("Redis Pub/Sub: ok (WebSocket sync enabled)")
-        except Exception as e:
-            logger.warning("Redis Pub/Sub: failed (%s)", e)
 
     logger.info("=" * 50)
 
@@ -179,22 +164,6 @@ async def lifespan(app: FastAPI):
                 logger.info("Neo4j disconnected")
         except Exception:
             logger.debug("Neo4j disconnect failed during shutdown", exc_info=True)
-
-    # Stop Redis Pub/Sub listener
-    if pubsub_task:
-        pubsub_task.cancel()
-        try:
-            await pubsub_task
-        except asyncio.CancelledError:
-            pass
-
-        try:
-            from api.routes.websocket_manager import _pubsub_manager
-
-            if _pubsub_manager:
-                await _pubsub_manager.disconnect()
-        except Exception:
-            logger.debug("PubSub disconnect failed during shutdown", exc_info=True)
 
 
 # =============================================================================
@@ -259,7 +228,6 @@ from api.routes import (
     processing_router,
     storage_router,
     structure_router,
-    websocket_router,
 )
 
 # A2A Protocol routes (Agent-to-Agent communication)
@@ -275,7 +243,6 @@ app.include_router(media_router, tags=["Media"])
 app.include_router(processing_router, tags=["Processing"])
 app.include_router(storage_router, tags=["Storage Tiering"])
 app.include_router(structure_router, tags=["Structure"])
-app.include_router(websocket_router, prefix="/ws", tags=["WebSocket"])
 
 
 # =============================================================================
@@ -331,7 +298,7 @@ async def get_config():
         "azure_storage_configured": bool(get_blob_service()),
         "postgresql_configured": db_healthy,
         "knowledge_graph_configured": settings.neo4j.is_configured,
-        "redis_configured": settings.redis.is_configured,
+        "cache_backend": "memory",
         "environment": settings.app.environment,
     }
 

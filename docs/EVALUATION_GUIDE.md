@@ -182,7 +182,7 @@ gh workflow run benchmark-video-mme.yml \
 
 `source-storage-account` is optional when `questions-url` already points at the same Azure Blob account as the staged videos. Set it explicitly when the metadata/questions file is hosted elsewhere or the videos live on a different account.
 
-Use this path when you want the benchmark to run against the **deployed** QPrisma stack without a local Postgres / Neo4j / Redis / Databricks bridge environment.
+Use this path when you want the benchmark to run against the **deployed** QPrisma stack without a local Postgres / Neo4j / Databricks bridge environment.
 
 #### Eval-only mode
 

@@ -59,6 +59,6 @@ class TestConfigEndpoint:
         assert "azure_storage_configured" in body
         assert "postgresql_configured" in body
         assert "knowledge_graph_configured" in body
-        assert "redis_configured" in body
+        assert body["cache_backend"] == "memory"
         assert "environment" in body
         assert isinstance(body["azure_openai_configured"], bool)

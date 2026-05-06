@@ -91,7 +91,7 @@ The workload has three distinct latency-sensitive paths:
 - Databricks batch processing for image-analysis cost and throughput efficiency
 - selective tool binding in the hosted agent
 - bounded hybrid search with a pipeline time budget
-- caching and transient acceleration through Redis
+- best-effort in-process caching for transient acceleration
 
 ### Performance trade-off
 
@@ -114,7 +114,7 @@ This is why security should be reviewed as both an architecture view and an oper
 
 - Databricks batch processing for frame analysis
 - workload separation so expensive Databricks compute does not force the API tier to scale the same way
-- Redis used for transient speedups instead of overusing expensive repeated calls
+- local TTL cache used for transient speedups instead of overusing expensive repeated calls
 - selective context rehydration to reduce token pressure in agent prompts
 
 ### Main cost drivers
@@ -155,7 +155,7 @@ QPrisma includes multiple observability surfaces:
 - Azure Monitor and Log Analytics
 - application logging
 - worker progress state updates
-- WebSocket progress notifications
+- authenticated media status polling
 - telemetry attributes attached to conversations and users in agent flows
 
 ### Architecture recommendation

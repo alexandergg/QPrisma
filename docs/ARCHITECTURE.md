@@ -11,7 +11,7 @@ QPrisma implements a **Microservices-based Modular Architecture** designed for s
 ```mermaid
 graph TD
     User([User]) -->|Next.js 16| Frontend[Frontend UI]
-    Frontend -->|REST / WebSocket| Gateway[API Gateway / FastAPI]
+    Frontend -->|REST| Gateway[API Gateway / FastAPI]
 
     subgraph "Processing Core"
         Gateway -->|Dispatch event| SB[Service Bus Dispatch Queue]
@@ -44,7 +44,7 @@ graph TD
 - **Runtime**: Python 3.11+ (Backend), Node.js 20+ (Frontend)
 - **Frameworks**: FastAPI, Next.js 16, LangGraph, Databricks Asset Bundles
 - **AI/ML**: Azure AI Foundry (GPT-4o, GPT-5.2-chat, Whisper, text-embedding-3-large)
-- **Databases**: PostgreSQL (Metadata), Neo4j (Graph + Vector), Redis Enterprise (Cache/Queue)
+- **Databases**: PostgreSQL (Metadata), Neo4j (Graph + Vector)
 - **Infrastructure**: Azure Container Apps, Azure Bicep IaC, GitHub Actions CI/CD, Azure Databricks
 - **Storage**: Azure Blob Storage and ADLS Gen2 lakehouse storage for Databricks medallion data
 
@@ -231,7 +231,7 @@ This architecture gives QPrisma a bounded, observable agent loop with better con
 *   **FastAPI**: For high-concurrency async endpoints.
 *   **Pydantic**: Strict data validation and serialization.
 *   **Service Bus + Databricks**: Durable dispatch and lakehouse processing for long-running video work.
-*   **Redis Stack**: Used for caching, Pub/Sub (WebSockets), and vector storage (optional).
+*   **Local cache**: In-process TTL cache for best-effort search, graph-query, embedding, and artifact hot-cache acceleration.
 
 ### Frontend (`frontend/`)
 *   **Next.js 16 (App Router)**: Server-side rendering for performance.
@@ -253,7 +253,7 @@ Two application containers run in a VNet-enabled managed environment, with an Az
 
 | Container | Role | Scaling | Ingress |
 |-----------|------|---------|---------|
-| **API** (FastAPI) | REST/WebSocket server | 1–2 replicas (HTTP concurrency) | External HTTPS |
+| **API** (FastAPI) | REST server | 1–2 replicas (HTTP concurrency) | External HTTPS |
 | **Frontend** (Next.js) | SSR web application | 1–2 replicas (HTTP concurrency) | External HTTPS |
 | **Databricks bridge** (Azure Function) | Service Bus trigger and Databricks job/outbox projection | Function scale controller | Internal platform trigger |
 
@@ -278,7 +278,7 @@ Key patterns: OIDC authentication, stale deployment cancellation, AI Foundry pro
 
 | Region | Resources | Rationale |
 |--------|-----------|-----------|
-| West Europe | Container Apps, Redis, Storage, Key Vault, AI Foundry | User proximity, co-located compute + AI |
+| West Europe | Container Apps, Storage, Key Vault, AI Foundry | User proximity, co-located compute + AI |
 | North Europe | PostgreSQL Flexible Server | Service availability |
 
 ### 6.4. Security Architecture
@@ -286,7 +286,7 @@ Key patterns: OIDC authentication, stale deployment cancellation, AI Foundry pro
 - **Managed Identity**: A shared runtime user-assigned identity handles ACR pulls and Key Vault-backed secrets, while API and the Function bridge keep system-assigned identities for runtime Azure SDK access
 - **OIDC Federation**: GitHub Actions authenticate via federated credentials (no stored secrets)
 - **Key Vault**: RBAC-authorized secrets for JWT keys, with "Key Vault Secrets User" role grants
-- **TLS**: All external traffic encrypted; Redis Enterprise requires TLS 1.2+
+- **TLS**: All external traffic is encrypted; managed data services use TLS endpoints
 
 For detailed infrastructure documentation, see [`docs/INFRASTRUCTURE.md`](./INFRASTRUCTURE.md).
 

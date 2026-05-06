@@ -18,7 +18,7 @@ Use this skill when the task includes validating code changes.
 ### Backend
 
 ```bash
-cd backend && pytest tests/ -v --tb=short -x -m "not integration and not e2e and not slow and not requires_azure and not requires_redis and not requires_neo4j and not requires_postgres"
+cd backend && pytest tests/ -v --tb=short -x -m "not integration and not e2e and not slow and not requires_azure and not requires_neo4j and not requires_postgres"
 ```
 
 ### Frontend
