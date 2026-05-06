@@ -77,6 +77,8 @@ pipeline_config_raw = widget("pipeline_config")
 # COMMAND ----------
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SERVING_ENDPOINT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+ALLOWED_FLORENCE_MODELS = {"microsoft/Florence-2-large-ft"}
 ALLOWED_SECRET_REFERENCE_KEYS = {
     "api_key_env",
     "api_key_secret_key",
@@ -112,8 +114,11 @@ AUDIO_CHUNKS_TABLE = "video_audio_chunks"
 ASR_RUNS_TABLE = "video_asr_runs"
 TRANSCRIPT_SEGMENTS_TABLE = "video_transcript_segments"
 FRAME_ASSETS_TABLE = "video_frame_assets"
+FRAME_ANALYSIS_TABLE = "video_frame_analysis"
 TEMPORAL_WINDOWS_TABLE = "video_temporal_windows"
 SCENE_CANDIDATES_TABLE = "video_scene_candidates"
+SCENE_VISUAL_ANALYSIS_TABLE = "video_scene_visual_analysis"
+MODEL_INFERENCE_RUNS_TABLE = "video_model_inference_runs"
 AI_REQUESTS_TABLE = "video_ai_requests"
 AI_BATCHES_TABLE = "video_ai_batches"
 AI_RESULTS_TABLE = "video_ai_results"
@@ -125,12 +130,11 @@ STAGE_PROGRESS = {
     "validate_and_probe_media": 0.20,
     "extract_audio_assets": 0.30,
     "extract_frame_assets": 0.40,
+    "run_florence_frame_analysis": 0.50,
     "run_faster_whisper_asr": 0.55,
     "detect_scenes_and_windows": 0.62,
-    "build_multimodal_inference_requests": 0.68,
-    "stage_ai_batch_payloads": 0.78,
-    "run_ai_batch_inference": 0.84,
-    "build_gold_processing_result": 0.88,
+    "run_databricks_scene_reasoning": 0.76,
+    "build_gold_processing_result": 0.86,
     "build_graph_upserts": 0.92,
     "project_neo4j_graph": 0.96,
     "publish_outbox": 1.00,
@@ -140,11 +144,10 @@ STAGE_MESSAGES = {
     "validate_and_probe_media": "Validating staged source media in Databricks",
     "extract_audio_assets": "Extracting audio assets with FFmpeg",
     "extract_frame_assets": "Preparing frame extraction assets",
+    "run_florence_frame_analysis": "Analyzing frames with Florence-2 in Databricks",
     "run_faster_whisper_asr": "Preparing faster-whisper transcription",
     "detect_scenes_and_windows": "Detecting temporal windows and scene candidates",
-    "build_multimodal_inference_requests": "Preparing multimodal inference requests",
-    "stage_ai_batch_payloads": "Staging Azure OpenAI Batch payloads",
-    "run_ai_batch_inference": "Running Azure OpenAI Batch inference",
+    "run_databricks_scene_reasoning": "Reasoning over scenes with Databricks Gemma 3",
     "build_gold_processing_result": "Building frontend-compatible Gold result",
     "build_graph_upserts": "Preparing Neo4j graph upsert intents",
     "project_neo4j_graph": "Applying graph upserts to Neo4j",
@@ -155,11 +158,10 @@ PIPELINE_STAGES = [
     "validate_and_probe_media",
     "extract_audio_assets",
     "extract_frame_assets",
+    "run_florence_frame_analysis",
     "run_faster_whisper_asr",
     "detect_scenes_and_windows",
-    "build_multimodal_inference_requests",
-    "stage_ai_batch_payloads",
-    "run_ai_batch_inference",
+    "run_databricks_scene_reasoning",
     "build_gold_processing_result",
     "build_graph_upserts",
     "project_neo4j_graph",
@@ -354,6 +356,31 @@ FRAME_ASSETS_SCHEMA = StructType(
         StructField("updated_at", TimestampType(), nullable=False),
     ]
 )
+FRAME_ANALYSIS_SCHEMA = StructType(
+    [
+        StructField("analysis_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("frame_asset_id", StringType(), nullable=False),
+        StructField("frame_index", LongType(), nullable=False),
+        StructField("timestamp_ms", LongType(), nullable=False),
+        StructField("model_name", StringType(), nullable=False),
+        StructField("model_version", StringType(), nullable=True),
+        StructField("provider", StringType(), nullable=False),
+        StructField("task", StringType(), nullable=False),
+        StructField("caption", StringType(), nullable=True),
+        StructField("ocr_text", StringType(), nullable=True),
+        StructField("objects_json", StringType(), nullable=False),
+        StructField("regions_json", StringType(), nullable=False),
+        StructField("grounding_json", StringType(), nullable=False),
+        StructField("raw_output_json", StringType(), nullable=False),
+        StructField("latency_ms", DoubleType(), nullable=True),
+        StructField("status", StringType(), nullable=False),
+        StructField("error", StringType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+        StructField("updated_at", TimestampType(), nullable=False),
+    ]
+)
 TEMPORAL_WINDOWS_SCHEMA = StructType(
     [
         StructField("window_id", StringType(), nullable=False),
@@ -385,6 +412,56 @@ SCENE_CANDIDATES_SCHEMA = StructType(
         StructField("transcript_segment_ids", StringType(), nullable=False),
         StructField("status", StringType(), nullable=False),
         StructField("created_at", TimestampType(), nullable=False),
+    ]
+)
+SCENE_VISUAL_ANALYSIS_SCHEMA = StructType(
+    [
+        StructField("analysis_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("scene_candidate_id", StringType(), nullable=False),
+        StructField("window_id", StringType(), nullable=True),
+        StructField("scene_index", LongType(), nullable=False),
+        StructField("start_ms", LongType(), nullable=False),
+        StructField("end_ms", LongType(), nullable=False),
+        StructField("model_name", StringType(), nullable=False),
+        StructField("model_version", StringType(), nullable=True),
+        StructField("provider", StringType(), nullable=False),
+        StructField("summary", StringType(), nullable=True),
+        StructField("actions_json", StringType(), nullable=False),
+        StructField("entities_json", StringType(), nullable=False),
+        StructField("relations_json", StringType(), nullable=False),
+        StructField("evidence_frame_ids", StringType(), nullable=False),
+        StructField("request_payload_json", StringType(), nullable=False),
+        StructField("response_json", StringType(), nullable=False),
+        StructField("latency_ms", DoubleType(), nullable=True),
+        StructField("tokens_prompt", LongType(), nullable=True),
+        StructField("tokens_completion", LongType(), nullable=True),
+        StructField("status", StringType(), nullable=False),
+        StructField("error", StringType(), nullable=False),
+        StructField("created_at", TimestampType(), nullable=False),
+        StructField("updated_at", TimestampType(), nullable=False),
+    ]
+)
+MODEL_INFERENCE_RUNS_SCHEMA = StructType(
+    [
+        StructField("inference_run_id", StringType(), nullable=False),
+        StructField("media_id", StringType(), nullable=False),
+        StructField("dispatch_id", StringType(), nullable=False),
+        StructField("stage", StringType(), nullable=False),
+        StructField("provider", StringType(), nullable=False),
+        StructField("model_name", StringType(), nullable=False),
+        StructField("model_version", StringType(), nullable=True),
+        StructField("input_count", LongType(), nullable=False),
+        StructField("success_count", LongType(), nullable=False),
+        StructField("failed_count", LongType(), nullable=False),
+        StructField("duration_seconds", DoubleType(), nullable=True),
+        StructField("gpu_type", StringType(), nullable=True),
+        StructField("metrics_json", StringType(), nullable=False),
+        StructField("status", StringType(), nullable=False),
+        StructField("error", StringType(), nullable=False),
+        StructField("started_at", TimestampType(), nullable=False),
+        StructField("completed_at", TimestampType(), nullable=True),
     ]
 )
 AI_REQUESTS_SCHEMA = StructType(
@@ -531,6 +608,9 @@ qualified_transcript_segments_table = (
 qualified_frame_assets_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(FRAME_ASSETS_TABLE)}"
 )
+qualified_frame_analysis_table = (
+    f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(FRAME_ANALYSIS_TABLE)}"
+)
 qualified_temporal_windows_table = (
     f"{quote_identifier(catalog)}."
     f"{quote_identifier(schema)}."
@@ -540,6 +620,16 @@ qualified_scene_candidates_table = (
     f"{quote_identifier(catalog)}."
     f"{quote_identifier(schema)}."
     f"{quote_identifier(SCENE_CANDIDATES_TABLE)}"
+)
+qualified_scene_visual_analysis_table = (
+    f"{quote_identifier(catalog)}."
+    f"{quote_identifier(schema)}."
+    f"{quote_identifier(SCENE_VISUAL_ANALYSIS_TABLE)}"
+)
+qualified_model_inference_runs_table = (
+    f"{quote_identifier(catalog)}."
+    f"{quote_identifier(schema)}."
+    f"{quote_identifier(MODEL_INFERENCE_RUNS_TABLE)}"
 )
 qualified_ai_requests_table = (
     f"{quote_identifier(catalog)}.{quote_identifier(schema)}.{quote_identifier(AI_REQUESTS_TABLE)}"
@@ -690,6 +780,10 @@ def safe_pipeline_config_for_persistence() -> dict:
             "min_chunk_seconds",
             "model_name",
             "vad_filter",
+            "preset",
+            "fast_model_name",
+            "balanced_model_name",
+            "quality_model_name",
         },
         "asr": {
             "beam_size",
@@ -703,16 +797,32 @@ def safe_pipeline_config_for_persistence() -> dict:
             "model_name",
             "model_size",
             "vad_filter",
+            "preset",
+            "fast_model_name",
+            "balanced_model_name",
+            "quality_model_name",
         },
         "frame_extraction": {
+            "dedupe_hashes",
             "format",
             "height",
             "interval_seconds",
             "max_frames",
+            "min_spacing_seconds",
             "quality",
             "width",
         },
-        "frames": {"format", "height", "interval_seconds", "max_frames", "quality", "width"},
+        "frames": {
+            "dedupe_hashes",
+            "format",
+            "height",
+            "interval_seconds",
+            "max_frames",
+            "min_spacing_seconds",
+            "quality",
+            "width",
+        },
+        "inference": {"mode"},
         "models": {"direct", "embedding", "prompt_version", "summary", "vision"},
         "neo4j": {"enabled"},
         "scene_detection": {
@@ -760,6 +870,8 @@ def safe_pipeline_config_for_persistence() -> dict:
             "frames",
             "graph_version",
             "index_graph",
+            "inference",
+            "inference_mode",
             "language",
             "max_frames",
             "models",
@@ -775,6 +887,58 @@ def safe_pipeline_config_for_persistence() -> dict:
         },
         nested_allowed,
     )
+    inference = pipeline_config.get("inference")
+    if isinstance(inference, dict):
+        safe_inference = filtered_dict(inference, {"mode"}, {})
+        frame_analysis = inference.get("frame_analysis")
+        if isinstance(frame_analysis, dict):
+            safe_inference["frame_analysis"] = filtered_dict(
+                frame_analysis,
+                {
+                    "batch_size",
+                    "device",
+                    "enabled",
+                    "max_frames",
+                    "max_new_tokens",
+                    "model",
+                    "model_revision",
+                    "provider",
+                    "tasks",
+                    "torch_dtype",
+                },
+                {},
+            )
+        scene_visual_reasoning = inference.get("scene_visual_reasoning")
+        if isinstance(scene_visual_reasoning, dict):
+            safe_inference["scene_visual_reasoning"] = filtered_dict(
+                scene_visual_reasoning,
+                {
+                    "api_token_env",
+                    "endpoint",
+                    "enabled",
+                    "host",
+                    "host_env",
+                    "max_frames_per_scene",
+                    "max_retries",
+                    "max_scenes",
+                    "max_tokens",
+                    "model_version",
+                    "output_schema",
+                    "provider",
+                    "request_timeout_seconds",
+                    "retry_delay_seconds",
+                    "temperature",
+                },
+                {},
+            )
+        smoke_validation = inference.get("smoke_validation")
+        if isinstance(smoke_validation, dict):
+            safe_inference["smoke_validation"] = filtered_dict(
+                smoke_validation,
+                {"enabled", "max_frames", "max_scenes"},
+                {},
+            )
+        safe["inference"] = safe_inference
     return safe
 
 
@@ -1043,6 +1207,34 @@ def ensure_ops_table() -> None:
     )
     spark.sql(
         f"""
+        CREATE TABLE IF NOT EXISTS {qualified_frame_analysis_table} (
+          analysis_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          frame_asset_id STRING,
+          frame_index BIGINT,
+          timestamp_ms BIGINT,
+          model_name STRING,
+          model_version STRING,
+          provider STRING,
+          task STRING,
+          caption STRING,
+          ocr_text STRING,
+          objects_json STRING,
+          regions_json STRING,
+          grounding_json STRING,
+          raw_output_json STRING,
+          latency_ms DOUBLE,
+          status STRING,
+          error STRING,
+          created_at TIMESTAMP,
+          updated_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
         CREATE TABLE IF NOT EXISTS {qualified_temporal_windows_table} (
           window_id STRING,
           media_id STRING,
@@ -1076,6 +1268,62 @@ def ensure_ops_table() -> None:
           transcript_segment_ids STRING,
           status STRING,
           created_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_scene_visual_analysis_table} (
+          analysis_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          scene_candidate_id STRING,
+          window_id STRING,
+          scene_index BIGINT,
+          start_ms BIGINT,
+          end_ms BIGINT,
+          model_name STRING,
+          model_version STRING,
+          provider STRING,
+          summary STRING,
+          actions_json STRING,
+          entities_json STRING,
+          relations_json STRING,
+          evidence_frame_ids STRING,
+          request_payload_json STRING,
+          response_json STRING,
+          latency_ms DOUBLE,
+          tokens_prompt BIGINT,
+          tokens_completion BIGINT,
+          status STRING,
+          error STRING,
+          created_at TIMESTAMP,
+          updated_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {qualified_model_inference_runs_table} (
+          inference_run_id STRING,
+          media_id STRING,
+          dispatch_id STRING,
+          stage STRING,
+          provider STRING,
+          model_name STRING,
+          model_version STRING,
+          input_count BIGINT,
+          success_count BIGINT,
+          failed_count BIGINT,
+          duration_seconds DOUBLE,
+          gpu_type STRING,
+          metrics_json STRING,
+          status STRING,
+          error STRING,
+          started_at TIMESTAMP,
+          completed_at TIMESTAMP
         )
         USING DELTA
         """
@@ -1224,6 +1472,19 @@ def ensure_ops_table() -> None:
 
 def json_dumps(value: dict) -> str:
     return json.dumps(value or {}, separators=(",", ":"), sort_keys=True)
+
+
+def rounded_metric(value: float | int | None, digits: int = 3) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), digits)
+
+
+def rate_metric(count: float | int | None, elapsed_seconds: float | int | None) -> float | None:
+    elapsed = float(elapsed_seconds or 0)
+    if elapsed <= 0:
+        return None
+    return rounded_metric(float(count or 0) / elapsed)
 
 
 def is_delta_concurrency_error(exc: Exception) -> bool:
@@ -1944,8 +2205,19 @@ def faster_whisper_config() -> dict:
     cfg = pipeline_config.get("faster_whisper") or pipeline_config.get("asr") or {}
     if not isinstance(cfg, dict):
         raise ValueError("pipeline_config.faster_whisper/asr must be an object when provided")
+    explicit_model = cfg.get("model_name") or cfg.get("model_size")
+    preset = str(cfg.get("preset") or ("custom" if explicit_model else "quality")).strip().lower()
+    preset_models = {
+        "fast": str(cfg.get("fast_model_name") or "turbo"),
+        "balanced": str(cfg.get("balanced_model_name") or "distil-large-v3"),
+        "quality": str(cfg.get("quality_model_name") or "large-v3"),
+        "custom": str(explicit_model or "large-v3"),
+    }
+    if preset not in preset_models:
+        raise ValueError("ASR preset must be one of: fast, balanced, quality, custom")
     return {
-        "model_name": str(cfg.get("model_name") or cfg.get("model_size") or "large-v3"),
+        "preset": preset,
+        "model_name": str(explicit_model or preset_models[preset]),
         "device": str(cfg.get("device") or "auto"),
         "compute_type": str(cfg.get("compute_type") or "int8"),
         "batch_size": int(cfg.get("batch_size") or 16),
@@ -2077,8 +2349,11 @@ def transcribe_audio_chunks(chunks: list[dict], model_config: dict) -> dict:
     emitted_until_ms = 0
     inference_started = time.perf_counter()
 
+    chunk_metrics = []
     for chunk in chunks:
         chunk_offset_seconds = float(chunk["start_ms"]) / 1000
+        chunk_started = time.perf_counter()
+        emitted_before = segment_index
         segments_iter, info = pipeline.transcribe(
             chunk["audio_uri"],
             language=model_config.get("language"),
@@ -2117,15 +2392,31 @@ def transcribe_audio_chunks(chunks: list[dict], model_config: dict) -> dict:
             text_parts.append(text)
             segment_index += 1
         emitted_until_ms = max(emitted_until_ms, int(chunk["end_ms"]))
+        chunk_elapsed = time.perf_counter() - chunk_started
+        chunk_audio_seconds = float(chunk["duration_seconds"] or 0)
+        chunk_metrics.append(
+            {
+                "chunk_id": chunk["chunk_id"],
+                "duration_seconds": rounded_metric(chunk_audio_seconds),
+                "elapsed_seconds": rounded_metric(chunk_elapsed),
+                "audio_seconds_per_second": rate_metric(chunk_audio_seconds, chunk_elapsed),
+                "segment_count": segment_index - emitted_before,
+            }
+        )
 
     elapsed = time.perf_counter() - inference_started
+    audio_seconds = sum(float(chunk["duration_seconds"] or 0) for chunk in chunks)
     return {
         "text": " ".join(text_parts),
         "segments": result_segments,
         "language": detected_language,
         "language_probability": detected_language_probability,
-        "duration_seconds": sum(float(chunk["duration_seconds"] or 0) for chunk in chunks),
+        "duration_seconds": audio_seconds,
         "elapsed_seconds": elapsed,
+        "real_time_factor": (elapsed / audio_seconds) if audio_seconds > 0 else None,
+        "audio_seconds_per_second": rate_metric(audio_seconds, elapsed),
+        "seconds_per_chunk": (elapsed / len(chunks)) if chunks else None,
+        "chunk_metrics": chunk_metrics,
     }
 
 
@@ -2179,6 +2470,14 @@ def frame_extraction_config() -> dict:
         ),
         "format": str(cfg.get("format") or "jpg"),
         "quality": bounded_int("quality", cfg.get("quality"), default=2, minimum=1, maximum=31),
+        "min_spacing_seconds": bounded_float(
+            "min_spacing_seconds",
+            cfg.get("min_spacing_seconds"),
+            default=0.2,
+            minimum=0.0,
+            maximum=60.0,
+        ),
+        "dedupe_hashes": config_bool(cfg.get("dedupe_hashes"), default=True),
     }
 
 
@@ -2233,11 +2532,25 @@ def frame_timestamps(video_metadata: dict, config: dict) -> list[float]:
     return [min(index * step, max(duration - 0.1, 0)) for index in range(max_frames)]
 
 
+def dedupe_frame_timestamps(timestamps: list[float], min_spacing_seconds: float) -> list[float]:
+    if min_spacing_seconds <= 0:
+        return timestamps
+    deduped: list[float] = []
+    for timestamp in timestamps:
+        rounded_timestamp = round(float(timestamp), 3)
+        if not deduped or rounded_timestamp - deduped[-1] >= min_spacing_seconds:
+            deduped.append(rounded_timestamp)
+    return deduped or timestamps[:1]
+
+
 def extract_frame_assets(source_uri: str) -> list[dict]:
     input_path = ffmpeg_input_path(source_uri)
     config = frame_extraction_config()
     metadata = ffprobe_video_metadata(input_path)
-    timestamps = frame_timestamps(metadata, config)
+    timestamps = dedupe_frame_timestamps(
+        frame_timestamps(metadata, config),
+        float(config["min_spacing_seconds"]),
+    )
     frame_format = config["format"].lower()
     if frame_format not in {"jpg", "jpeg", "png", "webp"}:
         raise ValueError("Frame format must be one of: jpg, jpeg, png, webp")
@@ -2245,6 +2558,7 @@ def extract_frame_assets(source_uri: str) -> list[dict]:
     frame_dir = volume_path(media_id, dispatch_id, "frames")
     frames: list[dict] = []
     extension = "jpg" if frame_format == "jpeg" else frame_format
+    seen_hashes: set[str] = set()
 
     for index, timestamp_seconds in enumerate(timestamps):
         timestamp_ms = int(timestamp_seconds * 1000)
@@ -2274,6 +2588,10 @@ def extract_frame_assets(source_uri: str) -> list[dict]:
         command.append(local_frame_path)
         run_command(command)
         copy_local_file_to_volume(local_frame_path, frame_path)
+        frame_sha256 = file_sha256(local_frame_path)
+        if config["dedupe_hashes"] and frame_sha256 in seen_hashes:
+            continue
+        seen_hashes.add(frame_sha256)
         frame_asset_id = f"{media_id}:frame:{index:06d}:{timestamp_ms}:{config_hash[:12]}"
         frames.append(
             {
@@ -2286,7 +2604,7 @@ def extract_frame_assets(source_uri: str) -> list[dict]:
                 "width": metadata["width"],
                 "height": metadata["height"],
                 "size_bytes": os.path.getsize(local_frame_path),
-                "sha256": file_sha256(local_frame_path),
+                "sha256": frame_sha256,
                 "extraction_method": config["method"],
             }
         )
@@ -2333,6 +2651,34 @@ def pipeline_models_config() -> dict:
     }
 
 
+def inference_mode_config() -> dict:
+    cfg = pipeline_config.get("inference") or {}
+    if cfg and not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.inference must be an object when provided")
+    mode = str(cfg.get("mode") or pipeline_config.get("inference_mode") or "local_databricks").strip().lower()
+    supported_modes = {"batch_cost", "interactive", "local_databricks"}
+    if mode not in supported_modes:
+        raise ValueError(
+            "pipeline_config.inference.mode must be one of: batch_cost, interactive, local_databricks"
+        )
+    return {"mode": mode}
+
+
+def azure_openai_batch_enabled() -> bool:
+    return inference_mode_config()["mode"] == "batch_cost"
+
+
+def batch_inference_skip_metrics() -> dict:
+    mode = inference_mode_config()["mode"]
+    return {
+        "skipped": True,
+        "skipped_reason": f"inference_mode_{mode}_does_not_use_azure_openai_batch",
+        "inference_mode": mode,
+        "ai_batches_table": AI_BATCHES_TABLE,
+        "ai_results_table": AI_RESULTS_TABLE,
+    }
+
+
 def stable_hash(value: dict) -> str:
     return hashlib.sha256(json_dumps(value).encode("utf-8")).hexdigest()
 
@@ -2363,6 +2709,409 @@ def load_frame_assets() -> list[dict]:
     return [row.asDict() for row in rows]
 
 
+def local_read_path(uri: str) -> str:
+    if uri.startswith("dbfs:/Volumes/"):
+        return uri.replace("dbfs:", "", 1)
+    return uri
+
+
+def read_image_as_data_url(uri: str) -> str:
+    path = local_read_path(uri)
+    with open(path, "rb") as image_file:
+        encoded = base64.b64encode(image_file.read()).decode("ascii")
+    return f"data:{image_media_type(path)};base64,{encoded}"
+
+
+def inference_section(name: str) -> dict:
+    inference = pipeline_config.get("inference") or {}
+    if inference and not isinstance(inference, dict):
+        raise ValueError("pipeline_config.inference must be an object when provided")
+    section = inference.get(name) or pipeline_config.get(name) or {}
+    if section and not isinstance(section, dict):
+        raise ValueError(f"pipeline_config.inference.{name} must be an object when provided")
+    return section
+
+
+def frame_analysis_config() -> dict:
+    cfg = inference_section("frame_analysis")
+    enabled_default = inference_mode_config()["mode"] == "local_databricks"
+    enabled = config_bool(cfg.get("enabled"), default=enabled_default)
+    model_name = str(cfg.get("model") or "microsoft/Florence-2-large-ft")
+    if model_name not in ALLOWED_FLORENCE_MODELS:
+        raise ValueError(
+            "Florence frame analysis only supports microsoft/Florence-2-large-ft in this MVP. "
+            "Do not pass arbitrary Hugging Face models because Florence requires trust_remote_code."
+        )
+    configured_revision = str(cfg.get("model_revision") or "").strip()
+    deployed_revision = str(os.environ.get("QPRISMA_FLORENCE_MODEL_REVISION") or "").strip()
+    if configured_revision and configured_revision != deployed_revision:
+        raise ValueError(
+            "pipeline_config.inference.frame_analysis.model_revision cannot override the "
+            "deployment-owned QPRISMA_FLORENCE_MODEL_REVISION value."
+        )
+    if enabled and not deployed_revision:
+        raise ValueError(
+            "QPRISMA_FLORENCE_MODEL_REVISION must pin the vetted Florence-2 commit because "
+            "microsoft/Florence-2-large-ft requires trust_remote_code."
+        )
+    tasks = cfg.get("tasks") or ["caption", "ocr"]
+    if isinstance(tasks, str):
+        tasks = [item.strip() for item in tasks.split(",") if item.strip()]
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError("pipeline_config.inference.frame_analysis.tasks must be a non-empty list")
+    supported_tasks = {"caption", "ocr", "object_detection", "dense_region_caption"}
+    normalized_tasks = [str(task).strip().lower() for task in tasks]
+    unsupported = sorted(set(normalized_tasks) - supported_tasks)
+    if unsupported:
+        raise ValueError(f"Unsupported Florence frame analysis tasks: {unsupported}")
+    return {
+        "enabled": enabled,
+        "provider": str(cfg.get("provider") or "databricks_job"),
+        "model_name": model_name,
+        "model_revision": deployed_revision or configured_revision or None,
+        "tasks": normalized_tasks,
+        "batch_size": bounded_int("batch_size", cfg.get("batch_size"), default=2, minimum=1, maximum=64),
+        "max_frames": bounded_int("max_frames", cfg.get("max_frames"), default=5, minimum=1, maximum=1000),
+        "max_new_tokens": bounded_int(
+            "max_new_tokens",
+            cfg.get("max_new_tokens"),
+            default=512,
+            minimum=32,
+            maximum=4096,
+        ),
+        "device": str(cfg.get("device") or "auto"),
+        "torch_dtype": str(cfg.get("torch_dtype") or "auto"),
+    }
+
+
+FLORENCE_TASK_PROMPTS = {
+    "caption": "<CAPTION>",
+    "ocr": "<OCR>",
+    "object_detection": "<OD>",
+    "dense_region_caption": "<DENSE_REGION_CAPTION>",
+}
+
+
+def torch_runtime_device(config: dict) -> tuple[Any, str]:
+    try:
+        import torch
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyTorch is required for Florence-2 frame analysis. Use a Databricks ML GPU runtime "
+            "or install torch on the run_florence_frame_analysis task."
+        ) from exc
+
+    requested_device = str(config.get("device") or "auto").lower()
+    if requested_device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        device = requested_device
+    return torch, device
+
+
+def torch_dtype_for_device(torch_module: Any, config: dict, device: str) -> Any:
+    dtype_name = str(config.get("torch_dtype") or "auto").lower()
+    if dtype_name == "auto":
+        return torch_module.float16 if device.startswith("cuda") else torch_module.float32
+    allowed = {
+        "float16": torch_module.float16,
+        "fp16": torch_module.float16,
+        "bfloat16": torch_module.bfloat16,
+        "bf16": torch_module.bfloat16,
+        "float32": torch_module.float32,
+        "fp32": torch_module.float32,
+    }
+    if dtype_name not in allowed:
+        raise ValueError("Florence torch_dtype must be one of auto, float16, bfloat16, float32")
+    return allowed[dtype_name]
+
+
+def load_florence_components(config: dict) -> dict:
+    try:
+        from transformers import AutoModelForCausalLM, AutoProcessor
+    except ImportError as exc:
+        raise RuntimeError(
+            "transformers is required for Florence-2 frame analysis. Install transformers, "
+            "timm, einops and Pillow on the run_florence_frame_analysis task."
+        ) from exc
+
+    torch_module, device = torch_runtime_device(config)
+    torch_dtype = torch_dtype_for_device(torch_module, config, device)
+    model_kwargs = {
+        "trust_remote_code": True,
+        "torch_dtype": torch_dtype,
+    }
+    if config.get("model_revision"):
+        model_kwargs["revision"] = config["model_revision"]
+    model = AutoModelForCausalLM.from_pretrained(config["model_name"], **model_kwargs).to(device)
+    processor_kwargs = {"trust_remote_code": True}
+    if config.get("model_revision"):
+        processor_kwargs["revision"] = config["model_revision"]
+    processor = AutoProcessor.from_pretrained(config["model_name"], **processor_kwargs)
+    model.eval()
+    return {"model": model, "processor": processor, "torch": torch_module, "device": device}
+
+
+def normalize_florence_task_payload(raw_output: dict, task_prompt: str) -> dict | str:
+    if task_prompt in raw_output:
+        return raw_output[task_prompt]
+    return raw_output
+
+
+def text_from_model_payload(payload: Any) -> str | None:
+    if isinstance(payload, str):
+        return payload.strip() or None
+    if isinstance(payload, dict):
+        for key in ("caption", "text", "ocr", "description", "summary"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        labels = payload.get("labels")
+        if isinstance(labels, list):
+            joined = ", ".join(str(label).strip() for label in labels if str(label).strip())
+            return joined or None
+    return None
+
+
+def florence_result_fields(task: str, parsed_payload: Any) -> dict:
+    caption = text_from_model_payload(parsed_payload) if task == "caption" else None
+    ocr_text = text_from_model_payload(parsed_payload) if task == "ocr" else None
+    objects = parsed_payload if task == "object_detection" else {}
+    regions = parsed_payload if task == "dense_region_caption" else {}
+    grounding = parsed_payload if task in {"object_detection", "dense_region_caption"} else {}
+    return {
+        "caption": caption,
+        "ocr_text": ocr_text,
+        "objects_json": json.dumps(objects or {}, separators=(",", ":"), sort_keys=True),
+        "regions_json": json.dumps(regions or {}, separators=(",", ":"), sort_keys=True),
+        "grounding_json": json.dumps(grounding or {}, separators=(",", ":"), sort_keys=True),
+    }
+
+
+def run_florence_task(components: dict, frame: dict, task: str, config: dict) -> dict:
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required for Florence-2 frame analysis.") from exc
+
+    task_prompt = FLORENCE_TASK_PROMPTS[task]
+    image_path = local_read_path(frame["frame_uri"])
+    image = Image.open(image_path).convert("RGB")
+    processor = components["processor"]
+    model = components["model"]
+    torch_module = components["torch"]
+    device = components["device"]
+    inputs = processor(text=task_prompt, images=image, return_tensors="pt")
+    inputs = {key: value.to(device) for key, value in inputs.items()}
+    with torch_module.inference_mode():
+        generated_ids = model.generate(
+            input_ids=inputs["input_ids"],
+            pixel_values=inputs["pixel_values"],
+            max_new_tokens=int(config["max_new_tokens"]),
+            num_beams=3,
+        )
+    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
+    raw_output = processor.post_process_generation(
+        generated_text,
+        task=task_prompt,
+        image_size=(image.width, image.height),
+    )
+    return {
+        "raw_output": raw_output,
+        "parsed_payload": normalize_florence_task_payload(raw_output, task_prompt),
+    }
+
+
+def frame_analysis_row(
+    frame: dict,
+    config: dict,
+    *,
+    task: str,
+    status: str,
+    latency_ms: float | None,
+    raw_output: dict | None = None,
+    parsed_payload: Any = None,
+    error: dict | None = None,
+) -> dict:
+    now = datetime.now(UTC)
+    fields = florence_result_fields(task, parsed_payload or {})
+    analysis_hash = stable_hash(
+        {
+            "frame_asset_id": frame["frame_asset_id"],
+            "model_name": config["model_name"],
+            "model_revision": config.get("model_revision"),
+            "task": task,
+            "config_hash": config_hash,
+        }
+    )
+    return {
+        "analysis_id": f"{media_id}:frame_analysis:{analysis_hash[:16]}",
+        "media_id": media_id,
+        "dispatch_id": dispatch_id,
+        "frame_asset_id": frame["frame_asset_id"],
+        "frame_index": int(frame["frame_index"]),
+        "timestamp_ms": int(frame["timestamp_ms"]),
+        "model_name": config["model_name"],
+        "model_version": config.get("model_revision"),
+        "provider": config["provider"],
+        "task": task,
+        **fields,
+        "raw_output_json": json.dumps(raw_output or {}, separators=(",", ":"), sort_keys=True),
+        "latency_ms": latency_ms,
+        "status": status,
+        "error": json_dumps(error or {}),
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def write_model_inference_run(
+    *,
+    stage_name: str,
+    provider: str,
+    model_name: str,
+    model_version: str | None,
+    input_count: int,
+    success_count: int,
+    failed_count: int,
+    duration_seconds: float,
+    metrics: dict,
+    status: str,
+    error: dict | None = None,
+    started_at: datetime | None = None,
+) -> None:
+    completed_at = datetime.now(UTC)
+    merge_row(
+        qualified_model_inference_runs_table,
+        {
+            "inference_run_id": (
+                f"{media_id}:{dispatch_id}:{stage_name}:{model_name}:{config_hash[:12]}"
+            ),
+            "media_id": media_id,
+            "dispatch_id": dispatch_id,
+            "stage": stage_name,
+            "provider": provider,
+            "model_name": model_name,
+            "model_version": model_version,
+            "input_count": int(input_count),
+            "success_count": int(success_count),
+            "failed_count": int(failed_count),
+            "duration_seconds": rounded_metric(duration_seconds),
+            "gpu_type": metrics.get("gpu_type"),
+            "metrics_json": json_dumps(metrics),
+            "status": status,
+            "error": json_dumps(error or {}),
+            "started_at": started_at or completed_at,
+            "completed_at": completed_at,
+        },
+        MODEL_INFERENCE_RUNS_SCHEMA,
+        ["inference_run_id"],
+    )
+
+
+def register_frame_analysis_rows(rows: list[dict]) -> None:
+    for row in rows:
+        merge_row(qualified_frame_analysis_table, row, FRAME_ANALYSIS_SCHEMA, ["analysis_id"])
+
+
+def run_florence_frame_analysis() -> dict:
+    stage_started_at = datetime.now(UTC)
+    stage_started = time.perf_counter()
+    config = frame_analysis_config()
+    if not config["enabled"]:
+        metrics = {
+            "skipped": True,
+            "skipped_reason": "frame_analysis_disabled",
+            "frame_analysis_table": FRAME_ANALYSIS_TABLE,
+            "model_inference_runs_table": MODEL_INFERENCE_RUNS_TABLE,
+        }
+        write_model_inference_run(
+            stage_name="run_florence_frame_analysis",
+            provider=config["provider"],
+            model_name=config["model_name"],
+            model_version=config.get("model_revision"),
+            input_count=0,
+            success_count=0,
+            failed_count=0,
+            duration_seconds=time.perf_counter() - stage_started,
+            metrics=metrics,
+            status="skipped",
+            started_at=stage_started_at,
+        )
+        return metrics
+
+    frames = load_frame_assets()[: int(config["max_frames"])]
+    components = load_florence_components(config)
+    rows: list[dict] = []
+    success_count = 0
+    failed_count = 0
+    for frame in frames:
+        for task in config["tasks"]:
+            task_started = time.perf_counter()
+            try:
+                result = run_florence_task(components, frame, task, config)
+                latency_ms = (time.perf_counter() - task_started) * 1000
+                rows.append(
+                    frame_analysis_row(
+                        frame,
+                        config,
+                        task=task,
+                        status="completed",
+                        latency_ms=rounded_metric(latency_ms),
+                        raw_output=result["raw_output"],
+                        parsed_payload=result["parsed_payload"],
+                    )
+                )
+                success_count += 1
+            except (RuntimeError, ValueError, OSError) as exc:
+                latency_ms = (time.perf_counter() - task_started) * 1000
+                rows.append(
+                    frame_analysis_row(
+                        frame,
+                        config,
+                        task=task,
+                        status="failed",
+                        latency_ms=rounded_metric(latency_ms),
+                        error={"type": type(exc).__name__, "message": str(exc)},
+                    )
+                )
+                failed_count += 1
+    register_frame_analysis_rows(rows)
+    elapsed = time.perf_counter() - stage_started
+    metrics = {
+        "frame_count": len(frames),
+        "task_count": len(config["tasks"]),
+        "input_count": len(rows),
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "elapsed_seconds": rounded_metric(elapsed),
+        "inferences_per_second": rate_metric(success_count, elapsed),
+        "model_name": config["model_name"],
+        "model_version": config.get("model_revision"),
+        "provider": config["provider"],
+        "device": components["device"],
+        "frame_analysis_table": FRAME_ANALYSIS_TABLE,
+        "model_inference_runs_table": MODEL_INFERENCE_RUNS_TABLE,
+        "smoke_ready": success_count > 0,
+    }
+    write_model_inference_run(
+        stage_name="run_florence_frame_analysis",
+        provider=config["provider"],
+        model_name=config["model_name"],
+        model_version=config.get("model_revision"),
+        input_count=len(rows),
+        success_count=success_count,
+        failed_count=failed_count,
+        duration_seconds=elapsed,
+        metrics=metrics,
+        status="completed" if failed_count == 0 else "completed_with_failures",
+        started_at=stage_started_at,
+    )
+    if rows and success_count == 0:
+        raise RuntimeError("Florence-2 frame analysis produced no successful outputs")
+    return metrics
+
+
 def load_completed_asr_run() -> dict | None:
     rows = spark.sql(
         f"""
@@ -2386,6 +3135,9 @@ def load_completed_asr_run() -> dict | None:
 
 
 def build_inference_request_rows() -> list[dict]:
+    if not azure_openai_batch_enabled():
+        return []
+
     frames = load_frame_assets()
     asr_run = load_completed_asr_run()
     models = pipeline_models_config()
@@ -2769,6 +3521,547 @@ def load_scene_candidates() -> list[dict]:
     return [row.asDict() for row in rows]
 
 
+def load_completed_frame_analysis_rows() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          analysis_id,
+          frame_asset_id,
+          frame_index,
+          timestamp_ms,
+          model_name,
+          model_version,
+          provider,
+          task,
+          caption,
+          ocr_text,
+          objects_json,
+          regions_json,
+          grounding_json,
+          raw_output_json,
+          latency_ms,
+          status,
+          updated_at
+        FROM {qualified_frame_analysis_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+          AND status = 'completed'
+        ORDER BY frame_index, task, updated_at DESC
+        """
+    ).collect()
+    return [row.asDict() for row in rows]
+
+
+def labels_from_structured_payload(payload: Any) -> list[str]:
+    if isinstance(payload, dict):
+        labels = payload.get("labels")
+        if isinstance(labels, list):
+            return unique_strings([str(label) for label in labels], 50)
+        values = []
+        for key in ("objects", "entities", "items", "detections"):
+            values.extend(list_strings(payload.get(key)))
+        return unique_strings(values, 50)
+    if isinstance(payload, list):
+        return unique_strings(list_strings(payload), 50)
+    return []
+
+
+def parse_json_value(raw_value: str | dict | list | None) -> Any:
+    if isinstance(raw_value, dict | list):
+        return raw_value
+    if not raw_value:
+        return None
+    return json.loads(raw_value)
+
+
+def frame_analysis_understanding_by_source(rows: list[dict]) -> dict[str, dict]:
+    by_frame: dict[str, dict] = {}
+    for row in rows:
+        frame_id = row["frame_asset_id"]
+        understanding = by_frame.setdefault(
+            frame_id,
+            {
+                "result_id": row["analysis_id"],
+                "description_parts": [],
+                "ocr_texts": [],
+                "detected_objects": [],
+                "normalized": {"provider": row["provider"], "model_name": row["model_name"], "tasks": {}},
+                "tokens_prompt": 0,
+                "tokens_completion": 0,
+            },
+        )
+        task = row["task"]
+        task_payload = parse_json_value(row.get("raw_output_json")) or {}
+        understanding["normalized"]["tasks"][task] = task_payload
+        if row.get("caption"):
+            understanding["description_parts"].append(row["caption"])
+        if row.get("ocr_text"):
+            understanding["ocr_texts"].append(row["ocr_text"])
+        objects = parse_json_value(row.get("objects_json"))
+        regions = parse_json_value(row.get("regions_json"))
+        understanding["detected_objects"].extend(labels_from_structured_payload(objects))
+        understanding["detected_objects"].extend(labels_from_structured_payload(regions))
+
+    result = {}
+    for frame_id, understanding in by_frame.items():
+        description_parts = understanding.pop("description_parts")
+        ocr_texts = understanding.pop("ocr_texts")
+        description = truncate_text(" ".join(description_parts), 700)
+        if ocr_texts:
+            understanding["normalized"]["ocr_text"] = " ".join(ocr_texts)
+        result[frame_id] = {
+            **understanding,
+            "description": description,
+            "detected_objects": unique_strings(understanding["detected_objects"], 50),
+        }
+    return result
+
+
+def scene_visual_reasoning_config() -> dict:
+    cfg = inference_section("scene_visual_reasoning")
+    enabled_default = inference_mode_config()["mode"] == "local_databricks"
+    endpoint = str(cfg.get("endpoint") or "databricks-gemma-3-12b").strip()
+    if not SERVING_ENDPOINT_RE.fullmatch(endpoint):
+        raise ValueError("Databricks Foundation Model endpoint must be a simple serving endpoint name")
+    return {
+        "enabled": config_bool(cfg.get("enabled"), default=enabled_default),
+        "provider": str(cfg.get("provider") or "databricks_foundation_model"),
+        "endpoint": endpoint,
+        "model_version": cfg.get("model_version"),
+        "output_schema": str(cfg.get("output_schema") or "qprisma_scene_visual_v1"),
+        "max_scenes": bounded_int("max_scenes", cfg.get("max_scenes"), default=1, minimum=1, maximum=500),
+        "max_frames_per_scene": bounded_int(
+            "max_frames_per_scene",
+            cfg.get("max_frames_per_scene"),
+            default=2,
+            minimum=1,
+            maximum=8,
+        ),
+        "max_tokens": bounded_int("max_tokens", cfg.get("max_tokens"), default=800, minimum=128, maximum=4096),
+        "temperature": bounded_float(
+            "temperature",
+            cfg.get("temperature"),
+            default=0.1,
+            minimum=0.0,
+            maximum=2.0,
+        ),
+        "request_timeout_seconds": bounded_float(
+            "request_timeout_seconds",
+            cfg.get("request_timeout_seconds"),
+            default=120.0,
+            minimum=5.0,
+            maximum=600.0,
+        ),
+        "max_retries": bounded_int("max_retries", cfg.get("max_retries"), default=2, minimum=0, maximum=8),
+        "retry_delay_seconds": bounded_float(
+            "retry_delay_seconds",
+            cfg.get("retry_delay_seconds"),
+            default=2.0,
+            minimum=0.1,
+            maximum=60.0,
+        ),
+    }
+
+
+def normalized_https_host(value: str) -> str:
+    parsed = urlparse(str(value).rstrip("/"))
+    if parsed.scheme != "https" or not parsed.netloc or parsed.path not in {"", "/"}:
+        raise ValueError("Databricks workspace host must be an HTTPS origin")
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def databricks_api_host(config: dict) -> str:
+    context = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+    api_url = context.apiUrl().get()
+    context_host = normalized_https_host(api_url) if api_url else ""
+    env_host_value = os.environ.get("DATABRICKS_HOST")
+    if env_host_value:
+        env_host = normalized_https_host(env_host_value)
+        if context_host and urlparse(env_host).netloc != urlparse(context_host).netloc:
+            raise ValueError("DATABRICKS_HOST does not match the current Databricks workspace host")
+        return env_host
+    if not api_url:
+        raise ValueError("Databricks workspace host is missing. Set deployment-owned DATABRICKS_HOST.")
+    return context_host
+
+
+def databricks_api_token(config: dict) -> str:
+    token = os.environ.get("DATABRICKS_TOKEN")
+    if token:
+        return token
+    context = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+    api_token = context.apiToken().get()
+    if not api_token:
+        raise ValueError(
+            "Databricks API token is missing. Set deployment-owned DATABRICKS_TOKEN "
+            "or run in a notebook context that exposes apiToken."
+        )
+    return str(api_token)
+
+
+def databricks_serving_endpoint_invocation(config: dict, payload: dict) -> dict:
+    host = databricks_api_host(config)
+    token = databricks_api_token(config)
+    url = f"{host}/serving-endpoints/{config['endpoint']}/invocations"
+    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    max_retries = int(config["max_retries"])
+    retry_delay = float(config["retry_delay_seconds"])
+    for attempt in range(max_retries + 1):
+        request = urllib.request.Request(
+            url,
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=float(config["request_timeout_seconds"])) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            retryable = exc.code in {408, 429, 500, 502, 503, 504}
+            error_body = exc.read().decode("utf-8", errors="replace")
+            if not retryable or attempt >= max_retries:
+                raise RuntimeError(
+                    f"Databricks Foundation Model endpoint {config['endpoint']} failed "
+                    f"with HTTP {exc.code}: {error_body}"
+                ) from exc
+            time.sleep(retry_delay * (2**attempt))
+        except urllib.error.URLError as exc:
+            if attempt >= max_retries:
+                raise RuntimeError(
+                    f"Databricks Foundation Model endpoint {config['endpoint']} is unreachable: {exc}"
+                ) from exc
+            time.sleep(retry_delay * (2**attempt))
+    raise RuntimeError(f"Databricks Foundation Model endpoint {config['endpoint']} did not return a response")
+
+
+def strip_json_markdown(content: str) -> str:
+    text = content.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    return text
+
+
+def parse_model_json_content(content: str) -> dict:
+    parsed = json.loads(strip_json_markdown(content))
+    if not isinstance(parsed, dict):
+        raise ValueError("Model response must be a JSON object")
+    return parsed
+
+
+def extract_chat_content(response: dict) -> str:
+    choices = response.get("choices") or []
+    if not choices:
+        raise ValueError("Databricks Foundation Model response has no choices")
+    message = choices[0].get("message") or {}
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                text_parts.append(item["text"])
+        if text_parts:
+            return "\n".join(text_parts)
+    raise ValueError("Databricks Foundation Model response content is empty or unsupported")
+
+
+def scene_prompt(candidate: dict, frames: list[dict], segments: list[dict], frame_ai: dict[str, dict], config: dict) -> str:
+    start_seconds = round(float(candidate["start_ms"]) / 1000, 3)
+    end_seconds = round(float(candidate["end_ms"]) / 1000, 3)
+    frame_ids = [str(item) for item in parse_json_list(candidate.get("frame_asset_ids"))]
+    frame_summaries = []
+    for frame_id in frame_ids:
+        understanding = frame_ai.get(frame_id, {})
+        if understanding.get("description") or understanding.get("detected_objects"):
+            frame_summaries.append(
+                {
+                    "frame_id": frame_id,
+                    "description": understanding.get("description"),
+                    "objects": understanding.get("detected_objects", [])[:20],
+                    "ocr_text": (understanding.get("normalized") or {}).get("ocr_text"),
+                }
+            )
+    transcript = transcript_segments_for_range(segments, start_seconds, end_seconds)
+    prompt_payload = {
+        "output_schema": config["output_schema"],
+        "media_id": media_id,
+        "scene_candidate_id": candidate["scene_candidate_id"],
+        "time_range_seconds": {"start": start_seconds, "end": end_seconds},
+        "transcript": transcript,
+        "florence_frame_signals": frame_summaries,
+    }
+    return json_mode_prompt(
+        "Analyze this video scene/window for QPrisma. Return JSON with keys: "
+        "summary, actions, entities, relations, confidence, evidence. "
+        "Use the Florence frame signals and transcript as grounded evidence.\n\n"
+        f"Input:\n{json.dumps(prompt_payload, separators=(',', ':'), sort_keys=True)}"
+    )
+
+
+def selected_scene_frames(candidate: dict, frames_by_id: dict[str, dict], max_frames: int) -> list[dict]:
+    frame_ids = [str(item) for item in parse_json_list(candidate.get("frame_asset_ids"))]
+    selected = [frames_by_id[frame_id] for frame_id in frame_ids if frame_id in frames_by_id]
+    if len(selected) <= max_frames:
+        return selected
+    if max_frames == 1:
+        return [selected[len(selected) // 2]]
+    step = (len(selected) - 1) / (max_frames - 1)
+    indexes = sorted({round(index * step) for index in range(max_frames)})
+    return [selected[index] for index in indexes]
+
+
+def scene_reasoning_payload(
+    candidate: dict,
+    frames: list[dict],
+    segments: list[dict],
+    frame_ai: dict[str, dict],
+    config: dict,
+) -> tuple[dict, list[str]]:
+    frames_by_id = {frame["frame_asset_id"]: frame for frame in frames}
+    selected_frames = selected_scene_frames(candidate, frames_by_id, int(config["max_frames_per_scene"]))
+    content: list[dict] = [{"type": "text", "text": scene_prompt(candidate, frames, segments, frame_ai, config)}]
+    for frame in selected_frames:
+        content.append({"type": "image_url", "image_url": {"url": read_image_as_data_url(frame["frame_uri"])}})
+    return (
+        {
+            "messages": [{"role": "user", "content": content}],
+            "temperature": float(config["temperature"]),
+            "max_tokens": int(config["max_tokens"]),
+        },
+        [frame["frame_asset_id"] for frame in selected_frames],
+    )
+
+
+def scene_visual_analysis_row(
+    candidate: dict,
+    config: dict,
+    *,
+    status: str,
+    evidence_frame_ids: list[str],
+    request_payload: dict,
+    response: dict | None = None,
+    normalized: dict | None = None,
+    latency_ms: float | None = None,
+    error: dict | None = None,
+) -> dict:
+    normalized = normalized or {}
+    usage = (response or {}).get("usage") or {}
+    now = datetime.now(UTC)
+    analysis_hash = stable_hash(
+        {
+            "scene_candidate_id": candidate["scene_candidate_id"],
+            "endpoint": config["endpoint"],
+            "model_version": config.get("model_version"),
+            "config_hash": config_hash,
+        }
+    )
+    return {
+        "analysis_id": f"{media_id}:scene_visual:{analysis_hash[:16]}",
+        "media_id": media_id,
+        "dispatch_id": dispatch_id,
+        "scene_candidate_id": candidate["scene_candidate_id"],
+        "window_id": None,
+        "scene_index": int(candidate["scene_index"]),
+        "start_ms": int(candidate["start_ms"]),
+        "end_ms": int(candidate["end_ms"]),
+        "model_name": config["endpoint"],
+        "model_version": config.get("model_version"),
+        "provider": config["provider"],
+        "summary": string_field(normalized, ("summary", "description", "visual_summary")),
+        "actions_json": json.dumps(normalized.get("actions") or [], separators=(",", ":"), sort_keys=True),
+        "entities_json": json.dumps(normalized.get("entities") or [], separators=(",", ":"), sort_keys=True),
+        "relations_json": json.dumps(normalized.get("relations") or [], separators=(",", ":"), sort_keys=True),
+        "evidence_frame_ids": json.dumps(evidence_frame_ids, separators=(",", ":"), sort_keys=True),
+        "request_payload_json": json.dumps(request_payload, separators=(",", ":"), sort_keys=True),
+        "response_json": json.dumps(response or {}, separators=(",", ":"), sort_keys=True),
+        "latency_ms": latency_ms,
+        "tokens_prompt": usage.get("prompt_tokens"),
+        "tokens_completion": usage.get("completion_tokens"),
+        "status": status,
+        "error": json_dumps(error or {}),
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def register_scene_visual_analysis_rows(rows: list[dict]) -> None:
+    for row in rows:
+        merge_row(
+            qualified_scene_visual_analysis_table,
+            row,
+            SCENE_VISUAL_ANALYSIS_SCHEMA,
+            ["analysis_id"],
+        )
+
+
+def load_completed_scene_visual_analysis_rows() -> list[dict]:
+    rows = spark.sql(
+        f"""
+        SELECT
+          analysis_id,
+          scene_candidate_id,
+          scene_index,
+          start_ms,
+          end_ms,
+          model_name,
+          model_version,
+          provider,
+          summary,
+          actions_json,
+          entities_json,
+          relations_json,
+          evidence_frame_ids,
+          response_json,
+          latency_ms,
+          tokens_prompt,
+          tokens_completion,
+          status,
+          updated_at
+        FROM {qualified_scene_visual_analysis_table}
+        WHERE media_id = {sql_literal(media_id)}
+          AND dispatch_id = {sql_literal(dispatch_id)}
+          AND status = 'completed'
+        ORDER BY scene_index, updated_at DESC
+        """
+    ).collect()
+    return [row.asDict() for row in rows]
+
+
+def scene_visual_analysis_by_candidate(rows: list[dict]) -> dict[str, dict]:
+    by_candidate: dict[str, dict] = {}
+    for row in rows:
+        candidate_id = row["scene_candidate_id"]
+        if candidate_id in by_candidate:
+            continue
+        by_candidate[candidate_id] = {
+            **row,
+            "actions": parse_json_list(row.get("actions_json")),
+            "entities": parse_json_list(row.get("entities_json")),
+            "relations": parse_json_list(row.get("relations_json")),
+            "evidence_frame_ids": parse_json_list(row.get("evidence_frame_ids")),
+            "response": parse_json_dict(row.get("response_json")),
+        }
+    return by_candidate
+
+
+def run_databricks_scene_reasoning() -> dict:
+    stage_started_at = datetime.now(UTC)
+    stage_started = time.perf_counter()
+    config = scene_visual_reasoning_config()
+    if not config["enabled"]:
+        metrics = {
+            "skipped": True,
+            "skipped_reason": "scene_visual_reasoning_disabled",
+            "scene_visual_analysis_table": SCENE_VISUAL_ANALYSIS_TABLE,
+            "model_inference_runs_table": MODEL_INFERENCE_RUNS_TABLE,
+        }
+        write_model_inference_run(
+            stage_name="run_databricks_scene_reasoning",
+            provider=config["provider"],
+            model_name=config["endpoint"],
+            model_version=config.get("model_version"),
+            input_count=0,
+            success_count=0,
+            failed_count=0,
+            duration_seconds=time.perf_counter() - stage_started,
+            metrics=metrics,
+            status="skipped",
+            started_at=stage_started_at,
+        )
+        return metrics
+
+    frames = load_frame_assets()
+    segments = load_transcript_segments()
+    frame_ai = frame_analysis_understanding_by_source(load_completed_frame_analysis_rows())
+    candidates = load_scene_candidates()[: int(config["max_scenes"])]
+    rows: list[dict] = []
+    success_count = 0
+    failed_count = 0
+    for candidate in candidates:
+        request_payload, evidence_frame_ids = scene_reasoning_payload(
+            candidate,
+            frames,
+            segments,
+            frame_ai,
+            config,
+        )
+        request_started = time.perf_counter()
+        try:
+            response = databricks_serving_endpoint_invocation(config, request_payload)
+            content = extract_chat_content(response)
+            normalized = parse_model_json_content(content)
+            latency_ms = (time.perf_counter() - request_started) * 1000
+            rows.append(
+                scene_visual_analysis_row(
+                    candidate,
+                    config,
+                    status="completed",
+                    evidence_frame_ids=evidence_frame_ids,
+                    request_payload=request_payload,
+                    response=response,
+                    normalized=normalized,
+                    latency_ms=rounded_metric(latency_ms),
+                )
+            )
+            success_count += 1
+        except (RuntimeError, ValueError, json.JSONDecodeError, OSError) as exc:
+            latency_ms = (time.perf_counter() - request_started) * 1000
+            rows.append(
+                scene_visual_analysis_row(
+                    candidate,
+                    config,
+                    status="failed",
+                    evidence_frame_ids=evidence_frame_ids,
+                    request_payload=request_payload,
+                    latency_ms=rounded_metric(latency_ms),
+                    error={"type": type(exc).__name__, "message": str(exc)},
+                )
+            )
+            failed_count += 1
+    register_scene_visual_analysis_rows(rows)
+    elapsed = time.perf_counter() - stage_started
+    metrics = {
+        "scene_candidate_count": len(candidates),
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "elapsed_seconds": rounded_metric(elapsed),
+        "scenes_per_second": rate_metric(success_count, elapsed),
+        "model_name": config["endpoint"],
+        "model_version": config.get("model_version"),
+        "provider": config["provider"],
+        "max_frames_per_scene": config["max_frames_per_scene"],
+        "output_schema": config["output_schema"],
+        "scene_visual_analysis_table": SCENE_VISUAL_ANALYSIS_TABLE,
+        "model_inference_runs_table": MODEL_INFERENCE_RUNS_TABLE,
+        "smoke_ready": success_count > 0,
+    }
+    write_model_inference_run(
+        stage_name="run_databricks_scene_reasoning",
+        provider=config["provider"],
+        model_name=config["endpoint"],
+        model_version=config.get("model_version"),
+        input_count=len(candidates),
+        success_count=success_count,
+        failed_count=failed_count,
+        duration_seconds=elapsed,
+        metrics=metrics,
+        status="completed" if failed_count == 0 else "completed_with_failures",
+        started_at=stage_started_at,
+    )
+    if candidates and success_count == 0:
+        raise RuntimeError("Databricks Gemma 3 scene reasoning produced no successful outputs")
+    return metrics
+
+
 def load_ai_requests() -> list[dict]:
     rows = spark.sql(
         f"""
@@ -2934,6 +4227,9 @@ def openai_batch_line(request: dict) -> dict:
 
 
 def stage_ai_batch_payloads() -> dict:
+    if not azure_openai_batch_enabled():
+        return batch_inference_skip_metrics()
+
     all_requests = load_ai_requests()
     pending_requests = [request for request in all_requests if request["status"] == "pending"]
     existing_batches = [
@@ -3464,15 +4760,25 @@ def submit_ai_batch(config: dict, batch: dict) -> dict:
 
 def wait_for_ai_batch(config: dict, batch: dict) -> dict:
     started = time.time()
+    poll_count = 0
     provider_batch_id = batch.get("provider_batch_id")
     if not provider_batch_id:
         raise ValueError(f"Batch {batch['batch_id']} has no provider_batch_id")
 
     while True:
         provider_batch = azure_openai_retrieve_batch(config, provider_batch_id)
+        poll_count += 1
         provider_status = provider_batch.get("status")
         if provider_status == "completed":
-            return ingest_ai_batch_results(config, batch, provider_batch)
+            result = ingest_ai_batch_results(config, batch, provider_batch)
+            wait_elapsed = time.time() - started
+            return {
+                **result,
+                "provider_status": provider_status,
+                "wait_elapsed_seconds": rounded_metric(wait_elapsed),
+                "poll_count": poll_count,
+                "poll_interval_seconds": config["poll_interval_seconds"],
+            }
         if provider_status in {"failed", "expired", "cancelled"}:
             failed_request_count = mark_batch_requests_status(batch, "failed", datetime.now(UTC))
             failed_batch = batch_row_with_provider_state(
@@ -3484,7 +4790,11 @@ def wait_for_ai_batch(config: dict, batch: dict) -> dict:
                 completed=True,
             )
             write_ai_batch(failed_batch)
-            raise RuntimeError(f"Azure OpenAI Batch {provider_batch_id} ended with status {provider_status}")
+            wait_elapsed = time.time() - started
+            raise RuntimeError(
+                f"Azure OpenAI Batch {provider_batch_id} ended with status {provider_status} "
+                f"after {round(wait_elapsed, 3)} seconds and {poll_count} polls"
+            )
 
         write_ai_batch(
             batch_row_with_provider_state(
@@ -3514,6 +4824,13 @@ def wait_for_ai_batch(config: dict, batch: dict) -> dict:
 
 
 def run_ai_batch_inference() -> dict:
+    inference_started = time.perf_counter()
+    if not azure_openai_batch_enabled():
+        return {
+            **batch_inference_skip_metrics(),
+            "elapsed_seconds": rounded_metric(time.perf_counter() - inference_started),
+        }
+
     config = azure_openai_batch_config()
     batches = [
         batch
@@ -3525,10 +4842,12 @@ def run_ai_batch_inference() -> dict:
             batch for batch in load_existing_ai_batches() if batch["status"] == "completed"
         ]
         if completed_batches:
+            elapsed = time.perf_counter() - inference_started
             return {
                 "submitted_count": 0,
                 "completed_count": len(completed_batches),
                 "reused_completed": True,
+                "elapsed_seconds": rounded_metric(elapsed),
             }
         raise ValueError("No AI batches are ready for inference. Run stage_ai_batch_payloads first.")
 
@@ -3541,9 +4860,16 @@ def run_ai_batch_inference() -> dict:
             submitted_count += 1
         result_summaries.append(wait_for_ai_batch(config, active_batch))
 
+    elapsed = time.perf_counter() - inference_started
+    total_results = sum(int(summary.get("result_count") or 0) for summary in result_summaries)
+    total_polls = sum(int(summary.get("poll_count") or 0) for summary in result_summaries)
     return {
         "submitted_count": submitted_count,
         "completed_count": len(result_summaries),
+        "result_count": total_results,
+        "elapsed_seconds": rounded_metric(elapsed),
+        "results_per_second": rate_metric(total_results, elapsed),
+        "poll_count": total_polls,
         "results": result_summaries,
         "ai_batches_table": AI_BATCHES_TABLE,
         "ai_results_table": AI_RESULTS_TABLE,
@@ -3734,8 +5060,10 @@ def build_scenes_from_candidates(
     frames: list[dict],
     segments: list[dict],
     frame_ai: dict[str, dict],
+    scene_visual: dict[str, dict] | None = None,
 ) -> list[dict]:
     frames_by_id = {frame["frame_asset_id"]: frame for frame in frames}
+    scene_visual = scene_visual or {}
     scenes = []
     for candidate in candidates:
         start_seconds = round(float(candidate["start_ms"]) / 1000, 3)
@@ -3756,6 +5084,9 @@ def build_scenes_from_candidates(
             ],
             20,
         )
+        visual_analysis = scene_visual.get(candidate["scene_candidate_id"], {})
+        visual_entities = unique_strings(list_strings(visual_analysis.get("entities")), 25)
+        visual_actions = unique_strings(list_strings(visual_analysis.get("actions")), 25)
         visual_summary = truncate_text(
             " ".join(
                 understanding.get("description", "")
@@ -3765,7 +5096,7 @@ def build_scenes_from_candidates(
             500,
         )
         transcript_summary = transcript_segments_for_range(segments, start_seconds, end_seconds)
-        summary = visual_summary or transcript_summary
+        summary = visual_analysis.get("summary") or visual_summary or transcript_summary
         scene_id = int(candidate["scene_index"])
         scenes.append(
             {
@@ -3776,7 +5107,11 @@ def build_scenes_from_candidates(
                 "duration": round(max(0.0, end_seconds - start_seconds), 3),
                 "title": first_sentence(summary, f"Scene {scene_id + 1}"),
                 "summary": summary,
-                "detected_objects": detected_objects,
+                "detected_objects": unique_strings(detected_objects + visual_entities + visual_actions, 35),
+                "actions": visual_actions,
+                "entities": visual_analysis.get("entities") or [],
+                "relations": visual_analysis.get("relations") or [],
+                "scene_visual_analysis_id": visual_analysis.get("analysis_id"),
                 "transcript_segment": transcript_summary,
                 "frame_asset_id": representative_frame["frame_asset_id"] if representative_frame else None,
                 "frame_uri": representative_frame["frame_uri"] if representative_frame else None,
@@ -3797,9 +5132,10 @@ def build_scenes(
     frame_ai: dict[str, dict],
     duration: float,
     candidates: list[dict] | None = None,
+    scene_visual: dict[str, dict] | None = None,
 ) -> list[dict]:
     if candidates:
-        return build_scenes_from_candidates(candidates, frames, segments, frame_ai)
+        return build_scenes_from_candidates(candidates, frames, segments, frame_ai, scene_visual)
 
     scenes = []
     for index, (frame, boundary) in enumerate(zip(frames, scene_boundaries(frames, duration), strict=True)):
@@ -3935,12 +5271,16 @@ def build_gold_processing_result() -> dict:
     segments = load_transcript_segments()
     asr_run = load_completed_asr_run()
     ai_results = load_completed_ai_results()
+    frame_analysis_rows = load_completed_frame_analysis_rows()
+    scene_visual_rows = load_completed_scene_visual_analysis_rows()
     frame_ai = frame_understanding_by_source(ai_results)
+    frame_ai.update(frame_analysis_understanding_by_source(frame_analysis_rows))
+    scene_visual = scene_visual_analysis_by_candidate(scene_visual_rows)
     semantics = transcript_semantics(ai_results)
     scene_candidates = load_scene_candidates()
     video_metadata = build_video_metadata(frames, asr_run, segments)
     duration = float(video_metadata.get("duration_seconds") or 0.0)
-    scenes = build_scenes(frames, segments, frame_ai, duration, scene_candidates)
+    scenes = build_scenes(frames, segments, frame_ai, duration, scene_candidates, scene_visual)
     chapters = build_chapters_from_scenes(scenes)
     key_topics = extract_key_topics(semantics, frame_ai)
     video_summary = string_field(semantics, ("video_summary", "summary", "abstract"))
@@ -3961,14 +5301,21 @@ def build_gold_processing_result() -> dict:
     audio_data = build_audio_data(asr_run, segments)
     frames_data = build_frames_data(frames, frame_ai)
     completed_ai_results = len(ai_results)
+    completed_frame_analysis = len(frame_analysis_rows)
+    completed_scene_visual_analysis = len(scene_visual_rows)
     frames_analyzed = len([frame for frame in frames_data if frame.get("analysis")])
+    model_results_completed = (
+        completed_ai_results + completed_frame_analysis + completed_scene_visual_analysis
+    )
     processing_stats = {
         "frames_extracted": len(frames),
         "frames_analyzed": frames_analyzed,
+        "frame_analysis_completed": completed_frame_analysis,
+        "scene_visual_analysis_completed": completed_scene_visual_analysis,
         "tokens_total": sum(int(frame.get("tokens_used") or 0) for frame in frames_data),
         "ai_results_completed": completed_ai_results,
         "audio_processed": audio_data["stats"]["has_audio"],
-        "processing_mode": "databricks_lakehouse_batch",
+        "processing_mode": f"databricks_lakehouse_{inference_mode_config()['mode']}",
         "processing_version": processing_version,
     }
     processing_result = {
@@ -3983,11 +5330,14 @@ def build_gold_processing_result() -> dict:
         "structure": structure,
         "processing_stats": processing_stats,
         "frames_analyzed": frames_analyzed,
-        "status": "completed" if completed_ai_results else "completed_with_warnings",
+        "status": "completed" if model_results_completed else "completed_with_warnings",
         "delta_tables": {
             "processing_results": GOLD_PROCESSING_RESULTS_TABLE,
             "transcript_segments": TRANSCRIPT_SEGMENTS_TABLE,
             "frame_assets": FRAME_ASSETS_TABLE,
+            "frame_analysis": FRAME_ANALYSIS_TABLE,
+            "scene_visual_analysis": SCENE_VISUAL_ANALYSIS_TABLE,
+            "model_inference_runs": MODEL_INFERENCE_RUNS_TABLE,
             "ai_results": AI_RESULTS_TABLE,
             "graph_upserts": GRAPH_UPSERTS_TABLE,
         },
@@ -4083,6 +5433,12 @@ def graph_upsert_row(
     }
 
 
+def normalized_entity_name(name: str) -> str:
+    normalized = re.sub(r"\s+", " ", name.strip().lower())
+    normalized = re.sub(r"[^a-z0-9áéíóúüñ _.-]+", "", normalized)
+    return normalized.strip() or "unknown"
+
+
 def config_bool(value: Any, *, default: bool) -> bool:
     if value is None:
         return default
@@ -4101,15 +5457,72 @@ def graph_indexing_enabled() -> bool:
     return config_bool(pipeline_config.get("index_graph"), default=True)
 
 
-def neo4j_projector_enabled() -> bool:
+def neo4j_projector_decision() -> dict:
     cfg = pipeline_config.get("neo4j") or {}
     if cfg and not isinstance(cfg, dict):
         raise ValueError("pipeline_config.neo4j must be an object when provided")
     if isinstance(cfg, dict) and cfg.get("enabled") is not None:
-        return config_bool(cfg.get("enabled"), default=False)
+        enabled = config_bool(cfg.get("enabled"), default=False)
+        return {
+            "enabled": enabled,
+            "required": enabled,
+            "skipped_reason": None if enabled else "neo4j_disabled_by_config",
+        }
     if not graph_indexing_enabled():
-        return False
-    return bool(os.environ.get("NEO4J_URI"))
+        return {
+            "enabled": False,
+            "required": False,
+            "skipped_reason": "graph_indexing_disabled",
+        }
+    if not str(os.environ.get("NEO4J_URI") or "").strip():
+        return {
+            "enabled": False,
+            "required": False,
+            "skipped_reason": "neo4j_uri_missing",
+        }
+    if not neo4j_password_configured():
+        return {
+            "enabled": False,
+            "required": False,
+            "skipped_reason": "neo4j_password_missing",
+        }
+    return {"enabled": True, "required": False, "skipped_reason": None}
+
+
+def neo4j_projector_enabled() -> bool:
+    return bool(neo4j_projector_decision()["enabled"])
+
+
+def neo4j_password_secret_reference() -> tuple[str, str]:
+    cfg = pipeline_config.get("neo4j") or {}
+    if cfg and not isinstance(cfg, dict):
+        raise ValueError("pipeline_config.neo4j must be an object when provided")
+    scope = str(cfg.get("password_secret_scope") or os.environ.get("NEO4J_PASSWORD_SECRET_SCOPE") or "").strip()
+    key = str(cfg.get("password_secret_key") or os.environ.get("NEO4J_PASSWORD_SECRET_KEY") or "").strip()
+    return scope, key
+
+
+def neo4j_password_configured() -> bool:
+    if str(os.environ.get("NEO4J_PASSWORD") or "").strip():
+        return True
+    scope, key = neo4j_password_secret_reference()
+    return bool(scope and key)
+
+
+def resolve_neo4j_password() -> str:
+    password = os.environ.get("NEO4J_PASSWORD", "")
+    if password:
+        return password
+    scope, key = neo4j_password_secret_reference()
+    if not scope or not key:
+        return ""
+    try:
+        return dbutils.secrets.get(scope, key)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Neo4j password secret {scope}/{key} could not be resolved. "
+            "Fix NEO4J_PASSWORD_SECRET_SCOPE/NEO4J_PASSWORD_SECRET_KEY or disable Neo4j projection."
+        ) from exc
 
 
 def build_graph_upsert_rows() -> list[dict]:
@@ -4118,14 +5531,17 @@ def build_graph_upsert_rows() -> list[dict]:
 
     frames = load_frame_assets()
     transcript_segments = load_transcript_segments()
-    ai_requests = load_ai_requests()
     asr_run = load_completed_asr_run()
     graph_version = str(pipeline_config.get("graph_version") or schema_version)
+    source_quality = load_source_quality()
+    source_metadata = source_quality.get("metadata") or {}
     gold_result = load_latest_gold_processing_result()
     gold_processing_result = (
         parse_json_dict(gold_result["processing_result_json"]) if gold_result else {}
     )
     gold_structure = parse_json_dict(gold_processing_result.get("structure"))
+    frame_ai = frame_analysis_understanding_by_source(load_completed_frame_analysis_rows())
+    entity_nodes_added: set[str] = set()
     rows: list[dict] = [
         graph_upsert_row(
             operation_type="node",
@@ -4134,6 +5550,8 @@ def build_graph_upsert_rows() -> list[dict]:
             source_table=MEDIA_MANIFEST_TABLE,
             source_id=media_id,
             properties={
+                "id": media_id,
+                "video_id": media_id,
                 "media_id": media_id,
                 "dispatch_id": dispatch_id,
                 "blob_name": blob_name,
@@ -4142,8 +5560,18 @@ def build_graph_upsert_rows() -> list[dict]:
                 "config_hash": config_hash,
                 "graph_version": graph_version,
                 "title": gold_structure.get("video_title"),
+                "description": None,
                 "summary": gold_structure.get("video_summary"),
                 "topics": gold_structure.get("key_topics") or [],
+                "duration_seconds": source_metadata.get("duration_seconds"),
+                "fps": source_metadata.get("fps"),
+                "resolution": [source_metadata.get("width"), source_metadata.get("height")],
+                "file_size_bytes": source_metadata.get("size_bytes"),
+                "format": source_metadata.get("format"),
+                "total_frames": source_metadata.get("frame_count"),
+                "extracted_frames": len(frames),
+                "blob_url": None,
+                "thumbnail_url": frames[0]["frame_uri"] if frames else None,
             },
         )
     ]
@@ -4160,14 +5588,24 @@ def build_graph_upsert_rows() -> list[dict]:
                     source_table=GOLD_PROCESSING_RESULTS_TABLE,
                     source_id=gold_result["result_id"],
                     properties={
-                        "scene_id": scene_id,
+                        "id": scene_key,
+                        "video_id": media_id,
+                        "user_id": user_id,
                         "scene_index": scene_id,
                         "title": scene.get("title"),
                         "description": scene.get("summary"),
                         "start_time": scene.get("start_time"),
                         "end_time": scene.get("end_time"),
                         "duration": scene.get("duration"),
+                        "scene_type": scene.get("scene_type") or "general",
+                        "dominant_colors": scene.get("dominant_colors") or [],
+                        "transition_type": scene.get("transition_type"),
+                        "visual_change_score": scene.get("visual_change_score") or 0.0,
                         "detected_objects": scene.get("detected_objects") or [],
+                        "actions": scene.get("actions") or [],
+                        "entities": scene.get("entities") or [],
+                        "relations": scene.get("relations") or [],
+                        "scene_visual_analysis_id": scene.get("scene_visual_analysis_id"),
                         "transcript_segment": scene.get("transcript_segment"),
                         "frame_asset_id": scene.get("frame_asset_id"),
                     },
@@ -4176,8 +5614,8 @@ def build_graph_upsert_rows() -> list[dict]:
             rows.append(
                 graph_upsert_row(
                     operation_type="relationship",
-                    label_or_type="HAS_SCENE",
-                    natural_key=f"{media_id}->HAS_SCENE->{scene_key}",
+                    label_or_type="CONTAINS",
+                    natural_key=f"{media_id}->CONTAINS->{scene_key}",
                     source_table=GOLD_PROCESSING_RESULTS_TABLE,
                     source_id=gold_result["result_id"],
                     properties={
@@ -4200,21 +5638,26 @@ def build_graph_upsert_rows() -> list[dict]:
                     source_table=GOLD_PROCESSING_RESULTS_TABLE,
                     source_id=gold_result["result_id"],
                     properties={
-                        "chapter_id": chapter_id,
+                        "id": chapter_key,
+                        "video_id": media_id,
+                        "user_id": user_id,
+                        "chapter_index": chapter_id,
                         "title": chapter.get("title"),
                         "summary": chapter.get("summary"),
                         "start_time": chapter.get("start_time"),
                         "end_time": chapter.get("end_time"),
                         "duration": chapter.get("duration"),
                         "scene_ids": chapter.get("scene_ids") or [],
+                        "topics": chapter.get("topics") or [],
+                        "detection_method": chapter.get("detection_method") or "auto",
                     },
                 )
             )
             rows.append(
                 graph_upsert_row(
                     operation_type="relationship",
-                    label_or_type="HAS_CHAPTER",
-                    natural_key=f"{media_id}->HAS_CHAPTER->{chapter_key}",
+                    label_or_type="CONTAINS",
+                    natural_key=f"{media_id}->CONTAINS->{chapter_key}",
                     source_table=GOLD_PROCESSING_RESULTS_TABLE,
                     source_id=gold_result["result_id"],
                     properties={
@@ -4227,41 +5670,8 @@ def build_graph_upsert_rows() -> list[dict]:
                 )
             )
 
-    if asr_run:
-        rows.append(
-            graph_upsert_row(
-                operation_type="node",
-                label_or_type="AsrRun",
-                natural_key=asr_run["asr_run_id"],
-                source_table=ASR_RUNS_TABLE,
-                source_id=asr_run["asr_run_id"],
-                properties={
-                    "asr_run_id": asr_run["asr_run_id"],
-                    "audio_asset_id": asr_run["audio_asset_id"],
-                    "model_name": asr_run["model_name"],
-                    "language": asr_run.get("language"),
-                    "duration_seconds": asr_run.get("duration_seconds"),
-                    "segment_count": asr_run.get("segment_count"),
-                },
-            )
-        )
-        rows.append(
-            graph_upsert_row(
-                operation_type="relationship",
-                label_or_type="HAS_ASR_RUN",
-                natural_key=f"{media_id}->HAS_ASR_RUN->{asr_run['asr_run_id']}",
-                source_table=ASR_RUNS_TABLE,
-                source_id=asr_run["asr_run_id"],
-                properties={
-                    "from_label": "Video",
-                    "from_key": media_id,
-                    "to_label": "AsrRun",
-                    "to_key": asr_run["asr_run_id"],
-                },
-            )
-        )
-
     for frame in frames:
+        frame_understanding = frame_ai.get(frame["frame_asset_id"], {})
         rows.append(
             graph_upsert_row(
                 operation_type="node",
@@ -4270,21 +5680,85 @@ def build_graph_upsert_rows() -> list[dict]:
                 source_table=FRAME_ASSETS_TABLE,
                 source_id=frame["frame_asset_id"],
                 properties={
+                    "id": frame["frame_asset_id"],
+                    "video_id": media_id,
+                    "user_id": user_id,
                     "frame_asset_id": frame["frame_asset_id"],
                     "frame_uri": frame["frame_uri"],
                     "frame_index": frame["frame_index"],
+                    "frame_number": frame["frame_index"],
                     "timestamp_ms": frame["timestamp_ms"],
+                    "timestamp": round(float(frame["timestamp_ms"]) / 1000, 3),
                     "format": frame["format"],
                     "width": frame.get("width"),
                     "height": frame.get("height"),
+                    "description": frame_understanding.get("description"),
+                    "detected_objects": frame_understanding.get("detected_objects") or [],
+                    "analysis_structured": frame_understanding.get("normalized") or {},
+                    "perceptual_hash": None,
+                    "content_hash": frame.get("sha256"),
+                    "blur_score": 0.0,
+                    "brightness": 0.0,
+                    "is_keyframe": True,
                 },
             )
         )
+        for detected_object in frame_understanding.get("detected_objects") or []:
+            entity_name = str(detected_object).strip()
+            if not entity_name:
+                continue
+            normalized_name = normalized_entity_name(entity_name)
+            entity_key = f"{media_id}:entity:object:{stable_hash({'name': normalized_name})[:16]}"
+            if entity_key not in entity_nodes_added:
+                rows.append(
+                    graph_upsert_row(
+                        operation_type="node",
+                        label_or_type="Entity",
+                        natural_key=entity_key,
+                        source_table=FRAME_ANALYSIS_TABLE,
+                        source_id=entity_key,
+                        properties={
+                            "id": entity_key,
+                            "video_id": media_id,
+                            "user_id": user_id,
+                            "entity_type": "object",
+                            "name": entity_name,
+                            "normalized_name": normalized_name,
+                            "aliases": [],
+                            "description": None,
+                            "attributes": {},
+                            "confidence": 1.0,
+                            "bounding_box": None,
+                            "external_ids": {},
+                            "occurrence_count": 1,
+                            "first_seen_time": round(float(frame["timestamp_ms"]) / 1000, 3),
+                            "last_seen_time": round(float(frame["timestamp_ms"]) / 1000, 3),
+                        },
+                    )
+                )
+                entity_nodes_added.add(entity_key)
+            rows.append(
+                graph_upsert_row(
+                    operation_type="relationship",
+                    label_or_type="CONTAINS",
+                    natural_key=f"{frame['frame_asset_id']}->CONTAINS->{entity_key}",
+                    source_table=FRAME_ANALYSIS_TABLE,
+                    source_id=frame["frame_asset_id"],
+                    properties={
+                        "from_label": "Frame",
+                        "from_key": frame["frame_asset_id"],
+                        "to_label": "Entity",
+                        "to_key": entity_key,
+                        "confidence": 1.0,
+                        "source": "florence_frame_analysis",
+                    },
+                )
+            )
         rows.append(
             graph_upsert_row(
                 operation_type="relationship",
-                label_or_type="HAS_FRAME",
-                natural_key=f"{media_id}->HAS_FRAME->{frame['frame_asset_id']}",
+                label_or_type="CONTAINS",
+                natural_key=f"{media_id}->CONTAINS->{frame['frame_asset_id']}",
                 source_table=FRAME_ASSETS_TABLE,
                 source_id=frame["frame_asset_id"],
                 properties={
@@ -4301,55 +5775,44 @@ def build_graph_upsert_rows() -> list[dict]:
         rows.append(
             graph_upsert_row(
                 operation_type="node",
-                label_or_type="TranscriptSegment",
+                label_or_type="AudioSegment",
                 natural_key=segment["segment_id"],
                 source_table=TRANSCRIPT_SEGMENTS_TABLE,
                 source_id=segment["segment_id"],
                 properties={
-                    "segment_id": segment["segment_id"],
+                    "id": segment["segment_id"],
+                    "video_id": media_id,
+                    "user_id": user_id,
                     "asr_run_id": segment["asr_run_id"],
+                    "audio_segment_id": segment["segment_id"],
                     "chunk_id": segment["chunk_id"],
                     "segment_index": segment["segment_index"],
                     "start_ms": segment["start_ms"],
                     "end_ms": segment["end_ms"],
+                    "start_time": round(float(segment["start_ms"]) / 1000, 3),
+                    "end_time": round(float(segment["end_ms"]) / 1000, 3),
                     "text": segment["text"],
-                    "language": segment.get("language"),
+                    "language": segment.get("language") or (asr_run or {}).get("language") or "unknown",
+                    "confidence": segment.get("confidence") or 0.0,
+                    "speaker_id": None,
+                    "speaker_label": None,
                 },
             )
         )
         rows.append(
             graph_upsert_row(
                 operation_type="relationship",
-                label_or_type="HAS_TRANSCRIPT_SEGMENT",
-                natural_key=f"{media_id}->HAS_TRANSCRIPT_SEGMENT->{segment['segment_id']}",
+                label_or_type="HAS_TRANSCRIPT",
+                natural_key=f"{media_id}->HAS_TRANSCRIPT->{segment['segment_id']}",
                 source_table=TRANSCRIPT_SEGMENTS_TABLE,
                 source_id=segment["segment_id"],
                 properties={
                     "from_label": "Video",
                     "from_key": media_id,
-                    "to_label": "TranscriptSegment",
+                    "to_label": "AudioSegment",
                     "to_key": segment["segment_id"],
                     "start_ms": segment["start_ms"],
                     "end_ms": segment["end_ms"],
-                },
-            )
-        )
-
-    for request in ai_requests:
-        rows.append(
-            graph_upsert_row(
-                operation_type="node",
-                label_or_type="AiRequest",
-                natural_key=request["request_id"],
-                source_table=AI_REQUESTS_TABLE,
-                source_id=request["request_id"],
-                properties={
-                    "request_id": request["request_id"],
-                    "source_type": request["source_type"],
-                    "source_id": request["source_id"],
-                    "model_name": request["model_name"],
-                    "prompt_version": request["prompt_version"],
-                    "status": request["status"],
                 },
             )
         )
@@ -4469,7 +5932,7 @@ def neo4j_projector_config() -> dict:
     uri = str(os.environ.get("NEO4J_URI") or "").strip()
     user = str(os.environ.get("NEO4J_USER") or "neo4j").strip()
     database = str(os.environ.get("NEO4J_DATABASE") or "neo4j").strip()
-    password = os.environ.get("NEO4J_PASSWORD", "")
+    password = resolve_neo4j_password()
 
     if not uri:
         raise ValueError("Neo4j URI is missing. Set NEO4J_URI in the Databricks cluster environment.")
@@ -4479,8 +5942,8 @@ def neo4j_projector_config() -> dict:
         raise ValueError("Neo4j database is missing. Set NEO4J_DATABASE in the Databricks cluster environment.")
     if not password:
         raise ValueError(
-            "Neo4j password is missing. Set NEO4J_PASSWORD from a Databricks secret-backed "
-            "cluster environment variable."
+            "Neo4j password is missing. Set NEO4J_PASSWORD or "
+            "NEO4J_PASSWORD_SECRET_SCOPE/NEO4J_PASSWORD_SECRET_KEY from deployment configuration."
         )
     return {
         "uri": validate_neo4j_uri(uri),
@@ -4514,6 +5977,14 @@ def neo4j_properties(properties: dict) -> dict:
     return {key: neo4j_property_value(value) for key, value in properties.items()}
 
 
+def neo4j_node_match_property(label_or_type: str, properties: dict) -> str:
+    if label_or_type == "Video" and properties.get("video_id"):
+        return "video_id"
+    if properties.get("id"):
+        return "id"
+    return "natural_key"
+
+
 def apply_graph_upsert(session: Any, upsert: dict) -> None:
     operation_type = upsert["operation_type"]
     label_or_type = str(upsert["label_or_type"])
@@ -4522,8 +5993,11 @@ def apply_graph_upsert(session: Any, upsert: dict) -> None:
 
     if operation_type == "node":
         label = quote_neo4j_identifier(label_or_type, "label")
+        match_property = neo4j_node_match_property(label_or_type, properties)
+        match_key = properties.get(match_property) or upsert["natural_key"]
+        quoted_match_property = quote_neo4j_identifier(match_property, "node match property")
         query = f"""
-        MERGE (node:{label} {{natural_key: $natural_key}})
+        MERGE (node:{label} {{{quoted_match_property}: $match_key}})
         SET node += $properties,
             node.natural_key = $natural_key,
             node.qprisma_source_table = $source_table,
@@ -4533,6 +6007,7 @@ def apply_graph_upsert(session: Any, upsert: dict) -> None:
         """
         session.run(
             query,
+            match_key=match_key,
             natural_key=upsert["natural_key"],
             properties=properties,
             source_table=upsert["source_table"],
@@ -4578,16 +6053,164 @@ def apply_graph_upsert(session: Any, upsert: dict) -> None:
     raise ValueError(f"Unsupported graph upsert operation_type: {operation_type}")
 
 
+def graph_upsert_projection_group(upsert: dict) -> tuple:
+    operation_type = str(upsert["operation_type"])
+    label_or_type = str(upsert["label_or_type"])
+    properties = neo4j_properties(parse_json_dict(upsert["properties_json"]))
+    if operation_type == "node":
+        match_property = neo4j_node_match_property(label_or_type, properties)
+        quote_neo4j_identifier(label_or_type, "label")
+        quote_neo4j_identifier(match_property, "node match property")
+        return ("node", label_or_type, match_property)
+    if operation_type == "relationship":
+        from_label = str(properties.get("from_label") or "")
+        to_label = str(properties.get("to_label") or "")
+        if not from_label or not properties.get("from_key") or not to_label or not properties.get("to_key"):
+            raise ValueError("Relationship graph upsert requires from_label/from_key/to_label/to_key properties")
+        quote_neo4j_identifier(label_or_type, "relationship type")
+        quote_neo4j_identifier(from_label, "from_label")
+        quote_neo4j_identifier(to_label, "to_label")
+        return ("relationship", label_or_type, from_label, to_label)
+    raise ValueError(f"Unsupported graph upsert operation_type: {operation_type}")
+
+
+def grouped_graph_upserts(upserts: list[dict]) -> tuple[dict[tuple, list[dict]], list[dict]]:
+    groups: dict[tuple, list[dict]] = {}
+    failed: list[dict] = []
+    for upsert in upserts:
+        try:
+            key = graph_upsert_projection_group(upsert)
+            groups.setdefault(key, []).append(upsert)
+        except Exception as exc:
+            failure = {"upsert_id": upsert["upsert_id"], "message": str(exc)}
+            failed.append(failure)
+            update_graph_upsert_status(
+                upsert,
+                "failed",
+                {"error_type": type(exc).__name__, "message": str(exc)},
+            )
+    return groups, failed
+
+
+def apply_node_upsert_batch(
+    session: Any,
+    *,
+    label_or_type: str,
+    match_property: str,
+    upserts: list[dict],
+) -> int:
+    label = quote_neo4j_identifier(label_or_type, "label")
+    quoted_match_property = quote_neo4j_identifier(match_property, "node match property")
+    now_iso = datetime.now(UTC).isoformat()
+    rows = []
+    for upsert in upserts:
+        properties = neo4j_properties(parse_json_dict(upsert["properties_json"]))
+        rows.append(
+            {
+                "match_key": properties.get(match_property) or upsert["natural_key"],
+                "natural_key": upsert["natural_key"],
+                "properties": properties,
+                "source_table": upsert["source_table"],
+                "source_id": upsert["source_id"],
+                "graph_version": upsert["graph_version"],
+            }
+        )
+    query = f"""
+    UNWIND $rows AS row
+    MERGE (node:{label} {{{quoted_match_property}: row.match_key}})
+    SET node += row.properties,
+        node.natural_key = row.natural_key,
+        node.qprisma_source_table = row.source_table,
+        node.qprisma_source_id = row.source_id,
+        node.qprisma_graph_version = row.graph_version,
+        node.qprisma_updated_at = $updated_at
+    RETURN count(node) AS applied
+    """
+    record = session.run(query, rows=rows, updated_at=now_iso).single()
+    return int(record["applied"] if record else 0)
+
+
+def apply_relationship_upsert_batch(
+    session: Any,
+    *,
+    rel_type: str,
+    from_label: str,
+    to_label: str,
+    upserts: list[dict],
+) -> int:
+    quoted_rel_type = quote_neo4j_identifier(rel_type, "relationship type")
+    quoted_from_label = quote_neo4j_identifier(from_label, "from_label")
+    quoted_to_label = quote_neo4j_identifier(to_label, "to_label")
+    now_iso = datetime.now(UTC).isoformat()
+    rows = []
+    for upsert in upserts:
+        properties = neo4j_properties(parse_json_dict(upsert["properties_json"]))
+        rows.append(
+            {
+                "from_key": properties["from_key"],
+                "to_key": properties["to_key"],
+                "natural_key": upsert["natural_key"],
+                "properties": properties,
+                "source_table": upsert["source_table"],
+                "source_id": upsert["source_id"],
+                "graph_version": upsert["graph_version"],
+            }
+        )
+    query = f"""
+    UNWIND $rows AS row
+    MATCH (source:{quoted_from_label} {{natural_key: row.from_key}})
+    MATCH (target:{quoted_to_label} {{natural_key: row.to_key}})
+    MERGE (source)-[rel:{quoted_rel_type} {{natural_key: row.natural_key}}]->(target)
+    SET rel += row.properties,
+        rel.natural_key = row.natural_key,
+        rel.qprisma_source_table = row.source_table,
+        rel.qprisma_source_id = row.source_id,
+        rel.qprisma_graph_version = row.graph_version,
+        rel.qprisma_updated_at = $updated_at
+    RETURN count(rel) AS applied
+    """
+    record = session.run(query, rows=rows, updated_at=now_iso).single()
+    return int(record["applied"] if record else 0)
+
+
+def apply_graph_upsert_group(session: Any, group_key: tuple, upserts: list[dict]) -> int:
+    if group_key[0] == "node":
+        _, label_or_type, match_property = group_key
+        return apply_node_upsert_batch(
+            session,
+            label_or_type=label_or_type,
+            match_property=match_property,
+            upserts=upserts,
+        )
+    if group_key[0] == "relationship":
+        _, rel_type, from_label, to_label = group_key
+        return apply_relationship_upsert_batch(
+            session,
+            rel_type=rel_type,
+            from_label=from_label,
+            to_label=to_label,
+            upserts=upserts,
+        )
+    raise ValueError(f"Unsupported graph upsert group: {group_key}")
+
+
 def project_neo4j_graph() -> dict:
-    if not neo4j_projector_enabled():
+    projection_started = time.perf_counter()
+    decision = neo4j_projector_decision()
+    if not decision["enabled"]:
         return {
             "applied_count": 0,
             "failed_count": 0,
             "graph_upserts_table": GRAPH_UPSERTS_TABLE,
             "skipped": True,
-            "skipped_reason": "neo4j_not_configured_or_disabled",
+            "skipped_reason": decision["skipped_reason"],
+            "neo4j_required": decision["required"],
+            "neo4j_uri_configured": bool(str(os.environ.get("NEO4J_URI") or "").strip()),
+            "neo4j_password_configured": neo4j_password_configured(),
+            "elapsed_seconds": rounded_metric(time.perf_counter() - projection_started),
         }
 
+    config = neo4j_projector_config()
     upserts = load_graph_upserts_for_projection()
     if not upserts:
         return {
@@ -4595,6 +6218,9 @@ def project_neo4j_graph() -> dict:
             "failed_count": 0,
             "graph_upserts_table": GRAPH_UPSERTS_TABLE,
             "reused_completed": True,
+            "neo4j_required": decision["required"],
+            "neo4j_database": config["database"],
+            "elapsed_seconds": rounded_metric(time.perf_counter() - projection_started),
         }
 
     try:
@@ -4605,35 +6231,57 @@ def project_neo4j_graph() -> dict:
             "Install the task PyPI dependency before running project_neo4j_graph."
         ) from exc
 
-    config = neo4j_projector_config()
     driver = GraphDatabase.driver(config["uri"], auth=(config["user"], config["password"]))
     applied_count = 0
+    batch_group_count = 0
+    fallback_row_count = 0
     failed: list[dict] = []
     try:
         driver.verify_connectivity()
+        groups, failed = grouped_graph_upserts(upserts)
         with driver.session(database=config["database"]) as session:
-            for upsert in upserts:
+            for group_key, group_upserts in groups.items():
                 try:
-                    apply_graph_upsert(session, upsert)
-                    update_graph_upsert_status(upsert, "applied")
-                    applied_count += 1
-                except Exception as exc:
-                    failure = {"upsert_id": upsert["upsert_id"], "message": str(exc)}
-                    failed.append(failure)
-                    update_graph_upsert_status(
-                        upsert,
-                        "failed",
-                        {"error_type": type(exc).__name__, "message": str(exc)},
-                    )
+                    applied_in_group = apply_graph_upsert_group(session, group_key, group_upserts)
+                    if applied_in_group != len(group_upserts):
+                        raise RuntimeError(
+                            f"Neo4j batch group {group_key} applied {applied_in_group} "
+                            f"of {len(group_upserts)} upserts"
+                        )
+                    for upsert in group_upserts:
+                        update_graph_upsert_status(upsert, "applied")
+                    applied_count += applied_in_group
+                    batch_group_count += 1
+                except Exception:
+                    for upsert in group_upserts:
+                        try:
+                            apply_graph_upsert(session, upsert)
+                            update_graph_upsert_status(upsert, "applied")
+                            applied_count += 1
+                            fallback_row_count += 1
+                        except Exception as exc:
+                            failure = {"upsert_id": upsert["upsert_id"], "message": str(exc)}
+                            failed.append(failure)
+                            update_graph_upsert_status(
+                                upsert,
+                                "failed",
+                                {"error_type": type(exc).__name__, "message": str(exc)},
+                            )
     finally:
         driver.close()
 
     if failed:
         raise RuntimeError(f"Failed to apply {len(failed)} Neo4j graph upserts")
 
+    elapsed = time.perf_counter() - projection_started
     return {
         "applied_count": applied_count,
         "failed_count": 0,
+        "pending_or_failed_count": len(upserts),
+        "elapsed_seconds": rounded_metric(elapsed),
+        "upserts_per_second": rate_metric(applied_count, elapsed),
+        "batch_group_count": batch_group_count,
+        "fallback_row_count": fallback_row_count,
         "graph_upserts_table": GRAPH_UPSERTS_TABLE,
         "neo4j_database": config["database"],
     }
@@ -4852,34 +6500,35 @@ try:
                 completed=True,
             )
         else:
+            audio_started = time.perf_counter()
             audio_asset = extract_audio_asset(uri)
             audio_chunks = build_audio_chunk_rows(audio_asset)
             register_audio_asset(audio_asset, audio_chunks)
+            audio_elapsed = time.perf_counter() - audio_started
+            audio_metrics = {
+                "audio_asset_id": audio_asset["audio_asset_id"],
+                "audio_uri": audio_asset["audio_uri"],
+                "duration_seconds": audio_asset["duration_seconds"],
+                "size_bytes": audio_asset["size_bytes"],
+                "sample_rate_hz": audio_asset["sample_rate_hz"],
+                "channels": audio_asset["channels"],
+                "chunk_count": len(audio_chunks),
+                "elapsed_seconds": rounded_metric(audio_elapsed),
+                "audio_seconds_per_second": rate_metric(audio_asset["duration_seconds"], audio_elapsed),
+                "bytes_per_second": rate_metric(audio_asset["size_bytes"], audio_elapsed),
+                "chunks_per_second": rate_metric(len(audio_chunks), audio_elapsed),
+            }
             write_event(
                 status="audio_extracted",
                 message="Audio asset extracted for faster-whisper",
                 source_uri=uri,
-                details={
-                    "audio_asset_id": audio_asset["audio_asset_id"],
-                    "audio_uri": audio_asset["audio_uri"],
-                    "duration_seconds": audio_asset["duration_seconds"],
-                    "size_bytes": audio_asset["size_bytes"],
-                    "sample_rate_hz": audio_asset["sample_rate_hz"],
-                    "channels": audio_asset["channels"],
-                    "chunk_count": len(audio_chunks),
-                },
+                details=audio_metrics,
             )
             write_stage_run(
                 stage_name=stage,
                 status="completed",
                 message="Audio asset extracted for faster-whisper",
-                metrics={
-                    "audio_asset_id": audio_asset["audio_asset_id"],
-                    "duration_seconds": audio_asset["duration_seconds"],
-                    "size_bytes": audio_asset["size_bytes"],
-                    "audio_uri": audio_asset["audio_uri"],
-                    "chunk_count": len(audio_chunks),
-                },
+                metrics=audio_metrics,
                 completed=True,
             )
     elif stage == "extract_frame_assets":
@@ -4893,28 +6542,65 @@ try:
         write_progress_outbox(stage, stage_message)
         validate_source_contract()
         uri = source_media_uri()
+        frame_config = frame_extraction_config()
+        frame_started = time.perf_counter()
         frame_assets = extract_frame_assets(uri)
         register_frame_assets(frame_assets)
+        frame_elapsed = time.perf_counter() - frame_started
+        frame_total_size_bytes = sum(frame["size_bytes"] for frame in frame_assets)
+        frame_metrics = {
+            "frame_count": len(frame_assets),
+            "first_timestamp_ms": frame_assets[0]["timestamp_ms"] if frame_assets else None,
+            "last_timestamp_ms": frame_assets[-1]["timestamp_ms"] if frame_assets else None,
+            "frame_table": FRAME_ASSETS_TABLE,
+            "total_size_bytes": frame_total_size_bytes,
+            "avg_frame_size_bytes": rounded_metric(
+                frame_total_size_bytes / len(frame_assets) if frame_assets else 0
+            ),
+            "elapsed_seconds": rounded_metric(frame_elapsed),
+            "frames_per_second": rate_metric(len(frame_assets), frame_elapsed),
+            "bytes_per_second": rate_metric(frame_total_size_bytes, frame_elapsed),
+            "extraction_method": frame_config["method"],
+            "max_frames": frame_config["max_frames"],
+            "min_spacing_seconds": frame_config["min_spacing_seconds"],
+            "dedupe_hashes": frame_config["dedupe_hashes"],
+            "format": frame_config["format"],
+            "quality": frame_config["quality"],
+        }
         write_event(
             status="frames_extracted",
             message="Frame assets extracted for multimodal inference",
             source_uri=uri,
-            details={
-                "frame_count": len(frame_assets),
-                "first_timestamp_ms": frame_assets[0]["timestamp_ms"] if frame_assets else None,
-                "last_timestamp_ms": frame_assets[-1]["timestamp_ms"] if frame_assets else None,
-                "frame_table": FRAME_ASSETS_TABLE,
-            },
+            details=frame_metrics,
         )
         write_stage_run(
             stage_name=stage,
             status="completed",
             message="Frame assets extracted for multimodal inference",
-            metrics={
-                "frame_count": len(frame_assets),
-                "frame_table": FRAME_ASSETS_TABLE,
-                "total_size_bytes": sum(frame["size_bytes"] for frame in frame_assets),
-            },
+            metrics=frame_metrics,
+            completed=True,
+        )
+    elif stage == "run_florence_frame_analysis":
+        stage_message = STAGE_MESSAGES[stage]
+        upsert_processing_run(
+            status="running",
+            progress=progress_for_stage(stage),
+            current_stage=stage,
+        )
+        write_stage_run(stage_name=stage, status="running", message=stage_message)
+        write_progress_outbox(stage, stage_message)
+        florence_metrics = run_florence_frame_analysis()
+        skipped = bool(florence_metrics.get("skipped"))
+        write_event(
+            status="florence_frame_analysis_skipped" if skipped else "florence_frame_analysis_completed",
+            message="Florence-2 frame analysis skipped" if skipped else "Florence-2 frame analysis completed",
+            details=florence_metrics,
+        )
+        write_stage_run(
+            stage_name=stage,
+            status="completed",
+            message="Florence-2 frame analysis skipped" if skipped else "Florence-2 frame analysis completed",
+            metrics=florence_metrics,
             completed=True,
         )
     elif stage == "run_faster_whisper_asr":
@@ -4956,7 +6642,7 @@ try:
                 model_config=model_config,
                 status="running",
                 started_at=asr_started_at,
-                metrics={"chunk_count": len(chunks)},
+                metrics={"chunk_count": len(chunks), "preset": model_config["preset"]},
             )
             transcript = transcribe_audio_chunks(chunks, model_config)
             write_transcript_segments(asr_run_id, transcript["segments"])
@@ -4974,8 +6660,17 @@ try:
                 completed=True,
                 metrics={
                     "chunk_count": len(chunks),
-                    "elapsed_seconds": transcript["elapsed_seconds"],
+                    "elapsed_seconds": rounded_metric(transcript["elapsed_seconds"]),
+                    "audio_duration_seconds": rounded_metric(transcript["duration_seconds"]),
+                    "real_time_factor": rounded_metric(transcript["real_time_factor"]),
+                    "audio_seconds_per_second": transcript["audio_seconds_per_second"],
+                    "seconds_per_chunk": rounded_metric(transcript["seconds_per_chunk"]),
+                    "device": model_config["device"],
+                    "compute_type": model_config["compute_type"],
+                    "batch_size": model_config["batch_size"],
+                    "preset": model_config["preset"],
                     "azure_openai_whisper": "disabled_for_primary_path",
+                    "chunk_metrics": transcript["chunk_metrics"],
                 },
             )
             write_event(
@@ -4985,9 +6680,13 @@ try:
                     "asr_run_id": asr_run_id,
                     "audio_asset_id": audio_asset_id,
                     "model_name": model_config["model_name"],
+                    "preset": model_config["preset"],
                     "segment_count": len(transcript["segments"]),
                     "language": transcript["language"],
                     "duration_seconds": transcript["duration_seconds"],
+                    "elapsed_seconds": rounded_metric(transcript["elapsed_seconds"]),
+                    "real_time_factor": rounded_metric(transcript["real_time_factor"]),
+                    "audio_seconds_per_second": transcript["audio_seconds_per_second"],
                 },
             )
             write_stage_run(
@@ -4998,8 +6697,17 @@ try:
                     "asr_run_id": asr_run_id,
                     "audio_asset_id": audio_asset_id,
                     "model_name": model_config["model_name"],
+                    "preset": model_config["preset"],
+                    "device": model_config["device"],
+                    "compute_type": model_config["compute_type"],
+                    "batch_size": model_config["batch_size"],
+                    "chunk_count": len(chunks),
+                    "audio_duration_seconds": rounded_metric(transcript["duration_seconds"]),
                     "segment_count": len(transcript["segments"]),
-                    "elapsed_seconds": transcript["elapsed_seconds"],
+                    "elapsed_seconds": rounded_metric(transcript["elapsed_seconds"]),
+                    "real_time_factor": rounded_metric(transcript["real_time_factor"]),
+                    "audio_seconds_per_second": transcript["audio_seconds_per_second"],
+                    "seconds_per_chunk": rounded_metric(transcript["seconds_per_chunk"]),
                 },
                 completed=True,
             )
@@ -5025,8 +6733,8 @@ try:
             metrics=detection_metrics,
             completed=True,
         )
-    elif stage == "build_multimodal_inference_requests":
-        stage_message = "Building table-driven multimodal inference requests"
+    elif stage == "run_databricks_scene_reasoning":
+        stage_message = STAGE_MESSAGES[stage]
         upsert_processing_run(
             status="running",
             progress=progress_for_stage(stage),
@@ -5034,83 +6742,22 @@ try:
         )
         write_stage_run(stage_name=stage, status="running", message=stage_message)
         write_progress_outbox(stage, stage_message)
-        ai_requests = build_inference_request_rows()
-        register_ai_requests(ai_requests)
-        request_counts: dict[str, int] = {}
-        for request in ai_requests:
-            request_counts[request["source_type"]] = request_counts.get(request["source_type"], 0) + 1
+        scene_metrics = run_databricks_scene_reasoning()
+        skipped = bool(scene_metrics.get("skipped"))
         write_event(
-            status="inference_requests_built",
-            message="Multimodal inference requests registered",
-            details={
-                "request_count": len(ai_requests),
-                "request_counts": request_counts,
-                "request_table": AI_REQUESTS_TABLE,
-            },
+            status="databricks_scene_reasoning_skipped" if skipped else "databricks_scene_reasoning_completed",
+            message="Databricks Gemma 3 scene reasoning skipped"
+            if skipped
+            else "Databricks Gemma 3 scene reasoning completed",
+            details=scene_metrics,
         )
         write_stage_run(
             stage_name=stage,
             status="completed",
-            message="Multimodal inference requests registered",
-            metrics={
-                "request_count": len(ai_requests),
-                "request_counts": request_counts,
-                "request_table": AI_REQUESTS_TABLE,
-                "implementation_status": "request_generation_only",
-                "next": "Submit pending requests through Azure OpenAI Batch and persist responses",
-            },
-            completed=True,
-        )
-    elif stage == "stage_ai_batch_payloads":
-        stage_message = "Staging Azure OpenAI Batch JSONL payloads"
-        upsert_processing_run(
-            status="running",
-            progress=progress_for_stage(stage),
-            current_stage=stage,
-        )
-        write_stage_run(stage_name=stage, status="running", message=stage_message)
-        write_progress_outbox(stage, stage_message)
-        batch = stage_ai_batch_payloads()
-        write_event(
-            status="ai_batch_payloads_staged",
-            message="Azure OpenAI Batch payloads staged",
-            details=batch,
-        )
-        write_stage_run(
-            stage_name=stage,
-            status="completed",
-            message="Azure OpenAI Batch payloads staged",
-            metrics={
-                **batch,
-                "ai_batches_table": AI_BATCHES_TABLE,
-                "ai_results_table": AI_RESULTS_TABLE,
-                "next": "Run Azure OpenAI Batch inference and ingest responses",
-            },
-            completed=True,
-        )
-    elif stage == "run_ai_batch_inference":
-        stage_message = "Submitting Azure OpenAI Batch jobs and ingesting results"
-        upsert_processing_run(
-            status="running",
-            progress=progress_for_stage(stage),
-            current_stage=stage,
-        )
-        write_stage_run(stage_name=stage, status="running", message=stage_message)
-        write_progress_outbox(stage, stage_message)
-        summary = run_ai_batch_inference()
-        write_event(
-            status="ai_batch_inference_completed",
-            message="Azure OpenAI Batch inference completed",
-            details=summary,
-        )
-        write_stage_run(
-            stage_name=stage,
-            status="completed",
-            message="Azure OpenAI Batch inference completed",
-            metrics={
-                **summary,
-                "next": "Normalize AI results into Gold semantics and graph upserts",
-            },
+            message="Databricks Gemma 3 scene reasoning skipped"
+            if skipped
+            else "Databricks Gemma 3 scene reasoning completed",
+            metrics=scene_metrics,
             completed=True,
         )
     elif stage == "build_gold_processing_result":
@@ -5155,8 +6802,10 @@ try:
         )
         write_stage_run(stage_name=stage, status="running", message=stage_message)
         write_progress_outbox(stage, stage_message)
+        graph_build_started = time.perf_counter()
         graph_upserts = build_graph_upsert_rows()
         register_graph_upserts(graph_upserts)
+        graph_build_elapsed = time.perf_counter() - graph_build_started
         operation_counts: dict[str, int] = {}
         label_counts: dict[str, int] = {}
         for upsert in graph_upserts:
@@ -5172,6 +6821,8 @@ try:
                 "operation_counts": operation_counts,
                 "label_counts": label_counts,
                 "graph_upserts_table": GRAPH_UPSERTS_TABLE,
+                "elapsed_seconds": rounded_metric(graph_build_elapsed),
+                "upserts_per_second": rate_metric(len(graph_upserts), graph_build_elapsed),
             },
         )
         write_stage_run(
@@ -5183,6 +6834,8 @@ try:
                 "operation_counts": operation_counts,
                 "label_counts": label_counts,
                 "graph_upserts_table": GRAPH_UPSERTS_TABLE,
+                "elapsed_seconds": rounded_metric(graph_build_elapsed),
+                "upserts_per_second": rate_metric(len(graph_upserts), graph_build_elapsed),
             },
             completed=True,
         )
@@ -5212,6 +6865,8 @@ try:
                 "neo4j_database": projection_metrics.get("neo4j_database"),
                 "skipped": projection_skipped,
                 "skipped_reason": projection_metrics.get("skipped_reason"),
+                "elapsed_seconds": projection_metrics.get("elapsed_seconds"),
+                "upserts_per_second": projection_metrics.get("upserts_per_second"),
             },
         )
         write_stage_run(
