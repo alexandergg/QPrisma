@@ -192,15 +192,15 @@ resources:
             - task_key: extract_frame_assets
           libraries:
             - pypi:
-                package: transformers>=4.46.0
+                package: transformers==4.46.3
             - pypi:
-                package: accelerate>=0.33.0
+                package: accelerate==0.33.0
             - pypi:
-                package: timm>=1.0.0
+                package: timm==1.0.3
             - pypi:
-                package: einops>=0.8.0
+                package: einops==0.8.0
             - pypi:
-                package: pillow>=10.4.0
+                package: pillow==12.1.1
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:

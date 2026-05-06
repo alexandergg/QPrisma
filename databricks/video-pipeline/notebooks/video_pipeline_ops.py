@@ -913,11 +913,8 @@ def safe_pipeline_config_for_persistence() -> dict:
             safe_inference["scene_visual_reasoning"] = filtered_dict(
                 scene_visual_reasoning,
                 {
-                    "api_token_env",
                     "endpoint",
                     "enabled",
-                    "host",
-                    "host_env",
                     "max_frames_per_scene",
                     "max_retries",
                     "max_scenes",
@@ -2587,11 +2584,15 @@ def extract_frame_assets(source_uri: str) -> list[dict]:
             command.extend(["-q:v", str(config["quality"])])
         command.append(local_frame_path)
         run_command(command)
-        copy_local_file_to_volume(local_frame_path, frame_path)
         frame_sha256 = file_sha256(local_frame_path)
         if config["dedupe_hashes"] and frame_sha256 in seen_hashes:
+            try:
+                os.remove(local_frame_path)
+            except FileNotFoundError:
+                pass
             continue
         seen_hashes.add(frame_sha256)
+        copy_local_file_to_volume(local_frame_path, frame_path)
         frame_asset_id = f"{media_id}:frame:{index:06d}:{timestamp_ms}:{config_hash[:12]}"
         frames.append(
             {
@@ -2656,11 +2657,9 @@ def inference_mode_config() -> dict:
     if cfg and not isinstance(cfg, dict):
         raise ValueError("pipeline_config.inference must be an object when provided")
     mode = str(cfg.get("mode") or pipeline_config.get("inference_mode") or "local_databricks").strip().lower()
-    supported_modes = {"batch_cost", "interactive", "local_databricks"}
+    supported_modes = {"local_databricks"}
     if mode not in supported_modes:
-        raise ValueError(
-            "pipeline_config.inference.mode must be one of: batch_cost, interactive, local_databricks"
-        )
+        raise ValueError("pipeline_config.inference.mode must be local_databricks for this Databricks DAG")
     return {"mode": mode}
 
 
@@ -5497,8 +5496,8 @@ def neo4j_password_secret_reference() -> tuple[str, str]:
     cfg = pipeline_config.get("neo4j") or {}
     if cfg and not isinstance(cfg, dict):
         raise ValueError("pipeline_config.neo4j must be an object when provided")
-    scope = str(cfg.get("password_secret_scope") or os.environ.get("NEO4J_PASSWORD_SECRET_SCOPE") or "").strip()
-    key = str(cfg.get("password_secret_key") or os.environ.get("NEO4J_PASSWORD_SECRET_KEY") or "").strip()
+    scope = str(os.environ.get("NEO4J_PASSWORD_SECRET_SCOPE") or "").strip()
+    key = str(os.environ.get("NEO4J_PASSWORD_SECRET_KEY") or "").strip()
     return scope, key
 
 
