@@ -24,7 +24,6 @@ COPY agent/ ./agent/
 COPY core/ ./core/
 COPY models/ ./models/
 COPY services/ ./services/
-COPY tasks/ ./tasks/
 COPY evaluation_foundry/ ./evaluation_foundry/
 
 # Instalar uv y dependencias
