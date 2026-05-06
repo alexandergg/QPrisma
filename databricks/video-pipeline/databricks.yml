@@ -23,8 +23,52 @@ variables:
   neo4j_allowed_host_suffixes:
     description: Optional comma-separated Neo4j host suffix allowlist.
     default: ""
+  neo4j_password_secret_scope:
+    description: Databricks secret scope that stores the Neo4j password. Used only when Neo4j projection is enabled.
+    default: qprisma
+  neo4j_password_secret_key:
+    description: Databricks secret key that stores the Neo4j password. Used only when Neo4j projection is enabled.
+    default: neo4j-password
+  florence_cpu_node_type:
+    description: Azure Databricks CPU node type for Florence-2 smoke frame analysis while GPU quota is unavailable.
+    default: Standard_DS3_v2
+  florence_model_revision:
+    description: Pinned microsoft/Florence-2-large-ft commit SHA used with trust_remote_code.
+    default: 4a12a2b54b7016a48a22037fbd62da90cd566f2a
+  warm_cluster_autotermination_minutes:
+    description: Idle minutes before the dedicated warm cluster auto-terminates.
+    default: 120
 
 resources:
+  clusters:
+    video_processing_warm:
+      cluster_name: qprisma-video-processing-${bundle.target}-warm
+      spark_version: 16.4.x-cpu-ml-scala2.12
+      node_type_id: ${var.florence_cpu_node_type}
+      num_workers: 0
+      data_security_mode: SINGLE_USER
+      autotermination_minutes: ${var.warm_cluster_autotermination_minutes}
+      spark_conf:
+        spark.databricks.cluster.profile: singleNode
+        spark.master: local[*, 4]
+      spark_env_vars:
+        AZURE_OPENAI_ENDPOINT: "{{secrets/qprisma/azure-openai-endpoint}}"
+        AZURE_OPENAI_API_KEY: "{{secrets/qprisma/azure-openai-api-key}}"
+        NEO4J_URI: ${var.neo4j_uri}
+        NEO4J_USER: ${var.neo4j_user}
+        NEO4J_DATABASE: ${var.neo4j_database}
+        NEO4J_ALLOWED_HOST_SUFFIXES: ${var.neo4j_allowed_host_suffixes}
+        NEO4J_PASSWORD_SECRET_SCOPE: ${var.neo4j_password_secret_scope}
+        NEO4J_PASSWORD_SECRET_KEY: ${var.neo4j_password_secret_key}
+        QPRISMA_FLORENCE_MODEL_REVISION: ${var.florence_model_revision}
+      init_scripts:
+        - workspace:
+            destination: ${workspace.file_path}/scripts/install-ffmpeg.sh
+      custom_tags:
+        Workload: QPrismaVideoProcessing
+        Accelerator: CPU
+        ResourceClass: SingleNode
+
   schemas:
     video_pipeline:
       name: ${var.schema}
@@ -49,29 +93,7 @@ resources:
     video_processing:
       name: qprisma-video-processing-${bundle.target}
       description: Observable Databricks lakehouse workflow for QPrisma video understanding.
-      max_concurrent_runs: 4
-      job_clusters:
-        - job_cluster_key: video_pilot_cluster
-          new_cluster:
-            spark_version: 16.4.x-scala2.12
-            node_type_id: Standard_DS3_v2
-            num_workers: 0
-            data_security_mode: SINGLE_USER
-            spark_conf:
-              spark.databricks.cluster.profile: singleNode
-              spark.master: local[*, 4]
-            spark_env_vars:
-              AZURE_OPENAI_ENDPOINT: "{{secrets/qprisma/azure-openai-endpoint}}"
-              AZURE_OPENAI_API_KEY: "{{secrets/qprisma/azure-openai-api-key}}"
-              NEO4J_URI: ${var.neo4j_uri}
-              NEO4J_USER: ${var.neo4j_user}
-              NEO4J_DATABASE: ${var.neo4j_database}
-              NEO4J_ALLOWED_HOST_SUFFIXES: ${var.neo4j_allowed_host_suffixes}
-            init_scripts:
-              - workspace:
-                  destination: ${workspace.file_path}/scripts/install-ffmpeg.sh
-            custom_tags:
-              ResourceClass: SingleNode
+      max_concurrent_runs: 1
       parameters:
         - name: catalog
           default: ${var.catalog}
@@ -95,7 +117,7 @@ resources:
           default: "{}"
       tasks:
         - task_key: register_manifest
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:
@@ -111,7 +133,7 @@ resources:
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: register_manifest
         - task_key: validate_and_probe_media
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
             - task_key: register_manifest
           notebook_task:
@@ -129,7 +151,7 @@ resources:
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: validate_and_probe_media
         - task_key: extract_audio_assets
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
             - task_key: validate_and_probe_media
           notebook_task:
@@ -147,7 +169,7 @@ resources:
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: extract_audio_assets
         - task_key: extract_frame_assets
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
             - task_key: validate_and_probe_media
           notebook_task:
@@ -164,8 +186,37 @@ resources:
               source_media: "{{job.parameters.source_media}}"
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: extract_frame_assets
+        - task_key: run_florence_frame_analysis
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
+          depends_on:
+            - task_key: extract_frame_assets
+          libraries:
+            - pypi:
+                package: transformers==4.46.3
+            - pypi:
+                package: accelerate==0.33.0
+            - pypi:
+                package: timm==1.0.3
+            - pypi:
+                package: einops==0.8.0
+            - pypi:
+                package: pillow==12.1.1
+          notebook_task:
+            notebook_path: ./notebooks/video_pipeline_ops.py
+            base_parameters:
+              catalog: "{{job.parameters.catalog}}"
+              schema: "{{job.parameters.schema}}"
+              queue_name: "{{job.parameters.queue_name}}"
+              schema_version: "{{job.parameters.schema_version}}"
+              dispatch_id: "{{job.parameters.dispatch_id}}"
+              media_id: "{{job.parameters.media_id}}"
+              blob_name: "{{job.parameters.blob_name}}"
+              user_id: "{{job.parameters.user_id}}"
+              source_media: "{{job.parameters.source_media}}"
+              pipeline_config: "{{job.parameters.pipeline_config}}"
+              stage: run_florence_frame_analysis
         - task_key: run_faster_whisper_asr
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
             - task_key: extract_audio_assets
           libraries:
@@ -186,7 +237,7 @@ resources:
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: run_faster_whisper_asr
         - task_key: detect_scenes_and_windows
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
             - task_key: extract_frame_assets
             - task_key: run_faster_whisper_asr
@@ -204,10 +255,11 @@ resources:
               source_media: "{{job.parameters.source_media}}"
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: detect_scenes_and_windows
-        - task_key: build_multimodal_inference_requests
-          job_cluster_key: video_pilot_cluster
+        - task_key: run_databricks_scene_reasoning
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
             - task_key: detect_scenes_and_windows
+            - task_key: run_florence_frame_analysis
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:
@@ -221,47 +273,11 @@ resources:
               user_id: "{{job.parameters.user_id}}"
               source_media: "{{job.parameters.source_media}}"
               pipeline_config: "{{job.parameters.pipeline_config}}"
-              stage: build_multimodal_inference_requests
-        - task_key: stage_ai_batch_payloads
-          job_cluster_key: video_pilot_cluster
-          depends_on:
-            - task_key: build_multimodal_inference_requests
-          notebook_task:
-            notebook_path: ./notebooks/video_pipeline_ops.py
-            base_parameters:
-              catalog: "{{job.parameters.catalog}}"
-              schema: "{{job.parameters.schema}}"
-              queue_name: "{{job.parameters.queue_name}}"
-              schema_version: "{{job.parameters.schema_version}}"
-              dispatch_id: "{{job.parameters.dispatch_id}}"
-              media_id: "{{job.parameters.media_id}}"
-              blob_name: "{{job.parameters.blob_name}}"
-              user_id: "{{job.parameters.user_id}}"
-              source_media: "{{job.parameters.source_media}}"
-              pipeline_config: "{{job.parameters.pipeline_config}}"
-              stage: stage_ai_batch_payloads
-        - task_key: run_ai_batch_inference
-          job_cluster_key: video_pilot_cluster
-          depends_on:
-            - task_key: stage_ai_batch_payloads
-          notebook_task:
-            notebook_path: ./notebooks/video_pipeline_ops.py
-            base_parameters:
-              catalog: "{{job.parameters.catalog}}"
-              schema: "{{job.parameters.schema}}"
-              queue_name: "{{job.parameters.queue_name}}"
-              schema_version: "{{job.parameters.schema_version}}"
-              dispatch_id: "{{job.parameters.dispatch_id}}"
-              media_id: "{{job.parameters.media_id}}"
-              blob_name: "{{job.parameters.blob_name}}"
-              user_id: "{{job.parameters.user_id}}"
-              source_media: "{{job.parameters.source_media}}"
-              pipeline_config: "{{job.parameters.pipeline_config}}"
-              stage: run_ai_batch_inference
+              stage: run_databricks_scene_reasoning
         - task_key: build_gold_processing_result
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
-            - task_key: run_ai_batch_inference
+            - task_key: run_databricks_scene_reasoning
           notebook_task:
             notebook_path: ./notebooks/video_pipeline_ops.py
             base_parameters:
@@ -277,7 +293,7 @@ resources:
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: build_gold_processing_result
         - task_key: build_graph_upserts
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
             - task_key: build_gold_processing_result
           notebook_task:
@@ -295,7 +311,7 @@ resources:
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: build_graph_upserts
         - task_key: project_neo4j_graph
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
             - task_key: build_graph_upserts
           libraries:
@@ -316,7 +332,7 @@ resources:
               pipeline_config: "{{job.parameters.pipeline_config}}"
               stage: project_neo4j_graph
         - task_key: publish_outbox
-          job_cluster_key: video_pilot_cluster
+          existing_cluster_id: ${resources.clusters.video_processing_warm.id}
           depends_on:
             - task_key: project_neo4j_graph
           notebook_task:

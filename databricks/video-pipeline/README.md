@@ -7,16 +7,16 @@ The Azure resources are provisioned by Bicep under `infra\`. This bundle owns th
 ## Current scope
 
 - Defines a `qprisma-video-processing` workflow with `dev` and `prod` targets.
-- Runs a lakehouse pilot DAG with observable stages for manifest registration, source-media probe, FFmpeg audio extraction/chunking, FFmpeg frame extraction, `faster-whisper` ASR, temporal window/scene candidate detection, table-driven multimodal inference request generation, Azure OpenAI Batch payload staging, Azure OpenAI Batch inference/result ingestion, Gold result normalization, Neo4j graph upsert planning, Neo4j projection and outbox/status publication.
-- Installs `ffmpeg` and `ffprobe` on the job cluster through `scripts\install-ffmpeg.sh`; these binaries are required by Bronze quality gates, audio extraction and frame extraction.
+- Runs a lakehouse pilot DAG with observable stages for manifest registration, source-media probe, FFmpeg audio extraction/chunking, FFmpeg frame extraction, Florence-2 frame analysis, `faster-whisper` ASR, temporal window/scene candidate detection, Databricks Gemma 3 scene reasoning, Gold result normalization, Neo4j graph upsert planning, Neo4j projection and outbox/status publication.
+- Creates a dedicated all-purpose warm cluster `qprisma-video-processing-${bundle.target}-warm` with Databricks Runtime ML CPU, `ffmpeg`/`ffprobe`, Florence revision pinning and Neo4j secret references so workflow runs do not wait for a new job cluster to start each time.
 - Writes FFmpeg-derived audio and frame files to local cluster storage first, then copies them into Unity Catalog Volumes; this avoids FUSE limitations for encoders that need seek/trailer operations when closing output files.
 - Establishes stable parameters for the Service Bus driven pipeline: `media_id`, `blob_name`, `dispatch_id`, `source_media`, `pipeline_config`, catalog, schema and queue name.
 - Writes stage events to the Delta table `${catalog}.${schema}.video_pipeline_events`.
 - Writes frontend-compatible running/completion/failure records to `${catalog}.${schema}.video_pipeline_outbox`; this is the durable handoff point for projecting Databricks progress back into QPrisma PostgreSQL/Neo4j/Redis.
-- Creates the first operational Delta contracts for the production ETL: `${catalog}.${schema}.video_media_manifest`, `video_source_files`, `video_processing_runs`, `video_job_stage_runs`, `video_audio_assets`, `video_audio_chunks`, `video_asr_runs`, `video_transcript_segments`, `video_frame_assets`, `video_temporal_windows`, `video_scene_candidates`, `video_ai_requests`, `video_ai_batches`, `video_ai_results`, `video_processing_results`, `video_graph_upserts` and `video_record_quarantine`.
+- Creates the first operational Delta contracts for the production ETL: `${catalog}.${schema}.video_media_manifest`, `video_source_files`, `video_processing_runs`, `video_job_stage_runs`, `video_audio_assets`, `video_audio_chunks`, `video_asr_runs`, `video_transcript_segments`, `video_frame_assets`, `video_frame_analysis`, `video_temporal_windows`, `video_scene_candidates`, `video_scene_visual_analysis`, `video_model_inference_runs`, `video_ai_requests`, `video_ai_batches`, `video_ai_results`, `video_processing_results`, `video_graph_upserts` and `video_record_quarantine`.
 - Creates a managed Unity Catalog artifact volume `${catalog}.${schema}.video_artifacts` for derived audio, frame and inference artifacts.
 
-The current DAG shape is intentionally production-like. `extract_audio_assets`, `extract_frame_assets`, `run_faster_whisper_asr`, `detect_scenes_and_windows`, `build_multimodal_inference_requests`, `stage_ai_batch_payloads`, `run_ai_batch_inference`, `build_gold_processing_result`, `build_graph_upserts` and `project_neo4j_graph` are now functional ETL stages. Operational visibility is table-driven through Delta so runs can be monitored, replayed and compared before rollout:
+The current DAG shape is intentionally production-like and does not require backend changes to pass a new inference mode. `extract_audio_assets`, `extract_frame_assets`, `run_florence_frame_analysis`, `run_faster_whisper_asr`, `detect_scenes_and_windows`, `run_databricks_scene_reasoning`, `build_gold_processing_result`, `build_graph_upserts` and `project_neo4j_graph` are now functional ETL stages. Operational visibility is table-driven through Delta so runs can be monitored, replayed and compared before rollout:
 
 ```text
 register_manifest
@@ -24,33 +24,51 @@ register_manifest
       -> extract_audio_assets
           -> run_faster_whisper_asr
       -> extract_frame_assets
+          -> run_florence_frame_analysis  # CPU ML warm cluster for smoke validation, Florence-2 large-ft
       -> detect_scenes_and_windows  # waits for frames + ASR
-          -> build_multimodal_inference_requests
-          -> stage_ai_batch_payloads
-              -> run_ai_batch_inference
-                   -> build_gold_processing_result
-                       -> build_graph_upserts
-                           -> project_neo4j_graph
-                               -> publish_outbox
+          -> run_databricks_scene_reasoning  # waits for scenes + Florence, calls Gemma 3
+              -> build_gold_processing_result
+                  -> build_graph_upserts
+                      -> project_neo4j_graph
+                          -> publish_outbox
 ```
 
-`validate_and_probe_media` now performs Bronze quality gates before any expensive inference: it verifies the source file is readable, runs FFprobe, enforces size/duration/resolution/FPS/codec/audio policy, performs a small decode sample and records the technical metadata plus pass/fail details in `video_source_files` and `video_record_quarantine`. `extract_audio_assets` extracts a 16 kHz mono WAV with FFmpeg into `${catalog}.${schema}.video_artifacts`, splits it into bounded ASR chunks in `video_audio_chunks`, and records chunk offsets for parallel retries; if the validated source has no audio stream, this stage completes as an explicit skip so frame-only video understanding can continue. `extract_frame_assets` extracts representative frames with FFmpeg into the same artifact volume and registers them in `video_frame_assets`. `run_faster_whisper_asr` installs `faster-whisper`, transcribes registered audio chunks, writes an ASR run record and persists timestamped transcript segments; for silent videos it records an explicit ASR skip. `detect_scenes_and_windows` builds deterministic temporal windows and scene candidates from source duration, frame timestamps and transcript gaps, then persists them in `video_temporal_windows` and `video_scene_candidates` for Gold scene construction. `build_multimodal_inference_requests` creates idempotent `video_ai_requests` rows for frame understanding and transcript semantics. `stage_ai_batch_payloads` converts pending requests into governed Azure OpenAI Batch JSONL artifacts in `video_artifacts` and registers them in `video_ai_batches`. `run_ai_batch_inference` uploads ready batches to Azure OpenAI Batch, polls until completion within the configured wait window, downloads output/error JSONL files, writes normalized response rows to `video_ai_results` and updates request/batch lifecycle state. `build_gold_processing_result` normalizes transcript segments, frame understanding, scene candidates and transcript semantics into `video_processing_results` with a frontend-compatible `processing_result` shape containing `structure`, `audio_data`, `frames_data`, `video_metadata` and `processing_stats`. `build_graph_upserts` creates idempotent `video_graph_upserts` rows for Neo4j, including Gold scenes and chapters. `project_neo4j_graph` applies pending graph intents with Cypher `MERGE`, marks rows `applied` or `failed`, and fails the stage if any row cannot be projected. `publish_outbox` emits the Gold result after graph projection so the bridge can update PostgreSQL media rows without relying on Celery. Databricks remains the source of truth and Neo4j is a serving projection.
+`validate_and_probe_media` now performs Bronze quality gates before any expensive inference: it verifies the source file is readable, runs FFprobe, enforces size/duration/resolution/FPS/codec/audio policy, performs a small decode sample and records the technical metadata plus pass/fail details in `video_source_files` and `video_record_quarantine`. `extract_audio_assets` extracts a 16 kHz mono WAV with FFmpeg into `${catalog}.${schema}.video_artifacts`, splits it into bounded ASR chunks in `video_audio_chunks`, and records chunk offsets for parallel retries; if the validated source has no audio stream, this stage completes as an explicit skip so frame-only video understanding can continue. `extract_frame_assets` extracts representative frames with FFmpeg into the same artifact volume and registers them in `video_frame_assets`. `run_florence_frame_analysis` loads `microsoft/Florence-2-large-ft` on the dedicated CPU ML warm cluster for smoke validation, runs bounded caption/OCR tasks over registered frames by default, and writes per-frame/per-task rows to `video_frame_analysis` plus run metrics to `video_model_inference_runs`. `run_faster_whisper_asr` installs `faster-whisper`, transcribes registered audio chunks, writes an ASR run record and persists timestamped transcript segments; for silent videos it records an explicit ASR skip. `detect_scenes_and_windows` builds deterministic temporal windows and scene candidates from source duration, frame timestamps and transcript gaps, then persists them in `video_temporal_windows` and `video_scene_candidates` for Gold scene construction. `run_databricks_scene_reasoning` calls the Databricks Foundation Model API endpoint `databricks-gemma-3-12b` over selected scenes using transcript + Florence signals + bounded frame images, validates JSON output and writes `video_scene_visual_analysis`. `build_gold_processing_result` normalizes transcript segments, Florence frame understanding, Gemma scene reasoning and scene candidates into `video_processing_results` with a frontend-compatible `processing_result` shape containing `structure`, `audio_data`, `frames_data`, `video_metadata` and `processing_stats`. `build_graph_upserts` creates idempotent `video_graph_upserts` rows for Neo4j, including Gold scenes, chapters, frames, transcript segments and Florence-derived `Entity` nodes linked from frames. `project_neo4j_graph` applies pending graph intents with Cypher `MERGE`, marks rows `applied` or `failed`, and fails the stage if any row cannot be projected. `publish_outbox` emits the Gold result after graph projection so the bridge can update PostgreSQL media rows without relying on Celery. Databricks remains the source of truth and Neo4j is a serving projection.
 
-Azure OpenAI Batch is configured through `pipeline_config.azure_openai_batch` or Databricks environment variables. Do not put raw API keys in `pipeline_config`, because the notebook rejects raw secret-like fields before persisting the config in Delta manifests. Use either `api_key_secret_scope`/`api_key_secret_key` or `api_key_env`. The endpoint must be HTTPS and match the trusted Azure OpenAI suffix allowlist from the Databricks environment variable `AZURE_OPENAI_ALLOWED_ENDPOINT_SUFFIXES` (`openai.azure.com,cognitiveservices.azure.com` by default):
+`inference.mode` is optional. If the backend sends the existing legacy `pipeline_config` without an `inference` section, the notebook defaults to `local_databricks` and the bundle runs Florence + Gemma 3 directly. While Florence is on CPU, defaults are intentionally bounded for smoke validation: 5 frames, `caption` + `ocr`, and 1 Gemma scene with up to 2 evidence frames. Override these only for targeted validation runs:
 
 ```json
 {
-  "azure_openai_batch": {
-    "endpoint": "https://<resource>.openai.azure.com",
-    "api_version": "2024-08-01-preview",
-    "api_key_secret_scope": "qprisma",
-    "api_key_secret_key": "azure-openai-api-key",
-    "completion_window": "24h",
-    "poll_interval_seconds": 30,
-    "max_wait_seconds": 3600
+  "inference": {
+    "mode": "local_databricks",
+    "frame_analysis": {
+      "enabled": true,
+      "provider": "databricks_job",
+      "model": "microsoft/Florence-2-large-ft",
+      "tasks": ["caption", "ocr"],
+      "batch_size": 2,
+      "max_frames": 5,
+      "max_new_tokens": 512,
+      "device": "auto",
+      "torch_dtype": "auto"
+    },
+    "scene_visual_reasoning": {
+      "enabled": true,
+      "provider": "databricks_foundation_model",
+      "endpoint": "databricks-gemma-3-12b",
+      "max_scenes": 1,
+      "max_frames_per_scene": 2,
+      "output_schema": "qprisma_scene_visual_v1",
+      "request_timeout_seconds": 120,
+      "max_retries": 2
+    }
   }
 }
 ```
+
+The workflow uses the bundle-managed all-purpose cluster `qprisma-video-processing-${bundle.target}-warm` instead of per-run job clusters, so repeated dev uploads can reuse an already-running runtime. The cluster auto-terminates after `warm_cluster_autotermination_minutes` idle minutes, defaults to `Standard_DS3_v2`, and the job is capped at one concurrent run to avoid saturating the CPU node while Florence is not on GPU. Override the CPU node with the bundle variable `florence_cpu_node_type` if `Standard_DS3_v2` is too small for smoke validation. This CPU path is intended for small validation runs only; keep `frame_analysis.max_frames` and `frame_analysis.tasks` bounded until an NCASv3_T4 quota increase is available. The MVP intentionally allowlists only `microsoft/Florence-2-large-ft` because the model requires `trust_remote_code`; the bundle variable `florence_model_revision` sets `QPRISMA_FLORENCE_MODEL_REVISION` to a vetted commit instead of loading the mutable default branch or accepting arbitrary model revisions from `pipeline_config`.
+
+Gemma 3 uses the Databricks serving endpoint path `/serving-endpoints/databricks-gemma-3-12b/invocations`. The endpoint name is validated as a serving endpoint identifier, and the workspace host is taken only from deployment-owned `DATABRICKS_HOST` or the notebook context. In jobs, use `DATABRICKS_TOKEN` when needed; otherwise the notebook falls back to the Databricks context API token.
 
 Bronze quality gates can be tuned with `pipeline_config.quality_gates` or `pipeline_config.quality`. Defaults are intentionally broad for the first Databricks rollout: files must be larger than 1 KiB, shorter than 4 hours, no larger than 20 GiB, at most 8K/120 FPS, and encoded with a common video codec. The notebook enforces bounded ranges for these values so a per-run config cannot disable decode sampling with a non-positive duration or raise limits beyond the deployment safety caps. Audio is optional by default because silent videos can still produce frame understanding:
 
@@ -76,6 +94,7 @@ ASR chunking and deterministic scene/window detection are configured through the
 ```json
 {
   "asr": {
+    "preset": "quality",
     "chunk_target_seconds": 300,
     "chunk_overlap_seconds": 5,
     "min_chunk_seconds": 2,
@@ -91,9 +110,26 @@ ASR chunking and deterministic scene/window detection are configured through the
 }
 ```
 
-This is intentionally a hybrid baseline rather than a black-box scene detector: FFmpeg/FFprobe and transcript gaps produce replayable candidates, Azure OpenAI frame/transcript understanding enriches them later, and Gold scenes keep evidence references back to frame and transcript segment IDs.
+ASR `preset` defaults to `quality` (`large-v3`) to preserve existing output quality. Use `fast` (`turbo`) for latency-sensitive runs, `balanced` (`distil-large-v3`) for a middle ground, or `custom` with an explicit `model_name`/`model_size`. Stage metrics record the selected preset, model, device, compute type, real-time factor and audio throughput so presets can be compared run-over-run.
 
-Neo4j projection is configured from deployment-owned Databricks environment variables, not caller-supplied endpoints in `pipeline_config`. The bundle exposes non-secret variables for `NEO4J_URI`, `NEO4J_USER`, `NEO4J_DATABASE` and an optional `NEO4J_ALLOWED_HOST_SUFFIXES` allowlist; set `NEO4J_PASSWORD` separately as a Databricks secret-backed cluster environment variable. `pipeline_config.neo4j.enabled` can explicitly require or disable projection for a run, but it cannot override the Neo4j endpoint or credential source. When Neo4j is not configured, `project_neo4j_graph` records an explicit skipped stage and still allows the Gold outbox to publish.
+Frame extraction supports bounded sampling controls through `pipeline_config.frames` / `pipeline_config.frame_extraction`. The extractor deduplicates near-identical timestamps with `min_spacing_seconds` before invoking FFmpeg and skips duplicate frame hashes by default, reducing downstream visual inference work on short or low-motion videos:
+
+```json
+{
+  "frames": {
+    "method": "uniform",
+    "max_frames": 20,
+    "min_spacing_seconds": 0.2,
+    "dedupe_hashes": true,
+    "format": "jpg",
+    "quality": 2
+  }
+}
+```
+
+This is intentionally a hybrid baseline rather than a black-box scene detector: FFmpeg/FFprobe and transcript gaps produce replayable candidates, Florence enriches frame-level signals, Gemma 3 enriches scene-level reasoning, and Gold scenes keep evidence references back to frame and transcript segment IDs.
+
+Neo4j projection is configured from deployment-owned Databricks environment variables, not caller-supplied endpoints in `pipeline_config`. The bundle exposes non-secret variables for `NEO4J_URI`, `NEO4J_USER`, `NEO4J_DATABASE`, `NEO4J_ALLOWED_HOST_SUFFIXES`, `NEO4J_PASSWORD_SECRET_SCOPE` and `NEO4J_PASSWORD_SECRET_KEY`; the notebook reads the password lazily with `dbutils.secrets.get()` only when projection is enabled. `pipeline_config.neo4j.enabled` can explicitly require or disable projection for a run, but it cannot override the Neo4j endpoint or credential source. When projection is skipped, `project_neo4j_graph` records a specific `skipped_reason` (`neo4j_disabled_by_config`, `graph_indexing_disabled`, `neo4j_uri_missing`, or `neo4j_password_missing`) and still allows the Gold outbox to publish.
 
 `project_neo4j_graph` reads pending or previously failed rows from `video_graph_upserts`, validates dynamic labels/relationship types before building Cypher, applies idempotent `MERGE` statements, and updates each row to `applied` or `failed`:
 
@@ -105,7 +141,9 @@ Neo4j projection is configured from deployment-owned Databricks environment vari
 }
 ```
 
-If `pipeline_config.neo4j.enabled` is `true`, missing `NEO4J_URI` or `NEO4J_PASSWORD` is treated as a configuration error. If it is omitted, the projector runs only when `NEO4J_URI` is present and otherwise skips cleanly. Keep `index_graph: false` for runs that should not build graph upsert intents at all.
+If `pipeline_config.neo4j.enabled` is `true`, missing `NEO4J_URI` or password secret configuration is treated as a configuration error. If it is omitted, the projector runs only when `NEO4J_URI` and a password source are present and otherwise skips cleanly. When projection is enabled, the stage validates the Neo4j config before checking for pending upserts, so missing password/user/database settings are visible even on replayed runs. Keep `index_graph: false` for runs that should not build graph upsert intents at all.
+
+The Databricks graph projector uses the existing QPrisma Knowledge Graph contract rather than a separate semantic model. It writes `Video.video_id`, `Chapter.id`, `Scene.id`, `Frame.id` and `AudioSegment.id` keys, uses `CONTAINS` for Video/Chapter/Scene/Frame hierarchy, and uses `HAS_TRANSCRIPT` for transcript segments so backend graph queries and indexes continue to work against projected records. Operational rows such as ASR runs and AI requests remain in Delta tables and are not projected as first-class graph nodes.
 
 ## Operations and monitoring runbook
 
@@ -183,6 +221,40 @@ GROUP BY stage, status
 ORDER BY stage, status;
 ```
 
+### Stage throughput baseline
+
+Completed stage metrics include derived throughput fields for the current bottlenecks: audio extraction writes `audio_seconds_per_second`, frame extraction writes `frames_per_second`, `run_florence_frame_analysis` writes `inferences_per_second`, `run_faster_whisper_asr` writes `real_time_factor` and `audio_seconds_per_second`, `run_databricks_scene_reasoning` writes `scenes_per_second`, and Neo4j graph stages write `upserts_per_second`. Use these metrics to compare optimization runs before changing cluster size, ASR presets, model providers or Neo4j projection strategy.
+
+```sql
+SELECT
+  media_id,
+  dispatch_id,
+  stage,
+  try_cast(get_json_object(metrics, '$.elapsed_seconds') AS DOUBLE) AS elapsed_seconds,
+  try_cast(get_json_object(metrics, '$.real_time_factor') AS DOUBLE) AS asr_real_time_factor,
+  try_cast(get_json_object(metrics, '$.audio_seconds_per_second') AS DOUBLE) AS audio_seconds_per_second,
+  try_cast(get_json_object(metrics, '$.frames_per_second') AS DOUBLE) AS frames_per_second,
+  try_cast(get_json_object(metrics, '$.inferences_per_second') AS DOUBLE) AS model_inferences_per_second,
+  try_cast(get_json_object(metrics, '$.scenes_per_second') AS DOUBLE) AS scenes_per_second,
+  try_cast(get_json_object(metrics, '$.upserts_per_second') AS DOUBLE) AS neo4j_upserts_per_second,
+  try_cast(get_json_object(metrics, '$.skipped') AS BOOLEAN) AS skipped,
+  get_json_object(metrics, '$.skipped_reason') AS skipped_reason,
+  completed_at
+FROM ${catalog}.${schema}.video_job_stage_runs
+WHERE status = 'completed'
+  AND stage IN (
+    'extract_audio_assets',
+    'extract_frame_assets',
+    'run_florence_frame_analysis',
+    'run_faster_whisper_asr',
+    'run_databricks_scene_reasoning',
+    'build_graph_upserts',
+    'project_neo4j_graph'
+  )
+  AND completed_at >= current_timestamp() - INTERVAL 30 DAYS
+ORDER BY completed_at DESC;
+```
+
 ### Outbox backlog and projector health
 
 The Azure Function bridge should consume rows only after PostgreSQL projection succeeds. If `pending_rows` grows, check `DATABRICKS_SQL_WAREHOUSE_ID`, the Function timer trigger, Databricks SQL Statement Execution API permissions and PostgreSQL connectivity before changing data manually.
@@ -224,9 +296,9 @@ WHERE q.created_at >= current_timestamp() - INTERVAL 14 DAYS
 ORDER BY q.created_at DESC;
 ```
 
-### AI Batch, tokens and cost inputs
+### Legacy AI Batch, tokens and cost inputs
 
-This pipeline records token usage in `video_ai_results` and lifecycle state in `video_ai_batches`. Cost should be calculated outside the notebook from the deployed Azure OpenAI price sheet for each `model_name`; do not hard-code prices in the pipeline.
+The active Florence + Gemma 3 DAG no longer runs Azure OpenAI Batch stages. The legacy `video_ai_results` and `video_ai_batches` tables may still contain rows from historical runs or ad hoc notebook stages; calculate any legacy Batch cost outside the notebook from the deployed Azure OpenAI price sheet for each `model_name` and do not hard-code prices in the pipeline.
 
 ```sql
 SELECT
@@ -321,7 +393,32 @@ ORDER BY s.validated_at DESC;
 
 ### Graph projection repair
 
-`video_graph_upserts` is the durable queue for Neo4j serving projection. If rows fail, fix Neo4j deployment settings or data validation first, then rerun `project_neo4j_graph` or the full job. Rows already marked `applied` are preserved when the same source hash is replayed.
+`video_graph_upserts` is the durable queue for Neo4j serving projection. The projector groups compatible node and relationship intents into Cypher `UNWIND` batches by label/type and falls back to row-by-row projection only when a batch group fails, so failed rows still get precise `error` details. If rows fail, fix Neo4j deployment settings or data validation first, then rerun `project_neo4j_graph` or the full job. Rows already marked `applied` are preserved when the same source hash is replayed.
+
+Use the stage metrics first to distinguish expected skips from configuration errors and actual projection failures:
+
+```sql
+SELECT
+  media_id,
+  dispatch_id,
+  status,
+  message,
+  try_cast(get_json_object(metrics, '$.skipped') AS BOOLEAN) AS skipped,
+  get_json_object(metrics, '$.skipped_reason') AS skipped_reason,
+  try_cast(get_json_object(metrics, '$.neo4j_required') AS BOOLEAN) AS neo4j_required,
+  try_cast(get_json_object(metrics, '$.neo4j_uri_configured') AS BOOLEAN) AS neo4j_uri_configured,
+  try_cast(get_json_object(metrics, '$.neo4j_password_configured') AS BOOLEAN) AS neo4j_password_configured,
+  try_cast(get_json_object(metrics, '$.applied_count') AS BIGINT) AS applied_count,
+  try_cast(get_json_object(metrics, '$.failed_count') AS BIGINT) AS failed_count,
+  try_cast(get_json_object(metrics, '$.batch_group_count') AS BIGINT) AS batch_group_count,
+  try_cast(get_json_object(metrics, '$.fallback_row_count') AS BIGINT) AS fallback_row_count,
+  try_cast(get_json_object(metrics, '$.upserts_per_second') AS DOUBLE) AS upserts_per_second,
+  error,
+  completed_at
+FROM ${catalog}.${schema}.video_job_stage_runs
+WHERE stage = 'project_neo4j_graph'
+ORDER BY coalesce(completed_at, started_at) DESC;
+```
 
 ```sql
 SELECT
@@ -345,9 +442,9 @@ ORDER BY oldest_created_at;
 
 1. For source or quality failures, inspect `video_record_quarantine` and `video_source_files.quality_details`, fix the upload/source metadata or `pipeline_config.quality_gates`, then rerun the same Databricks job parameters.
 2. For ASR or frame extraction failures, confirm FFmpeg can read the staged UC volume path, check `video_audio_chunks` or `video_frame_assets` counts, then rerun the failed task or full job.
-3. For Azure OpenAI Batch failures, inspect `video_ai_batches.provider_status`, `provider_error_file_id` and `error`; fix endpoint/secret/quota/model deployment, then rerun from `stage_ai_batch_payloads` or the full job.
+3. For Florence or Gemma 3 failures, inspect `video_model_inference_runs`, `video_frame_analysis`, `video_scene_visual_analysis` and the failed `video_job_stage_runs.metrics`; keep CPU defaults bounded until GPU quota is available.
 4. For outbox projector backlog, validate the Function timer trigger, SQL warehouse ID, Databricks permissions and PostgreSQL connectivity before editing `consumed_at`.
-5. For Neo4j projection failures, inspect `video_graph_upserts.error`, validate `NEO4J_URI`, `NEO4J_PASSWORD`, host allowlist and database permissions, then rerun `project_neo4j_graph`.
+5. For Neo4j projection failures, inspect `video_graph_upserts.error`, validate `NEO4J_URI`, `NEO4J_PASSWORD_SECRET_SCOPE`/`NEO4J_PASSWORD_SECRET_KEY`, host allowlist and database permissions, then rerun `project_neo4j_graph`.
 6. For product parity analysis, export the Gold row from `video_processing_results.processing_result_json` and compare it with the legacy Celery result for transcript coverage, scene/chapter count, frame descriptions, graph upsert completeness, total tokens and wall-clock duration.
 
 ## Parity and rollout validation
@@ -389,7 +486,7 @@ Roll out by environment and feature flag:
 
 1. Keep Celery as the baseline while Databricks runs shadow jobs for representative videos.
 2. Enable Databricks for internal/dev users once the acceptance gates pass in `dev`.
-3. Promote the Asset Bundle to `prod` only after Databricks SQL warehouse access, Function bridge settings, UC volume permissions, Azure OpenAI Batch secrets and Neo4j deployment variables are verified.
+3. Promote the Asset Bundle to `prod` only after Databricks SQL warehouse access, Function bridge settings, UC volume permissions, Florence/Gemma 3 model access and Neo4j deployment variables are verified.
 4. Switch `PROCESSING_BACKEND=databricks` for a controlled cohort, monitor outbox backlog and failure/quarantine rate, then expand.
 5. Retire Celery video-processing code only after the Databricks backend is the default, rollback criteria are agreed and no product surface depends on worker-only artifacts.
 
