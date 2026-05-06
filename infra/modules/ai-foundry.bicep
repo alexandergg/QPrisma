@@ -193,7 +193,7 @@ resource storageRoleProject 'Microsoft.Authorization/roleAssignments@2022-04-01'
 }
 
 // RBAC — Azure OpenAI data-plane access for hosted agent execution identities.
-// Hosted containers run under Foundry-managed identities, so app/worker grants are not enough.
+// Hosted containers run under Foundry-managed identities, so app-level grants are not enough.
 resource openAiRoleAiFoundry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(aiFoundry.id, aiFoundry.id, cognitiveServicesOpenAiUserRole)
   scope: aiFoundry

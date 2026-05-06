@@ -1,5 +1,5 @@
 # Docker Compose para QPrisma - Full Stack Deployment
-# Incluye: Frontend, Backend API, Celery Worker, Flower, Neo4j, PostgreSQL, Redis
+# Incluye: Frontend, Backend API, Neo4j, PostgreSQL y Redis
 
 version: '3.8'
 
@@ -72,7 +72,7 @@ services:
       - full
 
   # =============================================================================
-  # Redis Stack - Cache, Message Broker, y RediSearch para LangGraph Checkpoints
+  # Redis Stack - Cache, WebSocket Pub/Sub y LangGraph Checkpoints
   # =============================================================================
   redis:
     image: redis/redis-stack-server:latest
@@ -141,72 +141,6 @@ services:
     restart: unless-stopped
 
   # =============================================================================
-  # Celery Worker - Procesamiento async de videos
-  # =============================================================================
-  celery-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.worker
-    container_name: qprisma-celery-worker
-    command: celery -A tasks.celery_app worker --loglevel=info --concurrency=2
-    env_file:
-      - ./backend/.env
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DATABASE_URL=postgresql://qprisma:${POSTGRES_PASSWORD:-qprisma123}@postgres:5432/qprisma
-      - NEO4J_URI=bolt://neo4j:7687
-      - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-qprisma123}
-      - APPLICATIONINSIGHTS_CONNECTION_STRING=${APPLICATIONINSIGHTS_CONNECTION_STRING:-}
-      - OTEL_SERVICE_NAME=qprisma-worker
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      neo4j:
-        condition: service_healthy
-    volumes:
-      - ./backend:/app
-      - temp_data:/tmp/qprisma
-    healthcheck:
-      test: ["CMD-SHELL", "celery -A tasks.celery_app inspect ping --timeout 10 || exit 1"]
-      interval: 30s
-      timeout: 15s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-    profiles:
-      - worker
-      - full
-
-  # =============================================================================
-  # Flower - Dashboard de monitoreo para Celery
-  # =============================================================================
-  flower:
-    image: mher/flower:2.0
-    container_name: qprisma-flower
-    command: celery --broker=redis://redis:6379/0 flower --port=5555
-    ports:
-      - "5555:5555"
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - FLOWER_BASIC_AUTH=${FLOWER_BASIC_AUTH:-admin:qprisma123}
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5555/ || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    restart: unless-stopped
-    profiles:
-      - worker
-      - full
-
-  # =============================================================================
   # Redis Commander - UI para visualizar Redis (debug)
   # =============================================================================
   redis-commander:
@@ -265,13 +199,9 @@ volumes:
 # INFRAESTRUCTURA BÁSICA (Redis + PostgreSQL + Neo4j):
 #   docker-compose up -d redis postgres neo4j
 #
-# CON CELERY WORKER (procesamiento async):
-#   docker-compose --profile worker up -d
-#   # Inicia: redis + postgres + neo4j + celery-worker + flower
-#
 # FULL STACK (todo incluido):
 #   docker-compose --profile full up -d
-#   # Inicia: frontend + api + redis + postgres + neo4j + celery-worker + flower
+#   # Inicia: frontend + api + redis + postgres + neo4j
 #
 # CON DEBUG UIs:
 #   docker-compose --profile debug up -d
@@ -285,17 +215,12 @@ volumes:
 #   - API:             http://localhost:8000
 #   - API Docs:        http://localhost:8000/docs
 #   - Neo4j Browser:   http://localhost:7474 (neo4j/qprisma123)
-#   - Flower:          http://localhost:5555 (admin/qprisma123)
 #   - Redis Commander: http://localhost:8081
 #   - pgAdmin:         http://localhost:5050 (admin@qprisma.local/qprisma123)
 #
 # Ver logs:
 #   docker-compose logs -f api
-#   docker-compose logs -f celery-worker
 #   docker-compose logs -f frontend
-#
-# Escalar workers:
-#   docker-compose --profile full up -d --scale celery-worker=3
 #
 # Rebuild después de cambios:
 #   docker-compose --profile full up -d --build

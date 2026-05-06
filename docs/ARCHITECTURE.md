@@ -14,16 +14,14 @@ graph TD
     Frontend -->|REST / WebSocket| Gateway[API Gateway / FastAPI]
 
     subgraph "Processing Core"
-        Gateway -->|Default fallback| TaskMgr[Celery Task Manager]
-        Gateway -->|Databricks pilot| SB[Service Bus Dispatch Queue]
+        Gateway -->|Dispatch event| SB[Service Bus Dispatch Queue]
         SB --> Bridge[Azure Function Bridge]
         Bridge --> DBX[Azure Databricks Job]
-        TaskMgr -->|Orchestrates| Pipeline[Video Pipeline]
         DBX -->|Lakehouse processing| Pipeline
-        Pipeline -->|1. Extract| FFmpeg[FFmpeg Service]
-        Pipeline -->|2. Analyze| Vision[GPT-4o Vision Agent]
-        Pipeline -->|3. Transcribe| Whisper[Whisper Service]
-        Pipeline -->|4. Structure| Summarizer[Hierarchical Summarizer]
+        Pipeline -->|1. Probe / extract| Bronze[Bronze & Silver Delta]
+        Pipeline -->|2. Analyze| Vision[Florence / Serving endpoints]
+        Pipeline -->|3. Transcribe| ASR[Databricks ASR]
+        Pipeline -->|4. Structure| Summarizer[Scene and chapter reasoning]
     end
 
     subgraph "Knowledge Engine"
@@ -44,36 +42,34 @@ graph TD
 
 ### Core Technologies
 - **Runtime**: Python 3.11+ (Backend), Node.js 20+ (Frontend)
-- **Frameworks**: FastAPI, Next.js 16, LangGraph, Celery
+- **Frameworks**: FastAPI, Next.js 16, LangGraph, Databricks Asset Bundles
 - **AI/ML**: Azure AI Foundry (GPT-4o, GPT-5.2-chat, Whisper, text-embedding-3-large)
 - **Databases**: PostgreSQL (Metadata), Neo4j (Graph + Vector), Redis Enterprise (Cache/Queue)
-- **Infrastructure**: Azure Container Apps, Azure Bicep IaC, GitHub Actions CI/CD, optional Azure Databricks pilot
-- **Storage**: Azure Blob Storage, optional ADLS Gen2 lakehouse storage for Databricks medallion data
+- **Infrastructure**: Azure Container Apps, Azure Bicep IaC, GitHub Actions CI/CD, Azure Databricks
+- **Storage**: Azure Blob Storage and ADLS Gen2 lakehouse storage for Databricks medallion data
 
-### Databricks video-processing pilot
+### Databricks video-processing
 
-The current production-safe design keeps FastAPI as the trusted control plane for authentication, authorization, upload commit, idempotency and frontend-compatible state. Heavy video processing can be dispatched to an optional Databricks data plane through Service Bus and an Azure Function bridge. The bridge starts Databricks Jobs, records the Databricks run in PostgreSQL and projects Databricks outbox events back into the existing media status fields.
+FastAPI is the trusted control plane for authentication, authorization, upload commit, idempotency and frontend-compatible state. Heavy video processing is dispatched to Databricks through Service Bus and an Azure Function bridge. The bridge starts Databricks Jobs, records the Databricks run in PostgreSQL and projects Databricks outbox events back into the existing media status fields.
 
-Celery remains the default fallback while the pilot is validated. Databricks Asset Bundles own the workspace-internal job graph under `databricks\video-pipeline`; Bicep owns Azure resources such as the workspace, access connector, lakehouse storage, Service Bus and Function bridge.
+Databricks Asset Bundles own the workspace-internal job graph under `databricks\video-pipeline`; Bicep owns Azure resources such as the workspace, access connector, lakehouse storage, Service Bus and Function bridge.
 
 ---
 
-## 2. Video Processing Pipeline (The "Dual-Channel" Approach)
+## 2. Video Processing Pipeline
 
-QPrisma employs a sophisticated "Dual-Channel" processing pipeline designed to balance **speed**, **cost**, and **semantic depth**.
+QPrisma processes uploaded videos in Databricks using lakehouse contracts designed for **scale**, **idempotency**, and **semantic depth**.
 
 ### 2.1. Ingestion & Extraction
 *   **High-Performance Upload**: Chunked upload handling for 1GB+ files directly to Azure Blob Storage.
-*   **Adaptive Frame Extraction**:
-    *   **PyAV (Primary)**: In-process FFmpeg bindings (C-level) for zero-serialisation frame access.
-    *   **FFmpeg subprocess (Fallback)**: Pipe-to-memory subprocess extraction when PyAV is unavailable.
-*   **Scene Detection**: PySceneDetect with AdaptiveDetector (gradual transitions) and ContentDetector (hard cuts).
-*   **Audio Separation**: Concurrent audio stream extraction for independent transcription.
+*   **Durable Dispatch**: FastAPI publishes a Service Bus message with an explicit `source_media` storage contract.
+*   **Databricks Job Bridge**: An Azure Function validates the payload and starts the Databricks video job.
+*   **Lakehouse Stages**: Bronze/Silver/Gold Delta tables track media probe, audio, frames, scene windows, quality gates, and final normalized results.
+*   **Status Projection**: Databricks outbox events are projected back into PostgreSQL media status fields.
 
-### 2.2. Visual Analysis (Batch API Optimization)
-To mitigate the high cost and latency of frame-by-frame analysis, QPrisma utilizes the **Azure OpenAI Batch API**.
-*   **Cost Reduction**: ~50% savings vs. standard synchronous API.
-*   **Throughput**: Parallel processing of thousands of frames without hitting standard rate limits.
+### 2.2. Visual Analysis
+Visual analysis runs inside the Databricks pipeline using Databricks-hosted model endpoints and Florence-based frame analysis.
+*   **Throughput**: Parallel lakehouse stages process frames and audio chunks outside the FastAPI request path.
 *   **Prompt Engineering**: A shared system prompt (`ENTITY_EXTRACTION_SYSTEM_PROMPT`) drives both image and text extraction paths. Entities are requested in a structured table format with explicit type definitions and confidence calibration. The prompt extracts:
     *   Scene Description (Lighting, Environment)
     *   On-screen Text (OCR)
@@ -234,8 +230,8 @@ This architecture gives QPrisma a bounded, observable agent loop with better con
 ### Backend (`backend/`)
 *   **FastAPI**: For high-concurrency async endpoints.
 *   **Pydantic**: Strict data validation and serialization.
-*   **Celery**: Distributed task queue for long-running video processing.
-*   **Redis Stack**: Used for Caching, Pub/Sub (WebSockets), and Vector storage (optional).
+*   **Service Bus + Databricks**: Durable dispatch and lakehouse processing for long-running video work.
+*   **Redis Stack**: Used for caching, Pub/Sub (WebSockets), and vector storage (optional).
 
 ### Frontend (`frontend/`)
 *   **Next.js 16 (App Router)**: Server-side rendering for performance.
@@ -253,13 +249,13 @@ For the deployment-focused architecture view and platform operations details, se
 
 ### 6.1. Azure Container Apps
 
-Three application containers run in a VNet-enabled managed environment:
+Two application containers run in a VNet-enabled managed environment, with an Azure Function bridge handling Service Bus to Databricks dispatch:
 
 | Container | Role | Scaling | Ingress |
 |-----------|------|---------|---------|
 | **API** (FastAPI) | REST/WebSocket server | 1–2 replicas (HTTP concurrency) | External HTTPS |
 | **Frontend** (Next.js) | SSR web application | 1–2 replicas (HTTP concurrency) | External HTTPS |
-| **Worker** (Celery) | Background video processing | 1–3 replicas (KEDA Redis queue scaler) | Internal only |
+| **Databricks bridge** (Azure Function) | Service Bus trigger and Databricks job/outbox projection | Function scale controller | Internal platform trigger |
 
 Neo4j is consumed as an **external managed Neo4j Professional deployment** referenced through `NEO4J_URI`; production no longer runs Neo4j as a Container App.
 
@@ -287,7 +283,7 @@ Key patterns: OIDC authentication, stale deployment cancellation, AI Foundry pro
 
 ### 6.4. Security Architecture
 
-- **Managed Identity**: A shared runtime user-assigned identity handles ACR pulls and Key Vault-backed secrets, while API and Worker keep system-assigned identities for runtime Azure SDK access
+- **Managed Identity**: A shared runtime user-assigned identity handles ACR pulls and Key Vault-backed secrets, while API and the Function bridge keep system-assigned identities for runtime Azure SDK access
 - **OIDC Federation**: GitHub Actions authenticate via federated credentials (no stored secrets)
 - **Key Vault**: RBAC-authorized secrets for JWT keys, with "Key Vault Secrets User" role grants
 - **TLS**: All external traffic encrypted; Redis Enterprise requires TLS 1.2+

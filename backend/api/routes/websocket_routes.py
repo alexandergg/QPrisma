@@ -383,7 +383,7 @@ async def _send_current_job_status(websocket: WebSocket, job_id: str):
 
 
 # =============================================================================
-# Helper functions for notifying from Celery tasks
+# Helper functions for publishing processing updates
 # =============================================================================
 
 
@@ -391,7 +391,7 @@ async def notify_job_progress(job_id: str, progress: int, stage: str, message: s
     """
     Helper function to notify progress from anywhere in the codebase.
 
-    Usage from a Celery task:
+    Usage from a background processor:
         import asyncio
         from api.routes.websocket_routes import notify_job_progress
 

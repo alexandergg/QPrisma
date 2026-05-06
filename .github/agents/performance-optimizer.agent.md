@@ -26,8 +26,8 @@ You are a QPrisma performance optimization specialist. You analyze and recommend
 - Agent context: `backend/agent/state/agent_state.py` (token budgets)
 - Agent tools: `backend/agent/tools/` (result truncation, selective rehydration)
 - Async patterns: `backend/core/async_utils.py`, `backend/core/concurrency.py`
-- Batch processing: `backend/services/batch_processor.py`
-- FFmpeg processing: `backend/services/ffmpeg_processor.py`
+- Databricks video pipeline: `databricks/video-pipeline/src/qprisma_video_pipeline/`
+- Dispatch bridge: `backend/functions/video_dispatch_bridge/`
 
 ## Analysis Domains
 

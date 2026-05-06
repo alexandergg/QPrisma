@@ -182,7 +182,7 @@ gh workflow run benchmark-video-mme.yml \
 
 `source-storage-account` is optional when `questions-url` already points at the same Azure Blob account as the staged videos. Set it explicitly when the metadata/questions file is hosted elsewhere or the videos live on a different account.
 
-Use this path when you want the benchmark to run against the **deployed** QPrisma stack without a local Postgres / Neo4j / Redis / Celery environment.
+Use this path when you want the benchmark to run against the **deployed** QPrisma stack without a local Postgres / Neo4j / Redis / Databricks bridge environment.
 
 #### Eval-only mode
 
@@ -199,7 +199,7 @@ gh workflow run benchmark-video-mme.yml \
 
 This mode skips ingest entirely and reuses the staged manifest/questions flow, preferring Azure-authenticated blob downloads for Azure Blob URLs and falling back to direct HTTPS/SAS downloads when needed.
 
-> **Reusing media from a prior run:** if you already ran `full-pipeline` and have the 5 (or more) videos ingested, grab `manifest.json` from the previous run's `video-mme-manifest` artifact and re-host it (Azure Blob with SAS works well). Then dispatch with `mode=eval-only`, the same `questions-url`, and `manifest-url` pointing at that re-hosted file. The Celery ingest step is skipped and the Foundry evaluation runs against the existing `media_id`s.
+> **Reusing media from a prior run:** if you already ran `full-pipeline` and have the 5 (or more) videos ingested, grab `manifest.json` from the previous run's `video-mme-manifest` artifact and re-host it (Azure Blob with SAS works well). Then dispatch with `mode=eval-only`, the same `questions-url`, and `manifest-url` pointing at that re-hosted file. The ingest/dispatch step is skipped and the Foundry evaluation runs against the existing `media_id`s.
 
 > **Prerequisite:** Re-run `deploy-infra.yml` after pulling this change so the GitHub Actions OIDC principal receives the storage read role needed for authenticated benchmark downloads from the QPrisma-managed storage account.
 

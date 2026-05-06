@@ -29,7 +29,7 @@ jobs:
       DATABRICKS_OUTBOX_TABLE: ${{ vars.DATABRICKS_OUTBOX_TABLE || 'video_pipeline_outbox' }}
       DATABRICKS_OUTBOX_POLL_BATCH_SIZE: ${{ vars.DATABRICKS_OUTBOX_POLL_BATCH_SIZE || '25' }}
       DATABRICKS_OUTBOX_POLL_SCHEDULE: ${{ vars.DATABRICKS_OUTBOX_POLL_SCHEDULE || '0 */5 * * * *' }}
-      PROCESSING_BACKEND: ${{ vars.PROCESSING_BACKEND || 'celery' }}
+      PROCESSING_BACKEND: ${{ vars.PROCESSING_BACKEND || 'servicebus' }}
       DATABRICKS_BRIDGE_AUTH_TYPE: ${{ vars.DATABRICKS_BRIDGE_AUTH_TYPE || 'oauth_m2m' }}
       DATABRICKS_BRIDGE_CLIENT_ID: ${{ vars.DATABRICKS_BRIDGE_CLIENT_ID || '' }}
       DATABRICKS_BRIDGE_CLIENT_SECRET: ${{ secrets.DATABRICKS_BRIDGE_CLIENT_SECRET || '' }}
@@ -127,7 +127,7 @@ jobs:
       DATABRICKS_OUTBOX_TABLE: ${{ vars.DATABRICKS_OUTBOX_TABLE || 'video_pipeline_outbox' }}
       DATABRICKS_OUTBOX_POLL_BATCH_SIZE: ${{ vars.DATABRICKS_OUTBOX_POLL_BATCH_SIZE || '25' }}
       DATABRICKS_OUTBOX_POLL_SCHEDULE: ${{ vars.DATABRICKS_OUTBOX_POLL_SCHEDULE || '0 */5 * * * *' }}
-      PROCESSING_BACKEND: ${{ vars.PROCESSING_BACKEND || 'celery' }}
+      PROCESSING_BACKEND: ${{ vars.PROCESSING_BACKEND || 'servicebus' }}
       DATABRICKS_BRIDGE_AUTH_TYPE: ${{ vars.DATABRICKS_BRIDGE_AUTH_TYPE || 'oauth_m2m' }}
       DATABRICKS_BRIDGE_CLIENT_ID: ${{ vars.DATABRICKS_BRIDGE_CLIENT_ID || '' }}
       DATABRICKS_BRIDGE_CLIENT_SECRET: ${{ secrets.DATABRICKS_BRIDGE_CLIENT_SECRET || '' }}
@@ -230,7 +230,6 @@ jobs:
               inputs: {
                 image_tag: 'latest',
                 deploy_api: 'true',
-                deploy_worker: 'true',
                 deploy_frontend: 'true'
               }
             });

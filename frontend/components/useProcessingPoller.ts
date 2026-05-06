@@ -22,28 +22,19 @@ export interface UploadedVideo {
 type SetUploadedVideos = React.Dispatch<React.SetStateAction<UploadedVideo[]>>;
 
 /**
- * Hook that returns a polling callback for checking job processing status.
+ * Hook that returns a polling callback for checking media processing status.
  *
- * Polls `GET /jobs/<jobId>` every 3 seconds up to 300 attempts (~15 min).
- * Updates the video entry in state when the job completes, fails, or times out.
+ * Polls `GET /media/<mediaId>/status` every 3 seconds up to 300 attempts
+ * (~15 min). Updates the video entry in state when processing completes,
+ * fails, or times out.
  */
 export function useProcessingPoller(
   setUploadedVideos: SetUploadedVideos,
   onVideoProcessed?: (mediaId: string) => void,
 ) {
   return useCallback(
-    async (mediaId: string, jobId?: string) => {
-      if (!jobId) {
-        setUploadedVideos((prev) =>
-          prev.map((v) =>
-            v.media_id === mediaId
-              ? { ...v, status: 'error' as const, error_message: 'Missing job_id from upload response' }
-              : v,
-          ),
-        );
-        return;
-      }
-
+    async (mediaId: string, _jobId?: string) => {
+      void _jobId;
       let attempts = 0;
       const maxAttempts = 300;
 
@@ -63,27 +54,37 @@ export function useProcessingPoller(
 
         try {
           const token = localStorage.getItem('auth_token');
-          const response = await fetch(`${API_URL}/jobs/${jobId}`, {
+          const response = await fetch(`${API_URL}/media/${mediaId}/status`, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
 
           if (!response.ok) {
-            console.error('Job polling failed with status:', response.status);
+            console.error('Media status polling failed with status:', response.status);
             return;
           }
 
           const data = await response.json();
-          const status = data?.status as string | undefined;
+          const status = data?.processing_status as string | undefined;
 
           setUploadedVideos((prev) =>
             prev.map((v) =>
               v.media_id === mediaId
-                ? { ...v, progress: typeof data?.progress === 'number' ? data.progress : v.progress }
+                ? {
+                    ...v,
+                    progress:
+                      typeof data?.processing_progress === 'number'
+                        ? data.processing_progress
+                        : v.progress,
+                    frames_analyzed:
+                      typeof data?.frames_analyzed === 'number'
+                        ? data.frames_analyzed
+                        : v.frames_analyzed,
+                  }
                 : v,
             ),
           );
 
-          if (status === 'success') {
+          if (status === 'completed' || data?.processed === true) {
             clearInterval(pollInterval);
             setUploadedVideos((prev) =>
               prev.map((v) =>
@@ -93,12 +94,16 @@ export function useProcessingPoller(
               ),
             );
             onVideoProcessed?.(mediaId);
-          } else if (status === 'failure' || status === 'cancelled') {
+          } else if (status === 'failed') {
             clearInterval(pollInterval);
             setUploadedVideos((prev) =>
               prev.map((v) =>
                 v.media_id === mediaId
-                  ? { ...v, status: 'error' as const, error_message: data?.error || 'Processing failed' }
+                  ? {
+                      ...v,
+                      status: 'error' as const,
+                      error_message: data?.processing_message || 'Processing failed',
+                    }
                   : v,
               ),
             );

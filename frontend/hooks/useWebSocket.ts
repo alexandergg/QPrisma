@@ -84,9 +84,17 @@ export interface UseJobWebSocketReturn {
 // Helper Functions
 // =============================================================================
 
+function withAuthToken(url: string): string {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
+  if (!token) return url;
+
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
+
 function getWebSocketUrl(jobId: string, baseUrl?: string): string {
   if (baseUrl) {
-    return `${baseUrl}/ws/jobs/${jobId}`;
+    return withAuthToken(`${baseUrl}/ws/jobs/${jobId}`);
   }
 
   // Auto-detectar URL basándose en la ubicación actual
@@ -95,7 +103,7 @@ function getWebSocketUrl(jobId: string, baseUrl?: string): string {
     ? new URL(process.env.NEXT_PUBLIC_API_URL).host
     : window.location.host;
 
-  return `${protocol}//${host}/ws/jobs/${jobId}`;
+  return withAuthToken(`${protocol}//${host}/ws/jobs/${jobId}`);
 }
 
 // =============================================================================

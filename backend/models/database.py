@@ -179,7 +179,7 @@ class JobModel(Base):
 
     __tablename__ = "jobs"
 
-    id = Column(String(64), primary_key=True)  # Celery task ID
+    id = Column(String(64), primary_key=True)  # Dispatch/job ID
     media_id = Column(
         String(64), ForeignKey("media.id", ondelete="CASCADE"), nullable=True, index=True
     )
@@ -212,11 +212,7 @@ class JobModel(Base):
 
 
 class BatchJobModel(Base):
-    """Azure OpenAI Batch API job tracking.
-
-    Tracks batch jobs for vision analysis and embeddings.
-    Enables 50% cost savings on OpenAI API calls.
-    """
+    """Retained historical batch job records for cleanup and migrations."""
 
     __tablename__ = "batch_jobs"
 

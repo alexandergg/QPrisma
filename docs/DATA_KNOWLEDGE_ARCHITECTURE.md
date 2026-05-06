@@ -32,7 +32,7 @@ QPrisma is not built around a single database. It uses multiple stores because d
 |---|---|---|
 | Azure Blob Storage | Durable object store for raw and large derived artifacts | Uploaded video, large payload artifacts |
 | PostgreSQL | Relational system state and metadata | Media metadata, processing state, user/application state, artifact metadata |
-| Redis | Queueing, hot cache, pub/sub, transient acceleration | Celery broker data, cached results, event propagation |
+| Redis | Hot cache, pub/sub, transient acceleration | Cached results, WebSocket event propagation, LangGraph checkpoint support |
 | Neo4j | Semantic graph and vector-enabled retrieval structure | Video hierarchy, entities, topics, communities, relationships, embeddings |
 | Azure AI Foundry Memory Store | Available long-term semantic memory capability | User-scoped memory items when configured and used |
 
@@ -132,7 +132,7 @@ The most important data-architecture story in QPrisma is lineage:
 
 1. raw media enters Blob Storage
 2. metadata is registered in PostgreSQL
-3. worker processing generates derived multimodal artifacts
+3. Databricks processing generates derived multimodal artifacts
 4. embeddings and structured semantic nodes are created
 5. Neo4j stores graph structure plus retrieval-oriented vectors
 6. hosted-agent retrieval reads the semantic representation instead of the raw asset

@@ -21,14 +21,14 @@ You are a QPrisma infrastructure engineer specializing in Azure resources, Bicep
 - Parameters: `infra/parameters/dev.bicepparam`
 - CI/CD workflows: `.github/workflows/` (ci.yml, build-and-push.yml, deploy-infra.yml, deploy-app.yml)
 - Reusable actions: `.github/actions/`
-- Docker: `backend/Dockerfile`, `backend/Dockerfile.worker`, `frontend/Dockerfile`
+- Docker: `backend/Dockerfile`, `frontend/Dockerfile`
 - Compose: `docker-compose.yml` (local dev)
 - Infrastructure docs: `docs/INFRASTRUCTURE.md`
 
 ## Architecture Overview
 
 - **Multi-region**: West Europe (apps + AI), North Europe (PostgreSQL)
-- **Compute**: Azure Container Apps (API, Frontend, Worker) + Neo4j in VNet-enabled managed environment
+- **Compute**: Azure Container Apps (API, Frontend) + Neo4j in VNet-enabled managed environment
 - **AI**: Azure AI Foundry with 5 model deployments
 - **Data**: PostgreSQL Flex v16, Redis Enterprise, Blob Storage
 - **Security**: Key Vault with RBAC + managed identity
@@ -40,7 +40,7 @@ You are a QPrisma infrastructure engineer specializing in Azure resources, Bicep
 - DO NOT disable OIDC auth in CI/CD — no stored credentials in GitHub secrets for Azure access.
 - DO NOT remove health check probes or rollback configurations from Container Apps.
 - DO NOT skip `what-if` / validation before Bicep deployments.
-- Preserve KEDA autoscaling rules on worker containers.
+- Preserve Container Apps health checks, ingress, and autoscaling rules.
 - Keep Docker images multi-stage and layer-cache friendly.
 
 ## Approach

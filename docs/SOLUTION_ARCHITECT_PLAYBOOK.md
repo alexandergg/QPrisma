@@ -95,7 +95,7 @@ The tone of professional architecture documentation is different from implementa
 
 ### Prefer this
 
-- "The worker tier owns long-running video processing and scales independently from the API tier."
+- "Databricks owns long-running video processing and scales independently from the API tier."
 - "Neo4j is the semantic retrieval substrate for graph-aware and temporal query flows."
 - "Blob Storage is the system of record for raw uploaded media."
 

@@ -114,7 +114,9 @@ export function useJobProgress(
     if (!jobId) return;
 
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000';
-    const ws = new WebSocket(`${wsUrl}/ws/jobs/${jobId}`);
+    const token = localStorage.getItem('auth_token');
+    const authQuery = token ? `?token=${encodeURIComponent(token)}` : '';
+    const ws = new WebSocket(`${wsUrl}/ws/jobs/${jobId}${authQuery}`);
 
     ws.onopen = () => {
       setWsConnected(true);

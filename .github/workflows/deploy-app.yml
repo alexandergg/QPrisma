@@ -15,11 +15,6 @@ on:
         required: false
         default: true
         type: boolean
-      deploy_worker:
-        description: 'Deploy Worker container'
-        required: false
-        default: true
-        type: boolean
       deploy_frontend:
         description: 'Deploy Frontend container'
         required: false
@@ -121,49 +116,6 @@ jobs:
             --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
             --revision ${{ steps.get-revision.outputs.revision }}
 
-  deploy-worker:
-    if: ${{ inputs.deploy_worker }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: dev
-    steps:
-      - name: Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Set image tag
-        run: |
-          echo "Deploying image tag: ${{ inputs.image_tag }}"
-
-      - name: Update Worker container
-        run: |
-          az containerapp update \
-            --name ca-qprisma-worker-dev \
-            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-            --image ${{ vars.ACR_LOGIN_SERVER }}/qprisma-worker:${{ inputs.image_tag }}
-
-      - name: Wait for revision to be ready
-        run: |
-          echo "Waiting for worker revision to be ready..."
-          for i in {1..20}; do
-            STATUS=$(az containerapp show \
-              --name ca-qprisma-worker-dev \
-              --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
-              --query "properties.runningStatus" \
-              -o tsv)
-
-            if [ "$STATUS" == "Running" ]; then
-              echo "Worker revision is ready (status: $STATUS)"
-              break
-            fi
-
-            echo "Attempt $i/20: Status is $STATUS, waiting 15s..."
-            sleep 15
-          done
-
   deploy-frontend:
     if: ${{ inputs.deploy_frontend }}
     runs-on: ubuntu-latest
@@ -250,8 +202,8 @@ jobs:
             --revision ${{ steps.get-revision.outputs.revision }}
 
   smoke-test:
-    needs: [deploy-api, deploy-worker, deploy-frontend]
-    if: ${{ always() && (inputs.deploy_api || inputs.deploy_worker || inputs.deploy_frontend) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    needs: [deploy-api, deploy-frontend]
+    if: ${{ always() && (inputs.deploy_api || inputs.deploy_frontend) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: dev
@@ -312,7 +264,6 @@ jobs:
           echo "### Deployed Services" >> $GITHUB_STEP_SUMMARY
           echo "- API: https://$API_FQDN" >> $GITHUB_STEP_SUMMARY
           echo "- Frontend: https://$WEB_FQDN" >> $GITHUB_STEP_SUMMARY
-          echo "- Worker: Deployed (no public endpoint)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Image Tag" >> $GITHUB_STEP_SUMMARY
           echo "${{ github.event.inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY

@@ -64,7 +64,7 @@ QPrisma documentation uses the following view types:
 
 | File | Focus |
 |---|---|
-| `docs/VIDEO_INGESTION_ARCHITECTURE.md` | Web-Queue-Worker style ingestion and enrichment pipeline |
+| `docs/VIDEO_INGESTION_ARCHITECTURE.md` | Service Bus + Databricks ingestion and enrichment pipeline |
 | `docs/HOSTED_AGENT_RETRIEVAL_ARCHITECTURE.md` | Hosted agent request path, StateGraph loop, retrieval, tool orchestration |
 | `docs/DATA_KNOWLEDGE_ARCHITECTURE.md` | Blob, PostgreSQL, Redis, Neo4j, artifacts, graph, and retrieval context lifecycle |
 | `docs/SECURITY_IDENTITY_ARCHITECTURE.md` | Entra ID, WebSocket auth, managed identities, Key Vault, trust boundaries |
@@ -142,5 +142,5 @@ This repository intentionally versions the published SVG assets only. If you edi
 These references informed the organization of the QPrisma portfolio:
 
 - Azure Well-Architected: architecture design diagrams
-- Azure Architecture Center: Web-Queue-Worker architecture style
+- Azure Architecture Center: queue-based load leveling and asynchronous processing patterns
 - Azure AI Search guidance for RAG architecture and query/relevance trade-offs

@@ -31,7 +31,7 @@ It is intended to complement the functional architecture documents by explaining
 QPrisma is architected as an Azure-native distributed workload with different runtime profiles:
 
 - low-latency interactive traffic in the frontend and API
-- bursty long-running compute in the worker tier
+- bursty long-running compute in Databricks Jobs
 - stateful data and graph backends
 - AI-dependent calls whose latency and cost must be controlled explicitly
 
@@ -41,7 +41,7 @@ Because of that shape, the most important NFRs are not generic uptime statements
 
 ### Current architectural strengths
 
-- Decoupled API and worker tiers prevent long-running processing from blocking user-facing requests.
+- Decoupled API and Databricks processing tiers prevent long-running processing from blocking user-facing requests.
 - Raw media is durably stored before heavy processing begins.
 - Health checks and deployment safety mechanisms exist in the delivery workflows.
 - The agent runtime includes bounded iteration and graceful degradation behavior.
@@ -67,7 +67,7 @@ QPrisma has at least four different scaling axes:
 |---|---|
 | Frontend traffic | Azure Container Apps replica scaling |
 | API request volume | Azure Container Apps replica scaling |
-| Background processing load | KEDA-driven worker scaling from queue depth |
+| Background processing load | Service Bus dispatch + Databricks job cluster/serverless scaling |
 | Retrieval complexity | Candidate capping, bounded tool loops, prompt budget discipline |
 
 ### Important point for architects
@@ -88,7 +88,7 @@ The workload has three distinct latency-sensitive paths:
 
 - asynchronous background processing for ingestion
 - parallel visual/audio work where practical
-- Azure OpenAI Batch API for image-analysis cost and throughput efficiency
+- Databricks batch processing for image-analysis cost and throughput efficiency
 - selective tool binding in the hosted agent
 - bounded hybrid search with a pipeline time budget
 - caching and transient acceleration through Redis
@@ -112,8 +112,8 @@ This is why security should be reviewed as both an architecture view and an oper
 
 ### Current cost-aware patterns
 
-- Azure OpenAI Batch API usage for frame analysis
-- workload separation so expensive worker compute does not force the API tier to scale the same way
+- Databricks batch processing for frame analysis
+- workload separation so expensive Databricks compute does not force the API tier to scale the same way
 - Redis used for transient speedups instead of overusing expensive repeated calls
 - selective context rehydration to reduce token pressure in agent prompts
 
@@ -122,7 +122,7 @@ This is why security should be reviewed as both an architecture view and an oper
 | Cost driver | Why it matters |
 |---|---|
 | Vision and text model calls | Direct AI usage cost during ingestion and retrieval |
-| Worker runtime | Long-running media processing and enrichment |
+| Databricks runtime | Long-running media processing and enrichment |
 | Neo4j and relational persistence | Stateful platform cost |
 | Blob storage growth | Raw and derived asset retention |
 | Cross-service observability | Logs and telemetry volume |
@@ -201,7 +201,7 @@ When QPrisma is operated professionally, incidents usually fall into one of thes
 | Failure domain | First review focus |
 |---|---|
 | Upload/initiation failures | API auth, Blob connectivity, metadata writes |
-| Jobs stuck in queue | Redis/Celery health, KEDA scaling, worker availability |
+| Jobs stuck in dispatch | Service Bus queue health, Function bridge logs, Databricks Jobs API/run status |
 | Slow ingestion | model quotas, batch execution, frame volume, audio duration |
 | Weak retrieval quality | graph indexing quality, embedding quality, query interpretation, reranking |
 | Hosted agent failure | Foundry connectivity, context propagation, tool routing, prompt budget |

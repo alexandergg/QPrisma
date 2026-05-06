@@ -332,22 +332,19 @@ DELETE /media/{video_id}
 
 ### Video Processing
 
-#### Process Video with FFmpeg
-```http
-POST /processing/ffmpeg/{video_id}
-Content-Type: application/json
+Video processing is queued from the media upload endpoints. The active backend is selected by `PROCESSING_BACKEND`:
 
-{
-  "preset": "balanced",
-  "frame_extraction": {
-    "method": "hybrid",
-    "fps": 2,
-    "max_frames": 100
-  },
-  "enable_audio": true,
-  "enable_vision": true
-}
+- `databricks` or `servicebus`: publish a durable Service Bus dispatch event for the Databricks video pipeline.
+
+The old local processing preview, `/jobs/*`, and Azure OpenAI Batch management routes have been retired from the FastAPI app. Status projection now comes from the Databricks outbox/bridge into the media status fields.
+
+#### Upload and Dispatch Video
+```http
+POST /upload
+Content-Type: multipart/form-data
 ```
+
+`/upload/optimized` accepts the same video upload plus processing form fields such as `preset`, `max_frames`, `use_scene_detection`, `use_hierarchical_summary`, `scene_threshold`, and `max_scenes_per_chapter`.
 
 **Presets:**
 - `fast`: 1 FPS, 720p, optimized for speed
@@ -358,34 +355,24 @@ Content-Type: application/json
 **Response:**
 ```json
 {
-  "job_id": "celery-task-id",
-  "status": "processing",
-  "estimated_time": 300
+  "media_id": "media-id",
+  "blob_name": "media-id.mp4",
+  "media_type": "video",
+  "file_size": 1048576,
+  "job_id": "dbx-dispatch-id",
+  "status": "queued",
+  "pipeline": "databricks"
 }
 ```
 
-**Processing Pipeline (v0.17.0+):**
-The pipeline is fully async and processes frames and audio in parallel for maximum throughput:
+**Databricks Processing Pipeline:**
 
-1. **Download** video from Azure Blob Storage (chunked streaming via `aiofiles` — low memory)
-2. **Extract frames** with PyAV (in-process FFmpeg bindings, zero serialisation overhead; subprocess FFmpeg fallback)
-3. **Detect scenes** with PySceneDetect (AdaptiveDetector + ContentDetector)
-4. **Submit Batch API** job for vision analysis (structured JSON output)
-5. **Process audio** with Azure Whisper (default) or faster-whisper (optional INT8/Silero VAD backend) during batch wait (overlapping async I/O)
-6. **Wait for batch completion** (exponential backoff: 10s → 120s cap, `asyncio.sleep`)
-7. **Generate hierarchical summaries** — Scene → Chapter → Video summaries via LLM
-8. **Generate embeddings** (text-embedding-3-large, 3072 dimensions, async `AsyncAzureOpenAI`)
-9. **Index** results into Knowledge Graph (Neo4j) and PostgreSQL
-10. **Create chapters** — Groups of 2-5 consecutive scenes with LLM-generated titles and summaries. Video → Chapter → Scene hierarchy
-11. **Build temporal chains** — NEXT_FRAME / NEXT_SEGMENT / NEXT_SCENE relationships for graph-native time walking
-12. **Extract entities** — GPT-4o extracts structured entities from frame descriptions with type normalization (30+ LLM hallucinations → 8 valid EntityType values, fallback to CONCEPT) and multi-pass gleaning (`max_gleanings` default=1) for higher recall. Semantic relations persisted with `weight` (0.1-1.0) and `evidence_count`
-13. **Create topic graph** — TopicNode entries with ABOUT edges (Video → Topic, Entity → Topic). Keyword-based entity-topic linking
-14. **Cross-video entity resolution** — SAME_ENTITY edges with `similarity_score` (1.0 exact match, 0.7 substring). Same `entity_type` required, >3 char filter
-15. **Detect communities** — Leiden clustering (`RBConfigurationVertexPartition`, hierarchical multi-resolution, `hierarchical_levels=2`) on entity co-occurrence graph with LLM-generated thematic summaries. Falls back to Louvain if `leidenalg` is unavailable
-
-> **v0.17.0 Note:** All pipeline services use `AsyncAzureOpenAI` with native `async/await`. 
-> Celery background tasks bridge to async via `asyncio.run()`. Neo4j supports both sync and 
-> async drivers for gradual migration.
+1. **Register manifest** from the explicit `source_media` storage contract.
+2. **Validate/probe media** and write Bronze quality data to Delta.
+3. **Extract audio and frames** with Databricks-local FFmpeg helpers.
+4. **Run frame analysis** with Florence and ASR with faster-whisper.
+5. **Detect scenes/windows** and run Databricks model reasoning for scene summaries.
+6. **Build Gold `processing_result`**, graph upsert rows, Neo4j projection, and outbox/status events.
 
 **Frame Analysis Output (v0.16.0):**
 Each frame result now includes both a flattened text `analysis` (for embeddings) and an `analysis_structured` JSON object:
@@ -424,19 +411,18 @@ Each frame result now includes both a flattened text `analysis` (for embeddings)
 
 #### Get Processing Status
 ```http
-GET /jobs/{job_id}
+GET /media/{media_id}/status
 ```
 
 **Response:**
 ```json
 {
-  "job_id": "celery-task-id",
-  "status": "processing",
-  "progress": 45,
-  "stage": "extracting_frames",
-  "frames_processed": 45,
-  "frames_total": 100,
-  "message": "Extracting frame 45 of 100"
+  "media_id": "media-id",
+  "processing_status": "processing",
+  "processing_progress": 45,
+  "processing_message": "Analyzing scene windows",
+  "processing_method": "servicebus",
+  "job_id": "dbx-dispatch-id"
 }
 ```
 
@@ -817,53 +803,6 @@ Returns the scene and chapter structure for a processed video.
 }
 ```
 
-### Batch Processing (Azure OpenAI Batch API)
-
-#### Submit Batch Job
-```http
-POST /batch/submit
-Content-Type: application/json
-
-{
-  "video_ids": ["uuid1", "uuid2"],
-  "operation": "vision_analysis",
-  "priority": "low"
-}
-```
-
-**Response:**
-```json
-{
-  "batch_id": "batch-uuid",
-  "status": "validating",
-  "estimated_completion": "2024-01-20T15:00:00Z",
-  "cost_estimate": {
-    "frames": 500,
-    "estimated_cost": 2.50
-  }
-}
-```
-
-#### Get Batch Status
-```http
-GET /batch/status/{batch_id}
-```
-
-**Response:**
-```json
-{
-  "batch_id": "batch-uuid",
-  "status": "completed",
-  "progress": 100,
-  "results": {
-    "succeeded": 480,
-    "failed": 20,
-    "total": 500
-  },
-  "output_url": "https://..."
-}
-```
-
 ## WebSocket Endpoints
 
 ### Authentication
@@ -970,12 +909,13 @@ Endpoints that return lists support pagination:
 
 ## Best Practices
 
-### 1. Use Batch Processing for Large Workloads
-For processing 100+ frames, use the Batch API to save 50% on costs:
+### 1. Use Databricks Processing for Large Workloads
+For processing 100+ frames, keep the workload on the Databricks pipeline and pass processing preferences through upload/dispatch configuration:
 ```json
 {
-  "use_batch_api": true,
-  "priority": "low"
+  "preset": "deep_analysis",
+  "max_frames": 1000,
+  "use_hierarchical_summary": true
 }
 ```
 

@@ -1,6 +1,6 @@
 # QPrisma Backend — Technical Architecture Documentation
 
-> **Backend version**: 1.1.0 | **Python**: 3.11+ | **Framework**: FastAPI + LangGraph + Celery
+> **Backend version**: 1.1.0 | **Python**: 3.11+ | **Framework**: FastAPI + LangGraph + Databricks dispatch
 > **Last updated**: February 2026
 
 ---
@@ -14,7 +14,7 @@
 5. [Agent System — LangGraph](#5-agent-system--langgraph)
 6. [Service Layer](#6-service-layer)
 7. [Data Models — SQLAlchemy + Pydantic](#7-data-models--sqlalchemy--pydantic)
-8. [Async Tasks — Celery](#8-async-tasks--celery)
+8. [Video Processing Dispatch](#8-video-processing-dispatch)
 9. [Video Processing Pipeline](#9-video-processing-pipeline)
 10. [Knowledge Graph — Neo4j](#10-knowledge-graph--neo4j)
 11. [Hybrid Search System](#11-hybrid-search-system)
@@ -37,14 +37,14 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 
 | Capability | Technology | Description |
 |---|---|---|
-| Video Processing | FFmpeg + Whisper | Transcription, scene detection, thumbnails |
+| Video Processing | Service Bus + Databricks | Durable dispatch, lakehouse processing, status projection |
 | AI Agent | LangGraph + GPT-4o / GPT-5.2-chat | Multi-tool conversational agent |
 | Knowledge Graph | Neo4j | Entity relationships and semantic structure |
 | Search | PostgreSQL + Neo4j | Hybrid vector + graph search |
 | Memory | Checkpointer + artifacts + optional Foundry Memory Store | Thread state, persisted tool artifacts, and available long-term semantic memory capability |
 | Cache | Redis Enterprise | Multi-layer caching with TTL |
 | Auth | Microsoft Entra ID | OIDC-based authentication and RBAC |
-| Tasks | Celery + Redis, optional Service Bus/Databricks dispatch | Async video processing pipeline and Databricks pilot handoff |
+| Processing dispatch | Service Bus/Databricks | Upload-triggered video processing handoff |
 | Protocol | A2A (Agent-to-Agent) | Google A2A interoperability protocol |
 
 ### AI Model Deployments
@@ -63,8 +63,8 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 │                        QPrisma Backend                              │
 │                                                                     │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────────┐  │
-│  │  FastAPI Routes  │  │  LangGraph Agent │  │  Celery Workers     │  │
-│  │  (17 modules)   │  │  (16 tools)      │  │  (async tasks)      │  │
+│  │  FastAPI Routes  │  │  LangGraph Agent │  │ Databricks Dispatch │  │
+│  │  (15 modules)   │  │  (16 tools)      │  │ Service Bus Bridge  │  │
 │  └────────┬────────┘  └────────┬────────┘  └─────────┬──────────┘  │
 │           │                  │                   │              │
 │           └─────────┬────────┘                   │              │
@@ -95,12 +95,10 @@ backend/
 │       ├── a2a_message_routes.py     # A2A message handling
 │       ├── a2a_task_routes.py        # A2A task management
 │       ├── auth_routes.py            # Auth endpoints (me/config)
-│       ├── batch_routes.py           # Batch processing operations
 │       ├── cache_routes.py           # Cache management endpoints
 │       ├── chat_routes.py            # Chat/conversation endpoints
 │       ├── chunked_upload_routes.py  # Chunked file upload handling
 │       ├── graph_routes.py           # Knowledge graph queries
-│       ├── jobs_routes.py            # Job status tracking
 │       ├── media_routes.py           # Media CRUD operations
 │       ├── processing_routes.py      # Media processing endpoints
 │       ├── storage_routes.py         # Storage management
@@ -144,9 +142,6 @@ backend/
 │       ├── relationship_service.py   # Relationship CRUD
 │       ├── query_builder.py          # Cypher query construction
 │       └── ...                       # (10 files total)
-├── tasks/
-│   ├── celery_app.py                # Celery configuration
-│   └── video_tasks.py               # Async video processing tasks
 ├── evaluation_foundry/              # Azure AI Foundry evaluation
 │   ├── config.py                    # Evaluation configuration
 │   ├── generate_eval_data.py        # Test data generation
@@ -176,9 +171,6 @@ class AzureSettings(BaseSettings):
     openai_endpoint: str = Field(alias="AZURE_OPENAI_ENDPOINT")
     openai_api_key: str = Field(alias="AZURE_OPENAI_API_KEY")
     openai_deployment_gpt: str = Field(default="gpt-5.5", alias="AZURE_OPENAI_DEPLOYMENT_GPT")
-    openai_deployment_gpt_batch: str | None = Field(
-        default="gpt-5.1-batch", alias="AZURE_OPENAI_DEPLOYMENT_GPT_BATCH"
-    )
     openai_embedding_deployment: str = Field(
         default="text-embedding-3-large", alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
     )
@@ -227,7 +219,6 @@ settings = Settings()
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL | `https://xxx.openai.azure.com/` |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | `sk-...` |
 | `AZURE_OPENAI_DEPLOYMENT_GPT` | Primary GPT model deployment | `gpt-5.5` |
-| `AZURE_OPENAI_DEPLOYMENT_GPT_BATCH` | Global Batch deployment | `gpt-5.1-batch` |
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://...` |
 | `NEO4J_URI` | Neo4j Bolt endpoint | `neo4j+s://xxx.neo4j.io` |
 | `NEO4J_PASSWORD` | Neo4j password | `...` |
@@ -235,7 +226,9 @@ settings = Settings()
 | `AZURE_STORAGE_CONNECTION_STRING` | Azure Blob connection string | `DefaultEndpointsProtocol=...` |
 | `AZURE_ENTRA_TENANT_ID` | Microsoft Entra ID tenant | `xxxxxxxx-xxxx-...` |
 | `AZURE_ENTRA_CLIENT_ID` | Entra application client ID | `xxxxxxxx-xxxx-...` |
-| `CELERY_BROKER_URL` | Celery broker (Redis) | `rediss://...` |
+| `PROCESSING_BACKEND` | Video dispatch backend: `databricks` or `servicebus` | `servicebus` |
+| `SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` | Required for Databricks/Service Bus dispatch | `qprisma.servicebus.windows.net` |
+| `DATABRICKS_VIDEO_JOB_ID` | Databricks Job ID invoked by the video bridge/pipeline | `123456789` |
 
 
 ---
@@ -847,109 +840,35 @@ class TaskStatusResponse(BaseModel):
 
 ---
 
-## 8. Async Tasks — Celery
+## 8. Video Processing Dispatch
 
-Celery remains the default and fallback processing backend. Upload routes no longer call Celery directly; they call `services.video_processing_dispatch_service.VideoProcessingDispatchService`, which selects the backend through centralized settings:
+Upload routes do not call processing workers directly. They call `services.video_processing_dispatch_service.VideoProcessingDispatchService`, which publishes a durable Service Bus event consumed by the Databricks bridge:
 
 | Setting | Purpose |
 |---|---|
-| `PROCESSING_BACKEND=celery` | Default path; dispatches `process_video_pipeline` through Celery/Redis |
-| `PROCESSING_BACKEND=servicebus` or `databricks` | Pilot path; publishes a durable Service Bus message consumed by the Databricks bridge |
+| `PROCESSING_BACKEND=databricks` or `servicebus` | Publishes a durable Service Bus message consumed by the Databricks bridge |
 | `SERVICE_BUS_FULLY_QUALIFIED_NAMESPACE` | Required for Service Bus/Databricks dispatch |
 | `SERVICE_BUS_MANAGED_IDENTITY_CLIENT_ID` | Pins Service Bus SDK authentication to the intended user-assigned managed identity |
 | `DATABRICKS_WORKSPACE_URL`, `DATABRICKS_VIDEO_JOB_ID` | Passed to the bridge/bundle workflow for Databricks job invocation |
 
-The Databricks bridge is intentionally isolated under `backend\functions\video_dispatch_bridge` rather than imported into the FastAPI application. It validates Service Bus payloads, starts Databricks Jobs with `run-now`, projects `running`/`completed`/`failed` outbox events into PostgreSQL, and leaves Celery available as a safe rollback path.
+The Databricks bridge is intentionally isolated from the FastAPI request path. It validates Service Bus payloads, starts Databricks Jobs with `run-now`, and projects `running`/`completed`/`failed` outbox events into PostgreSQL.
 
-### Celery Configuration (`tasks/celery_app.py`)
+The retired local processing surfaces are no longer mounted: `/pipeline/preview`, `/batch/*`, and `/jobs/*`.
+
+### Dispatch Service
 
 ```python
-from celery import Celery
-from core.config import settings
-
-celery_app = Celery(
-    "qprisma",
-    broker=settings.redis.url,
-    backend=settings.redis.url,
+dispatch_result = await get_video_processing_dispatch_service().dispatch_video(
+    media_id=media_id,
+    blob_name=blob_name,
+    user_id=current_user.id,
+    file_size=file_size,
+    preset=preset,
+    max_frames=max_frames,
+    pipeline_config={},
+    optimized_pipeline=False,
 )
-
-celery_app.conf.update(
-    task_serializer="json",
-    accept_content=["json"],
-    result_serializer="json",
-    timezone="UTC",
-    enable_utc=True,
-    task_track_started=True,
-    task_acks_late=True,
-    worker_prefetch_multiplier=1,
-    task_routes={
-        "tasks.video_tasks.*": {"queue": "video_processing"},
-    },
-)
-```
-
-### Video Processing Tasks (`tasks/video_tasks.py`)
-
-```python
-from tasks.celery_app import celery_app
-from services.transcription_service import get_transcription_service
-from services.embedding_service import get_embedding_service
-from services.scene_detection_service import get_scene_detection_service
-
-@celery_app.task(bind=True, max_retries=3)
-def process_video(self, media_id: str, user_id: str):
-    """ Full video processing pipeline as a Celery task."""
-    try:
-        self.update_state(state="PROGRESS", meta={"step": "transcription", "progress": 0.1})
-
-        # Step 1: Transcribe audio
-        transcription_service = get_transcription_service()
-        transcript = transcription_service.transcribe(media_id)
-
-        self.update_state(state="PROGRESS", meta={"step": "embedding", "progress": 0.4})
-
-        # Step 2: Generate embeddings
-        embedding_service = get_embedding_service()
-        embedding_service.generate_embeddings(media_id, transcript)
-
-        self.update_state(state="PROGRESS", meta={"step": "scenes", "progress": 0.7})
-
-        # Step 3: Detect scenes
-        scene_service = get_scene_detection_service()
-        scene_service.detect_scenes(media_id)
-
-        self.update_state(state="PROGRESS", meta={"step": "knowledge_graph", "progress": 0.9})
-
-        # Step 4: Build knowledge graph
-        # Entity extraction and graph population
-        build_knowledge_graph(media_id, transcript)
-
-        return {"status": "completed", "media_id": media_id}
-
-    except Exception as exc:
-        self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
-```
-
-### Task Monitoring
-
-```python
-from tasks.celery_app import celery_app
-
-async def get_task_status(task_id: str) -> dict:
-    """ Check Celery task status and progress."""
-    result = celery_app.AsyncResult(task_id)
-    response = {
-        "task_id": task_id,
-        "status": result.status,
-    }
-    if result.status == "PROGRESS":
-        response["progress"] = result.info.get("progress", 0)
-        response["step"] = result.info.get("step", "")
-    elif result.status == "SUCCESS":
-        response["result"] = result.result
-    elif result.status == "FAILURE":
-        response["error"] = str(result.result)
-    return response
+db.update_media(media_id, dispatch_result.media_updates())
 ```
 
 
@@ -962,8 +881,8 @@ async def get_task_status(task_id: str) -> dict:
 ```
   Upload          Transcribe        Embed           Scenes          Graph
 ┌────────┐     ┌────────────┐    ┌──────────┐   ┌──────────┐   ┌──────────┐
-│  User  │────►│  Whisper   │───►│ text-emb │──►│  Scene   │──►│  Neo4j   │
-│ Upload │     │  (Azure)   │    │ 3-large  │   │  Detect  │   │  Import  │
+│  User  │────►│ ServiceBus │───►│Databricks│──►│ Outbox   │──►│  Neo4j   │
+│ Upload │     │ Dispatch   │    │ Job      │   │ Projection│   │  Import  │
 └────────┘     └────────────┘    └──────────┘   └──────────┘   └──────────┘
      │                                                               │
      ▼                                                               ▼
@@ -977,34 +896,16 @@ async def get_task_status(task_id: str) -> dict:
 
 | Step | Service | Input | Output |
 |---|---|---|---|
-| 1. Upload | `StorageService` | Raw video file | Blob URL |
-| 2. Transcode | `MediaService` | Blob URL | Normalized video |
-| 3. Transcribe | `TranscriptionService` | Audio stream | Timestamped transcript |
-| 4. Embed | `EmbeddingService` | Transcript segments | 3072-dim vectors |
-| 5. Scenes | `SceneDetectionService` | Video frames + transcript | Scene boundaries |
-| 6. Thumbnails | `ThumbnailService` | Video frames | Scene thumbnails |
-| 7. Graph | `GraphImportService` | Entities + relations | Neo4j nodes/edges |
-| 8. Structure | `StructureService` | Scenes + transcript | Chapters |
+| 1. Upload | FastAPI media routes | Raw video file | Blob + media row |
+| 2. Dispatch | `VideoProcessingDispatchService` | Media metadata | Service Bus event |
+| 3. Execute | Databricks Asset Bundle | `source_media` contract | Bronze/Silver/Gold Delta rows |
+| 4. Project | Azure Function bridge/outbox | Databricks status events | PostgreSQL media status/result |
+| 5. Graph | Databricks projection + Neo4j services | Graph upsert rows | Neo4j nodes/edges |
+| 6. Serve | FastAPI + LangGraph services | PostgreSQL/Neo4j data | Chat, search, structure APIs |
 
 ### Error Recovery
 
-Each pipeline step implements idempotent retry logic:
-
-```python
-@celery_app.task(bind=True, max_retries=3, acks_late=True)
-def transcribe_video(self, media_id: str):
-    try:
-        service = get_transcription_service()
-        # Check if already transcribed (idempotent)
-        existing = service.get_transcript(media_id)
-        if existing:
-            return {"status": "already_completed"}
-
-        result = service.transcribe(media_id)
-        return {"status": "completed", "segments": len(result.segments)}
-    except Exception as exc:
-        self.retry(exc=exc, countdown=60 * (2 ** self.request.retries))
-```
+Each pipeline step writes idempotent Delta rows keyed by media/stage identifiers. The Service Bus message uses a stable dispatch ID, Databricks Jobs use idempotency tokens, and the outbox projection updates PostgreSQL status fields without requiring the FastAPI request to stay open.
 
 ---
 
@@ -1837,7 +1738,6 @@ async def get_media(
 
 | Package | Version | Purpose |
 |---|---|---|
-| `celery` | ^5.4.x | Distributed task queue |
 | `redis` | ^5.x | Redis client (async) |
 | `neo4j` | ^5.x | Neo4j driver |
 | `azure-storage-blob` | ^12.x | Azure Blob Storage |
@@ -1953,16 +1853,16 @@ File Upload
        │
        ▼
 ┌──────────────┐
-│ Celery Task  │──── process_video.delay(media_id)
-│ (async)      │
+│ Service Bus  │──── dispatch_id=dbx-...
+│ Dispatch     │
 └──────┬───────┘
        │
-       ├── Step 1: Transcribe (Whisper)
-       ├── Step 2: Generate embeddings (text-embedding-3-large)
-       ├── Step 3: Detect scenes (FFmpeg + GPT-4o)
-       ├── Step 4: Generate thumbnails
-       ├── Step 5: Build knowledge graph (Neo4j)
-       └── Step 6: Update status → COMPLETED
+       ├── Step 1: Validate/probe source media
+       ├── Step 2: Extract audio and frames
+       ├── Step 3: Analyze frames and transcribe audio
+       ├── Step 4: Build Gold processing result
+       ├── Step 5: Project graph upserts / Neo4j
+       └── Step 6: Emit outbox status → COMPLETED
 ```
 
 ---

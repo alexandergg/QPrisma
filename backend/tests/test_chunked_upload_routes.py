@@ -117,12 +117,12 @@ def _build_commit_dependencies(
 def _build_dispatch_service() -> MagicMock:
     dispatch_result = MagicMock()
     dispatch_result.job_id = "job-123"
-    dispatch_result.backend = "celery"
+    dispatch_result.backend = "servicebus"
     dispatch_result.media_updates.return_value = {
         "job_id": "job-123",
-        "processing_method": "celery",
+        "processing_method": "servicebus",
         "processing_status": "queued",
-        "pipeline_config": {"dispatch": {"backend": "celery"}},
+        "pipeline_config": {"dispatch": {"backend": "servicebus"}},
     }
 
     dispatch_service = MagicMock()

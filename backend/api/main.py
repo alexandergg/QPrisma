@@ -69,8 +69,9 @@ def _setup_telemetry() -> None:
 
         # Register span processor so gen_ai.conversation.id appears in Foundry traces
         try:
-            from agent.utils.observability import ConversationIdSpanProcessor
             from opentelemetry.trace import get_tracer_provider
+
+            from agent.utils.observability import ConversationIdSpanProcessor
 
             provider = get_tracer_provider()
             if hasattr(provider, "add_span_processor"):
@@ -130,7 +131,7 @@ async def lifespan(app: FastAPI):
             "ok" if db_health.get("status") == "healthy" else "not configured",
         )
 
-    # Initialize Redis Pub/Sub listener for WebSocket events from Celery
+    # Initialize Redis Pub/Sub listener for cross-replica WebSocket events.
     pubsub_task = None
     disable_pubsub = settings.app.disable_redis_pubsub
     if disable_pubsub:
@@ -250,13 +251,11 @@ async def add_security_headers(request: Request, call_next):
 from api.routes import (
     a2a_router,
     auth_router,
-    batch_router,
     benchmark_router,
     cache_router,
     chat_router,
     chunked_upload_router,
     graph_router,
-    jobs_router,
     media_router,
     processing_router,
     storage_router,
@@ -268,13 +267,11 @@ from api.routes import (
 app.include_router(a2a_router, tags=["A2A Protocol"])
 
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
-app.include_router(batch_router, tags=["Batch API"])
 app.include_router(benchmark_router, tags=["Benchmark"])
 app.include_router(cache_router, prefix="/cache", tags=["Cache"])
 app.include_router(chat_router, tags=["Chat & Search"])
 app.include_router(chunked_upload_router, tags=["Chunked Upload"])
 app.include_router(graph_router, tags=["Knowledge Graph"])
-app.include_router(jobs_router, prefix="/jobs", tags=["Jobs"])
 app.include_router(media_router, tags=["Media"])
 app.include_router(processing_router, tags=["Processing"])
 app.include_router(storage_router, tags=["Storage Tiering"])

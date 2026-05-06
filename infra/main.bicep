@@ -53,9 +53,6 @@ param apiImageName string = ''
 @description('Frontend container image (leave empty to use ACR default)')
 param frontendImageName string = ''
 
-@description('Worker container image (leave empty to use ACR default)')
-param workerImageName string = ''
-
 @description('Foundry Memory Store name')
 param foundryMemoryStoreName string = ''
 
@@ -124,11 +121,10 @@ param databricksOutboxPollSchedule string = '0 */5 * * * *'
 
 @description('Processing backend used by the API control plane')
 @allowed([
-  'celery'
   'databricks'
   'servicebus'
 ])
-param processingBackend string = 'celery'
+param processingBackend string = 'servicebus'
 
 @description('Service Bus queue name used for durable video processing dispatch')
 param videoProcessingQueueName string = 'video-processing'
@@ -176,7 +172,6 @@ var logAnalyticsName = 'log-qprisma-${environment}'
 var appInsightsName = 'appi-qprisma-${environment}'
 var apiContainerAppName = 'ca-qprisma-api-${environment}'
 var frontendContainerAppName = 'ca-qprisma-web-${environment}'
-var workerContainerAppName = 'ca-qprisma-worker-${environment}'
 var runtimeIdentityName = 'id-qprisma-runtime-${environment}'
 var databricksBridgeIdentityName = 'id-qprisma-dbx-bridge-${environment}'
 var databricksWorkspaceName = 'dbw-qprisma-${environment}'
@@ -191,7 +186,6 @@ var databricksBridgeFunctionStorageName = 'stqprismadbxfn${environment}'
 var acrLoginServer = '${containerRegistryName}.azurecr.io'
 var effectiveApiImage = empty(apiImageName) ? '${acrLoginServer}/qprisma-api:latest' : apiImageName
 var effectiveFrontendImage = empty(frontendImageName) ? '${acrLoginServer}/qprisma-frontend:latest' : frontendImageName
-var effectiveWorkerImage = empty(workerImageName) ? '${acrLoginServer}/qprisma-worker:latest' : workerImageName
 var apiIsPlaceholder = contains(effectiveApiImage, 'helloworld') || contains(effectiveApiImage, 'mcr.microsoft.com')
 
 // =====================================================================
@@ -269,7 +263,7 @@ module appInsights 'modules/app-insights.bicep' = {
 }
 
 // =====================================================================
-// Shared runtime identity, secrets & env vars for API and Worker
+// Shared runtime identity, secrets & env vars for API
 // =====================================================================
 
 resource runtimeIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
@@ -564,7 +558,6 @@ var appEnvVars = [
   { name: 'AZURE_OPENAI_DEPLOYMENT_GPT', value: 'gpt-5.5' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_EMBEDDING', value: 'text-embedding-3-large' }
   { name: 'AZURE_OPENAI_DEPLOYMENT_WHISPER', value: 'whisper' }
-  { name: 'AZURE_OPENAI_DEPLOYMENT_GPT_BATCH', value: 'gpt-5.1-batch' }
   { name: 'ENVIRONMENT', value: environment }
   { name: 'ALLOWED_ORIGINS', value: 'https://${frontendFqdn}' }
   { name: 'FOUNDRY_MEMORY_STORE_NAME', value: foundryMemoryStoreName }
@@ -641,24 +634,6 @@ module frontendContainerApp 'modules/container-app-frontend.bicep' = {
   }
 }
 
-module workerContainerApp 'modules/container-app-worker.bicep' = {
-  name: 'worker-deployment'
-  dependsOn: [neo4jPasswordSecret, jwtSecretKeySecret, databaseUrlSecret, redisUrlSecret, runtimeAcrPullRole]
-  params: {
-    name: workerContainerAppName
-    location: location
-    environmentId: containerAppsEnv.outputs.id
-    imageName: effectiveWorkerImage
-    registryServer: containerRegistry.outputs.loginServer
-    runtimeIdentityResourceId: runtimeIdentity.id
-    redisHost: redis.outputs.hostName
-    envVars: appEnvVars
-    secrets: appSecrets
-    secretEnvVars: appSecretEnvVars
-    tags: tags
-  }
-}
-
 // =====================================================================
 // RBAC — AI Foundry access for API Container App
 // Azure AI Developer: agents/read, agents/write, OpenAI data actions
@@ -672,7 +647,6 @@ var storageBlobDataReaderRoleId = '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
 var azureAiDeveloperRoleId = '64702f94-c441-49e6-a78b-ef80e0188fee'
 var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
 var cognitiveServicesOpenAiUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
-var cognitiveServicesOpenAiContributorRoleId = 'a001fd3d-188f-4b5d-821b-7da978bf7442'
 
 resource runtimeAcrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(existingAcr.id, runtimeIdentityName, acrPullRoleId)
@@ -690,16 +664,6 @@ resource apiStorageBlobContributorRole 'Microsoft.Authorization/roleAssignments@
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
     principalId: apiContainerApp.outputs.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource workerStorageBlobContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(existingStorage.id, workerContainerAppName, storageBlobDataContributorRoleId)
-  scope: existingStorage
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataContributorRoleId)
-    principalId: workerContainerApp.outputs.principalId
     principalType: 'ServicePrincipal'
   }
 }
@@ -750,24 +714,6 @@ resource apiOpenAiUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAiUserRoleId)
     principalId: apiContainerApp.outputs.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-// Contributor (not User) so the worker can upload files and create batches
-// via the OpenAI Batch API (requires Microsoft.CognitiveServices/accounts/OpenAI/files/write)
-// NOTE: This replaced the previous 'Cognitive Services OpenAI User' (5e0bd9bd) assignment.
-// In incremental deployment mode, the old User role assignment is not auto-deleted.
-// It is harmless (RBAC is additive and Contributor is a superset), but for hygiene
-// remove the stale assignment manually after deploy:
-//   az role assignment delete --assignee <workerPrincipalId> \
-//     --role "Cognitive Services OpenAI User" --scope <aiFoundryResourceId>
-resource workerOpenAiContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(existingAiFoundry.id, workerContainerAppName, cognitiveServicesOpenAiContributorRoleId)
-  scope: existingAiFoundry
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAiContributorRoleId)
-    principalId: workerContainerApp.outputs.principalId
     principalType: 'ServicePrincipal'
   }
 }

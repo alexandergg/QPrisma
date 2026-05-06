@@ -5,7 +5,6 @@ This module consolidates Pydantic models used across API routes
 for better reusability and maintainability.
 """
 
-from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -127,34 +126,6 @@ class SearchResponse(BaseModel):
 
 
 # =============================================================================
-# Batch Processing Schemas
-# =============================================================================
-
-
-class BatchStatusResponse(BaseModel):
-    """Batch job status."""
-
-    azure_batch_id: str
-    status: str
-    total_requests: int
-    completed_requests: int
-    failed_requests: int
-    progress_percent: float
-    estimated_cost: float | None = None
-    created_at: str | None = None
-    completed_at: str | None = None
-
-
-class CostEstimateResponse(BaseModel):
-    """Cost estimate for batch processing."""
-
-    frame_count: int
-    estimated_tokens: int
-    estimated_cost_usd: float
-    savings_vs_regular_usd: float
-
-
-# =============================================================================
 # Jobs Schemas
 # =============================================================================
 
@@ -167,60 +138,6 @@ class JobStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
-
-
-class ProcessingConfig(BaseModel):
-    """Processing configuration for a job."""
-
-    extract_frames: bool = True
-    transcribe_audio: bool = True
-    analyze_frames: bool = True
-    build_graph: bool = True
-    frame_interval: float = 1.0
-    max_frames: int = 100
-    use_batch_api: bool = True
-    priority: str = "normal"
-
-
-class JobSubmitRequest(BaseModel):
-    """Job submission request."""
-
-    media_id: str
-    config: ProcessingConfig | None = None
-    callback_url: str | None = None
-
-
-class JobSubmitResponse(BaseModel):
-    """Job submission response."""
-
-    job_id: str
-    media_id: str
-    status: JobStatus
-    message: str
-    estimated_time_seconds: int | None = None
-
-
-class JobStatusResponse(BaseModel):
-    """Job status response."""
-
-    job_id: str
-    media_id: str
-    status: JobStatus
-    progress: float = 0.0
-    current_step: str | None = None
-    error: str | None = None
-    created_at: datetime | None = None
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-
-
-class JobListResponse(BaseModel):
-    """List of jobs response."""
-
-    jobs: list[JobStatusResponse]
-    total: int
-    page: int
-    page_size: int
 
 
 # =============================================================================
@@ -288,16 +205,8 @@ __all__ = [
     "SearchRequest",
     "SearchResult",
     "SearchResponse",
-    # Batch
-    "BatchStatusResponse",
-    "CostEstimateResponse",
     # Jobs
     "JobStatus",
-    "ProcessingConfig",
-    "JobSubmitRequest",
-    "JobSubmitResponse",
-    "JobStatusResponse",
-    "JobListResponse",
     # Storage
     "ChangeTierRequest",
     "RehydrateRequest",

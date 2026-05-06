@@ -144,7 +144,7 @@ QPrisma's frontend is designed to move from sign-in to investigation quickly: op
       </a>
       <br>
       <strong>Video ingestion</strong><br>
-      Upload, queueing, worker processing, enrichment, and persistence flow.<br>
+      Upload, Service Bus dispatch, Databricks processing, enrichment, and persistence flow.<br>
       <a href="docs/VIDEO_INGESTION_ARCHITECTURE.md">Architecture doc</a> · <a href="docs/assets/architecture/video-ingestion-pipeline.svg">SVG asset</a>
     </td>
     <td width="33%" valign="top">
@@ -260,8 +260,9 @@ backend/
   core/          # Config, errors, retry, concurrency, logging
   services/      # Business logic services
   models/        # Pydantic/DB models
-  tasks/         # Celery workers
   evaluation_foundry/  # Azure AI Foundry evaluation (data, custom evaluators)
+databricks/
+  video-pipeline/ # Databricks Asset Bundle and Python package for video processing
 frontend/
   app/           # Next.js App Router
   components/    # React components
@@ -334,7 +335,7 @@ python scripts/reset_all_data.py --execute --yes
 QPrisma includes production-oriented Azure deployment assets:
 
 - **IaC**: Bicep modules under `infra/`
-- **Runtime**: Azure Container Apps (API, Frontend, Worker)
+- **Runtime**: Azure Container Apps (API, Frontend), Azure Functions bridge, Databricks Jobs
 - **CI/CD**: GitHub Actions workflows for test, build, infra deploy, and app deploy
 
 ### CI/CD workflows
