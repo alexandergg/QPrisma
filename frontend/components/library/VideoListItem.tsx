@@ -1,8 +1,7 @@
 'use client';
 
 import React from 'react';
-import Image from 'next/image';
-import { CheckCircle, Clock, Eye, Film, HardDrive, Loader2 } from 'lucide-react';
+import { CalendarDays, CheckCircle, Clock, Eye, Film, HardDrive, Loader2 } from 'lucide-react';
 import type { MediaItem } from '@/lib/api';
 import { formatDate, formatFileSize, formatTime } from '@/lib/utils';
 
@@ -15,6 +14,13 @@ interface VideoListItemProps {
 }
 
 export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProps) {
+  const isProcessing = !video.processed;
+  const statusLabel = video.processed
+    ? 'Ready'
+    : video.processing_status === 'queued'
+      ? 'Queued'
+      : 'Processing';
+
   return (
     <div
       onClick={onSelect}
@@ -28,21 +34,8 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
         }
       `}
     >
-      {/* Thumbnail */}
-      <div className="relative w-24 h-14 bg-[var(--surface-elevated)] rounded-lg overflow-hidden flex-shrink-0">
-        {video.thumbnail_url ? (
-          <Image
-            src={video.thumbnail_url}
-            alt={video.original_filename}
-            fill
-            sizes="80px"
-            className="object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <Film className="w-5 h-5 text-[var(--text-tertiary)]" />
-          </div>
-        )}
+      <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--violet-2)] to-[var(--sage-2)] text-[var(--violet-8)] ring-1 ring-[var(--border-subtle)]">
+        <Film className="h-6 w-6" aria-hidden="true" />
       </div>
 
       {/* Info */}
@@ -51,18 +44,21 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
           {video.duration !== undefined && (
             <span className="inline-flex items-center gap-1">
-              <Clock className="w-3 h-3" />
+              <Clock className="w-3 h-3" aria-hidden="true" />
               {formatTime(video.duration)}
             </span>
           )}
           <span className="inline-flex items-center gap-1">
-            <HardDrive className="w-3 h-3" />
+            <HardDrive className="w-3 h-3" aria-hidden="true" />
             {formatFileSize(video.file_size || 0)}
           </span>
-          <span>{formatDate(video.uploaded_at)}</span>
+          <span className="inline-flex items-center gap-1">
+            <CalendarDays className="w-3 h-3" aria-hidden="true" />
+            {formatDate(video.uploaded_at)}
+          </span>
           {video.frames_analyzed ? (
             <span className="inline-flex items-center gap-1">
-              <Eye className="w-3 h-3" />
+              <Eye className="w-3 h-3" aria-hidden="true" />
               {video.frames_analyzed} frames
             </span>
           ) : null}
@@ -72,14 +68,14 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
       {/* Status */}
       <div className="flex-shrink-0">
         {video.processed ? (
-          <span className="inline-flex items-center gap-1.5 text-[var(--sage-8)] text-sm font-medium">
-            <CheckCircle className="w-4 h-4" />
-            Ready
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--sage-3)] px-2.5 py-1 text-sm font-medium text-[var(--sage-8)]">
+            <CheckCircle className="w-4 h-4" aria-hidden="true" />
+            {statusLabel}
           </span>
         ) : (
-          <span className="inline-flex items-center gap-1.5 text-[var(--violet-8)] text-sm font-medium">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            {video.processing_status === 'queued' ? 'Queued' : 'Processing'}
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--violet-3)] px-2.5 py-1 text-sm font-medium text-[var(--violet-11)]">
+            <Loader2 className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            {statusLabel}
           </span>
         )}
       </div>

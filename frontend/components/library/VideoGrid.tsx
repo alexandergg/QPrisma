@@ -218,7 +218,6 @@ export default function VideoGrid({
                 key={video.id}
                 id={video.id}
                 name={video.original_filename}
-                thumbnail={video.thumbnail_url}
                 duration={video.duration}
                 size={video.file_size}
                 uploadedAt={video.uploaded_at ? new Date(video.uploaded_at) : new Date()}
