@@ -13,7 +13,7 @@ The Azure resources are provisioned by Bicep under `infra\`. This bundle owns th
 - Establishes stable parameters for the Service Bus driven pipeline: `media_id`, `blob_name`, `dispatch_id`, `source_media`, `pipeline_config`, catalog, schema and queue name.
 - Writes stage events to the Delta table `${catalog}.${schema}.video_pipeline_events`.
 - Writes frontend-compatible running/completion/failure records to `${catalog}.${schema}.video_pipeline_outbox`; this is the durable handoff point for projecting Databricks progress back into QPrisma PostgreSQL/Neo4j for authenticated status polling.
-- Creates the first operational Delta contracts for the production ETL: `${catalog}.${schema}.video_media_manifest`, `video_source_files`, `video_processing_runs`, `video_job_stage_runs`, `video_audio_assets`, `video_audio_chunks`, `video_asr_runs`, `video_transcript_segments`, `video_frame_assets`, `video_frame_analysis`, `video_temporal_windows`, `video_scene_candidates`, `video_scene_visual_analysis`, `video_model_inference_runs`, `video_ai_requests`, `video_ai_batches`, `video_ai_results`, `video_processing_results`, `video_graph_upserts` and `video_record_quarantine`.
+- Creates the operational Delta contracts for the production ETL: `${catalog}.${schema}.video_media_manifest`, `video_source_files`, `video_processing_runs`, `video_job_stage_runs`, `video_audio_assets`, `video_audio_chunks`, `video_asr_runs`, `video_transcript_segments`, `video_frame_assets`, `video_frame_analysis`, `video_temporal_windows`, `video_scene_candidates`, `video_scene_visual_analysis`, `video_model_inference_runs`, `video_processing_results`, `video_graph_upserts` and `video_record_quarantine`.
 - Creates a managed Unity Catalog artifact volume `${catalog}.${schema}.video_artifacts` for derived audio, frame and inference artifacts.
 
 ## Code organization
@@ -30,7 +30,6 @@ Pipeline implementation lives under `src/qprisma_video_pipeline/`:
 | `source_media.py` / `stage_utils.py` | Source-media URI validation, Databricks binary file probing and shared observable stage helpers. |
 | `storage_paths.py`, `ffmpeg.py`, `quality.py`, `audio.py`, `frames.py` | Artifact paths, FFmpeg/FFprobe execution, Bronze quality gates, audio extraction/chunking/ASR, and frame extraction. |
 | `inference/florence.py` | Florence-2 frame analysis on the Databricks job cluster. |
-| `inference/azure_openai_batch.py` | Azure OpenAI batch staging/submission/polling helpers retained for the existing contract. |
 | `scenes.py` | Transcript/frame loading, deterministic scene/window detection and Databricks Foundation Model scene reasoning. |
 | `gold.py` | Frontend-compatible Gold `processing_result` construction. |
 | `graph.py` | Graph upsert intent generation and Neo4j projection. |
@@ -325,29 +324,9 @@ WHERE q.created_at >= current_timestamp() - INTERVAL 14 DAYS
 ORDER BY q.created_at DESC;
 ```
 
-### Legacy AI Batch, tokens and cost inputs
+### Retired legacy AI Batch tables
 
-The active Florence + Gemma 3 DAG no longer runs Azure OpenAI Batch stages. The legacy `video_ai_results` and `video_ai_batches` tables may still contain rows from historical runs or ad hoc notebook stages; calculate any legacy Batch cost outside the notebook from the deployed Azure OpenAI price sheet for each `model_name` and do not hard-code prices in the pipeline.
-
-```sql
-SELECT
-  r.media_id,
-  r.dispatch_id,
-  r.model_name,
-  count(*) AS result_rows,
-  sum(coalesce(r.tokens_prompt, 0)) AS prompt_tokens,
-  sum(coalesce(r.tokens_completion, 0)) AS completion_tokens,
-  sum(coalesce(r.tokens_prompt, 0) + coalesce(r.tokens_completion, 0)) AS total_tokens,
-  max(b.provider_status) AS provider_status,
-  max(b.status) AS batch_status,
-  max(b.error) AS batch_error
-FROM ${catalog}.${schema}.video_ai_results r
-LEFT JOIN ${catalog}.${schema}.video_ai_batches b
-  ON r.batch_id = b.batch_id
-WHERE r.created_at >= current_timestamp() - INTERVAL 30 DAYS
-GROUP BY r.media_id, r.dispatch_id, r.model_name
-ORDER BY total_tokens DESC;
-```
+The active Florence + Gemma 3 DAG no longer creates or reads Azure OpenAI Batch request, batch or result tables. Historical `video_ai_requests`, `video_ai_batches` and `video_ai_results` rows may still exist in older dev workspaces, but they are no longer part of the current table bootstrap path. Archive or rename those tables before dropping them if historical Batch analysis must be retained.
 
 ### Media quality, ASR coverage and scene density
 
@@ -474,7 +453,7 @@ ORDER BY oldest_created_at;
 3. For Florence or Gemma 3 failures, inspect `video_model_inference_runs`, `video_frame_analysis`, `video_scene_visual_analysis` and the failed `video_job_stage_runs.metrics`; keep CPU defaults bounded until GPU quota is available.
 4. For outbox projector backlog, validate the Function timer trigger, SQL warehouse ID, Databricks permissions and PostgreSQL connectivity before editing `consumed_at`.
 5. For Neo4j projection failures, inspect `video_graph_upserts.error`, validate `NEO4J_URI`, `NEO4J_PASSWORD_SECRET_SCOPE`/`NEO4J_PASSWORD_SECRET_KEY`, host allowlist and database permissions, then rerun `project_neo4j_graph`.
-6. For product parity analysis, export the Gold row from `video_processing_results.processing_result_json` and compare it with archived baseline output for transcript coverage, scene/chapter count, frame descriptions, graph upsert completeness, total tokens and wall-clock duration.
+6. For product parity analysis, export the Gold row from `video_processing_results.processing_result_json` and compare it with archived baseline output for transcript coverage, scene/chapter count, frame descriptions, graph upsert completeness, current model token metrics and wall-clock duration.
 
 ## Parity and rollout validation
 
@@ -507,7 +486,7 @@ Acceptance gates before promoting bundle changes:
 | Transcript | Videos with audio produce timestamped transcript segments unless explicitly quarantined; silent videos complete with an ASR skip rather than failing. |
 | Scenes and chapters | Gold scenes/chapters are present for valid videos and include evidence references to frames or transcript segments. |
 | Graph projection | When `index_graph` is enabled and Neo4j is configured, `video_graph_upserts` rows reach `applied` or expose actionable failure details. |
-| Operations | Active runs, failures, outbox backlog, token usage and quality metrics are visible through Delta queries without inspecting notebook logs. |
+| Operations | Active runs, failures, outbox backlog, current model token metrics and quality metrics are visible through Delta queries without inspecting notebook logs. |
 | Replay | Rerunning the same `media_id` and `dispatch_id` does not duplicate durable records or corrupt already-applied serving projections. |
 | Cost and latency | Token totals and stage durations are captured for every sample so QPrisma can choose rollout thresholds per environment. |
 
@@ -600,4 +579,4 @@ The projector is configured by Bicep through these Function App settings:
 | `DATABRICKS_OUTBOX_POLL_BATCH_SIZE` | Maximum rows projected per timer invocation. Default: `25`. |
 | `OutboxPollSchedule` | Azure Functions NCRONTAB schedule. Default dev value: `0 */5 * * * *`. |
 
-For the pilot, the Databricks job validates access to the original media, records operational events, persists manifests/stage runs/audio/frame/transcript/request/batch/result/Gold/graph/quarantine records and publishes frontend-compatible progress/failure/completion records. The DAG now exposes the planned production stages and operational tables so QPrisma can validate orchestration, parallel branches, frontend progress, quality metrics and replay behavior before rollout. A local processing worker is not part of the target architecture for this pipeline.
+For the pilot, the Databricks job validates access to the original media, records operational events, persists manifests/stage runs/audio/frame/transcript/model inference/Gold/graph/quarantine records and publishes frontend-compatible progress/failure/completion records. The DAG now exposes the planned production stages and operational tables so QPrisma can validate orchestration, parallel branches, frontend progress, quality metrics and replay behavior before rollout. A local processing worker is not part of the target architecture for this pipeline.

@@ -26,7 +26,7 @@ from . import (
     storage_paths,
     tables,
 )
-from .inference import azure_openai_batch, config as inference_config, florence
+from .inference import config as inference_config, florence
 
 WIDGET_DEFAULTS = {
     "catalog": "dbw_qprisma_dev",
@@ -55,7 +55,6 @@ RUNTIME_MODULES: tuple[ModuleType, ...] = (
     inference_config,
     florence,
     scenes,
-    azure_openai_batch,
     gold,
     graph,
     stage_utils,
@@ -98,9 +97,6 @@ def qualified_table_names(catalog: str, schema: str) -> dict[str, str]:
         "qualified_scene_candidates_table": qualify(contracts.SCENE_CANDIDATES_TABLE),
         "qualified_scene_visual_analysis_table": qualify(contracts.SCENE_VISUAL_ANALYSIS_TABLE),
         "qualified_model_inference_runs_table": qualify(contracts.MODEL_INFERENCE_RUNS_TABLE),
-        "qualified_ai_requests_table": qualify(contracts.AI_REQUESTS_TABLE),
-        "qualified_ai_batches_table": qualify(contracts.AI_BATCHES_TABLE),
-        "qualified_ai_results_table": qualify(contracts.AI_RESULTS_TABLE),
         "qualified_gold_processing_results_table": qualify(contracts.GOLD_PROCESSING_RESULTS_TABLE),
         "qualified_graph_upserts_table": qualify(contracts.GRAPH_UPSERTS_TABLE),
     }
