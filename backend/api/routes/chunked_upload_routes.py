@@ -23,7 +23,9 @@ from api.dependencies import (
 )
 from api.openapi_responses import (
     AUTH_RESPONSES,
+    BAD_REQUEST_RESPONSES,
     CONFLICT_RESPONSES,
+    OWNER_SCOPED_RESPONSES,
     PAYLOAD_TOO_LARGE_RESPONSES,
     SERVICE_RESPONSES,
     UNSUPPORTED_MEDIA_RESPONSES,
@@ -201,7 +203,12 @@ async def init_chunked_upload(
 @router.post(
     "/commit",
     response_model=CommitUploadResponse,
-    responses=merge_responses(AUTH_RESPONSES, CONFLICT_RESPONSES, SERVICE_RESPONSES),
+    responses=merge_responses(
+        BAD_REQUEST_RESPONSES,
+        OWNER_SCOPED_RESPONSES,
+        CONFLICT_RESPONSES,
+        SERVICE_RESPONSES,
+    ),
 )
 async def commit_chunked_upload(
     request: CommitUploadRequest,

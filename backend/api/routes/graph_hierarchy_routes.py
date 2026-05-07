@@ -1,9 +1,11 @@
 """Hierarchical Knowledge Graph endpoints."""
 
 import logging
+import sys
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from api import dependencies as api_dependencies
 from api.dependencies import (
     get_current_user,
 )
@@ -36,34 +38,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_graph_node_media_or_404(node_id: str, current_user: User):
-    from api.routes import graph_routes
+def _graph_route_facade(name: str):
+    """Resolve graph route patch points without importing the graph route aggregator."""
+    graph_routes = sys.modules.get("api.routes.graph_routes")
+    if graph_routes is not None:
+        patched = getattr(graph_routes, name, None)
+        if patched is not None:
+            return patched
+    return getattr(api_dependencies, name)
 
-    return graph_routes.get_graph_node_media_or_404(node_id, current_user)
+
+def get_graph_node_media_or_404(node_id: str, current_user: User):
+    return _graph_route_facade("get_graph_node_media_or_404")(node_id, current_user)
 
 
 def get_graph_route_service():
-    from api.routes import graph_routes
-
-    return graph_routes.get_graph_route_service()
+    return _graph_route_facade("get_graph_route_service")()
 
 
 def get_hierarchical_context_service():
-    from api.routes import graph_routes
-
-    return graph_routes.get_hierarchical_context_service()
+    return _graph_route_facade("get_hierarchical_context_service")()
 
 
 def get_media_or_404(media_id: str, current_user: User):
-    from api.routes import graph_routes
-
-    return graph_routes.get_media_or_404(media_id, current_user)
+    return _graph_route_facade("get_media_or_404")(media_id, current_user)
 
 
 def get_user_media_ids(current_user: User, *, processed_only: bool = False) -> list[str]:
-    from api.routes import graph_routes
-
-    return graph_routes.get_user_media_ids(current_user, processed_only=processed_only)
+    return _graph_route_facade("get_user_media_ids")(current_user, processed_only=processed_only)
 
 
 def _server_managed_video_path(media) -> str | None:

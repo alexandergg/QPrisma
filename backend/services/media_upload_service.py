@@ -33,6 +33,10 @@ IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 SUPPORTED_CONTENT_TYPES = VIDEO_CONTENT_TYPES | IMAGE_CONTENT_TYPES
 DIRECT_UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024
 MAGIC_BYTES_READ_SIZE = 16
+UNKNOWN_DIRECT_UPLOAD_SIZE_MESSAGE = (
+    "Direct uploads require a known non-zero file size; use chunked upload for streaming or "
+    "unknown-size uploads"
+)
 
 
 @dataclass(frozen=True)
@@ -197,24 +201,20 @@ class MediaUploadService:
     async def _upload_blob(self, *, file: UploadFile, blob_name: str) -> int:
         if not self.blob_service:
             raise ServiceUnavailableError("Azure Blob Storage")
-        blob_client = self.blob_service.get_blob_client(
-            container=self.container_name, blob=blob_name
-        )
-        file_size = file.size or 0
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            partial(blob_client.upload_blob, file.file, overwrite=True, length=file_size or None),
-        )
-
-        if not file_size:
-            props = await loop.run_in_executor(None, blob_client.get_blob_properties)
-            file_size = props.size
+        file_size = self._known_direct_upload_size(file)
         if file_size > DIRECT_UPLOAD_MAX_BYTES:
             raise BadRequestError(
                 "Uploaded file exceeds the direct upload size limit",
                 details={"status_code": 413},
             )
+        blob_client = self.blob_service.get_blob_client(
+            container=self.container_name, blob=blob_name
+        )
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            partial(blob_client.upload_blob, file.file, overwrite=True, length=file_size),
+        )
         return file_size
 
     async def _validate_upload_file(self, *, file: UploadFile, video_only: bool) -> None:
@@ -226,7 +226,8 @@ class MediaUploadService:
                 details={"status_code": 415, "extension": extension},
             )
 
-        if file.size is not None and file.size > DIRECT_UPLOAD_MAX_BYTES:
+        file_size = self._known_direct_upload_size(file)
+        if file_size > DIRECT_UPLOAD_MAX_BYTES:
             raise BadRequestError(
                 "Uploaded file exceeds the direct upload size limit",
                 details={"status_code": 413},
@@ -263,6 +264,16 @@ class MediaUploadService:
         if extension == "webp":
             return len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP"
         return False
+
+    @staticmethod
+    def _known_direct_upload_size(file: UploadFile) -> int:
+        file_size = file.size
+        if file_size is None or file_size <= 0:
+            raise BadRequestError(
+                UNKNOWN_DIRECT_UPLOAD_SIZE_MESSAGE,
+                details={"status_code": 413},
+            )
+        return file_size
 
     async def _dispatch_video(
         self,

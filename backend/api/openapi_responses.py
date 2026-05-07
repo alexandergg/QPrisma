@@ -21,6 +21,13 @@ AUTH_RESPONSES: ResponseDocs = {
     }
 }
 
+BAD_REQUEST_RESPONSES: ResponseDocs = {
+    400: {
+        "description": "The request payload or parameters are invalid.",
+        "content": {"application/json": {"schema": ERROR_DETAIL_SCHEMA}},
+    }
+}
+
 OWNER_SCOPED_RESPONSES: ResponseDocs = {
     **AUTH_RESPONSES,
     403: {

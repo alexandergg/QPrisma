@@ -78,6 +78,10 @@ def test_upload_endpoints_have_typed_contracts_and_media_errors(client):
     ]["content"]["application/json"]["schema"]
     assert chunked_cancel["$ref"] == "#/components/schemas/CancelUploadResponse"
 
+    chunked_commit_responses = schema["paths"]["/upload/chunked/commit"]["post"]["responses"]
+    for status_code in ("400", "401", "403", "404", "409", "500", "503"):
+        assert status_code in chunked_commit_responses
+
 
 @pytest.mark.unit
 def test_public_config_schema_omits_environment_detail(client):
