@@ -1,10 +1,19 @@
 'use client';
 
 import React, { memo, useMemo } from 'react';
-import { Film, X, CheckCircle, AlertCircle, Sparkles, Play } from 'lucide-react';
+import {
+  Film,
+  X,
+  CheckCircle,
+  AlertCircle,
+  Sparkles,
+  Play,
+  Clock3,
+  DatabaseZap,
+} from 'lucide-react';
 import ProcessingStep, { ProcessingStepData, ProcessingStepStatus } from './ProcessingStep';
 import { formatFileSize } from '@/lib/utils';
-import { useJobProgress } from './useJobProgress';
+import { useJobProgress, type JobProgressState } from './useJobProgress';
 
 interface ProcessingCardProps {
   fileName: string;
@@ -43,14 +52,24 @@ function ProcessingCard({
   uploadProgress,
   uploadSpeed,
 }: ProcessingCardProps) {
-  const { steps, overallProgress, status, error, estimatedTime } = useJobProgress(
+  const progress = useJobProgress(
     jobId,
     mediaId,
     initialSteps || DEFAULT_STEPS,
     onComplete,
     onError,
   );
-  const jobDebugInfo = jobId ? `Job ID: ${jobId.substring(0, 8)}...` : '';
+  const {
+    steps,
+    overallProgress,
+    status,
+    error,
+    estimatedTime,
+    processingMessage,
+    processingMethod,
+    backendStatus,
+    lastUpdated,
+  } = progress;
 
   const stepsWithUploadStatus = useMemo(() => {
     if (!jobId) {
@@ -84,15 +103,11 @@ function ProcessingCard({
       : overallProgress;
 
   const completedSteps = steps.filter((s) => s.status === 'completed').length;
+  const statusCopy = getStatusCopy(status, backendStatus);
+  const lastUpdatedCopy = formatLastUpdated(lastUpdated);
 
   return (
     <div className="bg-[var(--surface)] rounded-2xl border border-[var(--border)] shadow-[var(--shadow-xl)] overflow-hidden">
-      {/* Debug Info (temporary) */}
-      {jobDebugInfo && (
-        <div className="px-4 py-2 bg-[var(--surface-elevated)] text-xs text-[var(--text-tertiary)] font-mono">
-          {jobDebugInfo} | Progress: {displayProgress}%
-        </div>
-      )}
       {/* Header */}
       <div className="flex items-center gap-4 p-5 border-b border-[var(--border-subtle)]">
         <div
@@ -115,7 +130,13 @@ function ProcessingCard({
 
         <div className="flex-1 min-w-0">
           <h3 className="font-semibold text-[var(--foreground)] truncate">{fileName}</h3>
-          <p className="text-sm text-[var(--text-secondary)]">{formatFileSize(fileSize)}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--text-secondary)]">
+            <span>{formatFileSize(fileSize)}</span>
+            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${statusCopy.className}`}>
+              {statusCopy.icon}
+              {statusCopy.label}
+            </span>
+          </div>
         </div>
 
         {status === 'processing' && onCancel && (
@@ -144,10 +165,10 @@ function ProcessingCard({
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-[var(--foreground)]">
             {status === 'completed'
-              ? 'Processing complete!'
+              ? 'Processing complete'
               : status === 'error'
               ? 'Processing failed'
-              : `Processing... ${completedSteps}/${steps.length} steps`}
+              : statusCopy.heading || `Processing ${completedSteps}/${steps.length} steps`}
           </span>
           <span className="text-sm font-mono text-[var(--violet-8)]">{displayProgress}%</span>
         </div>
@@ -168,6 +189,28 @@ function ProcessingCard({
             <Sparkles className="w-3 h-3" />
             {estimatedTime}
           </p>
+        )}
+        {(processingMessage || processingMethod || lastUpdatedCopy) && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--text-secondary)]">
+            {processingMessage && (
+              <span className="inline-flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-[var(--violet-7)]" />
+                {processingMessage}
+              </span>
+            )}
+            {processingMethod && (
+              <span className="inline-flex items-center gap-1">
+                <DatabaseZap className="w-3 h-3 text-[var(--violet-7)]" />
+                {formatProcessingMethod(processingMethod)}
+              </span>
+            )}
+            {lastUpdatedCopy && (
+              <span className="inline-flex items-center gap-1">
+                <Clock3 className="w-3 h-3 text-[var(--text-tertiary)]" />
+                {lastUpdatedCopy}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
@@ -192,6 +235,55 @@ function ProcessingCard({
       )}
     </div>
   );
+}
+
+function getStatusCopy(status: JobProgressState['status'], backendStatus: string | null) {
+  if (status === 'completed') {
+    return {
+      label: 'Completed',
+      heading: 'Processing complete',
+      icon: <CheckCircle className="w-3 h-3" />,
+      className: 'bg-[var(--sage-2)] text-[var(--sage-8)]',
+    };
+  }
+
+  if (status === 'error') {
+    return {
+      label: 'Failed',
+      heading: 'Processing failed',
+      icon: <AlertCircle className="w-3 h-3" />,
+      className: 'bg-[var(--rose-3)]/50 text-[var(--rose-8)]',
+    };
+  }
+
+  if (backendStatus === 'queued' || backendStatus === 'uploaded') {
+    return {
+      label: 'Queued',
+      heading: 'Waiting for Databricks pipeline',
+      icon: <Clock3 className="w-3 h-3" />,
+      className: 'bg-[var(--violet-2)] text-[var(--violet-8)]',
+    };
+  }
+
+  return {
+    label: 'Running',
+    heading: 'Running Databricks pipeline',
+    icon: <Sparkles className="w-3 h-3" />,
+    className: 'bg-[var(--violet-2)] text-[var(--violet-8)]',
+  };
+}
+
+function formatProcessingMethod(method: string): string {
+  if (method.toLowerCase() === 'databricks') return 'Databricks pipeline';
+  if (method.toLowerCase() === 'servicebus') return 'Queued via Service Bus';
+  return method.replace(/_/g, ' ');
+}
+
+function formatLastUpdated(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return `Updated ${parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 export default memo(ProcessingCard);

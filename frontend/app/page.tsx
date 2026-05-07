@@ -12,6 +12,7 @@ import RequireAuth from '@/components/RequireAuth';
 import { useAuth } from '@/contexts/AuthContext';
 import { apiClient, type MediaItem } from '@/lib/api';
 import { staggerContainer, staggerItem, fadeIn } from '@/lib/animations';
+import { videoChatHref } from '@/lib/routes';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import { BrandLogo } from '@/components/branding/BrandLogo';
 
@@ -278,7 +279,7 @@ function DashboardContent() {
                   key={video.id}
                   variants={staggerItem}
                   whileHover={{ y: -2, transition: { duration: 0.2 } }}
-                  onClick={() => router.push(`/chat?videoId=${video.id}`)}
+                  onClick={() => router.push(videoChatHref(video.id))}
                   className="group bg-[var(--surface)]/80 backdrop-blur-sm rounded-2xl border border-[var(--border-subtle)] p-4 text-left shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)] transition-all"
                 >
                   <div className="flex items-start gap-3">

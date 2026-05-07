@@ -15,7 +15,7 @@ interface UploadZoneProps {
 }
 
 const DEFAULT_FORMATS = ['video/mp4', 'video/mov', 'video/avi', 'video/webm', 'video/quicktime'];
-const DEFAULT_MAX_SIZE = 10 * 1024 * 1024 * 1024; // 10GB
+const DEFAULT_MAX_SIZE = UPLOAD.MAX_FILE_SIZE;
 
 export default function UploadZone({
   onFilesSelected,
@@ -133,6 +133,13 @@ export default function UploadZone({
     }
   };
 
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleClick();
+    }
+  };
+
   return (
     <div className="w-full">
       <motion.div
@@ -146,6 +153,11 @@ export default function UploadZone({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        role="button"
+        tabIndex={isUploading ? -1 : 0}
+        aria-disabled={isUploading}
+        aria-label="Upload video files"
         className={`
           relative group cursor-pointer
           bg-white rounded-2xl p-12
@@ -169,6 +181,7 @@ export default function UploadZone({
           accept="video/*"
           multiple={multiple}
           disabled={isUploading}
+          aria-label="Choose video files to upload"
         />
 
         <div

@@ -138,6 +138,7 @@ export default function UploadModal({
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
+            aria-label="Close upload dialog"
           >
             <X className="w-5 h-5" />
           </button>
@@ -205,6 +206,7 @@ export default function UploadModal({
                   <button
                     onClick={() => onRemovePendingFile(idx)}
                     className="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-600 flex-shrink-0"
+                    aria-label={`Remove ${file.name}`}
                   >
                     <X className="w-4 h-4" />
                   </button>

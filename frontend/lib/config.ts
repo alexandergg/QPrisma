@@ -16,7 +16,7 @@ export const config = {
     timeout: 30000,
   },
   upload: {
-    maxFileSize: 500 * 1024 * 1024, // 500MB
+    maxFileSize: 10 * 1024 * 1024 * 1024, // 10GB
     allowedTypes: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'],
     allowedExtensions: ['.mp4', '.webm', '.mov', '.avi'],
   },

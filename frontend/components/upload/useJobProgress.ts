@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ProcessingStepData, ProcessingStepStatus } from './ProcessingStep';
-import { API_URL } from '@/lib/config';
+import { apiClient } from '@/lib/api';
 import { ERROR_MESSAGES, TIMING } from '@/lib/constants';
 
 export interface JobProgressState {
@@ -11,7 +11,13 @@ export interface JobProgressState {
   status: 'processing' | 'completed' | 'error';
   error: string | null;
   estimatedTime: string | null;
+  processingMessage: string | null;
+  processingMethod: string | null;
+  backendStatus: string | null;
+  lastUpdated: string | null;
 }
+
+const TRANSIENT_POLL_FAILURE_LIMIT = 3;
 
 /**
  * Hook that manages job processing state via persisted media status polling.
@@ -31,6 +37,17 @@ export function useJobProgress(
   const [status, setStatus] = useState<'processing' | 'completed' | 'error'>('processing');
   const [error, setError] = useState<string | null>(null);
   const [estimatedTime, setEstimatedTime] = useState<string | null>(null);
+  const [processingMessage, setProcessingMessage] = useState<string | null>(null);
+  const [processingMethod, setProcessingMethod] = useState<string | null>(null);
+  const [backendStatus, setBackendStatus] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+    onErrorRef.current = onError;
+  }, [onComplete, onError]);
 
   useEffect(() => {
     if (!jobId || !mediaId || status === 'completed' || status === 'error') return;
@@ -38,6 +55,7 @@ export function useJobProgress(
     let cancelled = false;
     let stopped = false;
     let pollAttempts = 0;
+    let consecutivePollFailures = 0;
 
     const stopWithError = (message: string, progress = 0) => {
       if (cancelled || stopped) return;
@@ -47,7 +65,7 @@ export function useJobProgress(
       setError(message);
       setEstimatedTime(null);
       setSteps((prev) => markCurrentStep(prev, progress, 'error', message));
-      onError?.(message);
+      onErrorRef.current?.(message);
     };
 
     const updateFromStatus = async () => {
@@ -60,26 +78,24 @@ export function useJobProgress(
       }
 
       try {
-        const token = localStorage.getItem('auth_token');
-        const response = await fetch(`${API_URL}/media/${mediaId}/status`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-
-        if (!response.ok) {
-          stopWithError(getStatusErrorMessage(response.status));
-          return;
-        }
-
-        const data = await response.json();
+        const data = await apiClient.getMediaStatus(mediaId);
+        consecutivePollFailures = 0;
         const processingStatus = String(data?.processing_status || 'processing');
         const progress =
           typeof data?.processing_progress === 'number'
-            ? Math.max(0, Math.min(100, Math.round(data.processing_progress)))
+            ? data.processing_progress
             : 0;
         const message =
           typeof data?.processing_message === 'string' ? data.processing_message : undefined;
 
         if (cancelled || stopped) return;
+
+        setProcessingMessage(message || null);
+        setProcessingMethod(
+          typeof data?.processing_method === 'string' ? data.processing_method : null,
+        );
+        setBackendStatus(processingStatus);
+        setLastUpdated(typeof data?.last_updated === 'string' ? data.last_updated : null);
 
         if (processingStatus === 'completed' || data?.processed === true) {
           stopped = true;
@@ -87,11 +103,11 @@ export function useJobProgress(
           setOverallProgress(100);
           setEstimatedTime(null);
           setSteps((prev) => markAllSteps(prev, 'completed', message));
-          onComplete?.(mediaId);
+          onCompleteRef.current?.(mediaId);
           return;
         }
 
-        if (processingStatus === 'failed') {
+        if (processingStatus === 'failed' || processingStatus === 'error') {
           stopWithError(message || 'Processing failed', progress);
           return;
         }
@@ -105,7 +121,16 @@ export function useJobProgress(
         }
       } catch (pollError) {
         console.error('[useJobProgress] Polling error:', pollError);
-        stopWithError(ERROR_MESSAGES.networkError);
+        const pollingErrorMessage = getPollingErrorMessage(pollError);
+        if (pollingErrorMessage !== ERROR_MESSAGES.networkError) {
+          stopWithError(pollingErrorMessage);
+          return;
+        }
+
+        consecutivePollFailures += 1;
+        if (consecutivePollFailures >= TRANSIENT_POLL_FAILURE_LIMIT) {
+          stopWithError(pollingErrorMessage);
+        }
       }
     };
 
@@ -116,12 +141,31 @@ export function useJobProgress(
       cancelled = true;
       clearInterval(pollInterval);
     };
-  }, [jobId, mediaId, status, onComplete, onError]);
+  }, [jobId, mediaId, status]);
 
-  return { steps, overallProgress, status, error, estimatedTime };
+  return {
+    steps,
+    overallProgress,
+    status,
+    error,
+    estimatedTime,
+    processingMessage,
+    processingMethod,
+    backendStatus,
+    lastUpdated,
+  };
 }
 
-function getStatusErrorMessage(statusCode: number): string {
+function getPollingErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.startsWith('HTTP error ')) {
+    const statusCode = Number(error.message.replace('HTTP error ', ''));
+    if (Number.isFinite(statusCode)) return getStatusErrorMessage(statusCode);
+  }
+
+  return ERROR_MESSAGES.networkError;
+}
+
+export function getStatusErrorMessage(statusCode: number): string {
   if (statusCode === 401) return ERROR_MESSAGES.unauthorized;
   if (statusCode === 403) return ERROR_MESSAGES.forbidden;
   if (statusCode === 404) return 'Media status was not found.';

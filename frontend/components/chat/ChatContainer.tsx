@@ -2,7 +2,7 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Film, Library, MessageSquare, ArrowRight } from 'lucide-react';
+import { Film, Library, MessageSquare, ArrowRight, Loader2, AlertCircle, RotateCw } from 'lucide-react';
 import WelcomeScreen from './WelcomeScreen';
 import MessageList, { ChatMessageData } from './MessageList';
 import ChatInput from './ChatInput';
@@ -39,6 +39,9 @@ interface ChatContainerProps {
   initialSessionId?: string;
   onMessagesChange?: (messages: ChatMessageData[]) => void;
   onSessionIdChange?: (sessionId?: string) => void;
+  isOpeningVideo?: boolean;
+  videoOpenError?: string | null;
+  onRetryOpenVideo?: () => void;
 }
 
 export default function ChatContainer({
@@ -56,6 +59,9 @@ export default function ChatContainer({
   initialSessionId,
   onMessagesChange,
   onSessionIdChange,
+  isOpeningVideo = false,
+  videoOpenError,
+  onRetryOpenVideo,
 }: ChatContainerProps) {
   const chatState = useChatState({
     initialMessages,
@@ -104,7 +110,8 @@ export default function ChatContainer({
     setInputValue(lastSubmittedPrompt);
   }, [lastSubmittedPrompt, isLoading, setInputValue]);
 
-  const showWelcome = !hasMessages && !hasVideo;
+  const showOpenError = !hasMessages && !!videoOpenError;
+  const showWelcome = !hasMessages && !hasVideo && !isOpeningVideo && !showOpenError;
 
   const subtitleText = useMemo(() => {
     if (!hasVideo) return 'Select a video to start chatting';
@@ -116,7 +123,68 @@ export default function ChatContainer({
   return (
     <div className="flex flex-col h-full">
       <AnimatePresence mode="wait">
-        {showWelcome ? (
+        {isOpeningVideo ? (
+          <motion.div
+            key="opening-video"
+            className="flex-1 flex items-center justify-center px-6"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.25 } }}
+            exit={{ opacity: 0, y: -12, transition: { duration: 0.18 } }}
+          >
+            <div className="w-full max-w-xl rounded-3xl border border-[var(--border-subtle)] bg-[var(--surface)]/90 p-8 text-center shadow-[var(--shadow-xl)] backdrop-blur">
+              <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--violet-2)] text-[var(--violet-8)]">
+                <Loader2 className="h-8 w-8 animate-spin" />
+              </div>
+              <h2 className="text-xl font-semibold text-[var(--foreground)]">Opening video</h2>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                Preparing chat context, timeline, and knowledge graph.
+              </p>
+              <div className="mt-6 space-y-3">
+                <div className="h-3 rounded-full bg-[var(--surface-elevated)]" />
+                <div className="mx-auto h-3 w-3/4 rounded-full bg-[var(--surface-elevated)]" />
+                <div className="mx-auto h-3 w-1/2 rounded-full bg-[var(--surface-elevated)]" />
+              </div>
+            </div>
+          </motion.div>
+        ) : showOpenError ? (
+          <motion.div
+            key="open-error"
+            className="flex-1 flex items-center justify-center px-6"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0, transition: { duration: 0.25 } }}
+            exit={{ opacity: 0, y: -12, transition: { duration: 0.18 } }}
+          >
+            <div className="w-full max-w-xl rounded-3xl border border-[var(--rose-7)]/20 bg-[var(--surface)]/90 p-8 text-center shadow-[var(--shadow-xl)] backdrop-blur">
+              <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--rose-3)]/50 text-[var(--rose-8)]">
+                <AlertCircle className="h-8 w-8" />
+              </div>
+              <h2 className="text-xl font-semibold text-[var(--foreground)]">Could not open video</h2>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">{videoOpenError}</p>
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                {onRetryOpenVideo && (
+                  <button
+                    type="button"
+                    onClick={onRetryOpenVideo}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--violet-8)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--violet-9)]"
+                  >
+                    <RotateCw className="h-4 w-4" />
+                    Retry
+                  </button>
+                )}
+                {onBrowseLibrary && (
+                  <button
+                    type="button"
+                    onClick={onBrowseLibrary}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--surface-elevated)]"
+                  >
+                    <Library className="h-4 w-4" />
+                    Browse library
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        ) : showWelcome ? (
           <motion.div
             key="welcome"
             className="flex-1 flex flex-col"
@@ -129,7 +197,6 @@ export default function ChatContainer({
               onBrowseLibrary={onBrowseLibrary}
               onQuickSuggestion={handleQuickSuggestion}
               onSelectVideo={onSelectVideoById}
-              mode={mode}
               userName={userName}
             />
           </motion.div>
