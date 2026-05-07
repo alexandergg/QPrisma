@@ -166,6 +166,17 @@ class BadRequestError(QPrismaException):
         )
 
 
+class ConflictError(QPrismaException):
+    """Raised when a valid request conflicts with current resource state."""
+
+    def __init__(self, message: str, details: dict | None = None):
+        super().__init__(
+            message=message,
+            code="CONFLICT",
+            details=details,
+        )
+
+
 class AuthenticationError(QPrismaException):
     """Raised when credentials cannot be authenticated."""
 

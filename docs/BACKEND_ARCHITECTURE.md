@@ -64,14 +64,14 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 │                                                                     │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────────┐  │
 │  │  FastAPI Routes  │  │  LangGraph Agent │  │ Databricks Dispatch │  │
-│  │  (15 modules)   │  │  (18 tools)      │  │ Service Bus Bridge  │  │
+│  │  (14 modules)   │  │  (18 tools)      │  │ Service Bus Bridge  │  │
 │  └────────┬────────┘  └────────┬────────┘  └─────────┬──────────┘  │
 │           │                  │                   │              │
 │           └─────────┬────────┘                   │              │
 │                     │                             │              │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │              Service Layer (51 files)                         │  │
-│  │  chat │ structure │ graph_search │ media/upload │ storage ...        │  │
+│  │              Service Layer (50 files)                         │  │
+│  │  structure │ graph_search │ media/upload │ storage │ agent ...       │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐  │
@@ -100,7 +100,6 @@ backend/
 │       ├── a2a_task_routes.py        # A2A task management
 │       ├── auth_routes.py            # Auth endpoints (me/config)
 │       ├── cache_routes.py           # Cache management endpoints
-│       ├── chat_routes.py            # Chat/conversation endpoints
 │       ├── chunked_upload_routes.py  # Chunked file upload handling
 │       ├── graph_routes.py           # Knowledge graph router aggregator
 │       ├── graph_admin_routes.py     # Graph destructive/admin operations
@@ -134,8 +133,7 @@ backend/
 │   ├── database.py                  # SQLAlchemy ORM models
 │   ├── schemas.py                   # Pydantic request/response schemas
 │   └── enums.py                     # Shared enumerations
-├── services/                        # Business logic layer (51 files)
-│   ├── chat_service.py              # RAG chat with video context
+├── services/                        # Business logic layer (50 files)
 │   ├── structure_service.py         # Scene/chapter generation
 │   ├── graph_search_service.py      # Hybrid graph+vector search
 │   ├── media_library_service.py     # Media library/status/audio/search orchestration
@@ -247,7 +245,6 @@ The API layer is organized under `api/routes/`. Route handlers should remain thi
 | `auth_routes.py` | `/auth` | Varies | Entra ID profile/config endpoints |
 | `media_routes.py` | `/media`, `/upload` | Yes | Media CRUD, upload, status, and ownership checks |
 | `chunked_upload_routes.py` | `/upload/chunked` | Yes | Large-file upload sessions and commit/cancel |
-| `chat_routes.py` | `/chat` | Yes | Deprecated classic VideoRAG compatibility endpoint |
 | `graph_routes.py` + `graph_*_routes.py` | `/graph` | Yes / admin for global operations | Aggregated graph API split into health/stats, search/context/video graph, embeddings, hierarchy, admin, and visualization submodules |
 | `structure_routes.py` | `/structure` | Yes | Scene/chapter generation with graph-to-legacy fallback |
 | `processing_routes.py` | `/processing` | Yes | Media processing options/status helpers |
@@ -260,11 +257,15 @@ The API layer is organized under `api/routes/`. Route handlers should remain thi
 
 | Scope | Examples | Rule |
 |---|---|---|
-| Public health/discovery | `/`, `/health`, `/config`, `/cache/health`, `/storage/health`, `/a2a/health`, A2A agent cards | No bearer token; no user data. |
-| Authenticated user | `/auth/me`, `/chat`, upload and user library operations | Requires Entra ID bearer token. |
-| Owner-scoped media/graph | `/media/{id}`, `/storage/media/{id}/*`, `/graph/video/{id}*`, `/graph/search/*`, `/graph/hierarchy/*` | Requires auth plus media/node ownership validation. |
+| Public health/discovery | `/`, `/health`, `/config`, `/cache/health`, `/storage/health`, `/a2a/health`, A2A agent cards | No bearer token. `/health` stays probe-compatible for Docker, Azure Container Apps, and deployment checks; `/config` and public storage/cache health responses redact environment, container, endpoint, and private resource details. |
+| Authenticated user | `/auth/me`, upload, A2A message/task lifecycle, and user library operations | Requires Entra ID bearer token. |
+| Owner-scoped media/graph | `/media/{id}`, `/storage/media/{id}/*`, `/graph/video/{id}*`, `/graph/search/*`, `/graph/hierarchy/*` | Requires auth plus media/node ownership validation. Hierarchy drill-down scopes omitted `video_id` searches to the caller's media IDs for non-superusers. |
 | Superuser operational | Cache diagnostics/mutation, `/storage/lifecycle-policy`, `/graph/embeddings/stats`, hidden `DELETE /graph/clear` | Requires `require_superuser`. |
 | Benchmark operator | `/benchmark/*` | Requires superuser bearer token or configured benchmark automation token. |
+
+Hierarchy processing does not trust client-provided server filesystem paths. `POST /graph/hierarchy/process` resolves a server-managed local media artifact from the authorized media record and returns a documented conflict if no safe artifact is available.
+
+Upload routes validate file extension, MIME type, file signature, and configured size limits before creating media metadata or dispatching processing. Chunked upload commits are bound to the server-side media `upload_session`; stale, duplicate, mismatched `upload_id`, mismatched `blob_name`, or reordered block-list commits are rejected before Azure Blob commit or processing dispatch.
 
 ### Route Pattern Example
 
@@ -303,7 +304,7 @@ async def update_media(
 
 ### Dependency Injection
 
-Routes import stable dependencies from `api/dependencies.py`. The implementation is split by responsibility into `auth_dependencies.py`, `azure_dependencies.py`, `graph_dependencies.py`, and `media_dependencies.py`, while the facade preserves existing route/test imports. Route-local shims may remain when tests patch route symbols, but service construction should delegate to facade builders such as `get_media_upload_service`, `get_media_library_service`, `get_chunked_upload_service`, `get_storage_route_service`, `get_chat_service`, and `get_structure_service`.
+Routes import stable dependencies from `api/dependencies.py`. The implementation is split by responsibility into `auth_dependencies.py`, `azure_dependencies.py`, `graph_dependencies.py`, and `media_dependencies.py`, while the facade preserves existing route/test imports. Route-local shims may remain when tests patch route symbols, but service construction should delegate to facade builders such as `get_media_upload_service`, `get_media_library_service`, `get_chunked_upload_service`, `get_storage_route_service`, and `get_structure_service`.
 
 ```python
 from fastapi import Depends, HTTPException, status
@@ -336,9 +337,9 @@ def get_media_library_service():
     from services.media_library_service import get_media_library_service
     return get_media_library_service()
 
-def get_chat_service():
-    from services.chat_service import get_chat_service
-    return get_chat_service()
+def get_structure_service():
+    from services.structure_service import get_structure_service
+    return get_structure_service()
 ```
 
 ### Processing Status Polling
@@ -546,20 +547,20 @@ class TokenBudgetManager:
 
 ## 6. Service Layer
 
-The service layer contains 51 Python files (40 root-level + 11 in the `graph/` submodule) implementing business logic. Route handlers should stay focused on HTTP concerns and delegate to services through dependency providers or small route-local factories when request-scoped dependencies are needed.
+The service layer contains 50 Python files (39 root-level + 11 in the `graph/` submodule) implementing business logic. Route handlers should stay focused on HTTP concerns and delegate to services through dependency providers or small route-local factories when request-scoped dependencies are needed.
 
 ### Service Initialization Pattern
 
 Services use lazy initialization singletons:
 
 ```python
-_service_instance: ChatService | None = None
+_service_instance: MyService | None = None
 
-def get_chat_service() -> ChatService:
-    """ Get or create the ChatService singleton."""
+def get_my_service() -> MyService:
+    """Get or create the MyService singleton."""
     global _service_instance
     if _service_instance is None:
-        _service_instance = ChatService()
+        _service_instance = MyService()
     return _service_instance
 ```
 
@@ -567,11 +568,10 @@ def get_chat_service() -> ChatService:
 
 Services use domain exceptions from `core.exceptions` instead of FastAPI `HTTPException`. API routes and dependencies translate `BadRequestError`, `AuthenticationError`, `NotFoundError`, `AccessDeniedError`, `ServiceUnavailableError`, and other domain failures into HTTP status codes. This keeps service code reusable from tests, background workers, Azure Functions, and agent/runtime code without importing FastAPI.
 
-### Root Service Files (40 files)
+### Root Service Files (39 files)
 
 | Service | File | Description |
 |---|---|---|
-| ChatService | `chat_service.py` | RAG chat with video context |
 | StructureService | `structure_service.py` | Scene/chapter generation |
 | GraphSearchService | `graph_search_service.py` | Hybrid graph+vector search |
 | MediaLibraryService | `media_library_service.py` | Media library/status/audio/search orchestration |
@@ -619,51 +619,6 @@ The `services/graph/` directory contains specialized Neo4j services:
 | `graph_schema_service.py` | Schema management and validation |
 
 ### Key Service Examples
-
-#### ChatService
-
-```python
-class ChatService:
-    """ Manages RAG-enhanced chat sessions with video context."""
-
-    def __init__(self):
-        self.agent = create_agent_graph(tools=get_all_tools())
-        self.memory = get_foundry_memory_service()
-        self.cache = get_cache_service()
-
-    async def chat(
-        self,
-        session_id: str,
-        user_id: str,
-        message: str,
-        media_id: str | None = None,
-    ) -> AsyncGenerator[str, None]:
-        """ Process a chat message and stream responses."""
-        # Load user memory for context
-        memory_context = await self.memory.recall(
-            user_id=user_id,
-            query=message,
-        )
-
-        config = {
-            "configurable": {
-                "thread_id": session_id,
-                "user_id": user_id,
-            }
-        }
-
-        state = {
-            "messages": [HumanMessage(content=message)],
-            "media_id": media_id,
-            "user_id": user_id,
-            "session_id": session_id,
-            "context": {"memory": memory_context},
-        }
-
-        async for event in self.agent.astream_events(state, config=config):
-            if event["event"] == "on_chat_model_stream":
-                yield event["data"]["chunk"].content
-```
 
 #### StructureService
 
@@ -825,16 +780,6 @@ class MediaUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
 
-class ChatRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=10000)
-    media_id: str | None = None
-    session_id: str | None = None
-
-class ChatResponse(BaseModel):
-    session_id: str
-    message: str
-    sources: list[dict] = []
-
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=1000)
     media_id: str | None = None
@@ -868,6 +813,8 @@ class TaskStatusResponse(BaseModel):
 ## 8. Video Processing Dispatch
 
 Upload routes do not call processing workers directly. They call `services.video_processing_dispatch_service.VideoProcessingDispatchService`, which publishes a durable Service Bus event consumed by the Databricks bridge:
+
+Before dispatch, direct upload routes validate supported media extension, MIME type, initial file signature, and direct-upload size limits. Large video uploads should use the chunked upload flow, where the commit step validates the request against the server-stored `upload_session` and block list before committing Azure Blob blocks.
 
 | Setting | Purpose |
 |---|---|
@@ -1323,6 +1270,8 @@ async def get_agent_card():
 # POST /a2a/message:stream — message exchange with SSE streaming
 ```
 
+Streaming A2A endpoints return `text/event-stream`. Each SSE `data:` line carries a JSON-encoded `StreamResponse` payload (`task`, `statusUpdate`, or `artifactUpdate`). The same event contract is used by `POST /a2a/tasks/{id}:subscribe`.
+
 ---
 
 ## 15. Authentication and Authorization
@@ -1487,7 +1436,7 @@ The warning-level log intentionally includes the exception type but not the raw 
 
 ### Legacy compatibility usage tracking
 
-Compatibility paths that are intentionally retained are measured with `core.legacy_usage.record_legacy_usage()`. This keeps removal decisions evidence-based instead of speculative. Current counters cover the deprecated classic `/chat` endpoint, PostgreSQL structure fallback, legacy `QPRISMA_CONTEXT` envelopes, and the inline regex context fallback used by older evaluation payloads.
+Compatibility paths that are intentionally retained are measured with `core.legacy_usage.record_legacy_usage()`. This keeps removal decisions evidence-based instead of speculative. Current counters cover the PostgreSQL structure fallback, legacy `QPRISMA_CONTEXT` envelopes, and the inline regex context fallback used by older evaluation payloads.
 
 These counters are in-process and per replica. They are sufficient for local regression tests and short-term operational sampling; production retirement decisions should aggregate the corresponding `legacy_usage_detected` logs centrally before removing a compatibility path.
 
@@ -1787,22 +1736,21 @@ Client Request
        └──────► Azure OpenAI (LLM calls)
 ```
 
-### Chat Flow (Detailed)
+### A2A Chat Flow (Detailed)
 
 ```
 User Message
       │
       ▼
-┌──────────────┐
-│  chat_routes │
-│  .py         │
-└──────┬───────┘
+┌──────────────────────┐
+│ a2a_message_routes.py│
+│ /a2a/message:stream  │
+└──────────┬───────────┘
        │
        ▼
-┌──────────────┐     ┌──────────────┐
-│  ChatService │────►│ Foundry      │
-│              │     │ Memory       │── recall relevant memories
-└──────┬───────┘     └──────────────┘
+┌────────────────┐
+│ A2A executor   │──── validates user/media context
+└───────┬────────┘
        │
        ▼
 ┌──────────────┐
@@ -1816,7 +1764,7 @@ User Message
        │
        ▼
 ┌──────────────┐
-│  Return      │──── REST response to client
+│  Return      │──── SSE stream to client
 │  Response    │
 └──────────────┘
        │

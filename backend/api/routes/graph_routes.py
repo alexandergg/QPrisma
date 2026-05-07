@@ -9,6 +9,7 @@ from api.dependencies import (
     get_graph_search_service,
     get_hierarchical_context_service,
     get_media_or_404,
+    get_user_media_ids,
     require_superuser,
 )
 from api.routes.graph_admin_routes import clear_all_graph_data
@@ -71,6 +72,7 @@ __all__ = [
     "get_hierarchy_path",
     "get_hierarchy_stats",
     "get_media_or_404",
+    "get_user_media_ids",
     "get_video_graph",
     "get_video_visualization",
     "GraphRouteService",

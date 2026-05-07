@@ -1,13 +1,22 @@
 """Hierarchical Knowledge Graph endpoints."""
 
 import logging
+import sys
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from api import dependencies as api_dependencies
 from api.dependencies import (
     get_current_user,
 )
+from api.openapi_responses import (
+    CONFLICT_RESPONSES,
+    OWNER_SCOPED_RESPONSES,
+    SERVICE_RESPONSES,
+    merge_responses,
+)
 from core.degraded import DegradationImpact, record_degraded_operation
+from core.errors import conflict
 from core.exceptions import internal_error, not_found_error
 from models.graph_models import NodeType
 from models.graph_route_schemas import (
@@ -29,38 +38,74 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_graph_node_media_or_404(node_id: str, current_user: User):
-    from api.routes import graph_routes
+def _graph_route_facade(name: str):
+    """Resolve graph route patch points without importing the graph route aggregator."""
+    graph_routes = sys.modules.get("api.routes.graph_routes")
+    if graph_routes is not None:
+        patched = getattr(graph_routes, name, None)
+        if patched is not None:
+            return patched
+    return getattr(api_dependencies, name)
 
-    return graph_routes.get_graph_node_media_or_404(node_id, current_user)
+
+def get_graph_node_media_or_404(node_id: str, current_user: User):
+    return _graph_route_facade("get_graph_node_media_or_404")(node_id, current_user)
 
 
 def get_graph_route_service():
-    from api.routes import graph_routes
-
-    return graph_routes.get_graph_route_service()
+    return _graph_route_facade("get_graph_route_service")()
 
 
 def get_hierarchical_context_service():
-    from api.routes import graph_routes
-
-    return graph_routes.get_hierarchical_context_service()
+    return _graph_route_facade("get_hierarchical_context_service")()
 
 
 def get_media_or_404(media_id: str, current_user: User):
-    from api.routes import graph_routes
-
-    return graph_routes.get_media_or_404(media_id, current_user)
+    return _graph_route_facade("get_media_or_404")(media_id, current_user)
 
 
-@router.post("/hierarchy/process", response_model=ProcessHierarchyResponse)
+def get_user_media_ids(current_user: User, *, processed_only: bool = False) -> list[str]:
+    return _graph_route_facade("get_user_media_ids")(current_user, processed_only=processed_only)
+
+
+def _server_managed_video_path(media) -> str | None:
+    """Resolve a path from server-managed media metadata, never from client input."""
+    for metadata in (
+        getattr(media, "processing_result", None) or {},
+        getattr(media, "video_metadata", None) or {},
+    ):
+        for key in ("local_video_path", "video_path", "source_video_path"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return None
+
+
+@router.post(
+    "/hierarchy/process",
+    response_model=ProcessHierarchyResponse,
+    summary="Process an owned video hierarchy",
+    description=(
+        "Process an authenticated user's video into the hierarchical graph representation. "
+        "The API resolves server-managed media artifacts from the owned media record and does "
+        "not trust client-supplied filesystem paths."
+    ),
+    responses=merge_responses(OWNER_SCOPED_RESPONSES, CONFLICT_RESPONSES, SERVICE_RESPONSES),
+)
 async def process_video_hierarchy(
     request: ProcessHierarchyRequest,
     current_user: User = Depends(get_current_user),
 ):
     """Process a video into the hierarchical graph representation."""
     try:
-        get_media_or_404(request.video_id, current_user)
+        media = get_media_or_404(request.video_id, current_user)
+        video_path = _server_managed_video_path(media)
+        if not video_path:
+            raise conflict(
+                "Hierarchy processing requires a server-managed local video artifact; "
+                "client-supplied video_path values are not accepted."
+            )
+
         hierarchy_service = get_hierarchical_context_service()
         svc: GraphRouteService = get_graph_route_service()
 
@@ -74,7 +119,7 @@ async def process_video_hierarchy(
         )
 
         result = await hierarchy_service.process_video_hierarchy(
-            video_path=request.video_path, video_metadata=video_metadata
+            video_path=video_path, video_metadata=video_metadata
         )
 
         try:
@@ -109,20 +154,42 @@ async def process_video_hierarchy(
         raise internal_error() from e
 
 
-@router.post("/hierarchy/search/drill-down", response_model=DrillDownSearchResponse)
+@router.post(
+    "/hierarchy/search/drill-down",
+    response_model=DrillDownSearchResponse,
+    summary="Run owner-scoped hierarchical drill-down search",
+    description=(
+        "Run semantic drill-down search over hierarchy nodes visible to the authenticated user. "
+        "Non-superusers are scoped to their own media when `video_id` is omitted."
+    ),
+    responses=merge_responses(OWNER_SCOPED_RESPONSES, SERVICE_RESPONSES),
+)
 async def drill_down_search(
     request: DrillDownSearchRequest, current_user: User = Depends(get_current_user)
 ):
     """Run hierarchical drill-down search."""
     try:
+        allowed_video_ids: list[str] | None = None
         if request.video_id:
             get_media_or_404(request.video_id, current_user)
+            if not current_user.is_superuser:
+                allowed_video_ids = [request.video_id]
+        elif not current_user.is_superuser:
+            allowed_video_ids = get_user_media_ids(current_user, processed_only=True)
+            if not allowed_video_ids:
+                return DrillDownSearchResponse(
+                    query=request.query,
+                    results=[],
+                    total_results=0,
+                    levels_traversed=[],
+                )
 
         hierarchy_service = get_hierarchical_context_service()
 
         results = await hierarchy_service.drill_down_search(
             query_text=request.query,
             video_id=request.video_id,
+            allowed_video_ids=allowed_video_ids,
             start_level=request.start_level,
             target_level=request.target_level,
             top_k=request.top_k,

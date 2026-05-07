@@ -23,6 +23,7 @@ from api.dependencies import (
     require_superuser,
 )
 from core.exceptions import BadRequestError
+from models.upload_schemas import StorageHealthResponse
 from models.user import User
 from services.storage_tiering_service import (
     RehydratePriority,
@@ -65,10 +66,12 @@ class LifecyclePolicyRequest(BaseModel):
 # =============================================================================
 
 
-@router.get("/health")
-async def storage_health():
+@router.get("/health", response_model=StorageHealthResponse)
+async def storage_health() -> StorageHealthResponse:
     """Check storage tiering service health."""
-    return get_storage_route_service().get_health(get_storage_tiering_service())
+    return StorageHealthResponse(
+        **get_storage_route_service().get_health(get_storage_tiering_service())
+    )
 
 
 @router.get("/media/{media_id}/tier")

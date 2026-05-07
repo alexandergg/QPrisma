@@ -10,6 +10,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
+MP4_BYTES = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"
+JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01"
+
 
 @pytest.mark.unit
 class TestUploadMedia:
@@ -20,7 +23,7 @@ class TestUploadMedia:
     def test_no_blob_service_returns_503(self, authenticated_client):
         with patch("api.routes.media_routes.get_blob_service", return_value=None):
             resp = authenticated_client.post(
-                "/upload", files={"file": ("test.mp4", b"data", "video/mp4")}
+                "/upload", files={"file": ("test.mp4", MP4_BYTES, "video/mp4")}
             )
         assert resp.status_code == 503
 
@@ -47,7 +50,7 @@ class TestUploadMedia:
             mock_dispatch_getter.return_value = mock_dispatch
             resp = authenticated_client.post(
                 "/upload",
-                files={"file": ("test.mp4", BytesIO(b"fake_video_data"), "video/mp4")},
+                files={"file": ("test.mp4", BytesIO(MP4_BYTES), "video/mp4")},
             )
 
         assert resp.status_code == 200
@@ -61,12 +64,45 @@ class TestUploadMedia:
         ):
             resp = authenticated_client.post(
                 "/upload",
-                files={"file": ("photo.jpg", BytesIO(b"fake_img"), "image/jpeg")},
+                files={"file": ("photo.jpg", BytesIO(JPEG_BYTES), "image/jpeg")},
             )
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["media_type"] == "image"
+
+    def test_upload_rejects_content_that_does_not_match_media_type(
+        self, authenticated_client, mock_blob_service, mock_db_service
+    ):
+        with (
+            patch("api.routes.media_routes.get_blob_service", return_value=mock_blob_service),
+            patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
+            patch("api.routes.media_routes.get_storage_container_name", return_value="media"),
+        ):
+            resp = authenticated_client.post(
+                "/upload",
+                files={"file": ("test.mp4", BytesIO(b"not an mp4"), "video/mp4")},
+            )
+
+        assert resp.status_code == 415
+        mock_blob_service.get_blob_client.assert_not_called()
+        mock_db_service.create_media.assert_not_called()
+
+    def test_upload_optimized_rejects_images(
+        self, authenticated_client, mock_blob_service, mock_db_service
+    ):
+        with (
+            patch("api.routes.media_routes.get_blob_service", return_value=mock_blob_service),
+            patch("api.routes.media_routes.get_database_service", return_value=mock_db_service),
+            patch("api.routes.media_routes.get_storage_container_name", return_value="media"),
+        ):
+            resp = authenticated_client.post(
+                "/upload/optimized",
+                files={"file": ("photo.jpg", BytesIO(JPEG_BYTES), "image/jpeg")},
+            )
+
+        assert resp.status_code == 415
+        mock_blob_service.get_blob_client.assert_not_called()
 
 
 @pytest.mark.unit

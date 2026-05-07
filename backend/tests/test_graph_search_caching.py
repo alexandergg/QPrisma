@@ -30,6 +30,8 @@ def _mock_media(video_id="vid-1", user_id="user_test123"):
     m = MagicMock()
     m.id = video_id
     m.user_id = user_id
+    m.processing_result = {"local_video_path": "/server/managed/vid-1.mp4"}
+    m.video_metadata = {}
     return m
 
 

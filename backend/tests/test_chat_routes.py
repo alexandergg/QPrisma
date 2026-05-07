@@ -1,71 +1,19 @@
-"""Tests for api/routes/chat_routes.py."""
-
-from unittest.mock import AsyncMock, patch
+"""Tests for removed legacy chat endpoints."""
 
 import pytest
 
 
 @pytest.mark.unit
-class TestChat:
-    def test_requires_auth(self, client):
+class TestClassicChatRemoved:
+    """POST /chat was removed in favor of authenticated A2A endpoints."""
+
+    def test_classic_chat_endpoint_removed(self, authenticated_client):
+        resp = authenticated_client.post("/chat", json={"message": "hello"})
+        assert resp.status_code in (404, 405)
+
+    def test_classic_chat_endpoint_no_longer_prompts_auth(self, client):
         resp = client.post("/chat", json={"message": "hello"})
-        assert resp.status_code in (401, 403)
-
-    def test_no_openai_returns_503(self, authenticated_client):
-        with patch("api.routes.chat_routes.get_async_openai_client", return_value=None):
-            resp = authenticated_client.post("/chat", json={"message": "hello"})
-
-        assert resp.status_code == 503
-
-    def test_chat_success(
-        self, authenticated_client, mock_openai_client, mock_graph_search_service
-    ):
-        with (
-            patch(
-                "api.routes.chat_routes.get_async_openai_client", return_value=mock_openai_client
-            ),
-            patch(
-                "api.routes.chat_routes.get_graph_search_service",
-                return_value=mock_graph_search_service,
-            ),
-            patch("api.routes.chat_routes.ChatService") as MockChatService,
-        ):
-            mock_instance = AsyncMock()
-            mock_instance.chat = AsyncMock(return_value=("Hello back!", []))
-            MockChatService.return_value = mock_instance
-
-            resp = authenticated_client.post("/chat", json={"message": "hello"})
-
-        assert resp.status_code == 200
-        assert resp.json()["response"] == "Hello back!"
-
-    def test_chat_with_media_id(
-        self, authenticated_client, mock_openai_client, mock_graph_search_service
-    ):
-        with (
-            patch(
-                "api.routes.chat_routes.get_async_openai_client", return_value=mock_openai_client
-            ),
-            patch(
-                "api.routes.chat_routes.get_graph_search_service",
-                return_value=mock_graph_search_service,
-            ),
-            patch("api.routes.chat_routes.ChatService") as MockChatService,
-        ):
-            mock_instance = AsyncMock()
-            mock_instance.chat = AsyncMock(return_value=("Context reply", []))
-            MockChatService.return_value = mock_instance
-
-            resp = authenticated_client.post(
-                "/chat",
-                json={"message": "what happens?", "media_id": "vid_123"},
-            )
-
-        assert resp.status_code == 200
-
-    def test_chat_invalid_body(self, authenticated_client):
-        resp = authenticated_client.post("/chat", json={})
-        assert resp.status_code == 422
+        assert resp.status_code in (404, 405)
 
 
 @pytest.mark.unit

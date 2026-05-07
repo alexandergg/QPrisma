@@ -115,6 +115,11 @@ class TestChunkedUploadErrorSanitization:
         mock_blob = MagicMock()
         mock_media = MagicMock()
         mock_media.user_id = "user_test123"
+        mock_media.blob_name = "test.mp4"
+        mock_media.upload_session = {
+            "upload_id": "u1",
+            "blocks": [{"block_id": "YmxvY2sx"}],
+        }
         mock_db.get_media.return_value = mock_media
 
         mock_blob_client = MagicMock()
@@ -144,7 +149,7 @@ class TestChunkedUploadErrorSanitization:
         assert resp.status_code == 500
         body = resp.json()
         assert "SharedKey" not in body.get("detail", "")
-        assert body["detail"] == "Storage operation failed"
+        assert body["detail"] == "Upload operation failed"
 
 
 # =============================================================================

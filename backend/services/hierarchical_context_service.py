@@ -539,6 +539,7 @@ class HierarchicalContextService:
         self,
         query_text: str,
         video_id: str | None = None,
+        allowed_video_ids: list[str] | None = None,
         start_level: str = "video",
         target_level: str = "scene",
         top_k: int = 5,
@@ -548,6 +549,7 @@ class HierarchicalContextService:
         return await self._query_service.drill_down_search(
             query_text=query_text,
             video_id=video_id,
+            allowed_video_ids=allowed_video_ids,
             start_level=start_level,
             target_level=target_level,
             top_k=top_k,

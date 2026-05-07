@@ -44,7 +44,6 @@ if not _env_enabled("RUN_INTEGRATION_TESTS"):
 if not _env_enabled("RUN_E2E_TESTS"):
     collect_ignore.extend(
         [
-            "test_chat_quick.py",
             "test_ffmpeg_endpoints.py",
             "test_full_pipeline.py",
             "test_video_upload.py",

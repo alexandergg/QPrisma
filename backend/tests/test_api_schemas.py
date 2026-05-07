@@ -1,62 +1,16 @@
 """
-Tests for models/api_schemas.py
+Tests for models/api_schemas.py.
 
-Covers request/response model validation, deduplication logic,
-field constraints, and enum values.
+Covers request/response model validation, field constraints, and enum values.
 """
 
 import pytest
 from pydantic import ValidationError
 
 from models.api_schemas import (
-    ChatRequest,
     JobStatus,
     SearchRequest,
 )
-
-# =============================================================================
-# ChatRequest
-# =============================================================================
-
-
-@pytest.mark.unit
-class TestChatRequest:
-    def test_minimal(self):
-        req = ChatRequest(message="hello")
-        assert req.message == "hello"
-        assert req.media_id is None
-        assert req.media_ids is None
-
-    def test_with_media_id(self):
-        req = ChatRequest(message="hi", media_id="vid_1")
-        assert req.get_effective_media_ids() == ["vid_1"]
-
-    def test_with_media_ids(self):
-        req = ChatRequest(message="hi", media_ids=["vid_1", "vid_2"])
-        assert req.get_effective_media_ids() == ["vid_1", "vid_2"]
-
-    def test_deduplication(self):
-        req = ChatRequest(message="hi", media_id="vid_1", media_ids=["vid_1", "vid_2"])
-        ids = req.get_effective_media_ids()
-        assert ids == ["vid_1", "vid_2"]
-
-    def test_max_10_effective_ids(self):
-        """get_effective_media_ids truncates to 10 even with media_id + media_ids."""
-        req = ChatRequest(
-            message="hi",
-            media_id="v0",
-            media_ids=[f"v{i}" for i in range(1, 10)],  # 9 items (max_length=10)
-        )
-        ids = req.get_effective_media_ids()
-        assert len(ids) <= 10
-
-    def test_media_ids_max_length_validation(self):
-        with pytest.raises(ValidationError):
-            ChatRequest(
-                message="hi",
-                media_ids=[f"v{i}" for i in range(11)],  # 11 > max_length=10
-            )
-
 
 # =============================================================================
 # SearchRequest

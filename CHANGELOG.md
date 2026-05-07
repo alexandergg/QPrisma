@@ -88,6 +88,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reusable skills, specialized agents, PR evidence requirements, and changelog discipline using
   applicable OpenClaw-inspired required reads, guardrails, proof gates, scope boundaries, and
   output formats.
+- **FastAPI OpenAPI contracts**: added shared response documentation helpers, explicit core
+  endpoint response schemas, and `text/event-stream` documentation for A2A streaming endpoints.
+- **Hierarchy processing contract**: `POST /graph/hierarchy/process` no longer trusts
+  client-supplied server filesystem paths and requires a server-managed local media artifact.
+- **Upload API contracts**: direct uploads now validate media extension, MIME type, file
+  signature, and direct-upload size limits before Blob persistence; chunked upload commits must
+  match the server-side upload session, blob name, and issued block list.
+- **Public diagnostics**: public configuration and storage health responses redact environment,
+  container, endpoint, and private resource details while preserving probe-compatible health output.
 - **Hosted agent deployment path**: migrated the default `Deploy Hosted Agent`
   workflow to the official `azd` hosted-agent pattern with root `azure.yaml`,
   `host: azure.ai.agent`, a flat `agent.yaml`, and postdeploy hooks for
@@ -107,6 +116,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MediaModel schema**: Added `upload_session` column to `MediaModel` for tracking chunked upload sessions. (#108)
 
 ### Fixed
+- **Hierarchy drill-down scoping**: omitted-`video_id` hierarchy searches are now scoped to the
+  caller's processed media IDs for non-superusers, with service-layer Neo4j filters enforcing the
+  allowed video set.
+- **Chunked upload replay hardening**: stale, duplicate, mismatched upload ID, mismatched blob name,
+  and reordered block-list commit attempts are rejected before Blob commit or processing dispatch.
 - **Video Search timeout and fallback**: `search_video` and `find_entity` tools now enforce a 30-second `asyncio.wait_for()` timeout on hybrid search, falling back to a keyword-based Cypher search when the pipeline times out. (#121)
 - **CodeQL log injection**: Removed user-provided values from all log statements in the hybrid search pipeline; parameter counts use `int()`/`len()` to break the CodeQL taint chain. (#121)
 - **Chunked upload MSAL authentication**: Fixed MSAL token acquisition for chunked upload continuation requests. (#107)
@@ -116,6 +130,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - **Mem0 dependency removed**: `mem0ai` package, `Mem0MemoryService`, `Mem0Settings`, and all related configuration/tests deleted. Foundry Memory Store replaces Mem0 for long-term memory.
+- **Classic `/chat` API removed**: Deleted the deprecated direct VideoRAG endpoint, backend `ChatService`, legacy chat schemas/tests, and unused frontend `chatWithVideo()` client helper. A2A message endpoints are the only supported chat API.
 - **Frontend conversation dead code**: Removed localStorage-based conversation management (`conversations.ts`, `ConversationsList.tsx`) and cleaned conversation state from 8 frontend files. Sidebar, chat pages, and hooks no longer track or persist conversations client-side.
 - **Old evaluation module removed**: Entire `backend/evaluation/` directory (~30 files) including Video-MME pipeline, custom LLM judges, metric calculators, and test adapters. Replaced by Azure AI Foundry evaluation. Legacy report preserved at `docs/legacy-video-mme-evaluation-report.md`.
 - **Evaluation-only dependencies removed**: `yt-dlp` and `datasets` packages no longer required.

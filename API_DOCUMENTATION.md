@@ -77,7 +77,7 @@ Current high-risk operational endpoints:
 
 | Route family | Scope |
 |--------------|-------|
-| `GET /cache/health`, `GET /storage/health`, `/`, `/health`, `/config`, `GET /a2a/health`, A2A agent card discovery | Public health/discovery |
+| `GET /cache/health`, `GET /storage/health`, `/`, `/health`, `/config`, `GET /a2a/health`, A2A agent card discovery | Public health/discovery. `/health` is used by Docker, Azure Container Apps probes, and deployment workflows; `/config` is limited to non-secret configuration status. |
 | `/media/*`, `/upload`, `/upload/optimized`, `/upload/chunked/*`, `/storage/media/{media_id}/*`, `/graph/video/{video_id}*`, `/graph/search/*`, `/graph/hierarchy/*` | Owner-scoped media/graph |
 | `/cache/metrics`, `/cache/metrics/reset`, `/cache/invalidate`, `/cache/video/{video_id}`, `/cache/config`, `/storage/lifecycle-policy`, `/graph/embeddings/stats`, hidden `DELETE /graph/clear` | Superuser operational |
 | `POST /graph/embeddings/generate` | Owner-scoped when `video_id` is supplied; superuser-only for global generation without `video_id` |
@@ -85,7 +85,7 @@ Current high-risk operational endpoints:
 
 ## A2A Protocol (Agent-to-Agent)
 
-QPrisma implements the [A2A Protocol](https://a2a-protocol.org/) as the canonical API for the Azure AI Foundry hosted video agent. Legacy `/chat/agent` access has been removed. The classic `/chat` VideoRAG endpoint remains as a deprecated compatibility path for direct non-agentic chat clients.
+QPrisma implements the [A2A Protocol](https://a2a-protocol.org/) as the canonical API for the Azure AI Foundry hosted video agent. Legacy `/chat/agent` and classic `/chat` access have been removed; clients must use A2A message endpoints for chat.
 
 > **Rate Limiting**: All A2A endpoints are rate-limited via slowapi. Message endpoints allow 60 requests/minute; task listing allows 120/minute; task cancellation allows 30/minute.
 >
@@ -186,7 +186,10 @@ Authorization: Bearer eyJhbGc...
 }
 ```
 
-**Response (SSE Stream):**
+**Response (SSE Stream, `text/event-stream`):**
+
+Each `data:` line contains a JSON-encoded A2A `StreamResponse` object.
+
 ```
 data: {"task":{"id":"task-id","contextId":"ctx-id","status":{"state":"TASK_STATE_SUBMITTED"}}}
 data: {"statusUpdate":{"taskId":"task-id","status":{"state":"TASK_STATE_WORKING"}}}
@@ -233,7 +236,10 @@ POST /a2a/tasks/{task_id}:subscribe
 Authorization: Bearer eyJhbGc...
 ```
 
-**Response (SSE Stream):**
+**Response (SSE Stream, `text/event-stream`):**
+
+Each `data:` line contains a JSON-encoded A2A `StreamResponse` object.
+
 ```
 data: {"statusUpdate":{"taskId":"task-id","status":{"state":"TASK_STATE_WORKING"}}}
 data: {"artifactUpdate":{"taskId":"task-id","artifact":{...}}}
@@ -252,6 +258,33 @@ data: {"statusUpdate":{"taskId":"task-id","status":{"state":"TASK_STATE_COMPLETE
 | `TASK_STATE_INPUT_REQUIRED` | Waiting for user input |
 
 ## Core Endpoints
+
+### Status and Configuration
+
+#### API Liveness
+```http
+GET /
+```
+
+Public liveness endpoint used by startup probes and simple availability checks.
+
+#### API Readiness
+```http
+GET /health
+```
+
+Public readiness endpoint used by Docker health checks, Azure Container Apps
+liveness/readiness probes, and deployment health checks. The endpoint returns a
+component status summary and remains HTTP-200-compatible for probes.
+
+#### Configuration Status
+```http
+GET /config
+```
+
+Public non-secret configuration status. This endpoint reports whether major
+dependencies are configured and must not expose tenant IDs, connection strings,
+private endpoints, environment names, or raw cloud resource identifiers.
 
 ### Media Management
 
@@ -363,6 +396,11 @@ Content-Type: multipart/form-data
 
 `/upload/optimized` accepts the same video upload plus processing form fields such as `preset`, `max_frames`, `use_scene_detection`, `use_hierarchical_summary`, `scene_threshold`, and `max_scenes_per_chapter`.
 
+Upload endpoints validate the declared filename extension, MIME type, initial
+file signature, and configured direct-upload size limit before creating media
+metadata or dispatching processing. Unsupported media returns `415`; oversized
+direct uploads return `413`. Use chunked upload for large video files.
+
 **Presets:**
 - `fast`: 1 FPS, 720p, optimized for speed
 - `balanced`: 2 FPS, 1080p (default)
@@ -381,6 +419,22 @@ Content-Type: multipart/form-data
   "pipeline": "databricks"
 }
 ```
+
+#### Chunked Video Upload
+```http
+POST /upload/chunked/init
+POST /upload/chunked/commit
+GET /upload/chunked/status/{media_id}
+DELETE /upload/chunked/cancel/{media_id}
+```
+
+Chunked uploads are for large video files. Initialization validates positive
+file size, supported video extension, and supported video MIME type before
+issuing SAS block upload URLs. Commit requests must match the server-side
+upload session stored on the media record: `upload_id`, `blob_name`, and the
+ordered block ID list must match the values issued at initialization. Stale,
+duplicate, or mismatched commit attempts return a documented conflict or bad
+request and do not commit blocks or dispatch processing.
 
 **Databricks Processing Pipeline:**
 
@@ -458,6 +512,9 @@ GET /media/{media_id}/status
 GET /storage/health
 ```
 
+Public probe-compatible health response. Internal storage account, container,
+endpoint, and environment details are redacted from the public response.
+
 **No authentication required.** Returns service connectivity status.
 
 #### Get Media Tier
@@ -514,7 +571,7 @@ Content-Type: application/json
 
 #### Semantic Search
 ```http
-POST /search
+POST /graph/search/hybrid
 Content-Type: application/json
 
 {
@@ -578,7 +635,10 @@ Authorization: Bearer eyJhbGc...
 > **Note**: Both `media_id` and `media_ids` can be provided simultaneously. They will be merged, deduplicated, and capped at 10 videos maximum.
 > The server validates every referenced media item against the authenticated user. Continue a hosted-agent session by passing the returned Foundry `contextId`; cross-user continuation attempts are hidden as 404.
 
-**Response (Streaming A2A Format):**
+**Response (Streaming A2A Format, `text/event-stream`):**
+
+Each `data:` line contains a JSON-encoded A2A `StreamResponse` object.
+
 ```
 data: {"task":{"id":"task-uuid","contextId":"chat-session-uuid","status":{"state":"TASK_STATE_SUBMITTED"}}}
 data: {"statusUpdate":{"taskId":"task-uuid","status":{"state":"TASK_STATE_WORKING"}}}
@@ -667,7 +727,11 @@ GET /graph/hierarchy/stats/{video_id}
 
 Hierarchy drill-down and lazy child loading use `POST /graph/hierarchy/search/drill-down`
 and `POST /graph/hierarchy/children`. All hierarchy endpoints require media
-ownership for the referenced video or node.
+ownership for the referenced video or node. When `video_id` is omitted from
+drill-down search, non-superusers are scoped to their own processed media IDs;
+superuser global search remains explicit. `POST /graph/hierarchy/process` no
+longer trusts client-supplied server filesystem paths and requires a
+server-managed local media artifact resolved from the authorized media record.
 
 **Response:**
 ```json

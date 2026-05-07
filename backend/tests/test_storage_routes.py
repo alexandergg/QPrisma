@@ -127,8 +127,8 @@ class TestStorageHealthEndpoint:
         assert response.status_code == 200
         assert response.json() == {
             "status": "healthy",
-            "container": "media",
             "service": "storage_tiering",
+            "message": None,
         }
 
     def test_health_degraded_when_blob_service_not_configured(self, client, storage_service):
@@ -141,6 +141,7 @@ class TestStorageHealthEndpoint:
 
         assert response.status_code == 200
         assert response.json()["status"] == "degraded"
+        assert "container" not in response.json()
 
 
 @pytest.mark.unit

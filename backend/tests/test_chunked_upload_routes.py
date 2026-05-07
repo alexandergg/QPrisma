@@ -54,10 +54,21 @@ class TestInitChunkedUpload:
 # ---------------------------------------------------------------------------
 
 
-def _make_media_mock(user_id: str = "user_test123") -> MagicMock:
+def _make_media_mock(
+    user_id: str = "user_test123",
+    *,
+    blob_name: str = "videos/test.mp4",
+    upload_id: str = "upload-1",
+    block_ids: list[str] | None = None,
+) -> MagicMock:
     """Create a mock media record owned by the given user."""
     media = MagicMock()
     media.user_id = user_id
+    media.blob_name = blob_name
+    media.upload_session = {
+        "upload_id": upload_id,
+        "blocks": [{"block_id": block_id} for block_id in (block_ids or [])],
+    }
     return media
 
 
@@ -101,6 +112,10 @@ def _import_chunked_upload_module():
 
 def _build_commit_dependencies(
     user_id: str = "user_test123",
+    *,
+    block_ids: list[str] | None = None,
+    blob_name: str = "videos/test.mp4",
+    upload_id: str = "upload-1",
 ) -> tuple[MagicMock, MagicMock]:
     """Build mock blob_service and db_service for commit tests."""
     blob_service = MagicMock()
@@ -109,7 +124,12 @@ def _build_commit_dependencies(
     blob_service.get_blob_client.return_value = blob_client
 
     db_service = MagicMock()
-    db_service.get_media.return_value = _make_media_mock(user_id)
+    db_service.get_media.return_value = _make_media_mock(
+        user_id,
+        blob_name=blob_name,
+        upload_id=upload_id,
+        block_ids=block_ids,
+    )
 
     return blob_service, db_service
 
@@ -171,7 +191,7 @@ class TestCommitBlockIdDecoding:
         raw_ids = ["block-0001", "block-0002", "block-0003"]
         b64_ids = [base64.b64encode(rid.encode()).decode() for rid in raw_ids]
 
-        blob_service, db_service = _build_commit_dependencies()
+        blob_service, db_service = _build_commit_dependencies(block_ids=b64_ids)
         user = _make_user()
 
         request = mod.CommitUploadRequest(
@@ -208,7 +228,7 @@ class TestCommitBlockIdDecoding:
         from fastapi import HTTPException
 
         mod = _import_chunked_upload_module()
-        blob_service, db_service = _build_commit_dependencies()
+        blob_service, db_service = _build_commit_dependencies(block_ids=["!!!not-valid-base64!!!"])
         user = _make_user()
 
         request = mod.CommitUploadRequest(
@@ -232,12 +252,100 @@ class TestCommitBlockIdDecoding:
         assert "Invalid base64 block ID" in exc_info.value.detail
 
     @pytest.mark.asyncio
+    async def test_commit_rejects_inactive_upload_session(self):
+        """Committed uploads must still have an active server-side upload session."""
+        from fastapi import HTTPException
+
+        mod = _import_chunked_upload_module()
+        raw_ids = ["block-0001"]
+        b64_ids = [base64.b64encode(rid.encode()).decode() for rid in raw_ids]
+        blob_service, db_service = _build_commit_dependencies(block_ids=b64_ids)
+        db_service.get_media.return_value.upload_session = None
+        user = _make_user()
+
+        request = mod.CommitUploadRequest(
+            upload_id="upload-1",
+            media_id="media_123",
+            blob_name="videos/test.mp4",
+            block_ids=b64_ids,
+        )
+
+        with (
+            patch.object(mod, "get_blob_service", return_value=blob_service),
+            patch.object(mod, "get_database_service", return_value=db_service),
+            patch.object(mod, "get_storage_container_name", return_value="media"),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await mod.commit_chunked_upload(request=request, current_user=user)
+
+        assert exc_info.value.status_code == 409
+        blob_service.get_blob_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_commit_rejects_mismatched_upload_id(self):
+        """Upload ID must match the server-side session bound to the media row."""
+        from fastapi import HTTPException
+
+        mod = _import_chunked_upload_module()
+        raw_ids = ["block-0001"]
+        b64_ids = [base64.b64encode(rid.encode()).decode() for rid in raw_ids]
+        blob_service, db_service = _build_commit_dependencies(block_ids=b64_ids)
+        user = _make_user()
+
+        request = mod.CommitUploadRequest(
+            upload_id="different-upload",
+            media_id="media_123",
+            blob_name="videos/test.mp4",
+            block_ids=b64_ids,
+        )
+
+        with (
+            patch.object(mod, "get_blob_service", return_value=blob_service),
+            patch.object(mod, "get_database_service", return_value=db_service),
+            patch.object(mod, "get_storage_container_name", return_value="media"),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await mod.commit_chunked_upload(request=request, current_user=user)
+
+        assert exc_info.value.status_code == 409
+        blob_service.get_blob_client.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_commit_rejects_mismatched_block_list(self):
+        """Committed block IDs must match the server-issued block list and order."""
+        from fastapi import HTTPException
+
+        mod = _import_chunked_upload_module()
+        expected_ids = [base64.b64encode(b"block-0001").decode()]
+        submitted_ids = [base64.b64encode(b"other-block").decode()]
+        blob_service, db_service = _build_commit_dependencies(block_ids=expected_ids)
+        user = _make_user()
+
+        request = mod.CommitUploadRequest(
+            upload_id="upload-1",
+            media_id="media_123",
+            blob_name="videos/test.mp4",
+            block_ids=submitted_ids,
+        )
+
+        with (
+            patch.object(mod, "get_blob_service", return_value=blob_service),
+            patch.object(mod, "get_database_service", return_value=db_service),
+            patch.object(mod, "get_storage_container_name", return_value="media"),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await mod.commit_chunked_upload(request=request, current_user=user)
+
+        assert exc_info.value.status_code == 400
+        blob_service.get_blob_client.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_bad_padding_block_id_returns_400(self):
         """Base64 with bad padding should be rejected with HTTP 400."""
         from fastapi import HTTPException
 
         mod = _import_chunked_upload_module()
-        blob_service, db_service = _build_commit_dependencies()
+        blob_service, db_service = _build_commit_dependencies(block_ids=["YWJj="])
         user = _make_user()
 
         request = mod.CommitUploadRequest(
@@ -268,7 +376,7 @@ class TestCommitBlockIdDecoding:
         raw_ids = ["block-0001"]
         b64_ids = [base64.b64encode(rid.encode()).decode() for rid in raw_ids]
 
-        blob_service, db_service = _build_commit_dependencies()
+        blob_service, db_service = _build_commit_dependencies(block_ids=b64_ids)
         dispatch_service = _build_dispatch_service()
         user = _make_user()
 
@@ -278,7 +386,7 @@ class TestCommitBlockIdDecoding:
             blob_name="videos/test.mp4",
             block_ids=b64_ids,
             preset="quality",
-            max_frames=1000,
+            max_frames=500,
             use_scene_detection=True,
             use_hierarchical_summary=True,
         )
@@ -319,7 +427,7 @@ class TestCommitBlockIdDecoding:
         raw_ids = ["block-0001"]
         b64_ids = [base64.b64encode(rid.encode()).decode() for rid in raw_ids]
 
-        blob_service, db_service = _build_commit_dependencies()
+        blob_service, db_service = _build_commit_dependencies(block_ids=b64_ids)
         dispatch_service = MagicMock()
         dispatch_service.dispatch_video = AsyncMock(
             side_effect=RuntimeError("boom\nforged log line")

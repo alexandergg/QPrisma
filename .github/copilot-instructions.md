@@ -105,9 +105,9 @@ settings.app.environment              # App environment
 ### Service Layer Extraction
 
 Business logic lives in `services/`, NOT in route handlers:
-- `services/chat_service.py` — ChatService (RAG chat with video context)
 - `services/structure_service.py` — StructureService (video scene/chapter generation)
 - `services/graph_search_service.py` — GraphSearchService (hybrid search)
+- `agent/a2a.py` and `api/routes/a2a_*` — A2A chat/task orchestration for agent conversations
 
 ### LangGraph Agent Tools
 

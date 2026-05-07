@@ -237,22 +237,6 @@ def get_graph_search_service():
     return _canonical_getter()
 
 
-def get_chat_service(*, openai_client=None, graph_search_service=None, service_cls=None):
-    """Build ChatService while preserving facade-level patch points."""
-    from services.chat_service import ChatService
-
-    if openai_client is None:
-        openai_client = get_async_openai_client()
-    if graph_search_service is None:
-        graph_search_service = get_graph_search_service()
-
-    resolved_service_cls = service_cls or ChatService
-    return resolved_service_cls(
-        openai_client=openai_client,
-        graph_search_service=graph_search_service,
-    )
-
-
 def get_structure_service(*, graph_service=None, service_cls=None):
     """Build StructureService while preserving facade-level patch points."""
     from services.structure_service import StructureService
@@ -452,7 +436,6 @@ __all__ = [
     "get_async_graph_service",
     "get_async_openai_client",
     "get_blob_service",
-    "get_chat_service",
     "get_chunked_upload_service",
     "get_community_detection_service",
     "get_current_user",

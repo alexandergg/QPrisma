@@ -15,13 +15,12 @@ class StorageRouteService:
         if storage_service.blob_service:
             return {
                 "status": "healthy",
-                "container": storage_service.container_name,
                 "service": "storage_tiering",
             }
         return {
             "status": "degraded",
-            "error": "Blob service not configured",
             "service": "storage_tiering",
+            "message": "Storage tiering is not fully configured",
         }
 
     def get_media_tier(

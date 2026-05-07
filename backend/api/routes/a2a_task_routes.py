@@ -12,6 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 
 from api.dependencies import get_current_user
+from api.openapi_responses import (
+    AUTH_RESPONSES,
+    RATE_LIMIT_RESPONSES,
+    SSE_STREAM_RESPONSE,
+    merge_responses,
+)
 from api.rate_limit import limiter
 from api.routes.a2a_agent_cards import get_executor
 from api.routes.a2a_security import task_belongs_to_user, task_not_found
@@ -126,7 +132,25 @@ async def cancel_task(
     return task
 
 
-@task_router.post("/a2a/tasks/{task_id}:subscribe")
+@task_router.post(
+    "/a2a/tasks/{task_id}:subscribe",
+    summary="Subscribe to task updates with SSE",
+    description=(
+        "Authenticated A2A task subscription endpoint returning Server-Sent Events. Each SSE "
+        "`data:` line contains a JSON-encoded `StreamResponse` payload."
+    ),
+    responses=merge_responses(
+        SSE_STREAM_RESPONSE,
+        AUTH_RESPONSES,
+        RATE_LIMIT_RESPONSES,
+        {
+            400: {
+                "description": "The task is already in a terminal state and cannot be subscribed to."
+            },
+            404: {"description": "Task not found or not visible to the authenticated user."},
+        },
+    ),
+)
 @limiter.limit("60/minute")
 async def subscribe_to_task(
     request: Request,
