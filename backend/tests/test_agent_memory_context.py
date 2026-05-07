@@ -11,6 +11,8 @@ from agent.utils.observability import Metrics
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
+from core.degraded import get_degradation_counts, reset_degradation_counts
+
 
 @pytest.mark.unit
 class TestAgentMemoryContext:
@@ -158,6 +160,59 @@ class TestAgentMemoryContext:
         assert "[artifact:artifact-123]" in updated["memory_context"][0]
         assert updated["partial_results"][0]["artifact_id"] == "artifact-123"
         mock_artifact_service.save_artifact.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_update_context_degrades_when_artifact_persistence_fails(self):
+        Metrics.reset()
+        reset_degradation_counts()
+        mock_artifact_service = AsyncMock()
+        mock_artifact_service.save_artifact = AsyncMock(side_effect=RuntimeError("blob down"))
+
+        state = {
+            "messages": [
+                HumanMessage(content="Find key moments"),
+                ToolMessage(
+                    content='{"count": 1, "results": [{"timestamp": 90.0}]}',
+                    tool_call_id="tc-degraded",
+                    name="search_video",
+                ),
+            ],
+            "conversation_context": [],
+            "partial_results": [],
+            "memory_context": [],
+            "artifact_refs": [],
+            "session_id": "session-degraded",
+            "user_id": "user-2",
+            "media_id": "media-2",
+            "project_context": None,
+        }
+        config = RunnableConfig(configurable={"thread_id": "session-degraded"})
+
+        with (
+            patch(
+                "core.config.settings.azure.storage_connection_string", "UseDevelopmentStorage=true"
+            ),
+            patch(
+                "services.tool_artifact_service.get_tool_artifact_service",
+                AsyncMock(return_value=mock_artifact_service),
+            ),
+        ):
+            updated = await update_context_node(state, config)
+
+        assert len(updated["memory_context"]) == 1
+        assert "[artifact:" not in updated["memory_context"][0]
+        assert updated["artifact_refs"] == []
+        assert updated["partial_results"][0]["artifact_id"] is None
+        assert updated["partial_results"][0]["tool_call_id"] == "tc-degraded"
+
+        all_metrics = Metrics.get_all()
+        assert any(
+            key.startswith(Metrics.ARTIFACT_PERSISTENCE_ERRORS) for key in all_metrics["counters"]
+        )
+        assert any(
+            "tool_artifact_persistence" in key and "RuntimeError" in key
+            for key in get_degradation_counts()
+        )
 
     @pytest.mark.asyncio
     async def test_rehydrate_artifact_context_for_detail_query(self):

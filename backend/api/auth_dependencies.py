@@ -6,6 +6,7 @@ from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from core.config import settings
+from core.exceptions import AccessDeniedError, AuthenticationError
 from models.user import User
 
 security = HTTPBearer()
@@ -26,6 +27,14 @@ async def get_current_user(
     try:
         token_data = await get_entra_auth_service().verify_token(credentials.credentials)
         return get_user_provisioning_service().ensure_user_exists(token_data)
+    except AuthenticationError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail=exc.message,
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+    except AccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail=exc.message) from None
     except HTTPException:
         raise
     except Exception:

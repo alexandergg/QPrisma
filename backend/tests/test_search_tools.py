@@ -214,6 +214,28 @@ class TestFindEntity:
         assert len(result["occurrences"]) >= 1
         assert result["_meta"]["result_count"] >= 1
 
+    @pytest.mark.asyncio
+    async def test_target_video_id_overrides(self):
+        from agent.tools.search_tools import find_entity
+
+        mock_service = MagicMock()
+        mock_service.hybrid_search = AsyncMock(return_value=_make_search_response())
+
+        with patch(
+            "services.graph_search_service.get_graph_search_service",
+            return_value=mock_service,
+        ):
+            await find_entity.ainvoke(
+                {
+                    "entity_name": "John",
+                    "media_id": "vid-primary",
+                    "target_video_id": "vid-target",
+                }
+            )
+
+        call_kwargs = mock_service.hybrid_search.call_args[1]
+        assert call_kwargs["video_id"] == "vid-target"
+
 
 # ---------------------------------------------------------------------------
 # get_transcript

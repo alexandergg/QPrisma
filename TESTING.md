@@ -28,6 +28,10 @@ frontend/
     ├── components/          # Component tests
     ├── hooks/               # Custom hooks tests
     └── integration/         # Integration tests
+
+databricks/
+└── video-pipeline/
+    └── tests/               # Pure-Python Databricks package tests
 ```
 
 ### Notable Test Modules
@@ -69,6 +73,9 @@ frontend/
 | `test_tool_meta.py` | `tool_meta()` / `tool_error()` structured response helpers, `detail_hint` parameter |
 | `test_graph_search_caching.py` | Local cache integration for hybrid search results |
 | `test_cross_video_search_service.py` | Multi-video cross-search service, result aggregation |
+| `databricks\video-pipeline\tests\test_source_media.py` | Databricks source-media URI validation and managed-identity contract |
+| `databricks\video-pipeline\tests\test_quality.py` | Databricks Bronze quality gate config parsing |
+| `databricks\video-pipeline\tests\test_scenes.py` | Databricks deterministic scene/window helper logic |
 
 ## Backend Testing (Python)
 
@@ -99,6 +106,17 @@ uv run --prerelease allow pytest --cov=. --cov-report=html
 # Run with verbose output
 uv run --prerelease allow pytest -v
 ```
+
+### Databricks Pipeline Tests
+
+The Databricks Asset Bundle has a local pure-Python pytest suite under `databricks\video-pipeline\tests`. It uses a lightweight `pyspark.sql.types` stub so package helpers can be imported without a Databricks runtime or Spark installation.
+
+```powershell
+$env:PYTHONPATH = "databricks\video-pipeline\src"
+backend\.venv\Scripts\python.exe -m pytest databricks\video-pipeline\tests -q
+```
+
+These tests cover configuration sanitization, source-media URI validation, runtime table-name contracts, Bronze quality-gate config, Gold result helper behavior and deterministic scene/window helpers. They do not replace Databricks workspace smoke tests for Delta writes, Unity Catalog volumes, FFmpeg execution, model inference, Neo4j projection or Jobs API permissions.
 
 ### Writing Unit Tests
 

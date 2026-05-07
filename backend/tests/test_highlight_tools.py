@@ -96,6 +96,31 @@ class TestFindHighlights:
         assert call_kwargs["max_duration"] == 45.0
 
     @pytest.mark.asyncio
+    async def test_target_video_id_overrides_media_id(self):
+        from agent.tools.highlight_tools import find_highlights
+
+        mock_kg = MagicMock()
+        mock_service_instance = MagicMock()
+        mock_service_instance.detect_highlights.return_value = {"highlights": []}
+
+        with (
+            patch(
+                "services.knowledge_graph.get_knowledge_graph_service",
+                return_value=mock_kg,
+            ),
+            patch(
+                "services.highlight_detection_service.HighlightDetectionService",
+                return_value=mock_service_instance,
+            ),
+        ):
+            await find_highlights.ainvoke(
+                {"media_id": "vid-primary", "target_video_id": "vid-target"}
+            )
+
+        call_kwargs = mock_service_instance.detect_highlights.call_args[1]
+        assert call_kwargs["media_id"] == "vid-target"
+
+    @pytest.mark.asyncio
     async def test_exception_returns_query_error(self):
         from agent.tools.highlight_tools import find_highlights
 

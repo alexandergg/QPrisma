@@ -146,6 +146,19 @@ def _make_user(user_id: str = "user_test123"):
     )
 
 
+def test_not_found_translation_uses_clean_upload_resource_name():
+    from core.exceptions import NotFoundError
+
+    mod = _import_chunked_upload_module()
+
+    exc = NotFoundError("Upload", "media_123")
+    http_exc = mod.translate_chunked_upload_error(exc)
+
+    assert exc.message == "Upload 'media_123' not found"
+    assert http_exc.status_code == 404
+    assert http_exc.detail == "Upload not found"
+
+
 @pytest.mark.unit
 class TestCommitBlockIdDecoding:
     """Tests for block ID base64 decoding during commit."""

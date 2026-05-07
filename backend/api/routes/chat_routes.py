@@ -4,7 +4,14 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies import get_async_openai_client, get_current_user, get_graph_search_service
+from api.dependencies import (
+    get_async_openai_client,
+    get_current_user,
+    get_graph_search_service,
+)
+from api.dependencies import (
+    get_chat_service as build_chat_service,
+)
 from core.exceptions import internal_error
 from core.legacy_usage import record_legacy_usage
 from models.api_schemas import (
@@ -42,9 +49,10 @@ async def chat(request: ChatRequest, current_user: User = Depends(get_current_us
     )
 
     try:
-        chat_service = ChatService(
+        chat_service = build_chat_service(
             openai_client=openai_client,
             graph_search_service=get_graph_search_service(),
+            service_cls=ChatService,
         )
         assistant_message, sources = await chat_service.chat(
             message=request.message,

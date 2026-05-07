@@ -155,6 +155,30 @@ class ServiceUnavailableError(QPrismaException):
         )
 
 
+class BadRequestError(QPrismaException):
+    """Raised when a caller provides invalid input."""
+
+    def __init__(self, message: str, details: dict | None = None):
+        super().__init__(
+            message=message,
+            code="BAD_REQUEST",
+            details=details,
+        )
+
+
+class AuthenticationError(QPrismaException):
+    """Raised when credentials cannot be authenticated."""
+
+    def __init__(
+        self, message: str = "Could not validate credentials", details: dict | None = None
+    ):
+        super().__init__(
+            message=message,
+            code="AUTHENTICATION_ERROR",
+            details=details,
+        )
+
+
 class ConfigurationError(QPrismaException):
     """Raised when configuration is missing or invalid."""
 
@@ -206,26 +230,52 @@ class FrameExtractionError(ProcessingError):
 class NotFoundError(QPrismaException):
     """Raised when a requested resource is not found."""
 
-    def __init__(self, resource_type: str, resource_id: str):
+    def __init__(
+        self, resource_type: str, resource_id: str | None = None, details: dict | None = None
+    ):
+        if resource_id is None:
+            message = f"{resource_type} not found"
+            error_details = {"resource": resource_type, **(details or {})}
+        else:
+            message = f"{resource_type} '{resource_id}' not found"
+            error_details = {
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                **(details or {}),
+            }
         super().__init__(
-            message=f"{resource_type} '{resource_id}' not found",
+            message=message,
             code="NOT_FOUND",
-            details={"resource_type": resource_type, "resource_id": resource_id},
+            details=error_details,
         )
 
 
 class AccessDeniedError(QPrismaException):
     """Raised when access to a resource is denied."""
 
-    def __init__(self, resource_type: str, resource_id: str, user_id: str | None = None):
-        super().__init__(
-            message=f"Access denied to {resource_type} '{resource_id}'",
-            code="ACCESS_DENIED",
-            details={
+    def __init__(
+        self,
+        resource_type: str = "resource",
+        resource_id: str | None = None,
+        user_id: str | None = None,
+        message: str | None = None,
+        details: dict | None = None,
+    ):
+        if resource_id is None:
+            error_message = message or resource_type
+            error_details = {"user_id": user_id, **(details or {})} if user_id else details
+        else:
+            error_message = message or f"Access denied to {resource_type} '{resource_id}'"
+            error_details = {
                 "resource_type": resource_type,
                 "resource_id": resource_id,
                 "user_id": user_id,
-            },
+                **(details or {}),
+            }
+        super().__init__(
+            message=error_message,
+            code="ACCESS_DENIED",
+            details=error_details,
         )
 
 

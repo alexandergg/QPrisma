@@ -181,6 +181,11 @@ async def get_entity_timeline(
         str, "Type: 'person', 'object', 'concept', 'location', or 'any'"
     ] = "any",
     include_context: Annotated[bool, "Include surrounding context for each appearance"] = True,
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video to search. "
+        "If omitted, searches the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
     user_id: Annotated[str | None, InjectedState("user_id")] = None,
 ) -> dict[str, Any]:
@@ -195,8 +200,10 @@ async def get_entity_timeline(
     tool receives a non-canonical name and finds no direct match, it will
     transparently fuzzy-resolve the name and retry; the substituted name is
     reported in the response as ``resolved_entity_name``.
+    When several videos are selected, use target_video_id to search a specific video.
     """
-    if not media_id:
+    effective_media_id = target_video_id or media_id
+    if not effective_media_id:
         return tool_error("no_context", "No video context available.")
 
     try:
@@ -208,11 +215,11 @@ async def get_entity_timeline(
             "get_entity_timeline: querying | entity=%s type=%s media_id=%s",
             entity_name[:50],
             entity_type,
-            media_id,
+            effective_media_id,
         )
 
         appearances = await asyncio.to_thread(
-            lambda: kg.find_entity_appearances(media_id, entity_name, user_id=user_id)
+            lambda: kg.find_entity_appearances(effective_media_id, entity_name, user_id=user_id)
         )
         visual_records = appearances.get("visual", [])
         audio_records = appearances.get("audio", [])
@@ -229,13 +236,15 @@ async def get_entity_timeline(
             resolved = await _resolve_entity_via_hybrid_search(
                 entity_name=entity_name,
                 entity_type=entity_type,
-                media_id=media_id,
+                media_id=effective_media_id,
             )
             if resolved and resolved != entity_name:
                 resolved_entity_name = resolved
                 resolution_method = "hybrid_search_fuzzy"
                 appearances = await asyncio.to_thread(
-                    lambda: kg.find_entity_appearances(media_id, resolved, user_id=user_id)
+                    lambda: kg.find_entity_appearances(
+                        effective_media_id, resolved, user_id=user_id
+                    )
                 )
                 visual_records = appearances.get("visual", [])
                 audio_records = appearances.get("audio", [])
@@ -341,7 +350,7 @@ async def get_entity_timeline(
         return payload
 
     except Exception as e:
-        logger.error("get_entity_timeline failed for %s: %s", media_id, e)
+        logger.error("get_entity_timeline failed for %s: %s", effective_media_id, e)
         return tool_error("query_error", f"Failed to create entity timeline: {e}")
 
 
@@ -349,6 +358,11 @@ async def get_entity_timeline(
 async def compare_moments(
     timestamps: Annotated[list[float], "List of timestamps (in seconds) to compare"],
     comparison_aspect: Annotated[str, "What to compare: 'visual', 'audio', 'all'"] = "all",
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video to compare moments from. "
+        "If omitted, uses the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
@@ -356,8 +370,10 @@ async def compare_moments(
     Useful for understanding progression, changes, or differences between scenes.
     Returns frame descriptions and surrounding detail for each timestamp to enable comparison.
     Provide 2-5 timestamps in seconds.
+    When several videos are selected, use target_video_id to compare moments in a specific video.
     """
-    if not media_id:
+    effective_media_id = target_video_id or media_id
+    if not effective_media_id:
         return tool_error("no_context", "No video context available.")
 
     if len(timestamps) < 2:
@@ -373,7 +389,7 @@ async def compare_moments(
 
         # Batched retrieval: 2 queries total instead of 2 per timestamp
         moments_data = await asyncio.to_thread(
-            lambda: kg.get_moments_context(media_id, timestamps, window=5.0)
+            lambda: kg.get_moments_context(effective_media_id, timestamps, window=5.0)
         )
 
         comparison = []
@@ -424,5 +440,5 @@ async def compare_moments(
         }
 
     except Exception as e:
-        logger.error("compare_moments failed for %s: %s", media_id, e)
+        logger.error("compare_moments failed for %s: %s", effective_media_id, e)
         return tool_error("query_error", f"Failed to compare moments: {e}")

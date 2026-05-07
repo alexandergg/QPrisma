@@ -36,13 +36,20 @@ async def find_highlights(
     max_clips: Annotated[int, "Maximum number of highlight clips to suggest"] = 5,
     min_duration: Annotated[float, "Minimum clip duration in seconds"] = 10.0,
     max_duration: Annotated[float, "Maximum clip duration in seconds"] = 60.0,
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video to analyze. "
+        "If omitted, analyzes the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
     Identify highlight moments suitable for clips or social media.
     Returns exportable time ranges with descriptions of why they're highlights.
+    When several videos are selected, use target_video_id to analyze a specific video.
     """
-    if not media_id:
+    effective_media_id = target_video_id or media_id
+    if not effective_media_id:
         return tool_error("no_context", "No video context available.")
 
     try:
@@ -54,7 +61,7 @@ async def find_highlights(
         service = HighlightDetectionService(kg)
         result = await asyncio.to_thread(
             lambda: service.detect_highlights(
-                media_id=media_id,
+                media_id=effective_media_id,
                 criteria=criteria,
                 max_clips=max_clips,
                 min_duration=min_duration,
@@ -73,5 +80,5 @@ async def find_highlights(
         return result
 
     except Exception as e:
-        logger.error("find_highlights failed for %s: %s", media_id, e)
+        logger.error("find_highlights failed for %s: %s", effective_media_id, e)
         return tool_error("query_error", f"Failed to find highlights: {e}")

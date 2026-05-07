@@ -96,6 +96,24 @@ class TestListMedia:
 
 
 @pytest.mark.unit
+async def test_media_library_dependency_supplies_default_two_arg_sas_factory():
+    from api.media_dependencies import get_media_library_service
+
+    build_sas = AsyncMock(return_value="https://signed.example/video.mp4")
+    service = get_media_library_service(
+        db=MagicMock(),
+        blob_service=MagicMock(),
+        container_name="media",
+        graph_service_factory=lambda: None,
+    )
+
+    with patch("api.dependencies.build_blob_sas_url_async", new=build_sas):
+        assert await service.sas_url_factory("video.mp4", 2) == "https://signed.example/video.mp4"
+
+    assert build_sas.await_args.kwargs["permission"].read is True
+
+
+@pytest.mark.unit
 class TestGetMedia:
     def test_requires_auth(self, client):
         resp = client.get("/media/some_id")
@@ -254,3 +272,39 @@ class TestMediaStatus:
             resp = authenticated_client.get("/media/some_id/status")
 
         assert resp.status_code == 200
+
+
+@pytest.mark.unit
+class TestMediaAudio:
+    def test_forbidden_for_non_owner(self, authenticated_client):
+        with patch(
+            "api.routes.media_routes.get_media_or_404",
+            side_effect=HTTPException(status_code=403, detail="Not authorized"),
+        ):
+            resp = authenticated_client.get("/media/some_id/audio")
+
+        assert resp.status_code == 403
+
+    def test_success(self, authenticated_client, test_user):
+        mock_media = MagicMock(user_id=test_user.id)
+        mock_media.to_dict.return_value = {
+            "audio_data": {
+                "transcription": {
+                    "text": "hello world",
+                    "language": "en",
+                    "duration": 1.2,
+                },
+                "stats": {"total_words": 2},
+            }
+        }
+
+        with patch("api.routes.media_routes.get_media_or_404", return_value=mock_media):
+            resp = authenticated_client.get("/media/some_id/audio")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["media_id"] == "some_id"
+        assert body["has_transcription"] is True
+        assert body["language"] == "en"
+        assert body["duration"] == 1.2
+        assert body["word_count"] == 2

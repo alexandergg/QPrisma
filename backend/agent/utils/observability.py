@@ -401,6 +401,9 @@ class Metrics:
     ARTIFACT_REHYDRATION_ATTEMPTS = "agent_artifact_rehydration_attempts_total"
     ARTIFACT_REHYDRATION_SUCCESSES = "agent_artifact_rehydration_successes_total"
     ARTIFACT_REHYDRATION_ERRORS = "agent_artifact_rehydration_errors_total"
+    ARTIFACT_PERSISTENCE_ATTEMPTS = "agent_artifact_persistence_attempts_total"
+    ARTIFACT_PERSISTENCE_SUCCESSES = "agent_artifact_persistence_successes_total"
+    ARTIFACT_PERSISTENCE_ERRORS = "agent_artifact_persistence_errors_total"
 
     @classmethod
     def inc_counter(cls, name: str, labels: dict[str, str] | None = None, value: float = 1) -> None:

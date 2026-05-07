@@ -7,6 +7,7 @@ email-matching to link existing local accounts to Entra identities.
 
 import logging
 
+from core.exceptions import AccessDeniedError
 from models.database import UserModel
 from models.user import EntraTokenData, User
 from services.database_service import get_database_service
@@ -29,10 +30,8 @@ class UserProvisioningService:
             User pydantic model ready for API use.
 
         Raises:
-            HTTPException 403: if the matched user account is deactivated.
+            AccessDeniedError: if the matched user account is deactivated.
         """
-        from fastapi import HTTPException, status
-
         db = get_database_service()
 
         # 1. Try lookup by Entra OID
@@ -60,10 +59,7 @@ class UserProvisioningService:
             logger.info("Auto-provisioned new Entra user %s (%s)", user.id, user.email)
 
         if not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="User account is deactivated",
-            )
+            raise AccessDeniedError("User account is deactivated")
 
         return User(
             id=user.id,

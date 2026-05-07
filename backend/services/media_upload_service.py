@@ -8,10 +8,14 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
-from fastapi import HTTPException, UploadFile
+from fastapi import UploadFile
 
-from core.errors import bad_request, service_unavailable
-from core.exceptions import internal_error
+from core.exceptions import (
+    BadRequestError,
+    ProcessingError,
+    QPrismaException,
+    ServiceUnavailableError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -110,11 +114,11 @@ class MediaUploadService:
                 "pipeline": dispatch_backend,
             }
 
-        except HTTPException:
+        except QPrismaException:
             raise
         except Exception as e:
             logger.error("Error uploading file: %s", e, exc_info=True)
-            raise internal_error() from e
+            raise ProcessingError("Error uploading file") from e
 
     async def upload_optimized_video(
         self,
@@ -126,7 +130,7 @@ class MediaUploadService:
         """Upload a video and dispatch it to the optimized processing pipeline."""
         file_extension = self._file_extension(file, default="")
         if file_extension not in VIDEO_EXTENSIONS:
-            raise bad_request("Only videos (mp4, avi, mov, mkv, webm)")
+            raise BadRequestError("Only videos (mp4, avi, mov, mkv, webm)")
 
         try:
             media_id = str(uuid.uuid4())
@@ -171,11 +175,11 @@ class MediaUploadService:
                 "pipeline": dispatch_result.backend,
             }
 
-        except HTTPException:
+        except QPrismaException:
             raise
         except Exception as e:
             logger.error("Upload error: %s", e, exc_info=True)
-            raise internal_error() from e
+            raise ProcessingError("Upload error") from e
 
     async def _upload_blob(self, *, file: UploadFile, blob_name: str) -> int:
         blob_client = self.blob_service.get_blob_client(
@@ -222,7 +226,7 @@ class MediaUploadService:
         except Exception as e:
             logger.error("Processing dispatch failed for %s: %s", media_id, e, exc_info=True)
             self._mark_processing_dispatch_failed(media_id)
-            raise service_unavailable("Task queue is unavailable") from e
+            raise ServiceUnavailableError("Task queue") from e
 
     def _mark_processing_dispatch_failed(self, media_id: str) -> None:
         self.db.update_media(

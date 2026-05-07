@@ -18,9 +18,11 @@ from api.dependencies import (
     get_current_user,
     get_database_service,
     get_media_or_404,
+    get_storage_route_service,
     get_storage_tiering_service,
     require_superuser,
 )
+from core.exceptions import BadRequestError
 from models.user import User
 from services.storage_tiering_service import (
     RehydratePriority,
@@ -66,19 +68,7 @@ class LifecyclePolicyRequest(BaseModel):
 @router.get("/health")
 async def storage_health():
     """Check storage tiering service health."""
-    service = get_storage_tiering_service()
-
-    if service.blob_service:
-        return {
-            "status": "healthy",
-            "container": service.container_name,
-            "service": "storage_tiering",
-        }
-    return {
-        "status": "degraded",
-        "error": "Blob service not configured",
-        "service": "storage_tiering",
-    }
+    return get_storage_route_service().get_health(get_storage_tiering_service())
 
 
 @router.get("/media/{media_id}/tier")
@@ -98,44 +88,7 @@ async def get_media_tier(
     db = get_database_service()
 
     service = get_storage_tiering_service()
-    tier_info = service.get_blob_tier_info(media.blob_name)
-
-    if not tier_info:
-        # Return cached info from database if blob not accessible
-        return {
-            "media_id": media_id,
-            "blob_name": media.blob_name,
-            "storage_tier": media.storage_tier or "Hot",
-            "rehydration_status": media.rehydration_status,
-            "last_accessed_at": (
-                media.last_accessed_at.isoformat() if media.last_accessed_at else None
-            ),
-            "source": "database",
-        }
-
-    # Update database with current tier from Azure
-    if tier_info.current_tier.value != media.storage_tier:
-        db.update_media(
-            media_id,
-            {
-                "storage_tier": tier_info.current_tier.value,
-                "rehydration_status": tier_info.rehydration_status,
-            },
-        )
-
-    return {
-        "media_id": media_id,
-        "blob_name": tier_info.blob_name,
-        "storage_tier": tier_info.current_tier.value,
-        "is_archived": tier_info.is_archived,
-        "is_rehydrating": tier_info.is_rehydrating,
-        "rehydration_status": tier_info.rehydration_status,
-        "estimated_rehydration_time": tier_info.estimated_rehydration_time,
-        "last_accessed_at": (
-            tier_info.last_accessed.isoformat() if tier_info.last_accessed else None
-        ),
-        "source": "azure",
-    }
+    return get_storage_route_service().get_media_tier(media_id, media, db, service)
 
 
 @router.post("/media/{media_id}/tier")
@@ -161,32 +114,14 @@ async def change_media_tier(
     db = get_database_service()
 
     service = get_storage_tiering_service()
-    result = service.set_blob_tier(
-        media.blob_name,
+    return get_storage_route_service().change_media_tier(
+        media_id,
+        media,
+        db,
+        service,
         request.target_tier,
         request.rehydrate_priority,
     )
-
-    if result.success:
-        # Update database
-        update_data = {"storage_tier": request.target_tier.value}
-        if result.from_tier == StorageTier.ARCHIVE:
-            update_data["rehydration_status"] = (
-                f"rehydrate-pending-to-{request.target_tier.value.lower()}"
-            )
-        else:
-            update_data["rehydration_status"] = None
-
-        db.update_media(media_id, update_data)
-
-    return {
-        "media_id": media_id,
-        "success": result.success,
-        "from_tier": result.from_tier.value,
-        "to_tier": result.to_tier.value,
-        "reason": result.reason,
-        "error": result.error,
-    }
 
 
 @router.post("/media/{media_id}/rehydrate")
@@ -211,41 +146,18 @@ async def rehydrate_media(
     db = get_database_service()
     media = get_media_or_404(media_id, current_user)
 
-    # Check if actually archived
-    if media.storage_tier != "Archive":
-        raise HTTPException(
-            status_code=400, detail=f"Video is not archived (current tier: {media.storage_tier})"
-        )
-
     service = get_storage_tiering_service()
-    result = service.rehydrate_blob(
-        media.blob_name,
-        request.priority,
-        request.target_tier,
-    )
-
-    if result.success:
-        db.update_media(
+    try:
+        return get_storage_route_service().rehydrate_media(
             media_id,
-            {
-                "rehydration_status": f"rehydrate-pending-to-{request.target_tier.value.lower()}",
-            },
+            media,
+            db,
+            service,
+            request.priority,
+            request.target_tier,
         )
-
-    estimated_time = "< 1 hour" if request.priority == RehydratePriority.HIGH else "1-15 hours"
-
-    return {
-        "media_id": media_id,
-        "success": result.success,
-        "priority": request.priority.value,
-        "target_tier": request.target_tier.value,
-        "estimated_time": estimated_time,
-        "message": (
-            f"Rehydration started. Video will be available in {estimated_time}."
-            if result.success
-            else result.error
-        ),
-    }
+    except BadRequestError as exc:
+        raise HTTPException(status_code=400, detail=exc.message) from exc
 
 
 @router.get("/media/{media_id}/recommendation")
@@ -264,30 +176,7 @@ async def get_tier_recommendation(
     media = get_media_or_404(media_id, current_user)
 
     service = get_storage_tiering_service()
-    recommendation = service.get_tier_recommendation(
-        media.last_accessed_at,
-        media.file_size,
-    )
-
-    return {
-        "media_id": media_id,
-        "current_tier": media.storage_tier or "Hot",
-        "recommended_tier": (
-            recommendation["recommended_tier"].value
-            if hasattr(recommendation["recommended_tier"], "value")
-            else recommendation["recommended_tier"]
-        ),
-        "reason": recommendation["reason"],
-        "days_since_access": recommendation["days_since_access"],
-        "estimated_monthly_cost_usd": recommendation["estimated_monthly_cost_usd"],
-        "potential_monthly_savings_usd": recommendation["potential_monthly_savings_usd"],
-        "should_change": (media.storage_tier or "Hot")
-        != (
-            recommendation["recommended_tier"].value
-            if hasattr(recommendation["recommended_tier"], "value")
-            else recommendation["recommended_tier"]
-        ),
-    }
+    return get_storage_route_service().get_tier_recommendation(media_id, media, service)
 
 
 @router.get("/cost-analysis")
@@ -307,19 +196,8 @@ async def get_cost_analysis(
     db = get_database_service()
     media_list = db.get_media_by_user(current_user.id, limit=1000)
 
-    if not media_list:
-        return {
-            "total_media_count": 0,
-            "message": "No videos found",
-        }
-
-    # Convert to dicts for the service
-    media_dicts = [m.to_dict() for m in media_list]
-
     service = get_storage_tiering_service()
-    analysis = service.estimate_storage_costs(media_dicts)
-
-    return analysis
+    return get_storage_route_service().get_cost_analysis(media_list, service)
 
 
 @router.post("/lifecycle-policy")
@@ -337,22 +215,10 @@ async def generate_lifecycle_policy(
     The policy automatically moves blobs between tiers based on access time.
     """
     service = get_storage_tiering_service()
-    policy = service.generate_lifecycle_policy(
+    return get_storage_route_service().generate_lifecycle_policy(
+        service,
         cool_days=request.cool_days,
         cold_days=request.cold_days,
         archive_days=request.archive_days,
         prefix_filter=request.prefix_filter,
     )
-
-    return {
-        "policy": policy,
-        "instructions": {
-            "azure_portal": "Go to Storage Account > Lifecycle Management > Add Rule > Paste JSON",
-            "azure_cli": "az storage account management-policy create --account-name <name> --policy @policy.json",
-        },
-        "thresholds": {
-            "cool_after_days": request.cool_days,
-            "cold_after_days": request.cold_days,
-            "archive_after_days": request.archive_days,
-        },
-    }

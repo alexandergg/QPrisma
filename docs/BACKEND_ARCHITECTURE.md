@@ -64,14 +64,14 @@ QPrisma is a multimedia analysis platform powered by AI agents. The backend orch
 │                                                                     │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌────────────────────┐  │
 │  │  FastAPI Routes  │  │  LangGraph Agent │  │ Databricks Dispatch │  │
-│  │  (15 modules)   │  │  (16 tools)      │  │ Service Bus Bridge  │  │
+│  │  (15 modules)   │  │  (18 tools)      │  │ Service Bus Bridge  │  │
 │  └────────┬────────┘  └────────┬────────┘  └─────────┬──────────┘  │
 │           │                  │                   │              │
 │           └─────────┬────────┘                   │              │
 │                     │                             │              │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │              Service Layer (51 files)                      │  │
-│  │  chat │ structure │ graph_search │ media │ embedding ...  │  │
+│  │              Service Layer (51 files)                         │  │
+│  │  chat │ structure │ graph_search │ media/upload │ storage ...        │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌───────────┐  │
@@ -93,7 +93,7 @@ backend/
 │   ├── auth_dependencies.py         # Auth and operator dependencies
 │   ├── azure_dependencies.py        # Azure clients and Blob SAS helpers
 │   ├── graph_dependencies.py        # Graph service dependency providers
-│   ├── media_dependencies.py        # Media ownership and storage helpers
+│   ├── media_dependencies.py        # Media/upload/storage ownership and service builders
 │   └── routes/
 │       ├── a2a_agent_cards.py        # A2A agent card endpoints
 │       ├── a2a_message_routes.py     # A2A message handling
@@ -138,7 +138,9 @@ backend/
 │   ├── chat_service.py              # RAG chat with video context
 │   ├── structure_service.py         # Scene/chapter generation
 │   ├── graph_search_service.py      # Hybrid graph+vector search
-│   ├── media_service.py             # Media lifecycle management
+│   ├── media_library_service.py     # Media library/status/audio/search orchestration
+│   ├── media_upload_service.py      # Direct upload orchestration
+│   ├── storage_route_service.py     # Storage tier route orchestration
 │   ├── embedding_service.py         # Vector embedding generation
 │   ├── entra_auth_service.py        # Microsoft Entra ID auth
 │   ├── foundry_memory_service.py    # Foundry Memory Store
@@ -301,11 +303,12 @@ async def update_media(
 
 ### Dependency Injection
 
-Routes import stable dependencies from `api/dependencies.py`. The implementation is split by responsibility into `auth_dependencies.py`, `azure_dependencies.py`, `graph_dependencies.py`, and `media_dependencies.py`, while the facade preserves existing route/test imports.
+Routes import stable dependencies from `api/dependencies.py`. The implementation is split by responsibility into `auth_dependencies.py`, `azure_dependencies.py`, `graph_dependencies.py`, and `media_dependencies.py`, while the facade preserves existing route/test imports. Route-local shims may remain when tests patch route symbols, but service construction should delegate to facade builders such as `get_media_upload_service`, `get_media_library_service`, `get_chunked_upload_service`, `get_storage_route_service`, `get_chat_service`, and `get_structure_service`.
 
 ```python
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from core.exceptions import AccessDeniedError, AuthenticationError
 
 security = HTTPBearer()
 
@@ -317,17 +320,21 @@ async def get_current_user(
 
     try:
         return await get_entra_auth_service().verify_token(credentials.credentials)
-    except HTTPException:
-        raise
-    except Exception:
+    except AuthenticationError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        ) from None
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+    except AccessDeniedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
 
-def get_media_service():
-    from services.media_service import get_media_service
-    return get_media_service()
+def get_media_library_service():
+    from services.media_library_service import get_media_library_service
+    return get_media_library_service()
 
 def get_chat_service():
     from services.chat_service import get_chat_service
@@ -434,10 +441,12 @@ def create_agent_graph(tools: list, checkpointer=None):
 
 ```python
 from langchain_core.tools import tool
+from agent.utils.tool_meta import tool_error, tool_meta
 
 @tool
 async def search_transcript(
     media_id: str,
+    target_video_id: str | None = None,
     query: str,
     max_results: int = 10,
 ) -> dict:
@@ -449,22 +458,31 @@ async def search_transcript(
         max_results: Maximum number of results to return.
 
     Returns:
-        Dictionary with 'results' list and 'count'.
+        Dictionary with `results`, `count`, and `_meta`.
     """
+    effective_media_id = target_video_id or media_id
+    if not effective_media_id:
+        return tool_error("no_context", "No video context available.")
+
     try:
         search_service = get_search_service()
         results = await search_service.search_transcript(
-            media_id=media_id,
+            media_id=effective_media_id,
             query=query,
             limit=max_results,
         )
         return {
             "results": [r.model_dump() for r in results],
             "count": len(results),
+            "_meta": tool_meta(result_count=len(results)),
         }
     except Exception as e:
-        return {"error": str(e), "results": [], "count": 0}
+        return tool_error("query_error", f"Transcript search failed: {type(e).__name__}")
 ```
+
+Tool payload contracts are canonicalized in `agent/utils/tool_meta.py`: successful tool responses remain domain-specific but include `_meta`; error responses use `tool_error()` and always include structured `error`, compatibility `results: []`, `count: 0`, and incomplete `_meta`. Single-video tools that can be used in multi-video sessions accept optional `target_video_id` and fall back to the injected primary `media_id`.
+
+Full tool payloads are persisted as artifacts on a best-effort basis. If artifact service initialization or persistence fails, `update_context` records a degraded `TOOL_ARTIFACT_PERSISTENCE` event and metrics, keeps compact memory and partial results, and continues the agent turn without an artifact reference.
 
 ### Chat Node with Context Injection
 
@@ -528,7 +546,7 @@ class TokenBudgetManager:
 
 ## 6. Service Layer
 
-The service layer contains 49 Python files (38 root-level + 11 in the `graph/` submodule) implementing business logic. Route handlers should stay focused on HTTP concerns and delegate to services through dependency providers or small route-local factories when request-scoped dependencies are needed.
+The service layer contains 51 Python files (40 root-level + 11 in the `graph/` submodule) implementing business logic. Route handlers should stay focused on HTTP concerns and delegate to services through dependency providers or small route-local factories when request-scoped dependencies are needed.
 
 ### Service Initialization Pattern
 
@@ -545,16 +563,21 @@ def get_chat_service() -> ChatService:
     return _service_instance
 ```
 
-### Root Service Files (41 files)
+### Service Error Boundary
+
+Services use domain exceptions from `core.exceptions` instead of FastAPI `HTTPException`. API routes and dependencies translate `BadRequestError`, `AuthenticationError`, `NotFoundError`, `AccessDeniedError`, `ServiceUnavailableError`, and other domain failures into HTTP status codes. This keeps service code reusable from tests, background workers, Azure Functions, and agent/runtime code without importing FastAPI.
+
+### Root Service Files (40 files)
 
 | Service | File | Description |
 |---|---|---|
 | ChatService | `chat_service.py` | RAG chat with video context |
 | StructureService | `structure_service.py` | Scene/chapter generation |
 | GraphSearchService | `graph_search_service.py` | Hybrid graph+vector search |
+| MediaLibraryService | `media_library_service.py` | Media library/status/audio/search orchestration |
 | MediaUploadService | `media_upload_service.py` | Standard and optimized media upload orchestration |
 | ChunkedUploadService | `chunked_upload_service.py` | Resumable block upload sessions, commit, status, and cancel |
-| MediaService | `media_service.py` | Media lifecycle (CRUD, status) |
+| StorageRouteService | `storage_route_service.py` | Storage tier route orchestration and response shaping |
 | EmbeddingService | `embedding_service.py` | Vector embedding generation |
 | TranscriptionService | `transcription_service.py` | Whisper transcription |
 | EntraAuthService | `entra_auth_service.py` | Microsoft Entra ID auth |

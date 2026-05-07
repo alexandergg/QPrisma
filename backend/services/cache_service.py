@@ -16,6 +16,8 @@ from enum import Enum
 from fnmatch import fnmatch
 from typing import Any, TypeVar
 
+from core.degraded import DegradationImpact, record_degraded_operation
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -196,7 +198,14 @@ class CacheService:
                 self.metrics.misses += 1
             return result
         except Exception as e:
-            logger.error(f"Cache GET error: {e}")
+            record_degraded_operation(
+                logger,
+                component="cache",
+                operation="raw_get",
+                impact=DegradationImpact.CACHE_READ,
+                exc=e,
+                level=logging.DEBUG,
+            )
             self.metrics.errors += 1
             return None
 
@@ -209,7 +218,14 @@ class CacheService:
             await self.client.set(key, value, ex=ttl)
             return True
         except Exception as e:
-            logger.error(f"Cache SET error: {e}")
+            record_degraded_operation(
+                logger,
+                component="cache",
+                operation="raw_set",
+                impact=DegradationImpact.CACHE_WRITE,
+                exc=e,
+                level=logging.DEBUG,
+            )
             self.metrics.errors += 1
             return False
 
@@ -222,7 +238,14 @@ class CacheService:
             await self.client.delete(key)
             return True
         except Exception as e:
-            logger.error(f"Cache DELETE error: {e}")
+            record_degraded_operation(
+                logger,
+                component="cache",
+                operation="raw_delete",
+                impact=DegradationImpact.CACHE_INVALIDATION,
+                exc=e,
+                level=logging.DEBUG,
+            )
             return False
 
     # =========================================================================
@@ -252,7 +275,14 @@ class CacheService:
             data = json.dumps(result).encode()
             return await self._set_raw(key, data, ttl)
         except Exception as e:
-            logger.error(f"Failed to cache search result: {e}")
+            record_degraded_operation(
+                logger,
+                component="cache",
+                operation="serialize_search_result",
+                impact=DegradationImpact.CACHE_WRITE,
+                exc=e,
+                level=logging.DEBUG,
+            )
             return False
 
     # =========================================================================
@@ -280,7 +310,14 @@ class CacheService:
             data = json.dumps(result).encode()
             return await self._set_raw(key, data, ttl)
         except Exception as e:
-            logger.error(f"Failed to cache graph query: {e}")
+            record_degraded_operation(
+                logger,
+                component="cache",
+                operation="serialize_graph_query",
+                impact=DegradationImpact.CACHE_WRITE,
+                exc=e,
+                level=logging.DEBUG,
+            )
             return False
 
     # =========================================================================
@@ -305,7 +342,14 @@ class CacheService:
                 await self._memory_cache.delete(key)
                 count += 1
         except Exception as e:
-            logger.error(f"Error invalidating cache: {e}")
+            record_degraded_operation(
+                logger,
+                component="cache",
+                operation="invalidate_by_pattern",
+                impact=DegradationImpact.CACHE_INVALIDATION,
+                exc=e,
+                level=logging.DEBUG,
+            )
 
         return count
 
@@ -323,7 +367,14 @@ class CacheService:
             await self._memory_cache.flushdb()
             return True
         except Exception as e:
-            logger.error(f"Error clearing cache: {e}")
+            record_degraded_operation(
+                logger,
+                component="cache",
+                operation="clear_all",
+                impact=DegradationImpact.CACHE_INVALIDATION,
+                exc=e,
+                level=logging.DEBUG,
+            )
             return False
 
     def get_metrics(self) -> dict[str, Any]:

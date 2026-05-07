@@ -7,8 +7,8 @@ Covers Entra ID JWT token validation with mocked JWKS.
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 
+from core.exceptions import AccessDeniedError, AuthenticationError
 from models.user import EntraTokenData
 
 # =============================================================================
@@ -114,10 +114,9 @@ class TestEntraAuthServiceVerifyToken:
             "services.entra_auth_service.jwt.decode",
             side_effect=pyjwt.ExpiredSignatureError("Token expired"),
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(AuthenticationError) as exc_info:
                 await entra_service.verify_token("expired.token.here")
-            assert exc_info.value.status_code == 401
-            assert "expired" in exc_info.value.detail.lower()
+            assert "expired" in exc_info.value.message.lower()
 
     @pytest.mark.asyncio
     async def test_invalid_token_raises_401(self, entra_service):
@@ -132,9 +131,9 @@ class TestEntraAuthServiceVerifyToken:
             "services.entra_auth_service.jwt.decode",
             side_effect=pyjwt.InvalidTokenError("Bad token"),
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(AuthenticationError) as exc_info:
                 await entra_service.verify_token("bad.token.here")
-            assert exc_info.value.status_code == 401
+            assert exc_info.value.code == "AUTHENTICATION_ERROR"
 
     @pytest.mark.asyncio
     async def test_email_fallback_to_email_claim(self, entra_service):
@@ -262,6 +261,6 @@ class TestUserProvisioningService:
         token_data = EntraTokenData(oid="inactive-oid", email="inactive@example.com")
 
         with patch("services.user_provisioning_service.get_database_service", return_value=mock_db):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(AccessDeniedError) as exc_info:
                 provisioning_service.ensure_user_exists(token_data)
-            assert exc_info.value.status_code == 403
+            assert exc_info.value.code == "ACCESS_DENIED"

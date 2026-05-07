@@ -254,6 +254,27 @@ class TestGetEntityTimeline:
         call_kwargs = mock_kg.find_entity_appearances.call_args
         assert call_kwargs[1].get("user_id") == "u-99"
 
+    @pytest.mark.asyncio
+    async def test_target_video_id_overrides_media_id(self):
+        from agent.tools.analysis_tools import get_entity_timeline
+
+        mock_kg = MagicMock()
+        mock_kg.find_entity_appearances.return_value = {"visual": [], "audio": []}
+
+        with patch(
+            "services.knowledge_graph.get_knowledge_graph_service",
+            return_value=mock_kg,
+        ):
+            await get_entity_timeline.ainvoke(
+                {
+                    "entity_name": "X",
+                    "media_id": "vid-primary",
+                    "target_video_id": "vid-target",
+                }
+            )
+
+        assert mock_kg.find_entity_appearances.call_args[0][0] == "vid-target"
+
 
 # ---------------------------------------------------------------------------
 # compare_moments
@@ -352,3 +373,24 @@ class TestCompareMoments:
         for m in result["moments"]:
             assert "visual" in m
             assert "audio" not in m
+
+    @pytest.mark.asyncio
+    async def test_target_video_id_overrides_media_id(self):
+        from agent.tools.analysis_tools import compare_moments
+
+        mock_kg = MagicMock()
+        mock_kg.get_moments_context.return_value = []
+
+        with patch(
+            "services.knowledge_graph.get_knowledge_graph_service",
+            return_value=mock_kg,
+        ):
+            await compare_moments.ainvoke(
+                {
+                    "timestamps": [10.0, 20.0],
+                    "media_id": "vid-primary",
+                    "target_video_id": "vid-target",
+                }
+            )
+
+        assert mock_kg.get_moments_context.call_args[0][0] == "vid-target"
