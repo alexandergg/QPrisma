@@ -25,7 +25,6 @@ export function useChatVideos() {
   const [activeVideoTab, setActiveVideoTab] = useState(0);
   const [comparisonMode, setComparisonMode] = useState<'tabs' | 'side-by-side'>('tabs');
   const [currentMode, setCurrentMode] = useState<'single' | 'library'>('single');
-  const [selectionLimitMessage, setSelectionLimitMessage] = useState<string | null>(null);
 
   const isMultiVideo = selectedVideos.length > 1;
 
@@ -80,11 +79,6 @@ export function useChatVideos() {
 
   const handleMultiVideoSelectionChange = async (ids: string[]) => {
     const limitedIds = ids.slice(0, UPLOAD.MAX_FILES);
-    setSelectionLimitMessage(
-      ids.length > UPLOAD.MAX_FILES
-        ? `You can select up to ${UPLOAD.MAX_FILES} videos. Extra videos were not added.`
-        : null,
-    );
     const videos: VideoData[] = [];
     for (const id of limitedIds) {
       const existing = selectedVideos.find((v) => v.id === id);
@@ -163,7 +157,6 @@ export function useChatVideos() {
     uploadPreset,
     uploadMaxFrames,
     pendingFiles,
-    selectionLimitMessage,
     activeVideoTab,
     comparisonMode,
     currentMode,
@@ -180,7 +173,6 @@ export function useChatVideos() {
     setActiveVideoTab,
     setComparisonMode,
     setCurrentMode,
-    setSelectionLimitMessage,
     handleSelectVideoFromLibrary,
     handleMultiVideoSelectionChange,
     handleConfirmMultiSelect,

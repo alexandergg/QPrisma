@@ -41,6 +41,37 @@ def test_list_media_shapes_thumbnail_and_metadata_without_blob_hydration():
 
 
 @pytest.mark.unit
+def test_list_media_preserves_zero_duration_and_frames_analyzed():
+    media = MagicMock()
+    media.to_dict.return_value = {
+        "id": "media_123",
+        "user_id": "user_123",
+        "original_filename": "demo.mp4",
+        "duration": 0,
+        "frames_analyzed": 0,
+        "video_metadata": {"duration_seconds": 125.5},
+        "processing_result": {
+            "frames_analyzed": 42,
+            "processing_stats": {"frames_analyzed": 42},
+        },
+    }
+    db = MagicMock()
+    db.get_media_by_user.return_value = [media]
+    service = MediaLibraryService(
+        db=db,
+        blob_service=MagicMock(),
+        container_name="media",
+        sas_url_factory=AsyncMock(return_value=None),
+        hydrate_data_factory=_empty_hydrate,
+    )
+
+    response = service.list_media(user_id="user_123", limit=50, offset=0)
+
+    assert response["media"][0]["duration"] == 0
+    assert response["media"][0]["frames_analyzed"] == 0
+
+
+@pytest.mark.unit
 async def test_missing_media_uses_core_not_found_error():
     db = MagicMock()
     db.get_media.return_value = None

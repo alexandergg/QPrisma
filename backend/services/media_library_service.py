@@ -69,22 +69,22 @@ class MediaLibraryService:
         processing_result = item.get("processing_result") or {}
         processing_stats = processing_result.get("processing_stats") or {}
 
-        duration = (
-            item.get("duration")
-            or video_metadata.get("duration")
-            or video_metadata.get("duration_seconds")
-            or (processing_result.get("video_metadata") or {}).get("duration")
-            or (processing_result.get("video_metadata") or {}).get("duration_seconds")
+        duration = MediaLibraryService._first_not_none(
+            item.get("duration"),
+            video_metadata.get("duration"),
+            video_metadata.get("duration_seconds"),
+            (processing_result.get("video_metadata") or {}).get("duration"),
+            (processing_result.get("video_metadata") or {}).get("duration_seconds"),
         )
-        if duration:
+        if duration is not None:
             item["duration"] = duration
 
-        frames_analyzed = (
-            item.get("frames_analyzed")
-            or processing_result.get("frames_analyzed")
-            or processing_stats.get("frames_analyzed")
+        frames_analyzed = MediaLibraryService._first_not_none(
+            item.get("frames_analyzed"),
+            processing_result.get("frames_analyzed"),
+            processing_stats.get("frames_analyzed"),
         )
-        if frames_analyzed:
+        if frames_analyzed is not None:
             item["frames_analyzed"] = frames_analyzed
 
         thumbnail_url = (
@@ -98,6 +98,10 @@ class MediaLibraryService:
             item["thumbnail_url"] = thumbnail_url
 
         return item
+
+    @staticmethod
+    def _first_not_none(*values: Any) -> Any:
+        return next((value for value in values if value is not None), None)
 
     @staticmethod
     def _thumbnail_from_frames(frames_data: Any) -> str | None:
