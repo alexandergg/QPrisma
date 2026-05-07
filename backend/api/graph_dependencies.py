@@ -54,7 +54,7 @@ def get_chat_service(
 
     if openai_client is None:
         if openai_client_factory is None:
-            from api.azure_dependencies import get_async_openai_client as openai_client_factory
+            from api.dependencies import get_async_openai_client as openai_client_factory
 
         openai_client = openai_client_factory()
     if graph_search_service is None:

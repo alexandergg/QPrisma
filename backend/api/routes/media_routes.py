@@ -38,7 +38,9 @@ from api.dependencies import (
 from api.rate_limit import limiter
 from core.errors import forbidden, not_found, service_unavailable
 from core.exceptions import (
+    AccessDeniedError,
     BadRequestError,
+    NotFoundError,
     ProcessingError,
     QPrismaException,
     ServiceUnavailableError,
@@ -47,10 +49,7 @@ from core.exceptions import (
 from models.user import User
 from services.database_service import get_database_service
 from services.media_library_service import (
-    MediaForbiddenError,
     MediaLibraryService,
-    MediaNotFoundError,
-    MediaStorageUnavailableError,
 )
 from services.media_upload_service import MediaUploadService, OptimizedUploadOptions
 from services.video_processing_dispatch_service import get_video_processing_dispatch_service
@@ -107,12 +106,12 @@ def get_media_library_service_instance() -> MediaLibraryService:
 
 def translate_media_library_error(exc: Exception) -> HTTPException:
     """Translate media service exceptions into the existing HTTP error contract."""
-    if isinstance(exc, MediaNotFoundError):
+    if isinstance(exc, NotFoundError):
         return not_found("Media")
-    if isinstance(exc, MediaForbiddenError):
+    if isinstance(exc, AccessDeniedError):
         return forbidden("You don't have permission to access this media")
-    if isinstance(exc, MediaStorageUnavailableError):
-        return service_unavailable(str(exc))
+    if isinstance(exc, ServiceUnavailableError):
+        return service_unavailable(exc.message)
     return internal_error()
 
 
@@ -229,7 +228,7 @@ async def delete_media(media_id: str, current_user: User = Depends(get_current_u
             media_id=media_id,
             user_id=current_user.id,
         )
-    except (MediaNotFoundError, MediaForbiddenError, MediaStorageUnavailableError) as exc:
+    except (NotFoundError, AccessDeniedError, ServiceUnavailableError) as exc:
         raise translate_media_library_error(exc) from exc
     except Exception as e:
         logger.error(f"Error deleting media {media_id}: {e}", exc_info=True)
@@ -244,7 +243,7 @@ async def get_media_metadata(media_id: str, current_user: User = Depends(get_cur
             media_id=media_id,
             user_id=current_user.id,
         )
-    except (MediaNotFoundError, MediaForbiddenError, MediaStorageUnavailableError) as exc:
+    except (NotFoundError, AccessDeniedError, ServiceUnavailableError) as exc:
         raise translate_media_library_error(exc) from exc
     except Exception as e:
         logger.error(f"Media lookup failed for {media_id}: {e}", exc_info=True)

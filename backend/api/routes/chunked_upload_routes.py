@@ -115,7 +115,17 @@ def translate_chunked_upload_error(exc: QPrismaException) -> HTTPException:
     if isinstance(exc, BadRequestError):
         return HTTPException(status_code=400, detail=exc.message)
     if isinstance(exc, NotFoundError):
-        return HTTPException(status_code=404, detail=exc.details.get("resource", exc.message))
+        resource = exc.details.get("resource_type") or exc.details.get("resource")
+        if not resource:
+            detail = exc.message
+        elif isinstance(resource, str) and resource.lower().endswith(" not found"):
+            detail = resource
+        else:
+            detail = f"{resource} not found"
+        return HTTPException(
+            status_code=404,
+            detail=detail,
+        )
     if isinstance(exc, AccessDeniedError):
         return HTTPException(status_code=403, detail=exc.message)
     if isinstance(exc, ServiceUnavailableError):

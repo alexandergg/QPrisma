@@ -96,6 +96,24 @@ class TestListMedia:
 
 
 @pytest.mark.unit
+async def test_media_library_dependency_supplies_default_two_arg_sas_factory():
+    from api.media_dependencies import get_media_library_service
+
+    build_sas = AsyncMock(return_value="https://signed.example/video.mp4")
+    service = get_media_library_service(
+        db=MagicMock(),
+        blob_service=MagicMock(),
+        container_name="media",
+        graph_service_factory=lambda: None,
+    )
+
+    with patch("api.dependencies.build_blob_sas_url_async", new=build_sas):
+        assert await service.sas_url_factory("video.mp4", 2) == "https://signed.example/video.mp4"
+
+    assert build_sas.await_args.kwargs["permission"].read is True
+
+
+@pytest.mark.unit
 class TestGetMedia:
     def test_requires_auth(self, client):
         resp = client.get("/media/some_id")

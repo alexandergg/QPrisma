@@ -1,6 +1,7 @@
 """Service-layer read/delete/search operations for media routes."""
 
 import asyncio
+import inspect
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -8,6 +9,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from core.degraded import DegradationImpact, record_degraded_operation
+from core.exceptions import (
+    AccessDeniedError,
+    NotFoundError,
+    QPrismaException,
+    ServiceUnavailableError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,20 +24,10 @@ GraphServiceFactory = Callable[[], Any]
 GraphSearchServiceFactory = Callable[[], Any]
 
 
-class MediaLibraryError(Exception):
-    """Base exception for media library service failures."""
-
-
-class MediaNotFoundError(MediaLibraryError):
-    """Raised when media does not exist."""
-
-
-class MediaForbiddenError(MediaLibraryError):
-    """Raised when the caller cannot access media."""
-
-
-class MediaStorageUnavailableError(MediaLibraryError):
-    """Raised when an operation requires unavailable storage."""
+MediaLibraryError = QPrismaException
+MediaNotFoundError = NotFoundError
+MediaForbiddenError = AccessDeniedError
+MediaStorageUnavailableError = ServiceUnavailableError
 
 
 class MediaLibraryService:
@@ -75,7 +72,7 @@ class MediaLibraryService:
     async def delete_media(self, *, media_id: str, user_id: str) -> dict[str, str]:
         """Delete media data from Blob Storage, graph storage, and PostgreSQL."""
         if not self.blob_service:
-            raise MediaStorageUnavailableError("Azure Blob Storage not configured")
+            raise ServiceUnavailableError("Azure Blob Storage")
 
         media = self._get_media_for_user(media_id=media_id, user_id=user_id)
         blob_name = media.blob_name
@@ -100,7 +97,15 @@ class MediaLibraryService:
             if self.graph_service_factory:
                 kg_service = self.graph_service_factory()
                 if kg_service:
-                    kg_service.delete_video_graph(media_id)
+                    delete_video_graph = kg_service.delete_video_graph
+                    if inspect.iscoroutinefunction(delete_video_graph):
+                        await delete_video_graph(media_id)
+                    else:
+                        await asyncio.get_running_loop().run_in_executor(
+                            None,
+                            delete_video_graph,
+                            media_id,
+                        )
         except Exception as exc:
             record_degraded_operation(
                 logger,
@@ -274,7 +279,7 @@ class MediaLibraryService:
 
     async def _download_json_blob(self, blob_name: str) -> Any:
         if not self.blob_service:
-            raise MediaStorageUnavailableError("Azure Blob Storage not configured")
+            raise ServiceUnavailableError("Azure Blob Storage")
 
         blob_client = self.blob_service.get_blob_client(
             container=self.container_name,
@@ -288,7 +293,12 @@ class MediaLibraryService:
     def _get_media_for_user(self, *, media_id: str, user_id: str) -> Any:
         media = self.db.get_media(media_id)
         if not media:
-            raise MediaNotFoundError(media_id)
+            raise NotFoundError("Media", media_id)
         if media.user_id != user_id:
-            raise MediaForbiddenError(media_id)
+            raise AccessDeniedError(
+                "media",
+                media_id,
+                user_id=user_id,
+                message="You don't have permission to access this media",
+            )
         return media

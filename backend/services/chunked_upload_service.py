@@ -154,7 +154,7 @@ class ChunkedUploadService:
     ) -> dict[str, Any]:
         """Commit uploaded blocks, clear the upload session, and queue processing."""
         blob_service = self._require_blob_service()
-        self._require_media_owner(media_id, user_id, missing_detail="Upload session not found")
+        self._require_media_owner(media_id, user_id, missing_resource="Upload session")
         decoded_ids = self._decode_block_ids(block_ids)
 
         try:
@@ -234,7 +234,7 @@ class ChunkedUploadService:
 
     def get_status(self, *, media_id: str, user_id: str) -> dict[str, Any]:
         """Return resumable upload status and uncommitted block progress."""
-        media = self._require_media_owner(media_id, user_id, missing_detail="Upload not found")
+        media = self._require_media_owner(media_id, user_id, missing_resource="Upload")
         upload_session = media.upload_session if hasattr(media, "upload_session") else None
 
         if not upload_session:
@@ -272,7 +272,7 @@ class ChunkedUploadService:
 
     def cancel_upload(self, *, media_id: str, user_id: str) -> dict[str, str]:
         """Cancel an in-progress upload and remove its media record."""
-        media = self._require_media_owner(media_id, user_id, missing_detail="Upload not found")
+        media = self._require_media_owner(media_id, user_id, missing_resource="Upload")
         if self.blob_service:
             with suppress(Exception):
                 blob_client = self.blob_service.get_blob_client(
@@ -289,10 +289,10 @@ class ChunkedUploadService:
             raise ServiceUnavailableError("Azure Blob Storage")
         return self.blob_service
 
-    def _require_media_owner(self, media_id: str, user_id: str, *, missing_detail: str) -> Any:
+    def _require_media_owner(self, media_id: str, user_id: str, *, missing_resource: str) -> Any:
         media = self.db.get_media(media_id)
         if not media:
-            raise NotFoundError(missing_detail)
+            raise NotFoundError(missing_resource, media_id)
         if media.user_id != user_id:
             raise AccessDeniedError("Not authorized")
         return media
