@@ -56,9 +56,6 @@ TEMPORAL_WINDOWS_TABLE = "video_temporal_windows"
 SCENE_CANDIDATES_TABLE = "video_scene_candidates"
 SCENE_VISUAL_ANALYSIS_TABLE = "video_scene_visual_analysis"
 MODEL_INFERENCE_RUNS_TABLE = "video_model_inference_runs"
-AI_REQUESTS_TABLE = "video_ai_requests"
-AI_BATCHES_TABLE = "video_ai_batches"
-AI_RESULTS_TABLE = "video_ai_results"
 GOLD_PROCESSING_RESULTS_TABLE = "video_processing_results"
 GRAPH_UPSERTS_TABLE = "video_graph_upserts"
 
@@ -399,66 +396,6 @@ MODEL_INFERENCE_RUNS_SCHEMA = StructType(
         StructField("error", StringType(), nullable=False),
         StructField("started_at", TimestampType(), nullable=False),
         StructField("completed_at", TimestampType(), nullable=True),
-    ]
-)
-AI_REQUESTS_SCHEMA = StructType(
-    [
-        StructField("request_id", StringType(), nullable=False),
-        StructField("media_id", StringType(), nullable=False),
-        StructField("dispatch_id", StringType(), nullable=False),
-        StructField("source_type", StringType(), nullable=False),
-        StructField("source_id", StringType(), nullable=False),
-        StructField("model_name", StringType(), nullable=False),
-        StructField("prompt_version", StringType(), nullable=False),
-        StructField("input_uri", StringType(), nullable=True),
-        StructField("input_hash", StringType(), nullable=False),
-        StructField("request_payload", StringType(), nullable=False),
-        StructField("status", StringType(), nullable=False),
-        StructField("created_at", TimestampType(), nullable=False),
-        StructField("updated_at", TimestampType(), nullable=False),
-    ]
-)
-AI_BATCHES_SCHEMA = StructType(
-    [
-        StructField("batch_id", StringType(), nullable=False),
-        StructField("media_id", StringType(), nullable=False),
-        StructField("dispatch_id", StringType(), nullable=False),
-        StructField("batch_uri", StringType(), nullable=False),
-        StructField("request_count", LongType(), nullable=False),
-        StructField("model_names", StringType(), nullable=False),
-        StructField("status", StringType(), nullable=False),
-        StructField("provider_file_id", StringType(), nullable=True),
-        StructField("provider_batch_id", StringType(), nullable=True),
-        StructField("provider_output_file_id", StringType(), nullable=True),
-        StructField("provider_error_file_id", StringType(), nullable=True),
-        StructField("provider_status", StringType(), nullable=True),
-        StructField("provider_metadata", StringType(), nullable=False),
-        StructField("created_at", TimestampType(), nullable=False),
-        StructField("updated_at", TimestampType(), nullable=False),
-        StructField("submitted_at", TimestampType(), nullable=True),
-        StructField("completed_at", TimestampType(), nullable=True),
-        StructField("error", StringType(), nullable=False),
-    ]
-)
-AI_RESULTS_SCHEMA = StructType(
-    [
-        StructField("result_id", StringType(), nullable=False),
-        StructField("request_id", StringType(), nullable=False),
-        StructField("batch_id", StringType(), nullable=False),
-        StructField("media_id", StringType(), nullable=False),
-        StructField("dispatch_id", StringType(), nullable=False),
-        StructField("source_type", StringType(), nullable=False),
-        StructField("source_id", StringType(), nullable=False),
-        StructField("model_name", StringType(), nullable=False),
-        StructField("prompt_version", StringType(), nullable=False),
-        StructField("status", StringType(), nullable=False),
-        StructField("response_json", StringType(), nullable=False),
-        StructField("normalized_json", StringType(), nullable=False),
-        StructField("tokens_prompt", LongType(), nullable=True),
-        StructField("tokens_completion", LongType(), nullable=True),
-        StructField("created_at", TimestampType(), nullable=False),
-        StructField("updated_at", TimestampType(), nullable=False),
-        StructField("error", StringType(), nullable=False),
     ]
 )
 GOLD_PROCESSING_RESULTS_SCHEMA = StructType(

@@ -20,32 +20,6 @@ from uuid import uuid4
 
 from .contracts import *
 
-def load_completed_ai_results() -> list[dict]:
-    rows = spark.sql(
-        f"""
-        SELECT
-          result_id,
-          request_id,
-          batch_id,
-          source_type,
-          source_id,
-          model_name,
-          prompt_version,
-          status,
-          normalized_json,
-          tokens_prompt,
-          tokens_completion,
-          updated_at
-        FROM {qualified_ai_results_table}
-        WHERE media_id = {sql_literal(media_id)}
-          AND dispatch_id = {sql_literal(dispatch_id)}
-          AND status = 'completed'
-        ORDER BY source_type, source_id, updated_at DESC
-        """
-    ).collect()
-    return [row.asDict() for row in rows]
-
-
 def parse_json_dict(raw_value: str | dict | None) -> dict:
     if isinstance(raw_value, dict):
         return raw_value
@@ -126,36 +100,6 @@ def extract_objects(payload: dict) -> list[str]:
     ):
         objects.extend(list_strings(payload.get(key)))
     return unique_strings(objects, 25)
-
-
-def frame_understanding_by_source(ai_results: list[dict]) -> dict[str, dict]:
-    by_source: dict[str, dict] = {}
-    for result in ai_results:
-        if result["source_type"] != "frame" or result["source_id"] in by_source:
-            continue
-        normalized = parse_json_dict(result["normalized_json"])
-        description = string_field(
-            normalized,
-            ("description", "summary", "analysis", "caption", "content", "text"),
-        )
-        if not description and normalized:
-            description = truncate_text(json.dumps(normalized, sort_keys=True), 500)
-        by_source[result["source_id"]] = {
-            "result_id": result["result_id"],
-            "description": description,
-            "detected_objects": extract_objects(normalized),
-            "normalized": normalized,
-            "tokens_prompt": int(result["tokens_prompt"] or 0),
-            "tokens_completion": int(result["tokens_completion"] or 0),
-        }
-    return by_source
-
-
-def transcript_semantics(ai_results: list[dict]) -> dict:
-    for result in ai_results:
-        if result["source_type"] == "transcript":
-            return parse_json_dict(result["normalized_json"])
-    return {}
 
 
 def transcript_segments_for_range(segments: list[dict], start_seconds: float, end_seconds: float) -> str | None:
@@ -401,10 +345,8 @@ def build_video_metadata(frames: list[dict], asr_run: dict | None, segments: lis
     }
 
 
-def extract_key_topics(semantics: dict, frame_ai: dict[str, dict]) -> list[str]:
+def extract_key_topics(frame_ai: dict[str, dict]) -> list[str]:
     topics = []
-    for key in ("key_topics", "topics", "themes"):
-        topics.extend(list_strings(semantics.get(key)))
     for understanding in frame_ai.values():
         topics.extend(understanding.get("detected_objects", [])[:5])
     return unique_strings(topics, 15)
@@ -414,26 +356,21 @@ def build_gold_processing_result() -> dict:
     frames = load_frame_assets()
     segments = load_transcript_segments()
     asr_run = load_completed_asr_run()
-    ai_results = load_completed_ai_results()
     frame_analysis_rows = load_completed_frame_analysis_rows()
     scene_visual_rows = load_completed_scene_visual_analysis_rows()
-    frame_ai = frame_understanding_by_source(ai_results)
-    frame_ai.update(frame_analysis_understanding_by_source(frame_analysis_rows))
+    frame_ai = frame_analysis_understanding_by_source(frame_analysis_rows)
     scene_visual = scene_visual_analysis_by_candidate(scene_visual_rows)
-    semantics = transcript_semantics(ai_results)
     scene_candidates = load_scene_candidates()
     video_metadata = build_video_metadata(frames, asr_run, segments)
     duration = float(video_metadata.get("duration_seconds") or 0.0)
     scenes = build_scenes(frames, segments, frame_ai, duration, scene_candidates, scene_visual)
     chapters = build_chapters_from_scenes(scenes)
-    key_topics = extract_key_topics(semantics, frame_ai)
-    video_summary = string_field(semantics, ("video_summary", "summary", "abstract"))
-    if not video_summary:
-        video_summary = truncate_text(
-            " ".join(scene["summary"] for scene in scenes[:5] if scene.get("summary")),
-            900,
-        )
-    video_title = string_field(semantics, ("video_title", "title"))
+    key_topics = extract_key_topics(frame_ai)
+    video_summary = truncate_text(
+        " ".join(scene["summary"] for scene in scenes[:5] if scene.get("summary")),
+        900,
+    )
+    video_title = None
     structure = {
         "scenes": scenes,
         "chapters": chapters,
@@ -444,20 +381,16 @@ def build_gold_processing_result() -> dict:
     }
     audio_data = build_audio_data(asr_run, segments)
     frames_data = build_frames_data(frames, frame_ai)
-    completed_ai_results = len(ai_results)
     completed_frame_analysis = len(frame_analysis_rows)
     completed_scene_visual_analysis = len(scene_visual_rows)
     frames_analyzed = len([frame for frame in frames_data if frame.get("analysis")])
-    model_results_completed = (
-        completed_ai_results + completed_frame_analysis + completed_scene_visual_analysis
-    )
+    model_results_completed = completed_frame_analysis + completed_scene_visual_analysis
     processing_stats = {
         "frames_extracted": len(frames),
         "frames_analyzed": frames_analyzed,
         "frame_analysis_completed": completed_frame_analysis,
         "scene_visual_analysis_completed": completed_scene_visual_analysis,
         "tokens_total": sum(int(frame.get("tokens_used") or 0) for frame in frames_data),
-        "ai_results_completed": completed_ai_results,
         "audio_processed": audio_data["stats"]["has_audio"],
         "processing_mode": f"databricks_lakehouse_{inference_mode_config()['mode']}",
         "processing_version": processing_version,
@@ -482,7 +415,6 @@ def build_gold_processing_result() -> dict:
             "frame_analysis": FRAME_ANALYSIS_TABLE,
             "scene_visual_analysis": SCENE_VISUAL_ANALYSIS_TABLE,
             "model_inference_runs": MODEL_INFERENCE_RUNS_TABLE,
-            "ai_results": AI_RESULTS_TABLE,
             "graph_upserts": GRAPH_UPSERTS_TABLE,
         },
     }

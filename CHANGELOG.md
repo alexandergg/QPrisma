@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+#### Databricks Video Pipeline — Retired Legacy AI Batch Delta Tables
+- Removed `video_ai_requests`, `video_ai_batches`, and `video_ai_results` Delta tables from the video pipeline. These tables staged Azure OpenAI Batch API requests and responses; the active Florence 2 + Gemma 3 DAG (`local_databricks` inference mode) never wrote to them.
+- Deleted `inference/azure_openai_batch.py` (Azure OpenAI Batch API client, ~835 lines).
+- Removed `pipeline_models_config()`, `azure_openai_batch_enabled()`, and `batch_inference_skip_metrics()` from `inference/config.py`.
+- Removed `build_inference_request_rows()` and `register_ai_requests()` from `scenes.py`.
+- Removed `load_completed_ai_results()`, `frame_understanding_by_source()`, and `transcript_semantics()` from `gold.py`; Gold assembly now reads entirely from Florence 2 + Gemma 3 outputs.
+- Removed `azure_openai` and `azure_openai_batch` config key sets from `config.py` validation allowlist.
+- Removed three `CREATE TABLE IF NOT EXISTS` DDL blocks and the `ensure_table_columns` migration call for `video_ai_batches` from `tables.py`.
+- **Historical rows** in dev Unity Catalog workspaces are unaffected; the README advises archiving/renaming those tables before issuing a manual `DROP TABLE`.
+
 ### Changed (Breaking)
 
 #### Foundry Hosted Agent — Refreshed Preview Migration

@@ -397,75 +397,6 @@ def ensure_ops_table() -> None:
     )
     spark.sql(
         f"""
-        CREATE TABLE IF NOT EXISTS {qualified_ai_requests_table} (
-          request_id STRING,
-          media_id STRING,
-          dispatch_id STRING,
-          source_type STRING,
-          source_id STRING,
-          model_name STRING,
-          prompt_version STRING,
-          input_uri STRING,
-          input_hash STRING,
-          request_payload STRING,
-          status STRING,
-          created_at TIMESTAMP,
-          updated_at TIMESTAMP
-        )
-        USING DELTA
-        """
-    )
-    spark.sql(
-        f"""
-        CREATE TABLE IF NOT EXISTS {qualified_ai_batches_table} (
-          batch_id STRING,
-          media_id STRING,
-          dispatch_id STRING,
-          batch_uri STRING,
-          request_count BIGINT,
-          model_names STRING,
-          status STRING,
-          provider_file_id STRING,
-          provider_batch_id STRING,
-          provider_output_file_id STRING,
-          provider_error_file_id STRING,
-          provider_status STRING,
-          provider_metadata STRING,
-          created_at TIMESTAMP,
-          updated_at TIMESTAMP,
-          submitted_at TIMESTAMP,
-          completed_at TIMESTAMP,
-          error STRING
-        )
-        USING DELTA
-        """
-    )
-    spark.sql(
-        f"""
-        CREATE TABLE IF NOT EXISTS {qualified_ai_results_table} (
-          result_id STRING,
-          request_id STRING,
-          batch_id STRING,
-          media_id STRING,
-          dispatch_id STRING,
-          source_type STRING,
-          source_id STRING,
-          model_name STRING,
-          prompt_version STRING,
-          status STRING,
-          response_json STRING,
-          normalized_json STRING,
-          tokens_prompt BIGINT,
-          tokens_completion BIGINT,
-          created_at TIMESTAMP,
-          updated_at TIMESTAMP,
-          error STRING
-        )
-        USING DELTA
-        """
-    )
-    spark.sql(
-        f"""
         CREATE TABLE IF NOT EXISTS {qualified_gold_processing_results_table} (
           result_id STRING,
           media_id STRING,
@@ -525,14 +456,3 @@ def ensure_ops_table() -> None:
             "quality_details": "STRING",
         },
     )
-    ensure_table_columns(
-        qualified_ai_batches_table,
-        {
-            "provider_file_id": "STRING",
-            "provider_output_file_id": "STRING",
-            "provider_error_file_id": "STRING",
-            "provider_status": "STRING",
-            "provider_metadata": "STRING",
-        },
-    )
-

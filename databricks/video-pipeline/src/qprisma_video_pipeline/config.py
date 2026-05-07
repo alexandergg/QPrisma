@@ -117,28 +117,6 @@ def safe_source_media_for_persistence() -> dict:
 
 def safe_pipeline_config_for_persistence() -> dict:
     nested_allowed = {
-        "azure_openai": {
-            "api_key_env",
-            "api_key_secret_key",
-            "api_key_secret_scope",
-            "api_version",
-            "completion_window",
-            "endpoint",
-            "max_wait_seconds",
-            "poll_interval_seconds",
-            "request_timeout_seconds",
-        },
-        "azure_openai_batch": {
-            "api_key_env",
-            "api_key_secret_key",
-            "api_key_secret_scope",
-            "api_version",
-            "completion_window",
-            "endpoint",
-            "max_wait_seconds",
-            "poll_interval_seconds",
-            "request_timeout_seconds",
-        },
         "faster_whisper": {
             "chunk_overlap_seconds",
             "chunk_target_seconds",
@@ -231,8 +209,6 @@ def safe_pipeline_config_for_persistence() -> dict:
         pipeline_config,
         {
             "asr",
-            "azure_openai",
-            "azure_openai_batch",
             "custom_prompt",
             "faster_whisper",
             "frame_extraction",
