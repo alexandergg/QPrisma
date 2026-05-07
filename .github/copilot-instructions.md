@@ -1,6 +1,15 @@
 # GitHub Copilot Instructions for QPrisma
 
-This document provides context and guidelines for GitHub Copilot when working with the QPrisma codebase.
+This document provides codebase architecture and implementation conventions for GitHub Copilot when
+working with QPrisma. Operational workflow rules live in `AGENTS.md`; path-specific guidance lives in
+`.github/instructions/*.instructions.md`; executable task guidance lives in `.github/skills/*/SKILL.md`.
+
+## Instruction Boundaries
+
+- Use `AGENTS.md` for repo workflow, validation gates, PR hygiene, changelog discipline, and agent/skill routing.
+- Use this file for QPrisma-specific architecture, code patterns, imports, and implementation examples.
+- Use path-specific instructions before editing backend, frontend, infrastructure, or documentation files.
+- Keep generated answers grounded in current implementation; do not duplicate large guidance blocks across files.
 
 ## Project Overview
 
@@ -206,7 +215,7 @@ backend/
 ├── api/
 │   ├── main.py              # FastAPI app entry point
 │   ├── dependencies.py      # Lazy init singletons (single source of truth)
-│   └── routes/              # 14 API route modules
+│   └── routes/              # FastAPI route modules
 ├── agent/
 │   ├── graphs/              # StateGraph definitions (video.py)
 │   ├── nodes/               # Node implementations (base, video)
@@ -216,7 +225,7 @@ backend/
 │   ├── a2a.py               # Agent-to-Agent executor
 │   └── prompts.py           # System prompts
 ├── core/                    # config.py, logging_config.py, exceptions.py, async_utils.py
-├── services/                # 24 business logic services
+├── services/                # Business logic services
 ├── models/                  # Pydantic models and schemas
 ├── evaluation/              # Video-MME benchmark evaluation pipeline
 ├── functions/               # Azure Function bridge for Databricks dispatch/status
@@ -236,13 +245,17 @@ infra/
 └── parameters/              # Environment-specific parameters (dev.bicepparam)
 
 .github/
-├── workflows/               # CI/CD (ci, build-and-push, deploy-infra, deploy-app)
-└── actions/                 # Reusable composite actions
+├── workflows/               # CI/CD, deployment, evaluation, release automation
+├── actions/                 # Reusable composite actions
+├── agents/                  # Domain-specific Copilot agents
+├── skills/                  # Operational skills for repeatable workflows
+└── instructions/            # Path-scoped Copilot instructions
 ```
 
 ## CI/CD Pipeline
 
-Four GitHub Actions workflows:
+QPrisma uses GitHub Actions for CI, security, image build, infrastructure deployment, hosted-agent
+deployment, evaluation, and release automation. Core workflows include:
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
@@ -250,12 +263,15 @@ Four GitHub Actions workflows:
 | `build-and-push.yml` | Push to `main` (path-filtered) | Build Docker images, push to ACR, trigger deployment |
 | `deploy-infra.yml` | Push to `main` (`infra/**`) | Validate + deploy Azure infrastructure via Bicep |
 | `deploy-app.yml` | Auto-triggered | Rolling container updates with health checks + rollback |
+| `deploy-hosted-agent.yml` | Manual/path-triggered | Deploy the Foundry-hosted QPrisma agent |
+| `evaluate-agent.yml` | Manual | Run Foundry agent evaluation |
+| `benchmark-video-mme.yml` | Manual | Run Video-MME benchmark workflow |
 
 Key patterns: OIDC auth, path-filtered builds, GHA Docker layer caching, automatic rollback, KEDA autoscaling.
 
 ## Azure Infrastructure
 
-11 Bicep modules in `infra/modules/`:
+Infrastructure is orchestrated by `infra/main.bicep` and modularized under `infra/modules/`:
 - **Compute**: Container Apps (API, Frontend) + Neo4j in VNet-enabled managed environment
 - **AI**: Azure AI Foundry with 5 model deployments (West Europe)
 - **Data**: PostgreSQL Flex v16 (North Europe), Blob Storage, external managed Neo4j

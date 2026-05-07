@@ -1,24 +1,44 @@
 ---
 name: qprisma-evaluation
-description: Run QPrisma Video-MME benchmark evaluation against a remote API deployment.
+description: Run, prepare, or debug QPrisma Video-MME and Azure AI Foundry hosted-agent evaluation against a remote deployment.
 ---
 
 # QPrisma Evaluation Skill
 
-Use this skill to run Azure AI Foundry evaluation against the QPrisma hosted agent.
+Use this skill to run Azure AI Foundry evaluation, Video-MME benchmark workflows, cloud red-team
+checks, or evaluation data generation for the QPrisma hosted agent.
+
+## Required reads
+
+1. `AGENTS.md`
+2. `.github/workflows/evaluate-agent.yml`
+3. `.github/workflows/benchmark-video-mme.yml`
+4. `backend/evaluation_foundry/`
+5. `scripts/resolve_agent_version.py`
+6. Hosted-agent docs such as `docs/HOSTED_AGENT.md` when deployment context matters
 
 ## Overview
 
-QPrisma's agent (`qprisma-video-agent`) is evaluated using the `microsoft/ai-agent-evals`
-GitHub Action with built-in and custom evaluators.
+QPrisma's hosted agent (`qprisma-video-agent`) is evaluated using Azure AI Foundry evaluation flows,
+including `microsoft/ai-agent-evals`, built-in evaluators, custom evaluators, and optional cloud
+red-team checks.
 
-## CI/CD Workflow
+## Prerequisites
+
+- Deployed hosted agent in the target Azure AI Foundry project.
+- Valid `FOUNDRY_PROJECT_ENDPOINT`.
+- Runtime user/media IDs for video-scoped evaluation data.
+- Azure identity with access to the Foundry project.
+- Redacted environment values in logs, docs, PRs, and artifacts.
+
+## CI/CD workflow
 
 The evaluation runs manually via `.github/workflows/evaluate-agent.yml`:
-- **Manual**: `workflow_dispatch` with optional version override
-- Optional `run-redteam=true` launches the **cloud Foundry AI Red Teaming** job
 
-## Local Commands
+- `workflow_dispatch` with optional agent version override.
+- Optional `run-redteam=true` launches the cloud Foundry AI Red Teaming job.
+
+## Local commands
 
 ### Generate evaluation data (dry-run)
 
@@ -47,7 +67,7 @@ python -m evaluation_foundry.register_evaluators --dry-run
 ### Resolve agent version
 
 ```bash
-export AZURE_AI_PROJECT_ENDPOINT=https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
+export AZURE_AI_PROJECT_ENDPOINT=https://<foundry-account>.services.ai.azure.com/api/projects/<project-name>
 python scripts/resolve_agent_version.py
 ```
 
@@ -55,7 +75,7 @@ python scripts/resolve_agent_version.py
 
 ```bash
 cd backend
-export AZURE_AI_PROJECT_ENDPOINT=https://aif-qprisma-dev.services.ai.azure.com/api/projects/aif-qprisma-dev-project
+export AZURE_AI_PROJECT_ENDPOINT=https://<foundry-account>.services.ai.azure.com/api/projects/<project-name>
 export AZURE_AI_MODEL_DEPLOYMENT_NAME=gpt-5.5
 python -m evaluation_foundry.redteam_eval \
   --agent-id qprisma-video-agent:<version> \
@@ -66,31 +86,61 @@ python -m evaluation_foundry.redteam_eval \
   --output ./redteam-results.json
 ```
 
-## GitHub Variables & Secrets
+## GitHub variables and secrets
 
 | Variable/Secret | Type | Description |
-|-----------------|------|-------------|
-| `EVAL_MEDIA_ID_1` | Variable | UUID of test video 1 (already indexed) |
-| `EVAL_MEDIA_ID_2` | Variable | UUID of test video 2 (already indexed) |
+| --- | --- | --- |
+| `EVAL_MEDIA_ID_1` | Variable | UUID of test video 1 already indexed |
+| `EVAL_MEDIA_ID_2` | Variable | UUID of test video 2 already indexed |
 | `EVAL_USER_ID` | Secret | Current runtime user ID recognized by the hosted agent |
 | `FOUNDRY_PROJECT_ENDPOINT` | Variable | AI Foundry project endpoint URL |
-| `AZURE_OPENAI_DEPLOYMENT_GPT` | Variable | Foundry/OpenAI deployment used by task-adherence in cloud red-team |
-
-## Cloud red-team prerequisites
-
-- Foundry project in a region that supports cloud red teaming
-- **Azure AI User** role on the Foundry project
-- Hosted agent deployed in that same Foundry project
-- This workflow uses the **cloud Foundry Agent red-team path**, not the local PyRIT `azure.ai.evaluation.red_team.RedTeam` runner
+| `AZURE_OPENAI_DEPLOYMENT_GPT` | Variable | Foundry/OpenAI deployment used by task-adherence and red-team checks |
 
 ## Evaluators
 
-### Built-in (Azure AI Foundry)
-- **Quality**: Coherence, Fluency, Response Completeness
-- **RAG**: Groundedness, Relevance
-- **Agent**: Task Adherence, Task Completion, Tool Call Accuracy, Tool Selection
-- **Safety**: Violence, Hate/Unfairness, Sexual, Self-Harm, Indirect Attack
+### Built-in
+- Quality: Coherence, Fluency, Response Completeness
+- RAG: Groundedness, Relevance
+- Agent: Task Adherence, Task Completion, Tool Call Accuracy, Tool Selection
+- Safety: Violence, Hate/Unfairness, Sexual, Self-Harm, Indirect Attack
 
-### Custom (QPrisma-specific)
-- **Temporal Specificity**: Evaluates timestamp/temporal reference quality (1-5 scale)
-- **Source Grounding**: Evaluates video evidence citation quality (1-5 scale)
+### Custom QPrisma-specific
+- Temporal Specificity: timestamp and temporal reference quality
+- Source Grounding: video evidence citation quality
+
+## Guardrails
+
+- Start with dry-run data/evaluator commands before cloud jobs.
+- Do not log raw prompts, transcripts, private media IDs, user IDs, tenant IDs, tokens, or raw Foundry
+  payloads.
+- If a workflow is known broken or blocked by hosted-agent API migration, report the exact blocker and
+  do not claim benchmark coverage.
+- Separate model quality failures from infrastructure/configuration failures.
+- Preserve evaluation data contracts when changing metadata, conversation IDs, or hosted-agent
+  request shape.
+
+## Proof gates
+
+- Dry-run data generation before committing evaluation data or workflow assumptions.
+- Agent version resolution before remote evaluation.
+- Red-team and benchmark outputs must include artifact path or workflow run URL when available.
+
+## Output format
+
+```markdown
+### Evaluation target
+- Endpoint:
+- Agent version:
+- Dataset/media:
+
+### Commands or workflow
+- ...
+
+### Results
+- Scores:
+- Failures:
+- Artifacts:
+
+### Follow-up
+- ...
+```

@@ -72,6 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Entity timeline diagnostics**: `get_entity_timeline` now logs entity name length, type, and result counts for visual/audio appearances to aid debugging of missing entity extraction. (#122)
 
 ### Changed
+- **Copilot and maintainer workflow guidance**: refreshed root agent guidance, Copilot instructions,
+  reusable skills, specialized agents, PR evidence requirements, and changelog discipline using
+  applicable OpenClaw-inspired required reads, guardrails, proof gates, scope boundaries, and
+  output formats.
 - **Hosted agent deployment path**: migrated the default `Deploy Hosted Agent`
   workflow to the official `azd` hosted-agent pattern with root `azure.yaml`,
   `host: azure.ai.agent`, a flat `agent.yaml`, and postdeploy hooks for
