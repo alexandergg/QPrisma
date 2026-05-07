@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useCallback, useRef } from 'react';
-import { Film, CloudUpload } from 'lucide-react';
+import { AlertCircle, Film, CloudUpload } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 import { ChunkedUploader, shouldUseChunkedUpload, UploadProgress } from '@/lib/chunked-upload';
+import { UPLOAD } from '@/lib/constants';
 import { UploadStatusCard } from './UploadStatusCard';
 import {
   useProcessingPoller,
@@ -30,6 +31,7 @@ export default function VideoUpload({
   onVideoProcessed
 }: VideoUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadedVideos, setUploadedVideos] = useState<UploadedVideo[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,9 +61,16 @@ export default function VideoUpload({
   };
 
   const handleFiles = useCallback(async (files: File[]) => {
-    for (const file of files) {
+    const acceptedFiles = files.slice(0, UPLOAD.MAX_FILES);
+    setUploadError(
+      files.length > UPLOAD.MAX_FILES
+        ? `You can upload up to ${UPLOAD.MAX_FILES} videos at once. ${acceptedFiles.length} of ${files.length} selected files were added.`
+        : null,
+    );
+
+    for (const file of acceptedFiles) {
       if (!file.type.startsWith('video/')) {
-        alert(`File ${file.name} is not a video`);
+        setUploadError(`${file.name} is not a supported video file.`);
         continue;
       }
 
@@ -227,8 +236,16 @@ export default function VideoUpload({
         <div className="flex items-center gap-2 mt-6 text-xs text-gray-400">
           <Film className="w-4 h-4" />
           <span>MP4, MOV, AVI, WebM supported</span>
+          <span>• Up to {UPLOAD.MAX_FILES} videos</span>
         </div>
       </div>
+
+      {uploadError && (
+        <div role="alert" className="mt-4 rounded-xl border border-red-100 bg-red-50 p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-red-600">{uploadError}</p>
+        </div>
+      )}
 
       {/* Upload List */}
       {uploadedVideos.length > 0 && (

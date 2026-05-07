@@ -58,16 +58,57 @@ class MediaLibraryService:
 
         items = []
         for media in media_list:
-            item = media.to_dict()
-            if item.get("video_metadata", {}) and item["video_metadata"].get("duration"):
-                item["duration"] = item["video_metadata"]["duration"]
-            if item.get("processing_result", {}) and item["processing_result"].get(
-                "frames_analyzed"
-            ):
-                item["frames_analyzed"] = item["processing_result"]["frames_analyzed"]
-            items.append(item)
+            items.append(self._shape_media_summary(media.to_dict()))
 
         return {"total": len(items), "media": items, "limit": limit, "offset": offset}
+
+    @staticmethod
+    def _shape_media_summary(item: dict[str, Any]) -> dict[str, Any]:
+        """Add lightweight fields used by library cards without hydrating heavy blobs."""
+        video_metadata = item.get("video_metadata") or {}
+        processing_result = item.get("processing_result") or {}
+        processing_stats = processing_result.get("processing_stats") or {}
+
+        duration = (
+            item.get("duration")
+            or video_metadata.get("duration")
+            or video_metadata.get("duration_seconds")
+            or (processing_result.get("video_metadata") or {}).get("duration")
+            or (processing_result.get("video_metadata") or {}).get("duration_seconds")
+        )
+        if duration:
+            item["duration"] = duration
+
+        frames_analyzed = (
+            item.get("frames_analyzed")
+            or processing_result.get("frames_analyzed")
+            or processing_stats.get("frames_analyzed")
+        )
+        if frames_analyzed:
+            item["frames_analyzed"] = frames_analyzed
+
+        thumbnail_url = (
+            item.get("thumbnail_url")
+            or video_metadata.get("thumbnail_url")
+            or processing_result.get("thumbnail_url")
+            or (processing_result.get("video_metadata") or {}).get("thumbnail_url")
+            or MediaLibraryService._thumbnail_from_frames(processing_result.get("frames_data"))
+        )
+        if thumbnail_url:
+            item["thumbnail_url"] = thumbnail_url
+
+        return item
+
+    @staticmethod
+    def _thumbnail_from_frames(frames_data: Any) -> str | None:
+        if not isinstance(frames_data, list):
+            return None
+        for frame in frames_data:
+            if isinstance(frame, dict):
+                thumbnail = frame.get("thumbnail_url") or frame.get("frame_uri")
+                if isinstance(thumbnail, str) and thumbnail:
+                    return thumbnail
+        return None
 
     async def delete_media(self, *, media_id: str, user_id: str) -> dict[str, str]:
         """Delete media data from Blob Storage, graph storage, and PostgreSQL."""
@@ -124,11 +165,11 @@ class MediaLibraryService:
         self.db.update_media(media_id, {"last_accessed_at": datetime.now(UTC)})
 
         item = media.to_dict()
-        if item.get("video_metadata", {}) and item["video_metadata"].get("duration"):
-            item["duration"] = item["video_metadata"]["duration"]
+        item = self._shape_media_summary(item)
 
         hydrate = self.hydrate_data_factory or self.hydrate_data_from_blob
         item = await hydrate(item)
+        item = self._shape_media_summary(item)
 
         if item.get("blob_name"):
             blob_url = await self.sas_url_factory(item["blob_name"], 1)

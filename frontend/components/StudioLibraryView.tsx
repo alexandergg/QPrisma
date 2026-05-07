@@ -1,13 +1,12 @@
 'use client';
 
 import React from 'react';
+import Image from 'next/image';
 import {
   Film,
   Video,
-  Clock,
   Search as SearchIcon,
   Play,
-  Sparkles,
   Plus,
   Trash2,
   Grid,
@@ -16,19 +15,10 @@ import {
   Eye,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { formatFileSize, formatDate } from '@/lib/utils';
+import type { MediaItem } from '@/lib/api';
+import { formatDate, formatFileSize, formatTime } from '@/lib/utils';
 
-export interface MediaItem {
-  id: string;
-  original_filename: string;
-  media_type?: string;
-  file_size?: number;
-  uploaded_at?: string;
-  processed?: boolean;
-  processing_status?: string;
-  duration?: number;
-  frames_analyzed?: number;
-}
+export type { MediaItem };
 
 interface StudioLibraryViewProps {
   mediaList: MediaItem[];
@@ -54,8 +44,6 @@ export function StudioLibraryView({
   onDelete,
   onShowUpload,
 }: StudioLibraryViewProps) {
-  const router = useRouter();
-
   return (
     <div className="flex-1 flex flex-col">
       {/* Header */}
@@ -173,14 +161,18 @@ function MediaGrid({ media, onDelete }: { media: MediaItem[]; onDelete: (e: Reac
       {media.map((item) => (
         <div
           key={item.id}
-          onClick={() => router.push(`/chat/new?videoId=${item.id}`)}
+          onClick={() => router.push(`/chat?videoId=${item.id}`)}
           className="group cursor-pointer bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 overflow-hidden hover:shadow-xl hover:shadow-indigo-200/30 hover:-translate-y-1 transition-all duration-300"
         >
           {/* Thumbnail */}
           <div className="aspect-video bg-gradient-to-br from-gray-100 to-gray-200 relative overflow-hidden">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Film className="w-12 h-12 text-gray-300" />
-            </div>
+            {item.thumbnail_url ? (
+              <Image src={item.thumbnail_url} alt={item.original_filename} fill sizes="(min-width: 1536px) 25vw, (min-width: 1024px) 33vw, (min-width: 768px) 50vw, 100vw" className="object-cover" />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Film className="w-12 h-12 text-gray-300" />
+              </div>
+            )}
 
             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 bg-gradient-to-t from-black/60 via-black/20 to-transparent">
               <div className="bg-white text-indigo-600 rounded-full p-4 transform scale-90 group-hover:scale-100 transition-transform duration-300 shadow-xl">
@@ -207,7 +199,7 @@ function MediaGrid({ media, onDelete }: { media: MediaItem[]; onDelete: (e: Reac
             {item.duration && (
               <div className="absolute bottom-3 right-3">
                 <div className="px-2 py-1 bg-black/70 backdrop-blur text-white text-xs font-bold rounded-lg">
-                  {Math.floor(item.duration)}s
+                  {formatTime(item.duration)}
                 </div>
               </div>
             )}
@@ -254,14 +246,18 @@ function MediaList({ media, onDelete }: { media: MediaItem[]; onDelete: (e: Reac
       {media.map((item) => (
         <div
           key={item.id}
-          onClick={() => router.push(`/chat/new?videoId=${item.id}`)}
+          onClick={() => router.push(`/chat?videoId=${item.id}`)}
           className="group cursor-pointer bg-white rounded-xl shadow-lg shadow-gray-200/50 border border-gray-100 overflow-hidden hover:shadow-xl hover:shadow-indigo-200/30 transition-all duration-300 flex items-center gap-4 p-4"
         >
           {/* Thumbnail */}
           <div className="w-32 h-20 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg relative overflow-hidden flex-shrink-0">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Film className="w-8 h-8 text-gray-300" />
-            </div>
+            {item.thumbnail_url ? (
+              <Image src={item.thumbnail_url} alt={item.original_filename} fill sizes="128px" className="object-cover" />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Film className="w-8 h-8 text-gray-300" />
+              </div>
+            )}
           </div>
 
           {/* Info */}
@@ -276,7 +272,7 @@ function MediaList({ media, onDelete }: { media: MediaItem[]; onDelete: (e: Reac
               {item.duration && (
                 <>
                   <span className="w-1 h-1 rounded-full bg-gray-300"></span>
-                  <span>{Math.floor(item.duration)}s</span>
+                  <span>{formatTime(item.duration)}</span>
                 </>
               )}
             </div>

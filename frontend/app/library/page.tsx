@@ -5,28 +5,16 @@ import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/layout';
 import { VideoGrid } from '@/components/library';
 import RequireAuth from '@/components/RequireAuth';
-
-interface Video {
-  id: string;
-  original_filename: string;
-  media_type?: string;
-  file_size?: number;
-  uploaded_at?: string;
-  processed?: boolean;
-  processing_status?: string;
-  duration?: number;
-  frames_analyzed?: number;
-  thumbnail_url?: string;
-}
+import type { MediaItem } from '@/lib/api';
 
 export default function LibraryPage() {
   const router = useRouter();
   const [currentMode, setCurrentMode] = useState<'single' | 'library'>('library');
   const [selectedVideoId] = useState<string | undefined>();
 
-  const handleSelectVideo = (video: Video) => {
+  const handleSelectVideo = (video: MediaItem) => {
     // Navigate to chat with this video
-    router.push(`/chat/new?videoId=${video.id}`);
+    router.push(`/chat?videoId=${video.id}`);
   };
 
   return (

@@ -5,6 +5,7 @@ import { X, Film, Settings2, ChevronDown } from 'lucide-react';
 import { UploadZone, ProcessingCard } from '@/components/upload';
 import { ChunkedUploader, shouldUseChunkedUpload, UploadProgress } from '@/lib/chunked-upload';
 import { apiClient } from '@/lib/api';
+import { UPLOAD } from '@/lib/constants';
 import type { UploadingVideo } from '../types';
 import { formatBytes } from '../types';
 
@@ -185,6 +186,11 @@ export default function UploadModal({
           <div className="space-y-6">
             {/* Selected files list */}
             <div className="space-y-2">
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
+                {pendingFiles.length} of {UPLOAD.MAX_FILES} videos selected
+                {' '}({formatBytes(pendingFiles.reduce((sum, file) => sum + file.size, 0))} total).
+                Processing options below apply to every selected video.
+              </div>
               {pendingFiles.map((file, idx) => (
                 <div key={idx} className="bg-indigo-50 rounded-xl p-3 flex items-center gap-3">
                   <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -278,6 +284,7 @@ export default function UploadModal({
           </div>
         ) : (
           <UploadZone
+            maxFiles={UPLOAD.MAX_FILES}
             onFilesSelected={(files) => {
               if (files.length > 0) {
                 onFilesSelected(files);

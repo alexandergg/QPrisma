@@ -8,11 +8,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { BrandLogo } from '@/components/branding/BrandLogo';
-
-interface MediaItem {
-  id: string;
-  original_filename: string;
-}
+import type { MediaItem } from '@/lib/api';
 
 interface StudioSidebarProps {
   mediaList: MediaItem[];

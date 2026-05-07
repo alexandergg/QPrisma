@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { CloudUpload, Film, X } from 'lucide-react';
+import { UPLOAD } from '@/lib/constants';
 
 interface UploadZoneProps {
   onFilesSelected: (files: File[]) => void;
@@ -10,6 +11,7 @@ interface UploadZoneProps {
   acceptedFormats?: string[];
   maxSize?: number; // in bytes
   multiple?: boolean;
+  maxFiles?: number;
 }
 
 const DEFAULT_FORMATS = ['video/mp4', 'video/mov', 'video/avi', 'video/webm', 'video/quicktime'];
@@ -21,6 +23,7 @@ export default function UploadZone({
   acceptedFormats = DEFAULT_FORMATS,
   maxSize = DEFAULT_MAX_SIZE,
   multiple = true,
+  maxFiles = UPLOAD.MAX_FILES,
 }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,8 +40,16 @@ export default function UploadZone({
   const validateFiles = useCallback((files: File[]): File[] => {
     const validFiles: File[] = [];
     const errors: string[] = [];
+    const maxSelectable = multiple ? maxFiles : 1;
+    const filesToValidate = files.slice(0, maxSelectable);
 
-    for (const file of files) {
+    if (files.length > maxSelectable) {
+      errors.push(
+        `You can upload up to ${maxSelectable} video${maxSelectable === 1 ? '' : 's'} at once. ${filesToValidate.length} of ${files.length} selected files will be added.`
+      );
+    }
+
+    for (const file of filesToValidate) {
       // Check file type
       if (!acceptedFormats.some((format) => file.type.startsWith(format.split('/')[0]))) {
         errors.push(`${file.name}: Invalid file type`);
@@ -61,7 +72,7 @@ export default function UploadZone({
     }
 
     return validFiles;
-  }, [acceptedFormats, maxSize]);
+  }, [acceptedFormats, maxFiles, maxSize, multiple]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -182,13 +193,16 @@ export default function UploadZone({
 
         <div className="flex items-center gap-2 mt-6 text-xs text-gray-400">
           <Film className="w-4 h-4" />
-          <span>MP4, MOV, AVI, WebM • Max {formatSize(maxSize)}</span>
+          <span>
+            MP4, MOV, AVI, WebM • Max {formatSize(maxSize)} each
+            {multiple ? ` • Up to ${maxFiles} videos` : ''}
+          </span>
         </div>
       </motion.div>
 
       {/* Error Message */}
       {error && (
-        <div className="mt-4 bg-red-50 border border-red-100 rounded-xl p-4 flex items-start gap-3">
+        <div role="alert" className="mt-4 bg-red-50 border border-red-100 rounded-xl p-4 flex items-start gap-3">
           <X className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm text-red-600 font-medium">Upload Error</p>

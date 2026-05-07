@@ -28,6 +28,7 @@ describe('UploadZone', () => {
   it('renders accepted format info', () => {
     render(<UploadZone onFilesSelected={onFilesSelected} />);
     expect(screen.getByText(/MP4, MOV, AVI, WebM/)).toBeInTheDocument();
+    expect(screen.getByText(/Up to 10 videos/)).toBeInTheDocument();
   });
 
   it('applies disabled styling when uploading', () => {
@@ -89,5 +90,24 @@ describe('UploadZone', () => {
     );
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     expect(fileInput.disabled).toBe(true);
+  });
+
+  it('limits the number of files selected at once and shows feedback', () => {
+    render(<UploadZone onFilesSelected={onFilesSelected} maxFiles={2} />);
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const files = [
+      new File(['a'], 'one.mp4', { type: 'video/mp4' }),
+      new File(['b'], 'two.mp4', { type: 'video/mp4' }),
+      new File(['c'], 'three.mp4', { type: 'video/mp4' }),
+    ];
+
+    fireEvent.change(fileInput, {
+      target: { files },
+    });
+
+    expect(onFilesSelected).toHaveBeenCalledWith(files.slice(0, 2));
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'You can upload up to 2 videos at once. 2 of 3 selected files will be added.',
+    );
   });
 });

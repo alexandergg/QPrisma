@@ -141,7 +141,7 @@ describe('WelcomeScreen', () => {
     mockUseUserVideos.mockReturnValue(withVideos);
     render(<WelcomeScreen />);
     fireEvent.click(screen.getByText('intro.mp4'));
-    expect(mockPush).toHaveBeenCalledWith('/chat/new?videoId=v1');
+    expect(mockPush).toHaveBeenCalledWith('/chat?videoId=v1');
   });
 
   it('calls onSelectVideo instead of navigating when provided', () => {

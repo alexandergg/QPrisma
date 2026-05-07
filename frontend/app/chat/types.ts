@@ -1,21 +1,21 @@
 export type { Scene, Chapter, TranscriptSegment } from '@/types';
 import type { Scene, Chapter, TranscriptSegment } from '@/types';
+import type { MediaItem } from '@/lib/api';
 
 export interface VideoData {
   id: string;
   url?: string;
   title?: string;
   duration?: number;
+  fileSize?: number;
+  uploadedAt?: string;
+  thumbnailUrl?: string;
   scenes?: Scene[];
   chapters?: Chapter[];
   transcript?: TranscriptSegment[];
 }
 
-export interface LibraryVideo {
-  id: string;
-  original_filename: string;
-  blob_url?: string;
-}
+export type LibraryVideo = MediaItem;
 
 export interface UploadingVideo {
   id: string;
