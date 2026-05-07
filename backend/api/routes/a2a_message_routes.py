@@ -8,10 +8,10 @@ Send and streaming message endpoints for the Video agent.
 import logging
 from typing import Annotated
 
+from agent.utils.observability import set_conversation_id, set_otel_user_id
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
-from agent.utils.observability import set_conversation_id, set_otel_user_id
 from api.dependencies import get_current_user
 from api.openapi_responses import (
     AUTH_RESPONSES,
