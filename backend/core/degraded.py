@@ -13,10 +13,13 @@ class DegradationImpact(StrEnum):
     CACHE_WRITE = "cache_write"
     CACHE_INVALIDATION = "cache_invalidation"
     BLOB_HYDRATION = "blob_hydration"
+    BLOB_DELETE = "blob_delete"
+    GRAPH_DELETE = "graph_delete"
     OPTIONAL_DISPATCH = "optional_dispatch"
     MEMORY_UPDATE = "memory_update"
     MEMORY_SEARCH = "memory_search"
     MEMORY_DELETE = "memory_delete"
+    TOOL_ARTIFACT_PERSISTENCE = "tool_artifact_persistence"
 
 
 _degradation_counts: Counter[tuple[str, str, str, str]] = Counter()
@@ -47,8 +50,11 @@ def record_degraded_operation(
         labels,
     )
     logger.debug(
-        "Optional operation degradation traceback",
-        exc_info=(type(exc), exc, exc.__traceback__),
+        "Optional operation degradation recorded: component=%s operation=%s impact=%s error_type=%s",
+        component,
+        operation,
+        impact.value,
+        error_type,
     )
 
 

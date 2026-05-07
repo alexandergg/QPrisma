@@ -110,6 +110,11 @@ async def find_entity(
     entity_type: Annotated[
         str, "Type: 'person', 'object', 'concept', 'location', or 'any'"
     ] = "any",
+    target_video_id: Annotated[
+        str | None,
+        "When several videos are selected, specify which video to search. "
+        "If omitted, searches the primary (first) video.",
+    ] = None,
     media_id: Annotated[str | None, InjectedState("media_id")] = None,
 ) -> dict[str, Any]:
     """
@@ -117,15 +122,17 @@ async def find_entity(
     Returns timestamps and brief descriptions for each occurrence.
     For a full chronological timeline with rich detail at each
     appearance, use get_entity_timeline instead.
+    When several videos are selected, use target_video_id to search a specific video.
     """
-    if not media_id:
+    effective_id = target_video_id or media_id
+    if not effective_id:
         return tool_error("no_context", "No video context available.")
 
     logger.info(
         "find_entity called | entity_len=%d type_len=%d has_media_id=%s",
         len(entity_name),
         len(entity_type),
-        bool(media_id),
+        bool(effective_id),
     )
 
     try:
@@ -142,7 +149,7 @@ async def find_entity(
                 search_service.hybrid_search(
                     query_text=entity_name,
                     node_types=[NodeType.ENTITY, NodeType.FRAME, NodeType.AUDIO_SEGMENT],
-                    video_id=media_id,
+                    video_id=effective_id,
                     limit=20,
                     expansion_hops=2,
                     use_reranking=True,
@@ -189,7 +196,7 @@ async def find_entity(
                 type(exc).__name__,
             )
             search_mode = "graph_fallback"
-            occurrences = await _entity_graph_fallback(entity_name, media_id, entity_type)
+            occurrences = await _entity_graph_fallback(entity_name, effective_id, entity_type)
 
         occurrences.sort(key=lambda x: x["timestamp"])
         shown = occurrences[:10]
@@ -213,7 +220,7 @@ async def find_entity(
         }
 
     except Exception as e:
-        logger.error("find_entity failed for %s: %s", media_id, e)
+        logger.error("find_entity failed for %s: %s", effective_id, e)
         return tool_error("query_error", f"Entity search failed: {e}")
 
 

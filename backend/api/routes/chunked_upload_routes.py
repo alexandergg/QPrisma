@@ -9,7 +9,7 @@ High-performance upload endpoints for large files (1GB+) using:
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.dependencies import (
@@ -17,6 +17,17 @@ from api.dependencies import (
     get_blob_service,
     get_current_user,
     get_storage_container_name,
+)
+from api.dependencies import (
+    get_chunked_upload_service as build_chunked_upload_service,
+)
+from core.exceptions import (
+    AccessDeniedError,
+    BadRequestError,
+    NotFoundError,
+    ProcessingError,
+    QPrismaException,
+    ServiceUnavailableError,
 )
 from models.user import User
 from services.chunked_upload_service import (
@@ -90,13 +101,28 @@ class BlockUploadUrl(BaseModel):
 
 
 def get_chunked_upload_service_instance() -> ChunkedUploadService:
-    return ChunkedUploadService(
+    return build_chunked_upload_service(
         blob_service=get_blob_service(),
         db=get_database_service(),
         container_name=get_storage_container_name(),
         sas_url_builder=build_blob_sas_url_async,
         dispatch_service_factory=get_video_processing_dispatch_service,
     )
+
+
+def translate_chunked_upload_error(exc: QPrismaException) -> HTTPException:
+    """Map service-layer upload exceptions to HTTP responses."""
+    if isinstance(exc, BadRequestError):
+        return HTTPException(status_code=400, detail=exc.message)
+    if isinstance(exc, NotFoundError):
+        return HTTPException(status_code=404, detail=exc.details.get("resource", exc.message))
+    if isinstance(exc, AccessDeniedError):
+        return HTTPException(status_code=403, detail=exc.message)
+    if isinstance(exc, ServiceUnavailableError):
+        return HTTPException(status_code=503, detail=exc.message)
+    if isinstance(exc, ProcessingError):
+        return HTTPException(status_code=500, detail=exc.message)
+    return HTTPException(status_code=500, detail="Upload operation failed")
 
 
 # =============================================================================
@@ -126,15 +152,18 @@ async def init_chunked_upload(
     3. Call /commit with the ordered list of block_ids
     """
     service = get_chunked_upload_service_instance()
-    return InitUploadResponse(
-        **await service.init_upload(
-            filename=request.filename,
-            file_size=request.file_size,
-            content_type=request.content_type,
-            block_size_mb=request.block_size_mb,
-            user_id=current_user.id,
+    try:
+        return InitUploadResponse(
+            **await service.init_upload(
+                filename=request.filename,
+                file_size=request.file_size,
+                content_type=request.content_type,
+                block_size_mb=request.block_size_mb,
+                user_id=current_user.id,
+            )
         )
-    )
+    except QPrismaException as exc:
+        raise translate_chunked_upload_error(exc) from exc
 
 
 @router.post("/commit", response_model=CommitUploadResponse)
@@ -154,18 +183,21 @@ async def commit_chunked_upload(
         block_ids: Ordered list of block IDs (base64 encoded) that were uploaded
     """
     service = get_chunked_upload_service_instance()
-    return CommitUploadResponse(
-        **await service.commit_upload(
-            media_id=request.media_id,
-            blob_name=request.blob_name,
-            block_ids=request.block_ids,
-            preset=request.preset,
-            max_frames=request.max_frames,
-            use_scene_detection=request.use_scene_detection,
-            use_hierarchical_summary=request.use_hierarchical_summary,
-            user_id=current_user.id,
+    try:
+        return CommitUploadResponse(
+            **await service.commit_upload(
+                media_id=request.media_id,
+                blob_name=request.blob_name,
+                block_ids=request.block_ids,
+                preset=request.preset,
+                max_frames=request.max_frames,
+                use_scene_detection=request.use_scene_detection,
+                use_hierarchical_summary=request.use_hierarchical_summary,
+                user_id=current_user.id,
+            )
         )
-    )
+    except QPrismaException as exc:
+        raise translate_chunked_upload_error(exc) from exc
 
 
 @router.get("/status/{media_id}")
@@ -180,7 +212,10 @@ async def get_upload_status(
     (useful for resuming interrupted uploads).
     """
     service = get_chunked_upload_service_instance()
-    return service.get_status(media_id=media_id, user_id=current_user.id)
+    try:
+        return service.get_status(media_id=media_id, user_id=current_user.id)
+    except QPrismaException as exc:
+        raise translate_chunked_upload_error(exc) from exc
 
 
 @router.delete("/cancel/{media_id}")
@@ -194,4 +229,7 @@ async def cancel_upload(
     Deletes any uploaded blocks and the media record.
     """
     service = get_chunked_upload_service_instance()
-    return service.cancel_upload(media_id=media_id, user_id=current_user.id)
+    try:
+        return service.cancel_upload(media_id=media_id, user_id=current_user.id)
+    except QPrismaException as exc:
+        raise translate_chunked_upload_error(exc) from exc

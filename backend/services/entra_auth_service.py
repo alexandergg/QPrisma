@@ -8,10 +8,10 @@ Replaces the legacy local JWT/password authentication.
 import logging
 
 import jwt
-from fastapi import HTTPException, status
 from jwt import PyJWKClient
 
 from core.config import settings
+from core.exceptions import AuthenticationError
 from models.user import EntraTokenData
 
 logger = logging.getLogger(__name__)
@@ -51,14 +51,8 @@ class EntraAuthService:
         """Validate an Entra ID Bearer token and return decoded claims.
 
         Raises:
-            HTTPException 401: if the token is invalid, expired, or untrusted.
+            AuthenticationError: if the token is invalid, expired, or untrusted.
         """
-        credentials_exception = HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate Entra ID credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
         try:
             signing_key = self._jwks_client.get_signing_key_from_jwt(token)
             payload = jwt.decode(
@@ -78,14 +72,10 @@ class EntraAuthService:
 
         except jwt.ExpiredSignatureError:
             logger.warning("Entra ID token expired")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token has expired",
-                headers={"WWW-Authenticate": "Bearer"},
-            ) from None
+            raise AuthenticationError("Token has expired") from None
         except (jwt.InvalidTokenError, Exception) as exc:
             logger.warning("Entra ID token validation failed: %s", exc)
-            raise credentials_exception from None
+            raise AuthenticationError("Could not validate Entra ID credentials") from None
 
 
 # Singleton

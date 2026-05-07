@@ -10,9 +10,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from azure.storage.blob import BlobBlock, BlobSasPermissions
-from fastapi import HTTPException
 
 from core.degraded import DegradationImpact, record_degraded_operation
+from core.exceptions import (
+    AccessDeniedError,
+    BadRequestError,
+    NotFoundError,
+    ProcessingError,
+    ServiceUnavailableError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +66,7 @@ class ChunkedUploadService:
 
         max_size = MAX_FILE_SIZE_GB * 1024 * 1024 * 1024
         if file_size > max_size:
-            raise HTTPException(
-                status_code=400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE_GB}GB"
-            )
+            raise BadRequestError(f"File too large. Maximum size is {MAX_FILE_SIZE_GB}GB")
 
         block_size_bytes = min(max(block_size_mb, 1), MAX_BLOCK_SIZE_MB) * 1024 * 1024
         total_blocks = (file_size + block_size_bytes - 1) // block_size_bytes
@@ -89,7 +93,7 @@ class ChunkedUploadService:
             expiry=sas_expiry,
         )
         if not upload_url:
-            raise HTTPException(status_code=503, detail="Cannot generate SAS token")
+            raise ServiceUnavailableError("Blob SAS generation")
 
         try:
             self.db.create_media(
@@ -113,7 +117,7 @@ class ChunkedUploadService:
             )
         except Exception as e:
             logger.error("Failed to create media record: %s", e)
-            raise HTTPException(status_code=500, detail="Failed to initialize upload") from e
+            raise ProcessingError("Failed to initialize upload") from e
 
         safe_filename = filename[:200].replace("\r", "").replace("\n", "")
         logger.info(
@@ -172,7 +176,7 @@ class ChunkedUploadService:
         except Exception as e:
             logger.error("Failed to commit blob: %s", e, exc_info=True)
             self.db.update_media(media_id, {"processing_status": "error"})
-            raise HTTPException(status_code=500, detail="Storage operation failed") from e
+            raise ProcessingError("Storage operation failed") from e
 
         pipeline_config = {
             "use_scene_detection": use_scene_detection,
@@ -282,15 +286,15 @@ class ChunkedUploadService:
 
     def _require_blob_service(self) -> Any:
         if not self.blob_service:
-            raise HTTPException(status_code=503, detail="Azure Blob Storage not configured")
+            raise ServiceUnavailableError("Azure Blob Storage")
         return self.blob_service
 
     def _require_media_owner(self, media_id: str, user_id: str, *, missing_detail: str) -> Any:
         media = self.db.get_media(media_id)
         if not media:
-            raise HTTPException(status_code=404, detail=missing_detail)
+            raise NotFoundError(missing_detail)
         if media.user_id != user_id:
-            raise HTTPException(status_code=403, detail="Not authorized")
+            raise AccessDeniedError("Not authorized")
         return media
 
     @staticmethod
@@ -301,7 +305,4 @@ class ChunkedUploadService:
                     raise binascii.Error(f"incorrect padding for block ID: {block_id!r}")
             return [base64.b64decode(block_id, validate=True).decode() for block_id in block_ids]
         except (binascii.Error, UnicodeDecodeError) as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid base64 block ID: {e}",
-            ) from e
+            raise BadRequestError(f"Invalid base64 block ID: {e}") from e

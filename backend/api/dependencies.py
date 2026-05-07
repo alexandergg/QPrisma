@@ -29,17 +29,23 @@ from api.azure_dependencies import (
 )
 from api.graph_dependencies import (
     get_async_graph_service,
+    get_chat_service,
     get_community_detection_service,
     get_graph_route_service,
     get_graph_search_service,
     get_hierarchical_context_service,
     get_hierarchical_query_service,
     get_knowledge_graph_service,
+    get_structure_service,
     get_tool_artifact_service,
 )
 from api.media_dependencies import (
+    get_chunked_upload_service,
     get_graph_node_media_or_404,
+    get_media_library_service,
     get_media_or_404,
+    get_media_upload_service,
+    get_storage_route_service,
     get_storage_tiering_service,
     get_user_media_ids,
 )
@@ -62,6 +68,7 @@ _hierarchical_context_service = None
 _community_detection_service = None
 _hierarchical_query_service = None
 _storage_tiering_service = None
+_storage_route_service = None
 
 __all__ = [
     "AsyncAzureOpenAI",
@@ -75,6 +82,8 @@ __all__ = [
     "get_async_graph_service",
     "get_async_openai_client",
     "get_blob_service",
+    "get_chat_service",
+    "get_chunked_upload_service",
     "get_community_detection_service",
     "get_current_user",
     "get_current_user_optional",
@@ -85,11 +94,15 @@ __all__ = [
     "get_hierarchical_context_service",
     "get_hierarchical_query_service",
     "get_knowledge_graph_service",
+    "get_media_library_service",
     "get_media_or_404",
+    "get_media_upload_service",
     "get_openai_client",
     "get_storage_account_info",
     "get_storage_container_name",
+    "get_storage_route_service",
     "get_storage_tiering_service",
+    "get_structure_service",
     "get_tool_artifact_service",
     "get_user_media_ids",
     "logger",

@@ -9,9 +9,16 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api.dependencies import get_current_user
+from api.dependencies import (
+    get_current_user,
+    get_database_service,
+    get_knowledge_graph_service,
+)
+from api.dependencies import (
+    get_structure_service as build_structure_service,
+)
 from models.user import User
-from services.database_service import get_database_service
+from services.structure_service import StructureService
 
 router = APIRouter(tags=["Structure"])
 logger = logging.getLogger(__name__)
@@ -45,12 +52,10 @@ async def get_video_structure(media_id: str, current_user: User = Depends(get_cu
     try:
         media_dict = media.to_dict() if media else None
 
-        from services.knowledge_graph import get_knowledge_graph_service
-        from services.structure_service import StructureService
-
         graph = get_knowledge_graph_service()
-        structure_service = StructureService(
+        structure_service = build_structure_service(
             graph_service=graph,
+            service_cls=StructureService,
         )
         result = structure_service.get_structure(media_id, media_dict)
     except Exception as e:

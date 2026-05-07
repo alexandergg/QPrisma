@@ -36,11 +36,14 @@ Pipeline implementation lives under `src/qprisma_video_pipeline/`:
 | `graph.py` | Graph upsert intent generation and Neo4j projection. |
 | `stages.py` | Explicit stage dispatcher preserving the current `stage` names used by `databricks.yml`. |
 
-For local safety checks, compile the package without requiring a Databricks runtime:
+For local safety checks, compile the package and run the pure-Python tests without requiring a Databricks runtime:
 
 ```powershell
 python -m compileall -q databricks\video-pipeline\src databricks\video-pipeline\notebooks\video_pipeline_ops.py
+$env:PYTHONPATH = "databricks\video-pipeline\src"; backend\.venv\Scripts\python.exe -m pytest databricks\video-pipeline\tests -q
 ```
+
+The local test suite stubs the small subset of `pyspark.sql.types` needed to import the package, so it validates configuration parsing, source-media URI safety, runtime table naming, quality gates, Gold result helpers and deterministic scene/window logic without a Spark cluster. Full media probing, Delta writes, FFmpeg execution, model inference and Jobs API behavior still require a Databricks workspace.
 
 The current DAG shape is intentionally production-like and does not require backend changes to pass a new inference mode. `extract_audio_assets`, `extract_frame_assets`, `run_florence_frame_analysis`, `run_faster_whisper_asr`, `detect_scenes_and_windows`, `run_databricks_scene_reasoning`, `build_gold_processing_result`, `build_graph_upserts` and `project_neo4j_graph` are now functional ETL stages. Operational visibility is table-driven through Delta so runs can be monitored, replayed and compared before rollout:
 
@@ -549,6 +552,13 @@ The bridge Function invokes this job through Databricks Jobs API `run-now` with 
 | `container_name`, `blob_name`, `storage_account_url` | Fallback contract used by the control plane; the notebook derives `abfss://` for HNS accounts or `wasbs://` for Blob accounts. |
 
 For `dev`, the validated source path is the managed Unity Catalog volume `dbw_qprisma_dev.video.source_media`. The original upload account `stqprismadev` is Blob/non-HNS, so it cannot be registered directly as a Unity Catalog external location. The Function bridge now performs this staging automatically before invoking `jobs/run-now`: it reads the upload Blob with managed identity, writes it to the UC volume through Databricks Files API, persists `pipeline_config.dispatch.source_media.volume_path`, and only then starts the processing job. Do not pass or persist physical `abfss://.../__unitystorage/...` backing URIs because Unity Catalog rejects reads that overlap managed storage internals.
+
+Large-file staging decision: keep Function-based Files API staging as the dev/pilot path only. It is acceptable for short smoke videos and the current Blob/non-HNS upload account, but it should not be treated as the production large-video transfer path because it couples Service Bus locks, Function timeout/memory and Databricks Files API throughput to the full media payload. For production-sized uploads, prefer one of these handoff patterns before raising concurrency or file-size limits:
+
+1. Store uploads in an HNS-enabled ADLS Gen2 account registered as a Unity Catalog external location, then pass `abfss_uri`/`uri` for Databricks to read directly with workspace-managed identity.
+2. Keep the current upload account but move bulk copy into Databricks job-controlled code that reads the cloud URI and writes the UC volume from cluster compute, leaving the Function bridge responsible only for validation, idempotency and `jobs/run-now`.
+
+Until one of those paths is deployed, cap smoke inputs conservatively and keep `volume_path` as the canonical post-staging contract from the bridge to the bundle.
 
 The bridge staging settings are deployed as Function App settings:
 

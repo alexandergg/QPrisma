@@ -37,6 +37,7 @@ from agent.utils.observability import (
 )
 from core.azure_credentials import build_openai_client_kwargs, get_foundry_openai_token_provider
 from core.config import settings
+from core.degraded import DegradationImpact, record_degraded_operation
 
 logger = get_logger(__name__)
 
@@ -968,32 +969,60 @@ async def _persist_tool_artifact(
     payload: dict | list | str,
     summary: str,
 ) -> str | None:
-    """Persist full tool payload as artifact and return artifact id."""
+    """Persist full tool payload as artifact and return artifact id.
+
+    Artifact storage is a best-effort memory layer. Persistence failures must
+    not fail the LangGraph turn or prevent compact memory/partial result
+    tracking, so this helper records degraded telemetry and returns ``None``
+    on optional storage errors.
+    """
     session_id = state.get("session_id") or config.get("configurable", {}).get("thread_id")
     if not session_id:
         return None
 
-    from core.config import settings
-
     if not settings.azure.is_storage_configured:
         return None
 
-    from services.tool_artifact_service import get_tool_artifact_service
-
     media_id = state.get("media_id")
+    metric_labels = {"agent": _agent_type_from_state(state), "tool": tool_name}
+    Metrics.inc_counter(Metrics.ARTIFACT_PERSISTENCE_ATTEMPTS, metric_labels)
 
-    artifact_service = await get_tool_artifact_service()
-    artifact = await artifact_service.save_artifact(
-        tool_call_id=tool_call_id or f"{tool_name}_{session_id}",
-        tool_name=tool_name,
-        session_id=session_id,
-        thread_id=config.get("configurable", {}).get("thread_id"),
-        user_id=state.get("user_id"),
-        media_id=media_id,
-        payload=payload,
-        metadata={"summary": summary, "source": "langgraph_tool"},
-    )
-    return artifact.get("id")
+    try:
+        from services.tool_artifact_service import get_tool_artifact_service
+
+        artifact_service = await get_tool_artifact_service()
+        artifact = await artifact_service.save_artifact(
+            tool_call_id=tool_call_id or f"{tool_name}_{session_id}",
+            tool_name=tool_name,
+            session_id=session_id,
+            thread_id=config.get("configurable", {}).get("thread_id"),
+            user_id=state.get("user_id"),
+            media_id=media_id,
+            payload=payload,
+            metadata={"summary": summary, "source": "langgraph_tool"},
+        )
+    except Exception as exc:
+        Metrics.inc_counter(Metrics.ARTIFACT_PERSISTENCE_ERRORS, metric_labels)
+        record_degraded_operation(
+            logger.logger,
+            component="agent",
+            operation="persist_tool_artifact",
+            impact=DegradationImpact.TOOL_ARTIFACT_PERSISTENCE,
+            exc=exc,
+            extra_labels={"tool": tool_name, "agent": metric_labels["agent"]},
+        )
+        logger.warning(
+            "Tool artifact persistence degraded; continuing without artifact reference",
+            tool=tool_name,
+            agent=metric_labels["agent"],
+            error_type=type(exc).__name__,
+        )
+        return None
+
+    artifact_id = artifact.get("id") if isinstance(artifact, dict) else None
+    if artifact_id:
+        Metrics.inc_counter(Metrics.ARTIFACT_PERSISTENCE_SUCCESSES, metric_labels)
+    return artifact_id
 
 
 async def update_context_node(state: AgentState, config: RunnableConfig) -> dict:

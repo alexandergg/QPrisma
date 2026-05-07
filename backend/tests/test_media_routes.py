@@ -254,3 +254,39 @@ class TestMediaStatus:
             resp = authenticated_client.get("/media/some_id/status")
 
         assert resp.status_code == 200
+
+
+@pytest.mark.unit
+class TestMediaAudio:
+    def test_forbidden_for_non_owner(self, authenticated_client):
+        with patch(
+            "api.routes.media_routes.get_media_or_404",
+            side_effect=HTTPException(status_code=403, detail="Not authorized"),
+        ):
+            resp = authenticated_client.get("/media/some_id/audio")
+
+        assert resp.status_code == 403
+
+    def test_success(self, authenticated_client, test_user):
+        mock_media = MagicMock(user_id=test_user.id)
+        mock_media.to_dict.return_value = {
+            "audio_data": {
+                "transcription": {
+                    "text": "hello world",
+                    "language": "en",
+                    "duration": 1.2,
+                },
+                "stats": {"total_words": 2},
+            }
+        }
+
+        with patch("api.routes.media_routes.get_media_or_404", return_value=mock_media):
+            resp = authenticated_client.get("/media/some_id/audio")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["media_id"] == "some_id"
+        assert body["has_transcription"] is True
+        assert body["language"] == "en"
+        assert body["duration"] == 1.2
+        assert body["word_count"] == 2

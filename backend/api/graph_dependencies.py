@@ -1,5 +1,7 @@
 """Knowledge Graph and graph-adjacent dependency providers."""
 
+from typing import Any
+
 
 def get_knowledge_graph_service():
     """Get or create Knowledge Graph Service, ensuring it is connected."""
@@ -30,6 +32,36 @@ def get_graph_search_service():
     )
 
     return _canonical_getter()
+
+
+def get_chat_service(
+    *,
+    openai_client: Any | None = None,
+    graph_search_service: Any | None = None,
+    service_cls: type | None = None,
+):
+    """Build the classic chat compatibility service from API dependencies."""
+    import api.dependencies as deps
+    from services.chat_service import ChatService
+
+    resolved_service_cls = service_cls or ChatService
+    return resolved_service_cls(
+        openai_client=openai_client if openai_client is not None else deps.get_async_openai_client(),
+        graph_search_service=graph_search_service if graph_search_service is not None else deps.get_graph_search_service(),
+    )
+
+
+def get_structure_service(
+    *,
+    graph_service: Any | None = None,
+    service_cls: type | None = None,
+):
+    """Build the video structure service from API dependencies."""
+    import api.dependencies as deps
+    from services.structure_service import StructureService
+
+    resolved_service_cls = service_cls or StructureService
+    return resolved_service_cls(graph_service=graph_service if graph_service is not None else deps.get_knowledge_graph_service())
 
 
 def get_graph_route_service():

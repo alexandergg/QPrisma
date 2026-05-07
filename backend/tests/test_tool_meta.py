@@ -1,6 +1,6 @@
 """Tests for agent.utils.tool_meta — tool response metadata helpers."""
 
-from agent.utils.tool_meta import tool_error, tool_meta, truncate_with_notice
+from agent.utils.tool_meta import is_tool_error_payload, tool_error, tool_meta, truncate_with_notice
 
 
 class TestToolMeta:
@@ -113,8 +113,11 @@ class TestToolError:
         result = tool_error("not_found", "Video not found")
         assert result["error"]["type"] == "not_found"
         assert result["error"]["message"] == "Video not found"
+        assert result["results"] == []
+        assert result["count"] == 0
         assert result["_meta"]["is_complete"] is False
         assert result["_meta"]["result_count"] == 0
+        assert is_tool_error_payload(result) is True
 
     def test_default_source(self):
         result = tool_error("timeout", "Request timed out")
@@ -155,6 +158,8 @@ class TestToolError:
                 "message": "Some results missing",
                 "recovery": "Retry with smaller scope",
             },
+            "results": [],
+            "count": 0,
             "partial_data": {"count": 3},
             "_meta": {"source": "graph", "is_complete": False, "result_count": 0},
         }

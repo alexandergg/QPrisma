@@ -52,7 +52,7 @@ graph TD
 
 FastAPI is the trusted control plane for authentication, authorization, upload commit, idempotency and frontend-compatible state. Heavy video processing is dispatched to Databricks through Service Bus and an Azure Function bridge. The bridge starts Databricks Jobs, records the Databricks run in PostgreSQL and projects Databricks outbox events back into the existing media status fields.
 
-Databricks Asset Bundles own the workspace-internal job graph under `databricks\video-pipeline`; Bicep owns Azure resources such as the workspace, access connector, lakehouse storage, Service Bus and Function bridge.
+Databricks Asset Bundles own the workspace-internal job graph under `databricks\video-pipeline`; Bicep owns Azure resources such as the workspace, access connector, lakehouse storage, Service Bus and Function bridge. The Function bridge's Databricks Files API staging path is intended for dev/pilot smoke files; production-sized media should be handed to Databricks through ADLS Gen2/Unity Catalog external locations or a Databricks-controlled copy into a UC volume.
 
 ---
 
@@ -63,7 +63,7 @@ QPrisma processes uploaded videos in Databricks using lakehouse contracts design
 ### 2.1. Ingestion & Extraction
 *   **High-Performance Upload**: Chunked upload handling for 1GB+ files directly to Azure Blob Storage.
 *   **Durable Dispatch**: FastAPI publishes a Service Bus message with an explicit `source_media` storage contract.
-*   **Databricks Job Bridge**: An Azure Function validates the payload and starts the Databricks video job.
+*   **Databricks Job Bridge**: An Azure Function validates the payload, stages pilot-sized Blob inputs into the declared UC volume path when needed, and starts the Databricks video job.
 *   **Lakehouse Stages**: Bronze/Silver/Gold Delta tables track media probe, audio, frames, scene windows, quality gates, and final normalized results.
 *   **Status Projection**: Databricks outbox events are projected back into PostgreSQL media status fields.
 
@@ -218,7 +218,9 @@ The current workflow is centered on a bounded tool-using loop rather than the ol
 *   **Context restoration**: `restore_media_context` resolves the effective `media_id` or `media_ids` from request config, injected context markers, or checkpointed state.
 *   **Model invocation**: `call_model` builds the system prompt, selects a focused subset of tools, and invokes the model with the current state.
 *   **Tool execution loop**: `should_continue` decides whether to execute tools, stop, or degrade gracefully based on tool calls, iteration count, and accumulated partial results.
-*   **Context persistence**: `update_context` stores compact memory snippets plus artifact references for later rehydration.
+*   **Tool payload contract**: tool errors use `agent.utils.tool_meta.tool_error()` with structured `error`, compatibility `results: []`, `count: 0`, and incomplete `_meta`; successful payloads keep their domain shape and include `_meta`.
+*   **Multi-video targeting**: single-video tools that can run in multi-video sessions accept optional `target_video_id` and otherwise fall back to the primary injected `media_id`.
+*   **Context persistence**: `update_context` stores compact memory snippets plus artifact references for later rehydration; artifact persistence is best-effort and records degraded `TOOL_ARTIFACT_PERSISTENCE` events instead of failing the agent turn.
 *   **Memory model**: the active prompt-time path uses graph state (`memory_context` and `artifact_refs`) plus selective artifact rehydration. Azure AI Foundry Memory Store is available as a service capability but is not automatically invoked in this runtime path yet.
 
 This architecture gives QPrisma a bounded, observable agent loop with better control over context growth, latency, and graceful degradation.
@@ -230,6 +232,7 @@ This architecture gives QPrisma a bounded, observable agent loop with better con
 ### Backend (`backend/`)
 *   **FastAPI**: For high-concurrency async endpoints.
 *   **Pydantic**: Strict data validation and serialization.
+*   **Service boundary**: services raise domain exceptions from `core.exceptions`; routes and dependencies translate those failures to HTTP responses.
 *   **Service Bus + Databricks**: Durable dispatch and lakehouse processing for long-running video work.
 *   **Local cache**: In-process TTL cache for best-effort search, graph-query, embedding, and artifact hot-cache acceleration.
 
