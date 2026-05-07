@@ -75,6 +75,7 @@ class HierarchicalQueryService:
         self,
         query_text: str,
         video_id: str | None = None,
+        allowed_video_ids: list[str] | None = None,
         start_level: str = "video",
         target_level: str = "scene",
         top_k: int = 5,
@@ -89,6 +90,7 @@ class HierarchicalQueryService:
         Args:
             query_text: Search query
             video_id: Optional video ID to restrict search
+            allowed_video_ids: Optional list of video IDs visible to the caller
             start_level: Level to start search (video, chapter, scene)
             target_level: Level to drill down to
             top_k: Number of results per level
@@ -97,6 +99,9 @@ class HierarchicalQueryService:
         Returns:
             List of DrillDownResult with hierarchy path
         """
+        if allowed_video_ids is not None and not allowed_video_ids:
+            return []
+
         query_embedding = await self.embedding_service.generate_embedding(query_text)
 
         results = []
@@ -106,6 +111,7 @@ class HierarchicalQueryService:
                 query_embedding=query_embedding,
                 node_type=NodeType.VIDEO,
                 video_id=video_id,
+                allowed_video_ids=allowed_video_ids,
                 top_k=top_k,
             )
 
@@ -200,10 +206,16 @@ class HierarchicalQueryService:
         query_embedding: list[float],
         node_type: NodeType,
         video_id: str | None = None,
+        allowed_video_ids: list[str] | None = None,
         top_k: int = 5,
     ) -> list[dict]:
         """Search for nodes at a specific level using vector similarity."""
-        video_filter = "AND n.video_id = $video_id" if video_id else ""
+        filters = []
+        if video_id:
+            filters.append("n.video_id = $video_id")
+        if allowed_video_ids is not None:
+            filters.append("n.video_id IN $allowed_video_ids")
+        video_filter = f"AND {' AND '.join(filters)}" if filters else ""
 
         query = f"""
         MATCH (n:{node_type.value})
@@ -218,12 +230,14 @@ class HierarchicalQueryService:
             params = {"query_embedding": query_embedding, "top_k": top_k}
             if video_id:
                 params["video_id"] = video_id
+            if allowed_video_ids is not None:
+                params["allowed_video_ids"] = allowed_video_ids
             return await asyncio.to_thread(
                 self.graph_service.execute_query, query, params, unpack_key="n"
             )
         except Exception as e:
             logger.warning(f"Vector search failed, using fallback: {e}")
-            return await self._fallback_search(node_type, video_id, top_k)
+            return await self._fallback_search(node_type, video_id, allowed_video_ids, top_k)
 
     async def _search_children(
         self,
@@ -255,10 +269,19 @@ class HierarchicalQueryService:
             return []
 
     async def _fallback_search(
-        self, node_type: NodeType, video_id: str | None, top_k: int
+        self,
+        node_type: NodeType,
+        video_id: str | None,
+        allowed_video_ids: list[str] | None,
+        top_k: int,
     ) -> list[dict]:
         """Fallback search when vector search is not available."""
-        video_filter = "WHERE n.video_id = $video_id" if video_id else ""
+        filters = []
+        if video_id:
+            filters.append("n.video_id = $video_id")
+        if allowed_video_ids is not None:
+            filters.append("n.video_id IN $allowed_video_ids")
+        video_filter = f"WHERE {' AND '.join(filters)}" if filters else ""
 
         query = f"""
         MATCH (n:{node_type.value})
@@ -270,6 +293,8 @@ class HierarchicalQueryService:
         params = {"top_k": top_k}
         if video_id:
             params["video_id"] = video_id
+        if allowed_video_ids is not None:
+            params["allowed_video_ids"] = allowed_video_ids
         return await asyncio.to_thread(
             self.graph_service.execute_query, query, params, unpack_key="n"
         )

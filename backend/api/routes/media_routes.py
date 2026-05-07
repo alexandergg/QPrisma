@@ -35,6 +35,14 @@ from api.dependencies import (
 from api.dependencies import (
     get_media_upload_service as build_media_upload_service,
 )
+from api.openapi_responses import (
+    AUTH_RESPONSES,
+    PAYLOAD_TOO_LARGE_RESPONSES,
+    RATE_LIMIT_RESPONSES,
+    SERVICE_RESPONSES,
+    UNSUPPORTED_MEDIA_RESPONSES,
+    merge_responses,
+)
 from api.rate_limit import limiter
 from core.errors import forbidden, not_found, service_unavailable
 from core.exceptions import (
@@ -46,6 +54,7 @@ from core.exceptions import (
     ServiceUnavailableError,
     internal_error,
 )
+from models.upload_schemas import MediaUploadResponse
 from models.user import User
 from services.database_service import get_database_service
 from services.media_library_service import (
@@ -118,11 +127,12 @@ def translate_media_library_error(exc: Exception) -> HTTPException:
 def translate_media_upload_error(exc: QPrismaException) -> HTTPException:
     """Translate upload service exceptions into HTTP responses."""
     if isinstance(exc, BadRequestError):
-        return HTTPException(status_code=400, detail=exc.message)
+        status_code = int(exc.details.get("status_code", 400))
+        return HTTPException(status_code=status_code, detail=exc.message)
     if isinstance(exc, ServiceUnavailableError):
-        return HTTPException(status_code=503, detail=exc.message)
+        return HTTPException(status_code=503, detail="Upload service is temporarily unavailable")
     if isinstance(exc, ProcessingError):
-        return HTTPException(status_code=500, detail=exc.message)
+        return HTTPException(status_code=500, detail="Upload operation failed")
     return HTTPException(status_code=500, detail="Upload operation failed")
 
 
@@ -131,16 +141,26 @@ def translate_media_upload_error(exc: QPrismaException) -> HTTPException:
 # =============================================================================
 
 
-@router.post("/upload")
+@router.post(
+    "/upload",
+    response_model=MediaUploadResponse,
+    responses=merge_responses(
+        AUTH_RESPONSES,
+        PAYLOAD_TOO_LARGE_RESPONSES,
+        UNSUPPORTED_MEDIA_RESPONSES,
+        RATE_LIMIT_RESPONSES,
+        SERVICE_RESPONSES,
+    ),
+)
 @limiter.limit("20/minute")
 async def upload_media(
     request: Request,
     response: Response,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    file: UploadFile = File(...),
+    file: UploadFile = File(..., description="Supported image or video file."),
     preset: str | None = Form(None),
-    max_frames: int | None = Form(None),
+    max_frames: int | None = Form(None, ge=1, le=500),
 ):
     """
     Upload a multimedia file (image or video) to Azure Blob Storage.
@@ -158,25 +178,35 @@ async def upload_media(
         raise translate_media_upload_error(exc) from exc
 
 
-@router.post("/upload/optimized")
+@router.post(
+    "/upload/optimized",
+    response_model=MediaUploadResponse,
+    responses=merge_responses(
+        AUTH_RESPONSES,
+        PAYLOAD_TOO_LARGE_RESPONSES,
+        UNSUPPORTED_MEDIA_RESPONSES,
+        RATE_LIMIT_RESPONSES,
+        SERVICE_RESPONSES,
+    ),
+)
 @limiter.limit("20/minute")
 async def upload_media_optimized(
     request: Request,
     response: Response,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    file: UploadFile = File(...),
+    file: UploadFile = File(..., description="Supported video file."),
     preset: str = Form("balanced"),
-    max_frames: int = Form(150),
+    max_frames: int = Form(150, ge=1, le=500),
     use_scene_detection: bool = Form(True),
     use_hierarchical_summary: bool = Form(True),
-    scene_threshold: float = Form(0.3),
-    max_scenes_per_chapter: int = Form(5),
+    scene_threshold: float = Form(0.3, ge=0.0, le=1.0),
+    max_scenes_per_chapter: int = Form(5, ge=1, le=20),
 ):
     """
     Upload video and process with optimized scene-based pipeline.
     """
-    logger.info(f"Upload optimized: {file.filename} by {current_user.email}")
+    logger.info("Optimized upload requested")
 
     service = get_media_upload_service_instance()
     try:

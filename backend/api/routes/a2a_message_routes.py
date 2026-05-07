@@ -8,11 +8,17 @@ Send and streaming message endpoints for the Video agent.
 import logging
 from typing import Annotated
 
-from agent.utils.observability import set_conversation_id, set_otel_user_id
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import StreamingResponse
 
+from agent.utils.observability import set_conversation_id, set_otel_user_id
 from api.dependencies import get_current_user
+from api.openapi_responses import (
+    AUTH_RESPONSES,
+    RATE_LIMIT_RESPONSES,
+    SSE_STREAM_RESPONSE,
+    merge_responses,
+)
 from api.rate_limit import limiter
 from api.routes.a2a_agent_cards import get_executor
 from api.routes.a2a_security import authorize_message_continuation, sanitize_message_request
@@ -75,7 +81,15 @@ async def send_message(
         return SendMessageResponse(message=result)
 
 
-@message_router.post("/a2a/message:stream")
+@message_router.post(
+    "/a2a/message:stream",
+    summary="Send a message with streaming A2A events",
+    description=(
+        "Authenticated A2A message endpoint returning Server-Sent Events. Each SSE `data:` "
+        "line contains a JSON-encoded `StreamResponse` payload."
+    ),
+    responses=merge_responses(SSE_STREAM_RESPONSE, AUTH_RESPONSES, RATE_LIMIT_RESPONSES),
+)
 @limiter.limit("60/minute")
 async def send_streaming_message(
     request: Request,

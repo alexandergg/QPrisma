@@ -6,10 +6,6 @@ This package contains all Pydantic models, database models, and configuration ty
 
 from .api_schemas import (
     AuthConfigResponse,
-    # Chat
-    ChatMessage,
-    ChatRequest,
-    ChatResponse,
     EnhancedSearchRequest,
     # Processing
     ProcessingSearchRequest,
@@ -29,10 +25,7 @@ __all__ = [
     # API Schemas - Auth
     "UserResponse",
     "AuthConfigResponse",
-    # API Schemas - Chat
-    "ChatMessage",
-    "ChatRequest",
-    "ChatResponse",
+    # API Schemas - Search
     "SearchRequest",
     "SearchResult",
     "SearchResponse",

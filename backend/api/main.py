@@ -25,8 +25,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Load environment variables
 load_dotenv()
 
+from api.openapi_responses import SERVICE_RESPONSES
 from core.config import settings
 from core.logging_config import get_logger, setup_logging
+from models.core_schemas import ConfigStatusResponse, HealthCheckResponse, RootStatusResponse
 
 # Initialize logging
 setup_logging(level=settings.app.log_level)
@@ -69,8 +71,9 @@ def _setup_telemetry() -> None:
 
         # Register span processor so gen_ai.conversation.id appears in Foundry traces
         try:
-            from agent.utils.observability import ConversationIdSpanProcessor
             from opentelemetry.trace import get_tracer_provider
+
+            from agent.utils.observability import ConversationIdSpanProcessor
 
             provider = get_tracer_provider()
             if hasattr(provider, "add_span_processor"):
@@ -220,7 +223,6 @@ from api.routes import (
     auth_router,
     benchmark_router,
     cache_router,
-    chat_router,
     chunked_upload_router,
     graph_router,
     media_router,
@@ -235,7 +237,6 @@ app.include_router(a2a_router, tags=["A2A Protocol"])
 app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(benchmark_router, tags=["Benchmark"])
 app.include_router(cache_router, prefix="/cache", tags=["Cache"])
-app.include_router(chat_router, tags=["Chat & Search"])
 app.include_router(chunked_upload_router, tags=["Chunked Upload"])
 app.include_router(graph_router, tags=["Knowledge Graph"])
 app.include_router(media_router, tags=["Media"])
@@ -249,7 +250,12 @@ app.include_router(structure_router, tags=["Structure"])
 # =============================================================================
 
 
-@app.get("/")
+@app.get(
+    "/",
+    response_model=RootStatusResponse,
+    summary="Public API liveness",
+    description="Public liveness endpoint used by startup probes and simple availability checks.",
+)
 async def root():
     """Health check endpoint"""
     return {
@@ -259,7 +265,16 @@ async def root():
     }
 
 
-@app.get("/health")
+@app.get(
+    "/health",
+    response_model=HealthCheckResponse,
+    summary="Public API readiness",
+    description=(
+        "Public readiness endpoint used by Docker, Azure Container Apps probes, and deployment "
+        "health checks. The response shape remains probe-compatible."
+    ),
+    responses=SERVICE_RESPONSES,
+)
 async def health_check():
     """Detailed health check of all services"""
     services = {
@@ -287,7 +302,15 @@ async def health_check():
     return {"status": "healthy", "services": services, "timestamp": datetime.now(UTC).isoformat()}
 
 
-@app.get("/config")
+@app.get(
+    "/config",
+    response_model=ConfigStatusResponse,
+    summary="Public configuration status",
+    description=(
+        "Public, non-secret configuration status for diagnostics. Do not expose tenant IDs, "
+        "connection strings, endpoints, or other sensitive values here."
+    ),
+)
 async def get_config():
     """Returns the configuration status"""
     db = get_database_service()
@@ -298,7 +321,6 @@ async def get_config():
         "postgresql_configured": db_healthy,
         "knowledge_graph_configured": settings.neo4j.is_configured,
         "cache_backend": "memory",
-        "environment": settings.app.environment,
     }
 
 

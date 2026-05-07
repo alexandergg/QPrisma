@@ -41,33 +41,6 @@ def get_graph_search_service():
     return _canonical_getter()
 
 
-def get_chat_service(
-    *,
-    openai_client: Any | None = None,
-    graph_search_service: Any | None = None,
-    service_cls: type | None = None,
-    openai_client_factory: Callable[[], Any] | None = None,
-    graph_search_service_factory: Callable[[], Any] | None = None,
-):
-    """Build the classic chat compatibility service from API dependencies."""
-    from services.chat_service import ChatService
-
-    if openai_client is None:
-        if openai_client_factory is None:
-            from api.dependencies import get_async_openai_client as openai_client_factory
-
-        openai_client = openai_client_factory()
-    if graph_search_service is None:
-        graph_search_service_factory = graph_search_service_factory or get_graph_search_service
-        graph_search_service = graph_search_service_factory()
-
-    resolved_service_cls = service_cls or ChatService
-    return resolved_service_cls(
-        openai_client=openai_client,
-        graph_search_service=graph_search_service,
-    )
-
-
 def get_structure_service(
     *,
     graph_service: Any | None = None,

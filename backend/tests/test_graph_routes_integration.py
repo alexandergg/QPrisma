@@ -26,6 +26,8 @@ def _mock_media(video_id="vid-1", user_id="user_test123"):
     m = MagicMock()
     m.id = video_id
     m.user_id = user_id
+    m.processing_result = {"local_video_path": "/server/managed/vid-1.mp4"}
+    m.video_metadata = {}
     return m
 
 
@@ -553,9 +555,10 @@ class TestProcessHierarchy:
         assert resp.status_code in (401, 403)
 
     def test_happy_path(self, authenticated_client):
+        hsvc = _hierarchy_service()
         with (
             patch(f"{_P}.get_media_or_404", return_value=_mock_media()),
-            patch(f"{_P}.get_hierarchical_context_service", return_value=_hierarchy_service()),
+            patch(f"{_P}.get_hierarchical_context_service", return_value=hsvc),
             patch(f"{_P}.get_graph_route_service", return_value=_graph_route_service()),
         ):
             resp = authenticated_client.post("/graph/hierarchy/process", json=self._payload)
@@ -563,6 +566,10 @@ class TestProcessHierarchy:
         body = resp.json()
         assert body["video_id"] == "vid-1"
         assert body["status"] == "completed"
+        hsvc.process_video_hierarchy.assert_awaited_once()
+        assert hsvc.process_video_hierarchy.await_args.kwargs["video_path"] == (
+            "/server/managed/vid-1.mp4"
+        )
 
     def test_service_error_returns_500(self, authenticated_client):
         hsvc = _hierarchy_service()
@@ -574,6 +581,21 @@ class TestProcessHierarchy:
         ):
             resp = authenticated_client.post("/graph/hierarchy/process", json=self._payload)
         assert resp.status_code == 500
+
+    def test_client_video_path_is_not_trusted_without_server_artifact(self, authenticated_client):
+        media = _mock_media()
+        media.processing_result = {}
+        media.video_metadata = {}
+        payload = {**self._payload, "video_path": "C:/Windows/system32/drivers/etc/hosts"}
+        hsvc = _hierarchy_service()
+        with (
+            patch(f"{_P}.get_media_or_404", return_value=media),
+            patch(f"{_P}.get_hierarchical_context_service", return_value=hsvc),
+            patch(f"{_P}.get_graph_route_service", return_value=_graph_route_service()),
+        ):
+            resp = authenticated_client.post("/graph/hierarchy/process", json=payload)
+        assert resp.status_code == 409
+        hsvc.process_video_hierarchy.assert_not_awaited()
 
 
 # ============================================================================
@@ -591,8 +613,10 @@ class TestDrillDownSearch:
 
     def test_happy_path_without_video_id(self, authenticated_client):
         mock_formatted = MagicMock(results=[], total_results=0, levels_traversed=[])
+        hsvc = _hierarchy_service()
         with (
-            patch(f"{_P}.get_hierarchical_context_service", return_value=_hierarchy_service()),
+            patch(f"{_P}.get_user_media_ids", return_value=["vid-1", "vid-2"]),
+            patch(f"{_P}.get_hierarchical_context_service", return_value=hsvc),
             patch(f"{_P}.GraphRouteService.format_drill_down_results", return_value=mock_formatted),
         ):
             resp = authenticated_client.post(
@@ -600,6 +624,21 @@ class TestDrillDownSearch:
             )
         assert resp.status_code == 200
         assert resp.json()["query"] == "product demo"
+        hsvc.drill_down_search.assert_awaited_once()
+        assert hsvc.drill_down_search.await_args.kwargs["allowed_video_ids"] == ["vid-1", "vid-2"]
+
+    def test_without_video_id_returns_no_results_when_user_has_no_media(self, authenticated_client):
+        hsvc = _hierarchy_service()
+        with (
+            patch(f"{_P}.get_user_media_ids", return_value=[]),
+            patch(f"{_P}.get_hierarchical_context_service", return_value=hsvc),
+        ):
+            resp = authenticated_client.post(
+                "/graph/hierarchy/search/drill-down", json=self._payload
+            )
+        assert resp.status_code == 200
+        assert resp.json()["total_results"] == 0
+        hsvc.drill_down_search.assert_not_awaited()
 
     def test_with_video_id_validates_ownership(self, authenticated_client):
         with patch(
@@ -612,10 +651,28 @@ class TestDrillDownSearch:
             )
         assert resp.status_code == 404
 
+    def test_with_video_id_scopes_service_to_owned_video(self, authenticated_client):
+        hsvc = _hierarchy_service()
+        mock_formatted = MagicMock(results=[], total_results=0, levels_traversed=[])
+        with (
+            patch(f"{_P}.get_media_or_404", return_value=_mock_media()),
+            patch(f"{_P}.get_hierarchical_context_service", return_value=hsvc),
+            patch(f"{_P}.GraphRouteService.format_drill_down_results", return_value=mock_formatted),
+        ):
+            resp = authenticated_client.post(
+                "/graph/hierarchy/search/drill-down",
+                json={"query": "q", "video_id": "vid-1"},
+            )
+        assert resp.status_code == 200
+        assert hsvc.drill_down_search.await_args.kwargs["allowed_video_ids"] == ["vid-1"]
+
     def test_service_error_returns_500(self, authenticated_client):
         hsvc = _hierarchy_service()
         hsvc.drill_down_search = AsyncMock(side_effect=RuntimeError("drill fail"))
-        with patch(f"{_P}.get_hierarchical_context_service", return_value=hsvc):
+        with (
+            patch(f"{_P}.get_user_media_ids", return_value=["vid-1"]),
+            patch(f"{_P}.get_hierarchical_context_service", return_value=hsvc),
+        ):
             resp = authenticated_client.post(
                 "/graph/hierarchy/search/drill-down", json=self._payload
             )

@@ -181,12 +181,22 @@ class EmbeddingStatsResponse(BaseModel):
 class ProcessHierarchyRequest(BaseModel):
     """Request to process the complete hierarchy of a video."""
 
-    video_path: str
-    video_id: str
-    title: str | None = None
-    fps: float = 30.0
-    duration: float | None = None
-    resolution: tuple[int, int] = (1920, 1080)
+    video_id: str = Field(..., min_length=1, description="Authorized media ID to process.")
+    video_path: str | None = Field(
+        default=None,
+        deprecated=True,
+        description=(
+            "Deprecated compatibility field. The API no longer trusts client-supplied server "
+            "filesystem paths and resolves processing artifacts from the authorized media record."
+        ),
+    )
+    title: str | None = Field(default=None, description="Optional title override.")
+    fps: float = Field(default=30.0, gt=0, le=240, description="Video frame rate.")
+    duration: float | None = Field(default=None, ge=0, description="Video duration in seconds.")
+    resolution: tuple[int, int] = Field(
+        default=(1920, 1080),
+        description="Video resolution as (width, height).",
+    )
 
 
 class ProcessHierarchyResponse(BaseModel):
@@ -204,8 +214,13 @@ class ProcessHierarchyResponse(BaseModel):
 class DrillDownSearchRequest(BaseModel):
     """Request for hierarchical drill-down search."""
 
-    query: str
-    video_id: str | None = None
+    query: str = Field(..., min_length=1, description="Search text.")
+    video_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional owned video ID. When omitted, non-superusers are scoped to their own media."
+        ),
+    )
     start_level: str = Field(default="video", pattern="^(video|chapter|scene)$")
     target_level: str = Field(default="scene", pattern="^(video|chapter|scene|frame)$")
     top_k: int = Field(default=5, ge=1, le=20)

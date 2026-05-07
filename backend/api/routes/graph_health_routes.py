@@ -36,10 +36,11 @@ async def graph_health_check(current_user: User = Depends(get_current_user)):
         service = get_async_graph_service()
         svc: GraphRouteService = get_graph_route_service()
         result = svc.check_graph_health(service.sync_service)
+        uri = result.uri if current_user.is_superuser else "redacted"
         return GraphHealthResponse(
             status=result.status,
             connected=result.connected,
-            uri=result.uri,
+            uri=uri,
             message=result.message,
         )
     except Exception as e:

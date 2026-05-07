@@ -15,10 +15,12 @@ from core.degraded import DegradationImpact, record_degraded_operation
 from core.exceptions import (
     AccessDeniedError,
     BadRequestError,
+    ConflictError,
     NotFoundError,
     ProcessingError,
     ServiceUnavailableError,
 )
+from services.media_upload_service import VIDEO_CONTENT_TYPES, VIDEO_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,11 @@ class ChunkedUploadService:
     ) -> dict[str, Any]:
         """Initialize a resumable block upload and persist its upload session."""
         self._require_blob_service()
+        file_extension = self._validate_init_request(
+            filename=filename,
+            file_size=file_size,
+            content_type=content_type,
+        )
 
         max_size = MAX_FILE_SIZE_GB * 1024 * 1024 * 1024
         if file_size > max_size:
@@ -76,7 +83,6 @@ class ChunkedUploadService:
 
         upload_id = str(uuid.uuid4())
         media_id = str(uuid.uuid4())
-        file_extension = filename.split(".")[-1].lower() if "." in filename else "mp4"
         blob_name = f"{media_id}.{file_extension}"
         blocks = [
             {
@@ -116,7 +122,7 @@ class ChunkedUploadService:
                 }
             )
         except Exception as e:
-            logger.error("Failed to create media record: %s", e)
+            logger.error("Failed to create chunked upload media record: %s", type(e).__name__)
             raise ProcessingError("Failed to initialize upload") from e
 
         safe_filename = filename[:200].replace("\r", "").replace("\n", "")
@@ -143,6 +149,7 @@ class ChunkedUploadService:
     async def commit_upload(
         self,
         *,
+        upload_id: str,
         media_id: str,
         blob_name: str,
         block_ids: list[str],
@@ -154,7 +161,13 @@ class ChunkedUploadService:
     ) -> dict[str, Any]:
         """Commit uploaded blocks, clear the upload session, and queue processing."""
         blob_service = self._require_blob_service()
-        self._require_media_owner(media_id, user_id, missing_resource="Upload session")
+        media = self._require_media_owner(media_id, user_id, missing_resource="Upload session")
+        self._validate_commit_request(
+            media=media,
+            upload_id=upload_id,
+            blob_name=blob_name,
+            block_ids=block_ids,
+        )
         decoded_ids = self._decode_block_ids(block_ids)
 
         try:
@@ -174,7 +187,7 @@ class ChunkedUploadService:
                 final_size,
             )
         except Exception as e:
-            logger.error("Failed to commit blob: %s", e, exc_info=True)
+            logger.error("Failed to commit chunked upload blob: %s", type(e).__name__)
             self.db.update_media(media_id, {"processing_status": "error"})
             raise ProcessingError("Storage operation failed") from e
 
@@ -296,6 +309,50 @@ class ChunkedUploadService:
         if media.user_id != user_id:
             raise AccessDeniedError("Not authorized")
         return media
+
+    @staticmethod
+    def _validate_init_request(*, filename: str, file_size: int, content_type: str) -> str:
+        if not filename or not filename.strip():
+            raise BadRequestError("Filename is required")
+        if file_size <= 0:
+            raise BadRequestError("File size must be greater than zero")
+
+        file_extension = filename.rsplit(".", maxsplit=1)[-1].lower() if "." in filename else ""
+        if file_extension not in VIDEO_EXTENSIONS:
+            raise BadRequestError(
+                "Chunked uploads support video files only",
+                details={"status_code": 415, "extension": file_extension},
+            )
+
+        normalized_content_type = content_type.split(";", maxsplit=1)[0].lower()
+        if normalized_content_type not in VIDEO_CONTENT_TYPES:
+            raise BadRequestError(
+                "Unsupported media content type",
+                details={"status_code": 415, "content_type": normalized_content_type},
+            )
+        return file_extension
+
+    @staticmethod
+    def _validate_commit_request(
+        *,
+        media: Any,
+        upload_id: str,
+        blob_name: str,
+        block_ids: list[str],
+    ) -> None:
+        upload_session = media.upload_session if hasattr(media, "upload_session") else None
+        if not upload_session:
+            raise ConflictError("Upload session is no longer active")
+
+        if upload_session.get("upload_id") != upload_id:
+            raise ConflictError("Upload session does not match the active media upload")
+
+        if getattr(media, "blob_name", None) != blob_name:
+            raise BadRequestError("Uploaded blob does not match the active media upload")
+
+        expected_blocks = [block["block_id"] for block in upload_session.get("blocks", [])]
+        if not block_ids or block_ids != expected_blocks:
+            raise BadRequestError("Committed block list does not match the active upload session")
 
     @staticmethod
     def _decode_block_ids(block_ids: list[str]) -> list[str]:

@@ -20,6 +20,19 @@ from core.exceptions import (
 logger = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = {"mp4", "avi", "mov", "mkv", "webm"}
+IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+SUPPORTED_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
+VIDEO_CONTENT_TYPES = {
+    "video/mp4",
+    "video/quicktime",
+    "video/x-msvideo",
+    "video/x-matroska",
+    "video/webm",
+}
+IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+SUPPORTED_CONTENT_TYPES = VIDEO_CONTENT_TYPES | IMAGE_CONTENT_TYPES
+DIRECT_UPLOAD_MAX_BYTES = 2 * 1024 * 1024 * 1024
+MAGIC_BYTES_READ_SIZE = 16
 
 
 @dataclass(frozen=True)
@@ -69,6 +82,7 @@ class MediaUploadService:
     ) -> dict[str, Any]:
         """Upload an image or video and dispatch video processing when needed."""
         try:
+            await self._validate_upload_file(file=file, video_only=False)
             media_id = str(uuid.uuid4())
             file_extension = self._file_extension(file, default="bin")
             media_type = "video" if file_extension in VIDEO_EXTENSIONS else "image"
@@ -117,7 +131,7 @@ class MediaUploadService:
         except QPrismaException:
             raise
         except Exception as e:
-            logger.error("Error uploading file: %s", e, exc_info=True)
+            logger.error("Direct upload failed: %s", type(e).__name__)
             raise ProcessingError("Error uploading file") from e
 
     async def upload_optimized_video(
@@ -128,9 +142,8 @@ class MediaUploadService:
         options: OptimizedUploadOptions,
     ) -> dict[str, Any]:
         """Upload a video and dispatch it to the optimized processing pipeline."""
+        await self._validate_upload_file(file=file, video_only=True)
         file_extension = self._file_extension(file, default="")
-        if file_extension not in VIDEO_EXTENSIONS:
-            raise BadRequestError("Only videos (mp4, avi, mov, mkv, webm)")
 
         try:
             media_id = str(uuid.uuid4())
@@ -178,10 +191,12 @@ class MediaUploadService:
         except QPrismaException:
             raise
         except Exception as e:
-            logger.error("Upload error: %s", e, exc_info=True)
+            logger.error("Optimized upload failed: %s", type(e).__name__)
             raise ProcessingError("Upload error") from e
 
     async def _upload_blob(self, *, file: UploadFile, blob_name: str) -> int:
+        if not self.blob_service:
+            raise ServiceUnavailableError("Azure Blob Storage")
         blob_client = self.blob_service.get_blob_client(
             container=self.container_name, blob=blob_name
         )
@@ -195,7 +210,59 @@ class MediaUploadService:
         if not file_size:
             props = await loop.run_in_executor(None, blob_client.get_blob_properties)
             file_size = props.size
+        if file_size > DIRECT_UPLOAD_MAX_BYTES:
+            raise BadRequestError(
+                "Uploaded file exceeds the direct upload size limit",
+                details={"status_code": 413},
+            )
         return file_size
+
+    async def _validate_upload_file(self, *, file: UploadFile, video_only: bool) -> None:
+        extension = self._file_extension(file, default="")
+        allowed_extensions = VIDEO_EXTENSIONS if video_only else SUPPORTED_EXTENSIONS
+        if extension not in allowed_extensions:
+            raise BadRequestError(
+                "Unsupported media extension",
+                details={"status_code": 415, "extension": extension},
+            )
+
+        if file.size is not None and file.size > DIRECT_UPLOAD_MAX_BYTES:
+            raise BadRequestError(
+                "Uploaded file exceeds the direct upload size limit",
+                details={"status_code": 413},
+            )
+
+        content_type = (file.content_type or "").split(";")[0].lower()
+        allowed_content_types = VIDEO_CONTENT_TYPES if video_only else SUPPORTED_CONTENT_TYPES
+        if content_type not in allowed_content_types:
+            raise BadRequestError(
+                "Unsupported media content type",
+                details={"status_code": 415, "content_type": content_type},
+            )
+
+        header = await file.read(MAGIC_BYTES_READ_SIZE)
+        await file.seek(0)
+        if not self._matches_media_signature(extension, header):
+            raise BadRequestError(
+                "Uploaded file content does not match a supported media type",
+                details={"status_code": 415, "extension": extension},
+            )
+
+    @staticmethod
+    def _matches_media_signature(extension: str, header: bytes) -> bool:
+        if extension in {"mp4", "mov"}:
+            return len(header) >= 12 and header[4:8] == b"ftyp"
+        if extension == "avi":
+            return len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"AVI "
+        if extension in {"mkv", "webm"}:
+            return header.startswith(b"\x1a\x45\xdf\xa3")
+        if extension in {"jpg", "jpeg"}:
+            return header.startswith(b"\xff\xd8\xff")
+        if extension == "png":
+            return header.startswith(b"\x89PNG\r\n\x1a\n")
+        if extension == "webp":
+            return len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP"
+        return False
 
     async def _dispatch_video(
         self,
@@ -224,7 +291,7 @@ class MediaUploadService:
             self.db.update_media(media_id, dispatch_result.media_updates())
             return dispatch_result
         except Exception as e:
-            logger.error("Processing dispatch failed for %s: %s", media_id, e, exc_info=True)
+            logger.error("Processing dispatch failed during upload: %s", type(e).__name__)
             self._mark_processing_dispatch_failed(media_id)
             raise ServiceUnavailableError("Task queue") from e
 

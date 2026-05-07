@@ -106,16 +106,6 @@ export interface VideoStructureResponse {
   }>;
 }
 
-export interface ChatResponse {
-  response: string;
-  sources?: Array<{
-    timestamp: number;
-    type?: string;
-    description?: string;
-    score?: number;
-  }>;
-}
-
 export interface SearchResult {
   id: string;
   frame_number: number;
@@ -372,25 +362,8 @@ export const apiClient = {
   },
 
   // --------------------------------------------------------------------------
-  // Chat / Agent Streaming
+  // Agent Streaming
   // --------------------------------------------------------------------------
-
-  async chatWithVideo(
-    query: string,
-    videoId: string,
-    chatHistory: Array<{ role: string; content: string }>
-  ): Promise<ChatResponse> {
-    const response = await fetch(`${API_URL}/chat`, {
-      method: 'POST',
-      headers: await getAuthHeaders(),
-      body: JSON.stringify({
-        message: query,
-        video_id: videoId,
-        chat_history: chatHistory,
-      }),
-    });
-    return handleResponse<ChatResponse>(response);
-  },
 
   /**
    * Stream chat with Video Agent via A2A protocol.

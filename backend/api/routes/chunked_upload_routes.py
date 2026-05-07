@@ -10,7 +10,7 @@ High-performance upload endpoints for large files (1GB+) using:
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.dependencies import (
     build_blob_sas_url_async,
@@ -21,14 +21,24 @@ from api.dependencies import (
 from api.dependencies import (
     get_chunked_upload_service as build_chunked_upload_service,
 )
+from api.openapi_responses import (
+    AUTH_RESPONSES,
+    CONFLICT_RESPONSES,
+    PAYLOAD_TOO_LARGE_RESPONSES,
+    SERVICE_RESPONSES,
+    UNSUPPORTED_MEDIA_RESPONSES,
+    merge_responses,
+)
 from core.exceptions import (
     AccessDeniedError,
     BadRequestError,
+    ConflictError,
     NotFoundError,
     ProcessingError,
     QPrismaException,
     ServiceUnavailableError,
 )
+from models.upload_schemas import CancelUploadResponse, ChunkedUploadStatusResponse
 from models.user import User
 from services.chunked_upload_service import (
     DEFAULT_BLOCK_SIZE_MB,
@@ -49,10 +59,10 @@ logger = logging.getLogger(__name__)
 class InitUploadRequest(BaseModel):
     """Request to initialize a chunked upload."""
 
-    filename: str
-    file_size: int  # Total file size in bytes
+    filename: str = Field(..., min_length=1, max_length=255)
+    file_size: int = Field(..., gt=0, description="Total file size in bytes.")
     content_type: str = "video/mp4"
-    block_size_mb: int = DEFAULT_BLOCK_SIZE_MB  # Block size in MB
+    block_size_mb: int = Field(default=DEFAULT_BLOCK_SIZE_MB, ge=1, le=100)
 
 
 class InitUploadResponse(BaseModel):
@@ -71,12 +81,12 @@ class InitUploadResponse(BaseModel):
 class CommitUploadRequest(BaseModel):
     """Request to commit/finalize a chunked upload."""
 
-    upload_id: str
-    media_id: str
-    blob_name: str
-    block_ids: list[str]  # Ordered list of block IDs to commit
+    upload_id: str = Field(..., min_length=1)
+    media_id: str = Field(..., min_length=1)
+    blob_name: str = Field(..., min_length=1)
+    block_ids: list[str] = Field(..., min_length=1)
     preset: str = "balanced"
-    max_frames: int = 150
+    max_frames: int = Field(default=150, ge=1, le=500)
     use_scene_detection: bool = True
     use_hierarchical_summary: bool = True
 
@@ -113,7 +123,10 @@ def get_chunked_upload_service_instance() -> ChunkedUploadService:
 def translate_chunked_upload_error(exc: QPrismaException) -> HTTPException:
     """Map service-layer upload exceptions to HTTP responses."""
     if isinstance(exc, BadRequestError):
-        return HTTPException(status_code=400, detail=exc.message)
+        status_code = int(exc.details.get("status_code", 400))
+        return HTTPException(status_code=status_code, detail=exc.message)
+    if isinstance(exc, ConflictError):
+        return HTTPException(status_code=409, detail=exc.message)
     if isinstance(exc, NotFoundError):
         resource = exc.details.get("resource_type") or exc.details.get("resource")
         if not resource:
@@ -129,9 +142,9 @@ def translate_chunked_upload_error(exc: QPrismaException) -> HTTPException:
     if isinstance(exc, AccessDeniedError):
         return HTTPException(status_code=403, detail=exc.message)
     if isinstance(exc, ServiceUnavailableError):
-        return HTTPException(status_code=503, detail=exc.message)
+        return HTTPException(status_code=503, detail="Upload service is temporarily unavailable")
     if isinstance(exc, ProcessingError):
-        return HTTPException(status_code=500, detail=exc.message)
+        return HTTPException(status_code=500, detail="Upload operation failed")
     return HTTPException(status_code=500, detail="Upload operation failed")
 
 
@@ -140,7 +153,16 @@ def translate_chunked_upload_error(exc: QPrismaException) -> HTTPException:
 # =============================================================================
 
 
-@router.post("/init", response_model=InitUploadResponse)
+@router.post(
+    "/init",
+    response_model=InitUploadResponse,
+    responses=merge_responses(
+        AUTH_RESPONSES,
+        PAYLOAD_TOO_LARGE_RESPONSES,
+        UNSUPPORTED_MEDIA_RESPONSES,
+        SERVICE_RESPONSES,
+    ),
+)
 async def init_chunked_upload(
     request: InitUploadRequest,
     current_user: User = Depends(get_current_user),
@@ -176,7 +198,11 @@ async def init_chunked_upload(
         raise translate_chunked_upload_error(exc) from exc
 
 
-@router.post("/commit", response_model=CommitUploadResponse)
+@router.post(
+    "/commit",
+    response_model=CommitUploadResponse,
+    responses=merge_responses(AUTH_RESPONSES, CONFLICT_RESPONSES, SERVICE_RESPONSES),
+)
 async def commit_chunked_upload(
     request: CommitUploadRequest,
     current_user: User = Depends(get_current_user),
@@ -196,6 +222,7 @@ async def commit_chunked_upload(
     try:
         return CommitUploadResponse(
             **await service.commit_upload(
+                upload_id=request.upload_id,
                 media_id=request.media_id,
                 blob_name=request.blob_name,
                 block_ids=request.block_ids,
@@ -210,7 +237,11 @@ async def commit_chunked_upload(
         raise translate_chunked_upload_error(exc) from exc
 
 
-@router.get("/status/{media_id}")
+@router.get(
+    "/status/{media_id}",
+    response_model=ChunkedUploadStatusResponse,
+    responses=merge_responses(AUTH_RESPONSES, CONFLICT_RESPONSES, SERVICE_RESPONSES),
+)
 async def get_upload_status(
     media_id: str,
     current_user: User = Depends(get_current_user),
@@ -228,7 +259,11 @@ async def get_upload_status(
         raise translate_chunked_upload_error(exc) from exc
 
 
-@router.delete("/cancel/{media_id}")
+@router.delete(
+    "/cancel/{media_id}",
+    response_model=CancelUploadResponse,
+    responses=merge_responses(AUTH_RESPONSES, CONFLICT_RESPONSES, SERVICE_RESPONSES),
+)
 async def cancel_upload(
     media_id: str,
     current_user: User = Depends(get_current_user),
