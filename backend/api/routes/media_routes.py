@@ -314,7 +314,7 @@ async def search_in_video(
     Semantic search within a specific video.
     Returns relevant frames with timestamps.
     """
-    logger.info("Search request: media_id=%s top=%d", media_id, top)
+    logger.info("Search request received")
     get_media_or_404(media_id, current_user)
 
     try:
@@ -324,5 +324,8 @@ async def search_in_video(
             top=top,
         )
     except Exception as e:
-        logger.error(f"Error searching media {media_id}: {e}", exc_info=True)
+        logger.error(
+            "Error searching media: %s",
+            type(e).__name__,
+        )
         raise internal_error() from e
