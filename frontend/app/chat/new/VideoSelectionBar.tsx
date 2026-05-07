@@ -50,6 +50,7 @@ export default function VideoSelectionBar({
                 <button
                   onClick={() => onRemoveVideo(v.id)}
                   className="p-0.5 hover:bg-indigo-100 dark:hover:bg-indigo-500/25 rounded-full"
+                  aria-label={`Remove ${v.title}`}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -73,6 +74,7 @@ export default function VideoSelectionBar({
             <button
               onClick={onClearVideo}
               className="p-0.5 hover:bg-indigo-100 dark:hover:bg-indigo-500/25 rounded-full"
+              aria-label={`Clear ${selectedVideo.title}`}
             >
               <X className="w-3 h-3" />
             </button>

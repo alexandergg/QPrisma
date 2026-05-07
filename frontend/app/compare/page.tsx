@@ -8,6 +8,7 @@ import CompareView from '@/components/compare/CompareView';
 import RequireAuth from '@/components/RequireAuth';
 import { GitCompare, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import type { ChatMode } from '@/components/layout/Sidebar';
+import { videoChatHref } from '@/lib/routes';
 
 interface CompareVideo {
   id: string;
@@ -120,7 +121,7 @@ export default function ComparePage() {
                 <CompareView
                   videos={compareVideos}
                   onRemoveVideo={handleRemoveVideo}
-                  onSelectVideo={(id) => router.push(`/chat?video=${id}`)}
+                  onSelectVideo={(id) => router.push(videoChatHref(id))}
                 />
               </div>
             ) : (

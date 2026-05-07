@@ -6,6 +6,7 @@ import { Sidebar } from '@/components/layout';
 import { VideoGrid } from '@/components/library';
 import RequireAuth from '@/components/RequireAuth';
 import type { MediaItem } from '@/lib/api';
+import { videoChatHref } from '@/lib/routes';
 
 export default function LibraryPage() {
   const router = useRouter();
@@ -14,7 +15,7 @@ export default function LibraryPage() {
 
   const handleSelectVideo = (video: MediaItem) => {
     // Navigate to chat with this video
-    router.push(`/chat?videoId=${video.id}`);
+    router.push(videoChatHref(video.id));
   };
 
   return (

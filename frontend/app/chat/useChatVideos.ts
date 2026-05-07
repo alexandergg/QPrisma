@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 import { UPLOAD } from '@/lib/constants';
@@ -12,6 +12,7 @@ import type { VideoData, LibraryVideo, UploadingVideo } from './types';
  */
 export function useChatVideos() {
   const searchParams = useSearchParams();
+  const urlVideoId = searchParams.get('videoId');
   const [selectedVideo, setSelectedVideo] = useState<VideoData | null>(null);
   const [selectedVideos, setSelectedVideos] = useState<VideoData[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
@@ -25,6 +26,10 @@ export function useChatVideos() {
   const [activeVideoTab, setActiveVideoTab] = useState(0);
   const [comparisonMode, setComparisonMode] = useState<'tabs' | 'side-by-side'>('tabs');
   const [currentMode, setCurrentMode] = useState<'single' | 'library'>('single');
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
+  const [videoLoadError, setVideoLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const requestedUrlVideoIdRef = useRef<string | null>(null);
 
   const isMultiVideo = selectedVideos.length > 1;
 
@@ -55,18 +60,46 @@ export function useChatVideos() {
 
   // Auto-load video from URL param
   useEffect(() => {
-    const videoId = searchParams.get('videoId');
-    if (videoId) {
-      Promise.resolve().then(async () => {
-        const videoData = await loadVideo(videoId);
-        if (videoData) {
-          setSelectedVideo(videoData);
-          setSelectedVideos([videoData]);
-          setCurrentMode('single');
-        }
+    if (!urlVideoId) {
+      requestedUrlVideoIdRef.current = null;
+      Promise.resolve().then(() => {
+        setIsVideoLoading(false);
+        setVideoLoadError(null);
       });
+      return;
     }
-  }, [searchParams, loadVideo]);
+
+    if (requestedUrlVideoIdRef.current === urlVideoId) {
+      return;
+    }
+
+    let cancelled = false;
+    requestedUrlVideoIdRef.current = urlVideoId;
+
+    Promise.resolve().then(async () => {
+      setIsVideoLoading(true);
+      setVideoLoadError(null);
+      setSelectedVideo(null);
+      setSelectedVideos([]);
+      setCurrentMode('single');
+
+      const videoData = await loadVideo(urlVideoId);
+      if (cancelled) return;
+
+      if (videoData) {
+        setSelectedVideo(videoData);
+        setSelectedVideos([videoData]);
+        setCurrentMode('single');
+      } else {
+        setVideoLoadError('Could not open this video. It may still be processing or unavailable.');
+      }
+      setIsVideoLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [urlVideoId, loadVideo, loadAttempt]);
 
   const handleSelectVideoFromLibrary = async (video: LibraryVideo) => {
     setShowVideoSelector(false);
@@ -142,9 +175,24 @@ export function useChatVideos() {
   );
 
   const clearSelection = () => {
+    requestedUrlVideoIdRef.current = null;
+    setIsVideoLoading(false);
+    setVideoLoadError(null);
     setSelectedVideo(null);
     setSelectedVideos([]);
   };
+
+  const retryUrlVideoLoad = useCallback(() => {
+    requestedUrlVideoIdRef.current = null;
+    setVideoLoadError(null);
+    setLoadAttempt((attempt) => attempt + 1);
+  }, []);
+
+  const isOpeningUrlVideo = Boolean(
+    urlVideoId &&
+      !videoLoadError &&
+      (isVideoLoading || selectedVideo?.id !== urlVideoId),
+  );
 
   return {
     selectedVideo,
@@ -161,6 +209,9 @@ export function useChatVideos() {
     comparisonMode,
     currentMode,
     isMultiVideo,
+    pendingVideoId: urlVideoId,
+    isVideoLoading: isOpeningUrlVideo,
+    videoLoadError,
     setSelectedVideo,
     setCurrentTime,
     setShowVideoSelector,
@@ -180,5 +231,6 @@ export function useChatVideos() {
     handleUploadComplete,
     handleSelectVideoById,
     clearSelection,
+    retryUrlVideoLoad,
   };
 }

@@ -46,8 +46,8 @@ export const VIDEO = {
 export const UPLOAD = {
   /** Maximum videos accepted in a single upload action */
   MAX_FILES: 10,
-  /** Maximum file size in bytes (500MB) */
-  MAX_FILE_SIZE: 500 * 1024 * 1024,
+  /** Maximum file size in bytes (10GB) */
+  MAX_FILE_SIZE: 10 * 1024 * 1024 * 1024,
   /** Allowed MIME types */
   ALLOWED_MIME_TYPES: [
     'video/mp4',
@@ -142,5 +142,5 @@ export const ERROR_MESSAGES = {
   uploadFailed: 'Upload failed. Please try again.',
   processingFailed: 'Processing failed. Please try again.',
   invalidFile:'Invalid file type. Please upload a supported video format.',
-  fileTooLarge: 'File is too large. Maximum size is 500MB.',
+  fileTooLarge: 'File is too large. Maximum size is 10GB.',
 } as const;

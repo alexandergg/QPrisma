@@ -18,6 +18,7 @@ import {
 import { staggerContainer, staggerItem } from '@/lib/animations';
 import { useUserVideos } from '@/hooks/useUserVideos';
 import type { MediaItem } from '@/lib/api';
+import { videoChatHref } from '@/lib/routes';
 
 // ---------------------------------------------------------------------------
 // Animation variants
@@ -46,7 +47,6 @@ export interface WelcomeScreenProps {
   onBrowseLibrary?: () => void;
   onQuickSuggestion?: (suggestion: string) => void;
   onSelectVideo?: (videoId: string) => void;
-  mode?: 'single' | 'library';
   userName?: string;
 }
 
@@ -229,7 +229,7 @@ function ReturningUserWelcome({
     if (onSelectVideo) {
       onSelectVideo(videoId);
     } else {
-      router.push(`/chat?videoId=${videoId}`);
+      router.push(videoChatHref(videoId));
     }
   };
 
@@ -349,7 +349,6 @@ function WelcomeScreen({
   onUploadVideo,
   onBrowseLibrary,
   onSelectVideo,
-  mode = 'single',
   userName,
 }: WelcomeScreenProps) {
   const { hasVideos, videoCount, recentVideos, isLoading } = useUserVideos();

@@ -27,8 +27,8 @@ describe('Constants', () => {
   describe('UPLOAD', () => {
     it('has valid max file size', () => {
       expect(UPLOAD.MAX_FILE_SIZE).toBeGreaterThan(0);
-      // 500MB
-      expect(UPLOAD.MAX_FILE_SIZE).toBe(500 * 1024 * 1024);
+      // 10GB for chunked video uploads
+      expect(UPLOAD.MAX_FILE_SIZE).toBe(10 * 1024 * 1024 * 1024);
     });
 
     it('has valid MIME types', () => {

@@ -22,13 +22,7 @@ export * from './upload';
 export * from './compare';
 
 // Standalone components
-export { default as ChapterNavigation } from './ChapterNavigation';
-export { default as PipelineVisualizer } from './PipelineVisualizer';
-export { default as ProcessingConfig } from './ProcessingConfig';
 export { default as RequireAuth } from './RequireAuth';
-export { default as VideoOverlay } from './VideoOverlay';
-export { default as VideoProcessingStudio } from './VideoProcessingStudio';
-export { default as VideoUpload } from './VideoUpload';
 
 // Error handling and loading
 export { ErrorBoundary, withErrorBoundary } from './ErrorBoundary';

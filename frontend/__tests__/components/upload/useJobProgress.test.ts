@@ -14,7 +14,6 @@ const initialSteps: ProcessingStepData[] = [
 
 describe('useJobProgress', () => {
   beforeEach(() => {
-    localStorage.setItem('auth_token', 'token-123');
     global.fetch = jest.fn();
   });
 
@@ -29,9 +28,11 @@ describe('useJobProgress', () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => ({
-        processing_status: 'processing',
-        processing_progress: 42,
+        processing_status: 'running',
+        processing_progress: 0.42,
         processing_message: 'Analyzing frames',
+        processing_method: 'databricks',
+        last_updated: '2026-05-07T19:00:00Z',
         processed: false,
       }),
     });
@@ -44,10 +45,13 @@ describe('useJobProgress', () => {
 
     expect(global.fetch).toHaveBeenCalledWith(
       'http://localhost:8000/media/media-1/status',
-      { headers: { Authorization: 'Bearer token-123' } },
+      { headers: { 'Content-Type': 'application/json' } },
     );
     expect(result.current.steps.some((step) => step.status === 'in_progress')).toBe(true);
     expect(result.current.estimatedTime).toBe('~6 min remaining');
+    expect(result.current.processingMessage).toBe('Analyzing frames');
+    expect(result.current.processingMethod).toBe('databricks');
+    expect(result.current.backendStatus).toBe('running');
   });
 
   it('marks all steps completed when persisted status completes', async () => {
@@ -56,7 +60,7 @@ describe('useJobProgress', () => {
       ok: true,
       json: async () => ({
         processing_status: 'completed',
-        processing_progress: 100,
+        processing_progress: 1,
         processing_message: 'Done',
         processed: true,
       }),
@@ -78,8 +82,8 @@ describe('useJobProgress', () => {
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => ({
-        processing_status: 'failed',
-        processing_progress: 55,
+        processing_status: 'error',
+        processing_progress: 0.55,
         processing_message: 'Frame analysis failed',
         processed: false,
       }),
@@ -112,7 +116,8 @@ describe('useJobProgress', () => {
     expect(onError).toHaveBeenCalledWith(ERROR_MESSAGES.forbidden);
   });
 
-  it('surfaces network failures from status polling', async () => {
+  it('surfaces repeated network failures from status polling', async () => {
+    jest.useFakeTimers();
     const onError = jest.fn();
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     (global.fetch as jest.Mock).mockRejectedValue(new Error('offline'));
@@ -121,14 +126,16 @@ describe('useJobProgress', () => {
       useJobProgress('job-1', 'media-1', initialSteps, undefined, onError),
     );
 
+    await act(async () => {
+      jest.advanceTimersByTime(TIMING.JOB_POLL_INTERVAL * 2);
+      await Promise.resolve();
+    });
+
     await waitFor(() => expect(result.current.status).toBe('error'));
 
     expect(result.current.error).toBe(ERROR_MESSAGES.networkError);
     expect(onError).toHaveBeenCalledWith(ERROR_MESSAGES.networkError);
-    expect(consoleError).toHaveBeenCalledWith(
-      '[useJobProgress] Polling error:',
-      expect.any(Error),
-    );
+    expect(consoleError).toHaveBeenCalledTimes(3);
   });
 
   it('stops polling after the maximum attempt count', async () => {

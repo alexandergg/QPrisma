@@ -8,6 +8,7 @@ import { UploadZone, ProcessingCard } from '@/components/upload';
 import { apiClient } from '@/lib/api';
 import { ChunkedUploader, shouldUseChunkedUpload, UploadProgress } from '@/lib/chunked-upload';
 import { UPLOAD } from '@/lib/constants';
+import { videoChatHref } from '@/lib/routes';
 
 interface UploadingVideo {
   id: string;
@@ -155,7 +156,7 @@ export default function UploadPage() {
   };
 
   const handleViewVideo = (mediaId: string) => {
-    router.push(`/chat?videoId=${mediaId}`);
+    router.push(videoChatHref(mediaId));
   };
 
   return (

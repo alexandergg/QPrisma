@@ -74,7 +74,10 @@ function NewChatContent() {
             isMultiVideo={v.isMultiVideo}
             currentMode={v.currentMode}
             onRemoveVideo={v.handleRemoveVideo}
-            onClearVideo={v.clearSelection}
+            onClearVideo={() => {
+              v.clearSelection();
+              router.push('/chat/new');
+            }}
             onChangeVideo={() => v.setShowVideoSelector(true)}
             onAddMoreVideos={() => v.setShowMultiVideoSelector(true)}
             onEditSelection={() => v.setShowMultiVideoSelector(true)}
@@ -110,6 +113,9 @@ function NewChatContent() {
             onUploadVideo={() => v.setShowUploader(true)}
             onBrowseLibrary={() => v.setShowVideoSelector(true)}
             onSelectVideoById={v.handleSelectVideoById}
+            isOpeningVideo={v.isVideoLoading}
+            videoOpenError={v.videoLoadError}
+            onRetryOpenVideo={v.retryUrlVideoLoad}
             userName={user?.full_name || user?.email}
             onMessagesChange={handleMessagesChange}
             onSessionIdChange={handleSessionIdChange}
@@ -117,7 +123,7 @@ function NewChatContent() {
         </main>
 
         {/* Video Panel (Single Video Mode) */}
-        {v.selectedVideo && v.currentMode === 'single' && (
+        {v.selectedVideo && v.currentMode === 'single' && !v.isVideoLoading && !v.videoLoadError && (
           <div className="w-full md:w-[40%] md:min-w-[400px] md:max-w-[600px] flex-shrink-0 h-[40vh] md:h-screen">
             <VideoPanel
               videoId={v.selectedVideo.id}
@@ -131,7 +137,10 @@ function NewChatContent() {
               onTimeUpdate={v.setCurrentTime}
               onSeek={v.setCurrentTime}
               isVisible={true}
-              onClose={() => v.setSelectedVideo(null)}
+              onClose={() => {
+                v.clearSelection();
+                router.push('/chat/new');
+              }}
             />
           </div>
         )}

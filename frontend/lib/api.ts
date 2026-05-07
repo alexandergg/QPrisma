@@ -60,6 +60,18 @@ export interface UploadResponse {
   job_id?: string;
 }
 
+export interface MediaProcessingStatusResponse {
+  media_id: string;
+  processing_status?: string | null;
+  processing_message?: string | null;
+  processing_progress?: number | null;
+  processed?: boolean;
+  processing_method?: string | null;
+  frames_analyzed?: number | null;
+  last_updated?: string | null;
+  video_metadata?: Record<string, unknown> | null;
+}
+
 export interface VideoStructureResponse {
   structure?: {
     scenes?: Array<{
@@ -269,6 +281,22 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json();
 }
 
+function normalizeProcessingProgress(progress: number | null | undefined): number | null | undefined {
+  if (typeof progress !== 'number' || Number.isNaN(progress)) return progress;
+
+  const percent = progress <= 1 ? progress * 100 : progress;
+  return Math.max(0, Math.min(100, Math.round(percent)));
+}
+
+function normalizeMediaProcessingStatus(
+  status: MediaProcessingStatusResponse,
+): MediaProcessingStatusResponse {
+  return {
+    ...status,
+    processing_progress: normalizeProcessingProgress(status.processing_progress),
+  };
+}
+
 // ============================================================================
 // API Client
 // ============================================================================
@@ -301,6 +329,18 @@ export const apiClient = {
       headers: await getAuthHeaders(),
     });
     return handleResponse<MediaItem>(response);
+  },
+
+  async getMediaStatus(mediaId: string): Promise<MediaProcessingStatusResponse> {
+    const response = await fetch(`${API_URL}/media/${mediaId}/status`, {
+      headers: await getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status}`);
+    }
+    return normalizeMediaProcessingStatus(
+      await response.json() as MediaProcessingStatusResponse,
+    );
   },
 
   async deleteMedia(mediaId: string): Promise<void> {
