@@ -1,11 +1,28 @@
 'use client';
 
 import React from 'react';
-import { CalendarDays, CheckCircle, Clock, Eye, Film, HardDrive, Loader2 } from 'lucide-react';
+import {
+  AlertCircle,
+  CalendarDays,
+  CheckCircle,
+  Clock,
+  Eye,
+  Film,
+  HardDrive,
+  Loader2,
+} from 'lucide-react';
 import type { MediaItem } from '@/lib/api';
 import { formatDate, formatFileSize, formatTime } from '@/lib/utils';
 
 type Video = MediaItem;
+type VideoStatus = 'ready' | 'queued' | 'processing' | 'failed' | 'pending';
+
+interface VideoStatusView {
+  label: string;
+  icon: typeof CheckCircle;
+  className: string;
+  isActive: boolean;
+}
 
 interface VideoListItemProps {
   video: Video;
@@ -13,13 +30,71 @@ interface VideoListItemProps {
   onSelect: () => void;
 }
 
+function getVideoStatus(video: Video): VideoStatus {
+  const processingStatus = video.processing_status?.toLowerCase();
+
+  if (video.processed === true || processingStatus === 'completed' || processingStatus === 'ready') {
+    return 'ready';
+  }
+
+  if (processingStatus === 'queued') {
+    return 'queued';
+  }
+
+  if (processingStatus === 'processing' || processingStatus === 'running') {
+    return 'processing';
+  }
+
+  if (processingStatus === 'failed' || processingStatus === 'error') {
+    return 'failed';
+  }
+
+  return 'pending';
+}
+
+function getVideoStatusView(status: VideoStatus): VideoStatusView {
+  switch (status) {
+    case 'ready':
+      return {
+        label: 'Ready',
+        icon: CheckCircle,
+        className: 'bg-[var(--sage-3)] text-[var(--sage-8)]',
+        isActive: false,
+      };
+    case 'queued':
+      return {
+        label: 'Queued',
+        icon: Clock,
+        className: 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]',
+        isActive: false,
+      };
+    case 'processing':
+      return {
+        label: 'Processing',
+        icon: Loader2,
+        className: 'bg-[var(--violet-3)] text-[var(--violet-11)]',
+        isActive: true,
+      };
+    case 'failed':
+      return {
+        label: 'Failed',
+        icon: AlertCircle,
+        className: 'bg-red-50 text-red-700',
+        isActive: false,
+      };
+    default:
+      return {
+        label: 'Pending',
+        icon: Clock,
+        className: 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]',
+        isActive: false,
+      };
+  }
+}
+
 export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProps) {
-  const isProcessing = !video.processed;
-  const statusLabel = video.processed
-    ? 'Ready'
-    : video.processing_status === 'queued'
-      ? 'Queued'
-      : 'Processing';
+  const statusView = getVideoStatusView(getVideoStatus(video));
+  const StatusIcon = statusView.icon;
 
   return (
     <div
@@ -67,17 +142,15 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
 
       {/* Status */}
       <div className="flex-shrink-0">
-        {video.processed ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--sage-3)] px-2.5 py-1 text-sm font-medium text-[var(--sage-8)]">
-            <CheckCircle className="w-4 h-4" aria-hidden="true" />
-            {statusLabel}
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--violet-3)] px-2.5 py-1 text-sm font-medium text-[var(--violet-11)]">
-            <Loader2 className={`w-4 h-4 ${isProcessing ? 'animate-spin' : ''}`} aria-hidden="true" />
-            {statusLabel}
-          </span>
-        )}
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-medium ${statusView.className}`}
+        >
+          <StatusIcon
+            className={`w-4 h-4 ${statusView.isActive ? 'animate-spin' : ''}`}
+            aria-hidden="true"
+          />
+          {statusView.label}
+        </span>
       </div>
     </div>
   );
