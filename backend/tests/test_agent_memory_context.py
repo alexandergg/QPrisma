@@ -3,14 +3,14 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from langchain_core.messages import HumanMessage, ToolMessage
-from langchain_core.runnables import RunnableConfig
-
 from agent.nodes.base import (
     _rehydrate_artifact_context,
     update_context_node,
 )
 from agent.utils.observability import Metrics
+from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
+
 from core.degraded import get_degradation_counts, reset_degradation_counts
 
 
@@ -207,8 +207,7 @@ class TestAgentMemoryContext:
 
         all_metrics = Metrics.get_all()
         assert any(
-            key.startswith(Metrics.ARTIFACT_PERSISTENCE_ERRORS)
-            for key in all_metrics["counters"]
+            key.startswith(Metrics.ARTIFACT_PERSISTENCE_ERRORS) for key in all_metrics["counters"]
         )
         assert any(
             "tool_artifact_persistence" in key and "RuntimeError" in key

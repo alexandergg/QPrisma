@@ -257,7 +257,9 @@ def get_structure_service(*, graph_service=None, service_cls=None):
     """Build StructureService while preserving facade-level patch points."""
     from services.structure_service import StructureService
 
-    resolved_graph_service = graph_service if graph_service is not None else get_knowledge_graph_service()
+    resolved_graph_service = (
+        graph_service if graph_service is not None else get_knowledge_graph_service()
+    )
     resolved_service_cls = service_cls or StructureService
     return resolved_service_cls(graph_service=resolved_graph_service)
 
@@ -344,7 +346,9 @@ def get_storage_route_service():
     return _get_storage_route_service_singleton()
 
 
-def get_media_upload_service(*, blob_service=None, db=None, container_name=None, dispatch_service_factory=None):
+def get_media_upload_service(
+    *, blob_service=None, db=None, container_name=None, dispatch_service_factory=None
+):
     """Build MediaUploadService while preserving facade-level patch points."""
     from services.media_upload_service import MediaUploadService
     from services.video_processing_dispatch_service import get_video_processing_dispatch_service
@@ -356,7 +360,9 @@ def get_media_upload_service(*, blob_service=None, db=None, container_name=None,
     return MediaUploadService(
         blob_service=resolved_blob_service,
         db=db if db is not None else get_database_service(),
-        container_name=container_name if container_name is not None else get_storage_container_name(),
+        container_name=(
+            container_name if container_name is not None else get_storage_container_name()
+        ),
         dispatch_service_factory=dispatch_service_factory or get_video_processing_dispatch_service,
     )
 
@@ -376,7 +382,9 @@ def get_media_library_service(
     return MediaLibraryService(
         db=db if db is not None else get_database_service(),
         blob_service=blob_service if blob_service is not None else get_blob_service(),
-        container_name=container_name if container_name is not None else get_storage_container_name(),
+        container_name=(
+            container_name if container_name is not None else get_storage_container_name()
+        ),
         sas_url_factory=sas_url_factory or _default_media_library_sas_url,
         hydrate_data_factory=hydrate_data_factory,
         graph_service_factory=graph_service_factory or get_knowledge_graph_service,
@@ -398,7 +406,9 @@ def get_chunked_upload_service(
     return ChunkedUploadService(
         blob_service=blob_service if blob_service is not None else get_blob_service(),
         db=db if db is not None else get_database_service(),
-        container_name=container_name if container_name is not None else get_storage_container_name(),
+        container_name=(
+            container_name if container_name is not None else get_storage_container_name()
+        ),
         sas_url_builder=sas_url_builder or build_blob_sas_url_async,
         dispatch_service_factory=dispatch_service_factory or get_video_processing_dispatch_service,
     )

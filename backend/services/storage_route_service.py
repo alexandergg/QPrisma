@@ -24,7 +24,9 @@ class StorageRouteService:
             "service": "storage_tiering",
         }
 
-    def get_media_tier(self, media_id: str, media: Any, db: Any, storage_service: Any) -> dict[str, Any]:
+    def get_media_tier(
+        self, media_id: str, media: Any, db: Any, storage_service: Any
+    ) -> dict[str, Any]:
         tier_info = storage_service.get_blob_tier_info(media.blob_name)
 
         if not tier_info:
@@ -33,7 +35,9 @@ class StorageRouteService:
                 "blob_name": media.blob_name,
                 "storage_tier": media.storage_tier or "Hot",
                 "rehydration_status": media.rehydration_status,
-                "last_accessed_at": media.last_accessed_at.isoformat() if media.last_accessed_at else None,
+                "last_accessed_at": (
+                    media.last_accessed_at.isoformat() if media.last_accessed_at else None
+                ),
                 "source": "database",
             }
 
@@ -54,7 +58,9 @@ class StorageRouteService:
             "is_rehydrating": tier_info.is_rehydrating,
             "rehydration_status": tier_info.rehydration_status,
             "estimated_rehydration_time": tier_info.estimated_rehydration_time,
-            "last_accessed_at": tier_info.last_accessed.isoformat() if tier_info.last_accessed else None,
+            "last_accessed_at": (
+                tier_info.last_accessed.isoformat() if tier_info.last_accessed else None
+            ),
             "source": "azure",
         }
 
@@ -72,7 +78,9 @@ class StorageRouteService:
         if result.success:
             update_data = {"storage_tier": target_tier.value}
             if result.from_tier == StorageTier.ARCHIVE:
-                update_data["rehydration_status"] = f"rehydrate-pending-to-{target_tier.value.lower()}"
+                update_data["rehydration_status"] = (
+                    f"rehydrate-pending-to-{target_tier.value.lower()}"
+                )
             else:
                 update_data["rehydration_status"] = None
 
@@ -117,15 +125,23 @@ class StorageRouteService:
             "priority": priority.value,
             "target_tier": target_tier.value,
             "estimated_time": estimated_time,
-            "message": f"Rehydration started. Video will be available in {estimated_time}."
-            if result.success
-            else result.error,
+            "message": (
+                f"Rehydration started. Video will be available in {estimated_time}."
+                if result.success
+                else result.error
+            ),
         }
 
-    def get_tier_recommendation(self, media_id: str, media: Any, storage_service: Any) -> dict[str, Any]:
-        recommendation = storage_service.get_tier_recommendation(media.last_accessed_at, media.file_size)
+    def get_tier_recommendation(
+        self, media_id: str, media: Any, storage_service: Any
+    ) -> dict[str, Any]:
+        recommendation = storage_service.get_tier_recommendation(
+            media.last_accessed_at, media.file_size
+        )
         recommended_tier = recommendation["recommended_tier"]
-        recommended_tier_value = recommended_tier.value if hasattr(recommended_tier, "value") else recommended_tier
+        recommended_tier_value = (
+            recommended_tier.value if hasattr(recommended_tier, "value") else recommended_tier
+        )
         current_tier = media.storage_tier or "Hot"
 
         return {

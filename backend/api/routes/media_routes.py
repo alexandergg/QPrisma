@@ -258,9 +258,7 @@ async def get_media_processing_status(
     get_media_or_404(media_id, current_user)
 
     try:
-        status = get_media_library_service_instance().get_media_processing_status(
-            media_id=media_id
-        )
+        status = get_media_library_service_instance().get_media_processing_status(media_id=media_id)
         if not status:
             raise not_found("Media")
         return status

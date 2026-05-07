@@ -169,7 +169,9 @@ class BadRequestError(QPrismaException):
 class AuthenticationError(QPrismaException):
     """Raised when credentials cannot be authenticated."""
 
-    def __init__(self, message: str = "Could not validate credentials", details: dict | None = None):
+    def __init__(
+        self, message: str = "Could not validate credentials", details: dict | None = None
+    ):
         super().__init__(
             message=message,
             code="AUTHENTICATION_ERROR",
@@ -228,13 +230,19 @@ class FrameExtractionError(ProcessingError):
 class NotFoundError(QPrismaException):
     """Raised when a requested resource is not found."""
 
-    def __init__(self, resource_type: str, resource_id: str | None = None, details: dict | None = None):
+    def __init__(
+        self, resource_type: str, resource_id: str | None = None, details: dict | None = None
+    ):
         if resource_id is None:
             message = f"{resource_type} not found"
             error_details = {"resource": resource_type, **(details or {})}
         else:
             message = f"{resource_type} '{resource_id}' not found"
-            error_details = {"resource_type": resource_type, "resource_id": resource_id, **(details or {})}
+            error_details = {
+                "resource_type": resource_type,
+                "resource_id": resource_id,
+                **(details or {}),
+            }
         super().__init__(
             message=message,
             code="NOT_FOUND",
