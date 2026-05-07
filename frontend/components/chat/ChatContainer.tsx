@@ -2,7 +2,7 @@
 
 import React, { useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, MessageSquare, ArrowRight } from 'lucide-react';
+import { Film, Library, MessageSquare, ArrowRight } from 'lucide-react';
 import WelcomeScreen from './WelcomeScreen';
 import MessageList, { ChatMessageData } from './MessageList';
 import ChatInput from './ChatInput';
@@ -79,6 +79,12 @@ export default function ChatContainer({
   const hasVideo = isMultiVideo || !!videoId;
   const showCenteredInput = hasVideo && !hasMessages;
   const suggestions = mode === 'single' ? SINGLE_SUGGESTIONS : LIBRARY_SUGGESTIONS;
+  const attachedVideos =
+    isMultiVideo && videoIds && videoNames
+      ? videoIds.map((id, i) => ({ id, name: videoNames?.[i] || 'Video' }))
+      : mode === 'single' && videoId && videoName
+        ? [{ id: videoId, name: videoName }]
+        : [];
 
   const handleQuickSuggestion = useCallback((suggestion: string) => {
     if (isLoading) return;
@@ -122,6 +128,7 @@ export default function ChatContainer({
               onUploadVideo={onUploadVideo}
               onBrowseLibrary={onBrowseLibrary}
               onQuickSuggestion={handleQuickSuggestion}
+              onSelectVideo={onSelectVideoById}
               mode={mode}
               userName={userName}
             />
@@ -138,11 +145,10 @@ export default function ChatContainer({
             }}
             exit={{ opacity: 0, y: -20, transition: { duration: 0.2 } }}
           >
-            <Sparkles className="w-8 h-8 text-violet-500 mb-4" />
-            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
-              What would you like to know?
-            </h2>
-            <p className="text-sm text-gray-500 mb-8">{subtitleText}</p>
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--violet-3)] bg-[var(--violet-1)] px-4 py-2 text-sm font-medium text-[var(--violet-11)] shadow-sm">
+              {isMultiVideo ? <Library className="w-4 h-4" /> : <Film className="w-4 h-4" />}
+              <span>{subtitleText}</span>
+            </div>
 
             <div className="w-full max-w-2xl">
               <ChatInput
@@ -154,6 +160,8 @@ export default function ChatContainer({
                 isLoading={isLoading}
                 isDisabled={!hasVideo}
                 mode={mode}
+                autoFocus
+                attachedVideos={attachedVideos}
               />
             </div>
 
@@ -217,13 +225,7 @@ export default function ChatContainer({
               isDisabled={!hasVideo}
               mode={mode}
               onAttachVideo={mode === 'single' ? onUploadVideo : onBrowseLibrary}
-              attachedVideos={
-                isMultiVideo && videoIds && videoNames
-                  ? videoIds.map((id, i) => ({ id, name: videoNames?.[i] || 'Video' }))
-                  : mode === 'single' && videoId && videoName
-                    ? [{ id: videoId, name: videoName }]
-                    : []
-              }
+              attachedVideos={attachedVideos}
             />
           </motion.div>
         )}

@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/layout';
 import { UploadZone, ProcessingCard } from '@/components/upload';
 import { apiClient } from '@/lib/api';
 import { ChunkedUploader, shouldUseChunkedUpload, UploadProgress } from '@/lib/chunked-upload';
+import { UPLOAD } from '@/lib/constants';
 
 interface UploadingVideo {
   id: string;
@@ -154,7 +155,7 @@ export default function UploadPage() {
   };
 
   const handleViewVideo = (mediaId: string) => {
-    router.push(`/chat/new?videoId=${mediaId}`);
+    router.push(`/chat?videoId=${mediaId}`);
   };
 
   return (
@@ -204,6 +205,7 @@ export default function UploadPage() {
             <UploadZone
               onFilesSelected={handleFilesSelected}
               isUploading={false}
+              maxFiles={UPLOAD.MAX_FILES}
             />
           </div>
 

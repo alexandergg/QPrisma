@@ -14,6 +14,7 @@ interface VideoGridProps {
   selectedVideoId?: string;
   selectionMode?: 'single' | 'multiple';
   selectedVideoIds?: string[];
+  maxSelection?: number;
   onSelectionChange?: (ids: string[]) => void;
 }
 
@@ -26,6 +27,7 @@ export default function VideoGrid({
   selectedVideoId,
   selectionMode = 'single',
   selectedVideoIds = [],
+  maxSelection,
   onSelectionChange,
 }: VideoGridProps) {
   const [videos, setVideos] = useState<Video[]>([]);
@@ -34,6 +36,7 @@ export default function VideoGrid({
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [sortBy, setSortBy] = useState<SortOption>('newest');
+  const [selectionError, setSelectionError] = useState<string | null>(null);
 
   const loadVideos = useCallback(async () => {
     try {
@@ -79,12 +82,17 @@ export default function VideoGrid({
       onSelectVideo?.(video);
     } else {
       const isSelected = selectedVideoIds.includes(video.id);
+      if (!isSelected && maxSelection !== undefined && selectedVideoIds.length >= maxSelection) {
+        setSelectionError(`You can select up to ${maxSelection} videos at a time.`);
+        return;
+      }
       const newSelection = isSelected
         ? selectedVideoIds.filter((id) => id !== video.id)
         : [...selectedVideoIds, video.id];
+      setSelectionError(null);
       onSelectionChange?.(newSelection);
     }
-  }, [selectionMode, onSelectVideo, selectedVideoIds, onSelectionChange]);
+  }, [selectionMode, onSelectVideo, selectedVideoIds, maxSelection, onSelectionChange]);
 
   const handleDelete = useCallback(async (videoId: string) => {
     if (!confirm('Are you sure you want to delete this video?')) return;
@@ -190,6 +198,11 @@ export default function VideoGrid({
 
       {/* Videos */}
       <div className="flex-1 overflow-y-auto p-3 md:p-4">
+        {selectionError && (
+          <div role="alert" className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            {selectionError}
+          </div>
+        )}
         {filteredVideos.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <Film className="w-12 h-12 text-[var(--sage-8)] mb-3" />
@@ -244,6 +257,11 @@ export default function VideoGrid({
       <div className="px-3 md:px-4 py-2 md:py-3 border-t border-[var(--sage-3)] bg-[var(--surface)]/50 backdrop-blur-sm text-sm text-[var(--sage-8)]">
         {filteredVideos.length} video{filteredVideos.length !== 1 ? 's' : ''}
         {searchQuery && ` matching "${searchQuery}"`}
+        {selectionMode === 'multiple' && maxSelection !== undefined && (
+          <span className="ml-2">
+            • {selectedVideoIds.length}/{maxSelection} selected
+          </span>
+        )}
       </div>
     </div>
   );

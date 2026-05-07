@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiClient } from '@/lib/api';
+import { UPLOAD } from '@/lib/constants';
 import type { VideoData, LibraryVideo, UploadingVideo } from './types';
 
 /**
@@ -39,6 +40,9 @@ export function useChatVideos() {
         url: metadata.blob_url,
         title: metadata.original_filename,
         duration: metadata.duration,
+        fileSize: metadata.file_size,
+        uploadedAt: metadata.uploaded_at,
+        thumbnailUrl: metadata.thumbnail_url,
         scenes: structure?.structure?.scenes || structure?.scenes || [],
         chapters: structure?.structure?.chapters || structure?.chapters || [],
         transcript: metadata.audio_data?.transcription?.segments || [],
@@ -55,7 +59,11 @@ export function useChatVideos() {
     if (videoId) {
       Promise.resolve().then(async () => {
         const videoData = await loadVideo(videoId);
-        if (videoData) setSelectedVideo(videoData);
+        if (videoData) {
+          setSelectedVideo(videoData);
+          setSelectedVideos([videoData]);
+          setCurrentMode('single');
+        }
       });
     }
   }, [searchParams, loadVideo]);
@@ -70,8 +78,9 @@ export function useChatVideos() {
   };
 
   const handleMultiVideoSelectionChange = async (ids: string[]) => {
+    const limitedIds = ids.slice(0, UPLOAD.MAX_FILES);
     const videos: VideoData[] = [];
-    for (const id of ids.slice(0, 10)) {
+    for (const id of limitedIds) {
       const existing = selectedVideos.find((v) => v.id === id);
       if (existing) {
         videos.push(existing);
@@ -114,7 +123,11 @@ export function useChatVideos() {
   const handleUploadComplete = async (mediaId: string) => {
     setShowUploader(false);
     const videoData = await loadVideo(mediaId);
-    if (videoData) setSelectedVideo(videoData);
+    if (videoData) {
+      setSelectedVideo(videoData);
+      setSelectedVideos([videoData]);
+      setCurrentMode('single');
+    }
   };
 
   const handleSelectVideoById = useCallback(

@@ -3,6 +3,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { VideoGrid } from '@/components/library';
+import { UPLOAD } from '@/lib/constants';
 import type { LibraryVideo, VideoData } from '../types';
 
 interface VideoSelectorModalProps {
@@ -67,7 +68,7 @@ export function MultiVideoSelectorModal({
           <div>
             <h2 className="text-xl font-semibold text-[var(--foreground)]">Select Multiple Videos</h2>
             <p className="text-sm text-[var(--text-secondary)] mt-1">
-              Select up to 10 videos to chat across them. {selectedVideos.length > 0 && `(${selectedVideos.length} selected)`}
+              Select up to {UPLOAD.MAX_FILES} videos to chat across them. {selectedVideos.length > 0 && `(${selectedVideos.length} selected)`}
             </p>
           </div>
           <button
@@ -80,6 +81,7 @@ export function MultiVideoSelectorModal({
         <div className="h-[50vh]">
           <VideoGrid
             selectionMode="multiple"
+            maxSelection={UPLOAD.MAX_FILES}
             selectedVideoIds={selectedVideos.map((v) => v.id)}
             onSelectionChange={onSelectionChange}
           />
@@ -88,7 +90,7 @@ export function MultiVideoSelectorModal({
           <span className="text-sm text-[var(--text-secondary)]">
             {selectedVideos.length === 0
               ? 'No videos selected'
-              : `${selectedVideos.length} video${selectedVideos.length !== 1 ? 's' : ''} selected`}
+              : `${selectedVideos.length} of ${UPLOAD.MAX_FILES} video${selectedVideos.length !== 1 ? 's' : ''} selected`}
           </span>
           <button
             onClick={onConfirm}

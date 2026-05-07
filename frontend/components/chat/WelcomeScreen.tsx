@@ -229,7 +229,7 @@ function ReturningUserWelcome({
     if (onSelectVideo) {
       onSelectVideo(videoId);
     } else {
-      router.push(`/chat/new?videoId=${videoId}`);
+      router.push(`/chat?videoId=${videoId}`);
     }
   };
 

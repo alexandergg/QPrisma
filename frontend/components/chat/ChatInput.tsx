@@ -22,6 +22,7 @@ interface ChatInputProps {
   placeholder?: string;
   mode?: 'single' | 'library';
   variant?: 'centered' | 'bottom';
+  autoFocus?: boolean;
 }
 
 export default function ChatInput({
@@ -37,6 +38,7 @@ export default function ChatInput({
   placeholder,
   mode = 'single',
   variant = 'bottom',
+  autoFocus = false,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -49,6 +51,12 @@ export default function ChatInput({
       textareaRef.current.style.height = `${Math.min(scrollHeight, lineHeight * 5)}px`;
     }
   }, [value]);
+
+  useEffect(() => {
+    if (autoFocus && !isDisabled && !isLoading) {
+      textareaRef.current?.focus();
+    }
+  }, [autoFocus, isDisabled, isLoading]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

@@ -108,7 +108,7 @@ export default function VideoProcessingStudio() {
             onOptimizedPipelineChange={setUseOptimizedPipeline}
             onSceneDetectionChange={setSceneDetectionEnabled}
             onHierarchicalSummaryChange={setHierarchicalSummaryEnabled}
-            onVideoProcessed={(mediaId) => router.push(`/chat/new?videoId=${mediaId}`)}
+            onVideoProcessed={(mediaId) => router.push(`/chat?videoId=${mediaId}`)}
           />
         </div>
       </div>

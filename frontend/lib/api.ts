@@ -35,6 +35,7 @@ export interface MediaItem {
   processing_status?: string;
   duration?: number;
   frames_analyzed?: number;
+  thumbnail_url?: string;
   blob_url?: string;
   audio_data?: {
     transcription?: {

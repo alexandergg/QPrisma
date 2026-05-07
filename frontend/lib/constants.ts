@@ -44,6 +44,8 @@ export const VIDEO = {
 // ============================================================================
 
 export const UPLOAD = {
+  /** Maximum videos accepted in a single upload action */
+  MAX_FILES: 10,
   /** Maximum file size in bytes (500MB) */
   MAX_FILE_SIZE: 500 * 1024 * 1024,
   /** Allowed MIME types */

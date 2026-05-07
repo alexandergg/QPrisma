@@ -2,21 +2,11 @@
 
 import React from 'react';
 import Image from 'next/image';
-import { Film } from 'lucide-react';
-import { formatTime, formatFileSize } from '@/lib/utils';
+import { CheckCircle, Clock, Eye, Film, HardDrive, Loader2 } from 'lucide-react';
+import type { MediaItem } from '@/lib/api';
+import { formatDate, formatFileSize, formatTime } from '@/lib/utils';
 
-interface Video {
-  id: string;
-  original_filename: string;
-  media_type?: string;
-  file_size?: number;
-  uploaded_at?: string;
-  processed?: boolean;
-  processing_status?: string;
-  duration?: number;
-  frames_analyzed?: number;
-  thumbnail_url?: string;
-}
+type Video = MediaItem;
 
 interface VideoListItemProps {
   video: Video;
@@ -39,7 +29,7 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
       `}
     >
       {/* Thumbnail */}
-      <div className="w-20 h-12 bg-[var(--surface-elevated)] rounded-lg overflow-hidden flex-shrink-0">
+      <div className="relative w-24 h-14 bg-[var(--surface-elevated)] rounded-lg overflow-hidden flex-shrink-0">
         {video.thumbnail_url ? (
           <Image
             src={video.thumbnail_url}
@@ -58,18 +48,39 @@ export function VideoListItem({ video, isSelected, onSelect }: VideoListItemProp
       {/* Info */}
       <div className="flex-1 min-w-0">
         <p className="font-medium text-[var(--foreground)] truncate">{video.original_filename}</p>
-        <p className="text-sm text-[var(--text-secondary)]">
-          {video.duration ? formatTime(video.duration) : ''} •{' '}
-          {formatFileSize(video.file_size || 0)}
-        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-secondary)]">
+          {video.duration !== undefined && (
+            <span className="inline-flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {formatTime(video.duration)}
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1">
+            <HardDrive className="w-3 h-3" />
+            {formatFileSize(video.file_size || 0)}
+          </span>
+          <span>{formatDate(video.uploaded_at)}</span>
+          {video.frames_analyzed ? (
+            <span className="inline-flex items-center gap-1">
+              <Eye className="w-3 h-3" />
+              {video.frames_analyzed} frames
+            </span>
+          ) : null}
+        </div>
       </div>
 
       {/* Status */}
       <div className="flex-shrink-0">
         {video.processed ? (
-          <span className="text-[var(--sage-8)] text-sm font-medium">Ready</span>
+          <span className="inline-flex items-center gap-1.5 text-[var(--sage-8)] text-sm font-medium">
+            <CheckCircle className="w-4 h-4" />
+            Ready
+          </span>
         ) : (
-          <span className="text-[var(--violet-8)] text-sm font-medium">Processing</span>
+          <span className="inline-flex items-center gap-1.5 text-[var(--violet-8)] text-sm font-medium">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            {video.processing_status === 'queued' ? 'Queued' : 'Processing'}
+          </span>
         )}
       </div>
     </div>
