@@ -3,6 +3,7 @@
  *
  * Covers:
  * - Rendering video name, size, date, status
+ * - Thumbnail-free metadata layout
  * - Click handler (onSelect)
  * - Processing state
  * - Context menu open and delete action
@@ -11,16 +12,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import VideoCard from './VideoCard';
-
-// Mock next/image to a plain img tag
-jest.mock('next/image', () => ({
-  __esModule: true,
-  default: (props: React.ImgHTMLAttributes<HTMLImageElement> & { fill?: boolean; sizes?: string }) => {
-    // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
-    const { fill, sizes, ...rest } = props;
-    return <img {...rest} />;
-  },
-}));
 
 const baseProps = {
   id: 'vid-1',
@@ -47,6 +38,11 @@ describe('VideoCard', () => {
     expect(screen.getByText('2:05')).toBeInTheDocument();
   });
 
+  it('does not render a thumbnail image', () => {
+    render(<VideoCard {...baseProps} />);
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+  });
+
   it('shows Ready status when processed', () => {
     render(<VideoCard {...baseProps} isProcessed={true} />);
     expect(screen.getByText('Ready')).toBeInTheDocument();
@@ -65,7 +61,7 @@ describe('VideoCard', () => {
 
   it('shows frames analysed count', () => {
     render(<VideoCard {...baseProps} framesAnalyzed={42} />);
-    expect(screen.getByText(/42 frames/)).toBeInTheDocument();
+    expect(screen.getByText('42 frames')).toBeInTheDocument();
   });
 
   it('calls onSelect when card is clicked', () => {

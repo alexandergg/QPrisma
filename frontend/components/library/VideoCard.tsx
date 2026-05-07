@@ -1,15 +1,24 @@
 'use client';
 
 import React, { memo } from 'react';
-import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { Play, Clock, Film, CheckCircle, Loader2, MoreVertical, Trash2 } from 'lucide-react';
+import {
+  CalendarDays,
+  CheckCircle,
+  Clock,
+  Eye,
+  Film,
+  HardDrive,
+  Loader2,
+  MoreVertical,
+  Play,
+  Trash2,
+} from 'lucide-react';
 import { formatTime, formatFileSize, formatDate } from '@/lib/utils';
 
 interface VideoCardProps {
   id: string;
   name: string;
-  thumbnail?: string;
   duration?: number;
   size?: number;
   uploadedAt: Date;
@@ -23,7 +32,6 @@ interface VideoCardProps {
 
 function VideoCard({
   name,
-  thumbnail,
   duration,
   size,
   uploadedAt,
@@ -35,56 +43,67 @@ function VideoCard({
   isSelected = false,
 }: VideoCardProps) {
   const [showMenu, setShowMenu] = React.useState(false);
+  const statusLabel = isProcessed ? 'Ready' : isProcessing ? 'Processing' : 'Pending';
+  const StatusIcon = isProcessed ? CheckCircle : isProcessing ? Loader2 : Clock;
+  const statusClassName = isProcessed
+    ? 'bg-[var(--sage-3)] text-[var(--sage-8)]'
+    : isProcessing
+      ? 'bg-[var(--violet-3)] text-[var(--violet-11)]'
+      : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]';
+  const summaryLabel = isProcessed
+    ? 'Ready for analysis'
+    : isProcessing
+      ? 'Analyzing video'
+      : 'Awaiting processing';
 
   return (
     <motion.div
       whileHover={{ y: -4, transition: { duration: 0.2, ease: [0.34, 1.56, 0.64, 1] } }}
       onClick={onSelect}
       className={`
-        group relative bg-white rounded-2xl overflow-hidden cursor-pointer
+        group relative bg-[var(--surface)] rounded-2xl overflow-hidden cursor-pointer
         border-2 transition-[border-color,box-shadow] duration-200
         shadow-lg shadow-gray-200/50 hover:shadow-xl hover:shadow-violet-200/30
         ${isSelected ? 'border-violet-500 ring-4 ring-violet-100' : 'border-transparent hover:border-violet-200'}
       `}
     >
-      {/* Thumbnail */}
-      <div className="relative aspect-video bg-gray-100">
-        {thumbnail ? (
-          <Image src={thumbnail} alt={name} fill sizes="100vw" className="object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <Film className="w-12 h-12 text-gray-300" />
+      <div className="relative overflow-hidden border-b border-[var(--border-subtle)] bg-gradient-to-br from-[var(--violet-1)] via-white to-[var(--sage-2)] p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/85 text-[var(--violet-8)] shadow-sm ring-1 ring-[var(--violet-3)]">
+            <Film className="h-7 w-7" aria-hidden="true" />
           </div>
-        )}
-
-        {/* Overlay on hover */}
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center shadow-lg">
-            <Play className="w-6 h-6 text-violet-600 fill-violet-600 ml-1" />
-          </div>
+          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${statusClassName}`}>
+            <StatusIcon className={`h-3.5 w-3.5 ${isProcessing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            {statusLabel}
+          </span>
         </div>
 
-        {/* Duration badge */}
-        {duration !== undefined && (
-          <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs font-mono px-2 py-1 rounded-md">
-            {formatTime(duration)}
+        <div className="mt-6 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+              Video file
+            </p>
+            <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+              {summaryLabel}
+            </p>
           </div>
-        )}
+          {duration !== undefined && (
+            <span className="rounded-[var(--radius-md)] bg-[var(--foreground)]/75 px-2 py-1 font-mono text-xs text-white">
+              {formatTime(duration)}
+            </span>
+          )}
+        </div>
 
-        {/* Processing indicator */}
         {isProcessing && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-            <div className="bg-white rounded-xl px-4 py-2 flex items-center gap-2 shadow-lg">
-              <Loader2 className="w-4 h-4 text-violet-600 animate-spin" />
-              <span className="text-sm font-medium text-gray-700">Processing...</span>
-            </div>
+          <div className="mt-4 flex items-center gap-2 rounded-xl bg-white/85 px-3 py-2 text-sm font-medium text-[var(--violet-9)] shadow-sm">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            <span>Processing...</span>
           </div>
         )}
 
-        {/* Selected indicator */}
         {isSelected && (
           <div className="absolute top-2 left-2 bg-violet-500 text-white p-1.5 rounded-lg shadow-lg">
-            <CheckCircle className="w-4 h-4" />
+            <CheckCircle className="w-4 h-4" aria-hidden="true" />
           </div>
         )}
       </div>
@@ -96,11 +115,6 @@ function VideoCard({
             <h3 className="font-semibold text-gray-900 truncate group-hover:text-violet-600 transition-colors">
               {name}
             </h3>
-            <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-              {size !== undefined && <span>{formatFileSize(size)}</span>}
-              <span>•</span>
-              <span>{formatDate(uploadedAt)}</span>
-            </div>
           </div>
 
           {/* Menu button */}
@@ -149,25 +163,27 @@ function VideoCard({
           </div>
         </div>
 
-        {/* Status */}
-        <div className="mt-3 flex items-center gap-2">
-          {isProcessed ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-50 text-green-700 text-xs font-medium rounded-full">
-              <CheckCircle className="w-3 h-3" />
-              Ready
-              {framesAnalyzed && <span className="text-green-600">• {framesAnalyzed} frames</span>}
-            </span>
-          ) : isProcessing ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-violet-50 text-violet-700 text-xs font-medium rounded-full">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Processing
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-full">
-              <Clock className="w-3 h-3" />
-              Pending
+        <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)]">
+          {size !== undefined && (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface-elevated)] px-2.5 py-1.5">
+              <HardDrive className="h-3.5 w-3.5" aria-hidden="true" />
+              {formatFileSize(size)}
             </span>
           )}
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface-elevated)] px-2.5 py-1.5">
+            <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />
+            {formatDate(uploadedAt)}
+          </span>
+          {framesAnalyzed !== undefined && (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface-elevated)] px-2.5 py-1.5">
+              <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+              {framesAnalyzed} frames
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--surface-elevated)] px-2.5 py-1.5">
+            <Play className="h-3.5 w-3.5" aria-hidden="true" />
+            Select
+          </span>
         </div>
       </div>
     </motion.div>
