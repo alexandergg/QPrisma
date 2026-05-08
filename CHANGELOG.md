@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Frontend UI/UX Overhaul
 - **ChatGPT/Gemini-inspired chat interface**: Complete redesign of the chat experience with a professional, modern look inspired by leading AI assistants. Warm dark mode theme with Framer Motion micro-animations throughout.
 - **Smart welcome screen**: Upload-first UX with drag-and-drop video upload zone, replacing the previous empty chat state.
+- **Unified upload and video selection flow**: Upload, library, and chat entry points now preserve selected videos more consistently and expose clearer upload affordances when starting a new conversation. (#194)
 - **Resizable video panel**: Drag-handle-based video panel that can be resized or collapsed, providing flexible workspace layouts during video analysis.
 - **Rich chapter cards**: Chapter navigation with expandable scene details, knowledge graph explorer integration, and visual timeline markers.
 - **Multi-video comparison view**: Side-by-side video comparison interface for cross-video analysis tasks.
@@ -70,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Video Processing Pipeline Optimization
 - **Parallel pipeline stages**: Video processing pipeline parallelized across frame extraction, audio transcription, and embedding generation, achieving 40–60% faster ingestion for long-form videos. (#106)
+
+#### Databricks Lakehouse Video Ingestion
+- **Databricks-backed video processing pilot**: Added a new lakehouse-oriented ingestion path with Databricks workspace provisioning, lakehouse storage, notebook orchestration, and Service Bus-backed dispatch for asynchronous video processing. (#171)
+- **Video dispatch bridge and deployment workflow**: Added a dedicated Function bridge service and `.github/workflows/deploy-function-bridge.yml` so uploads can be handed off to Databricks notebooks with explicit contracts, state tracking, and outbox-based dispatch. (#171)
 
 #### Agent Context Engineering
 - **`tool_meta()` detail_hint parameter**: New optional `detail_hint` field in tool metadata provides navigational cues for the LLM to drill down into specific scenes or entities, following Anthropic's "Compact Index + Lazy Detail Retrieval" pattern. (#120)
@@ -111,6 +116,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded `azure-ai-projects` from `>=1.0.0b7` to `>=2.0.0` to access Conversations and Memory Store APIs.
 - `FoundryAgentClient.send_message()` / `send_streaming_message()` now accept `conversation_id` parameter instead of `thread_id`.
 - `A2AAgentExecutor` creates Foundry conversations before yielding the initial task, ensuring the frontend receives the Foundry conversation ID as `contextId`.
+- **Frontend video-to-chat flow**: Video handoff into chat is now more consistent across routes, with clearer processing progress and status presentation during upload and post-processing. (#195)
+- **Library video cards and list rows**: The library now uses metadata-first video treatments instead of thumbnail fetching, avoiding frontend requests for Databricks-backed media paths while rendering pending, queued, processing, failed, and ready states more consistently. (#196)
+
+#### Azure Function Bridge & Dispatch
+- **Flex Consumption hosting**: The Databricks dispatch bridge moved to Azure Functions Flex Consumption, updating the hosting, deployment, and runtime contract for the bridge path used to dispatch staged media into Databricks. (#175)
+
+#### Knowledge Graph & Retrieval Engine
+- **Graph retrieval engine refactor**: Knowledge Graph retrieval was split into domain-specific graph operations with updated agent query and tool plumbing, improving maintainability and retrieval behavior across search, structure, and multi-video flows. (#96)
+- **Neo4j scalability hardening**: Post-`1.1.0` scalability work added stronger tenant-scoped graph access, graph-query caching, and reduced raw-session usage across Neo4j-backed retrieval paths to improve cross-video search performance and isolation. (#85)
+
 - **Hybrid search intent-adaptive weights**: Search scoring weights are now selected per-query from 7 intent profiles (time-based, object, person, text, action, scene, event) instead of fixed weights. (#122)
 - **Worker OpenAI role upgrade**: Worker managed identity upgraded from OpenAI User to Contributor to enable Batch API access. (#113)
 - **MediaModel schema**: Added `upload_session` column to `MediaModel` for tracking chunked upload sessions. (#108)
@@ -127,6 +142,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Block ID double base64 encoding**: Fixed block ID encoding in chunked upload to prevent double base64 encoding, with Python 3.11 compatibility for `b64decode(validate=True)`. (#112)
 - **`commit_block_list` blob type**: Fixed incorrect `blob_type` argument in `commit_block_list` call. (#111)
 - **Database auto-migration**: Fixed automatic database migration on startup to handle schema changes. (#109, #110)
+
+#### Databricks Lakehouse Video Ingestion
+- **Pilot dispatch reliability**: Follow-up fixes aligned source-media staging, Databricks runtime configuration, Function bridge app settings, and Files API volume-path handling so staged media can be dispatched into the lakehouse pipeline more reliably after the initial pilot rollout.
 
 ### Removed
 - **Mem0 dependency removed**: `mem0ai` package, `Mem0MemoryService`, `Mem0Settings`, and all related configuration/tests deleted. Foundry Memory Store replaces Mem0 for long-term memory.
