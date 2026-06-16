@@ -230,7 +230,7 @@ jobs:
           echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
 
       - name: Download eval data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: eval-data
           path: ${{ runner.temp }}/eval-data
@@ -296,7 +296,7 @@ jobs:
           echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
 
       - name: Download eval data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: eval-data
           path: ${{ runner.temp }}/eval-data
@@ -362,7 +362,7 @@ jobs:
           echo "AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
 
       - name: Download eval data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: eval-data
           path: ${{ runner.temp }}/eval-data
