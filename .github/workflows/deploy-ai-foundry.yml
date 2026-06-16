@@ -101,7 +101,7 @@ jobs:
       # are not supported by the management API.
 
       - name: Deploy AI Foundry
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 30
           max_attempts: 2
